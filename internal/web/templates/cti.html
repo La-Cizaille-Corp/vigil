@@ -1,0 +1,44 @@
+{{define "content"}}
+{{$f := .Data.Filter}}
+<form method="get" action="/cti" class="card">
+  <div class="grid">
+    <label>Pays
+      <select name="country" multiple size="6">
+        {{range countries}}<option value="{{.Value}}" {{if has $f.Countries .Value}}selected{{end}}>{{.Label}}</option>{{end}}
+      </select>
+    </label>
+    <label>Secteurs
+      <select name="sector" multiple size="6">
+        {{range sectors}}<option value="{{.Value}}" {{if has $f.Sectors .Value}}selected{{end}}>{{.Label}}</option>{{end}}
+      </select>
+    </label>
+  </div>
+  <button type="submit">Filtrer</button>
+  <a href="/cti?all=1">Tout afficher</a>
+  {{if .Data.Watched}}<span class="muted">— filtre de veille enregistré appliqué (<a href="/settings">modifier</a>)</span>{{end}}
+</form>
+
+{{if can .User.Role "analyst"}}
+<form method="post" action="/cti/refresh" class="inline">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <button type="submit">Collecter les flux maintenant</button>
+</form>
+{{end}}
+
+{{if .Data.Items}}
+<ul class="news">
+{{range .Data.Items}}
+<li>
+  {{if .Link}}<a href="{{.Link}}" rel="noopener noreferrer" target="_blank">{{.Title}}</a>{{else}}{{.Title}}{{end}}
+  <div class="muted small">{{.FeedName}} · {{date .Published}}
+    {{range .Countries}}<span class="tag">{{countryLabel .}}</span>{{end}}
+    {{range .Sectors}}<span class="tag tag-sector">{{sectorLabel .}}</span>{{end}}
+  </div>
+  {{if .Summary}}<p class="small">{{.Summary}}</p>{{end}}
+</li>
+{{end}}
+</ul>
+{{else}}
+<p class="muted">Aucune actualité. Lancez une collecte ou élargissez les filtres.</p>
+{{end}}
+{{end}}

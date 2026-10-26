@@ -4,11 +4,11 @@
 <h2>Nouvelles vulnérabilités ({{len .New}})</h2>
 {{if .New}}
 <table>
-<thead><tr><th>Sévérité</th><th>Vulnérabilité</th><th>Actif</th><th>Statut</th><th>Résumé</th></tr></thead>
+<thead><tr><th>Priorité</th><th>Vulnérabilité</th><th>Actif</th><th>Statut</th><th>Résumé</th></tr></thead>
 <tbody>
 {{range .New}}
 <tr>
-<td><span class="sev sev-{{.Severity}}">{{or .Severity "?"}}</span></td>
+<td>{{if .KEV}}<span class="kev">Exploitée</span><br>{{end}}<span class="sev sev-{{.Severity}}">{{or .Severity "?"}}</span>{{with epss .EPSS}}<br><small>EPSS {{.}}</small>{{end}}</td>
 <td><a href="/findings/{{.ID}}">{{.VulnID}}</a>{{if .Aliases}}<br><small>{{join .Aliases ", "}}</small>{{end}}</td>
 <td>{{.AssetName}} {{.AssetVersion}}</td>
 <td>{{status .Status}}</td>
@@ -25,7 +25,7 @@
 {{if .Open}}
 <ul>
 {{range .Open}}
-<li><span class="sev sev-{{.Severity}}">{{or .Severity "?"}}</span> <a href="/findings/{{.ID}}">{{.VulnID}}</a> — {{.AssetName}} {{.AssetVersion}} — {{status .Status}}</li>
+<li>{{if .KEV}}<span class="kev">Exploitée</span> {{end}}<span class="sev sev-{{.Severity}}">{{or .Severity "?"}}</span>{{with epss .EPSS}} <small>EPSS {{.}}</small>{{end}} <a href="/findings/{{.ID}}">{{.VulnID}}</a> — {{.AssetName}} {{.AssetVersion}} — {{status .Status}}</li>
 {{end}}
 </ul>
 {{else}}
@@ -36,4 +36,17 @@
 <ul>
 {{range .Counts}}<li>{{status .Status}} : {{.N}}</li>{{end}}
 </ul>
+
+<h2>Veille menaces ({{len .CTI}})</h2>
+<p class="muted">{{.CTIScope}}</p>
+{{if .CTI}}
+<ul>
+{{range .CTI}}
+<li>{{if .Link}}<a href="{{.Link}}" rel="noopener noreferrer" target="_blank">{{.Title}}</a>{{else}}{{.Title}}{{end}}
+<small class="muted">— {{.FeedName}}, {{date .Published}}{{with countries .Countries}} · {{.}}{{end}}{{with sectors .Sectors}} · {{.}}{{end}}</small></li>
+{{end}}
+</ul>
+{{else}}
+<p>Aucune actualité correspondante sur la période.</p>
+{{end}}
 </section>

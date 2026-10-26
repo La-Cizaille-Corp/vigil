@@ -40,7 +40,7 @@ type Option struct {
 
 // Normalize trims fields and applies defaults.
 func Normalize(a *store.Asset) {
-	for _, f := range []*string{&a.Name, &a.Kind, &a.Ecosystem, &a.Version, &a.PURL, &a.CPE, &a.Criticality, &a.Owner, &a.Notes} {
+	for _, f := range []*string{&a.Name, &a.Kind, &a.Ecosystem, &a.Version, &a.PURL, &a.CPE, &a.Criticality, &a.Owner, &a.Notes, &a.Project} {
 		*f = strings.TrimSpace(*f)
 	}
 	if a.Version == "" {
@@ -63,7 +63,7 @@ func Validate(a store.Asset) error {
 		}
 	}
 	check(a.Name != "", "le nom est obligatoire")
-	check(maxLen(a.Name, 200) && maxLen(a.Version, 100) && maxLen(a.Owner, 200) &&
+	check(maxLen(a.Name, 200) && maxLen(a.Version, 100) && maxLen(a.Owner, 200) && maxLen(a.Project, 200) &&
 		maxLen(a.PURL, 500) && maxLen(a.CPE, 500) && maxLen(a.Notes, 4000), "un champ dépasse la longueur maximale")
 	check(isOption(Kinds, a.Kind), "type d'actif invalide")
 	check(isOption(Criticalities, a.Criticality), "criticité invalide")

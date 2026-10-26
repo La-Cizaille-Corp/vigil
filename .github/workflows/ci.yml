@@ -20,7 +20,10 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go vet ./...
+      - run: go test -race ./...
+        if: runner.os == 'Linux'
       - run: go test ./...
+        if: runner.os != 'Linux'
       - run: go build ./cmd/vigil
 
   security:

@@ -21,6 +21,9 @@ type Vulnerability struct {
 	Modified  string
 	Refs      []string
 	Raw       string
+	KEV       bool    // listed in CISA Known Exploited Vulnerabilities
+	KEVDue    string  // CISA remediation due date
+	EPSS      float64 // exploitation probability, -1 when unknown
 }
 
 // Finding links an asset to a vulnerability affecting it, with its triage state.
@@ -33,6 +36,8 @@ type Finding struct {
 	Aliases       []string
 	Summary       string
 	Severity      string
+	KEV           bool
+	EPSS          float64
 	Status        string
 	Justification string
 	Comment       string
@@ -54,6 +59,7 @@ type FindingFilter struct {
 	Status  string
 	AssetID int64
 	Since   time.Time // first_seen >= Since
+	KEV     bool      // only known exploited vulnerabilities
 }
 
 // VulnModified returns the stored "modified" date of a vulnerability.
@@ -89,15 +95,23 @@ func (s *Store) Vulnerability(ctx context.Context, id string) (Vulnerability, er
 	var v Vulnerability
 	var aliases, refs string
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, aliases, summary, details, severity, published, modified, refs
+		SELECT id, aliases, summary, details, severity, published, modified, refs, kev, kev_due, epss
 		FROM vulnerabilities WHERE id = ?`, id).
-		Scan(&v.ID, &aliases, &v.Summary, &v.Details, &v.Severity, &v.Published, &v.Modified, &refs)
+		Scan(&v.ID, &aliases, &v.Summary, &v.Details, &v.Severity, &v.Published, &v.Modified, &refs,
+			&v.KEV, &v.KEVDue, &v.EPSS)
 	if errors.Is(err, sql.ErrNoRows) {
 		return v, ErrNotFound
 	}
-	json.Unmarshal([]byte(aliases), &v.Aliases)
-	json.Unmarshal([]byte(refs), &v.Refs)
-	return v, err
+	if err != nil {
+		return v, err
+	}
+	if err := json.Unmarshal([]byte(aliases), &v.Aliases); err != nil {
+		return v, fmt.Errorf("decode aliases of %s: %w", id, err)
+	}
+	if err := json.Unmarshal([]byte(refs), &v.Refs); err != nil {
+		return v, fmt.Errorf("decode references of %s: %w", id, err)
+	}
+	return v, nil
 }
 
 // TouchResult tells what ObserveFinding did.
@@ -173,14 +187,14 @@ func (s *Store) AutoResolveStale(ctx context.Context, assetID int64, reported []
 			var st stale
 			var vulnID string
 			if err := rows.Scan(&st.id, &vulnID, &st.status); err != nil {
-				rows.Close()
+				_ = rows.Close() // already failing, or fully read
 				return err
 			}
 			if !still[vulnID] {
 				list = append(list, st)
 			}
 		}
-		rows.Close()
+		_ = rows.Close() // already failing, or fully read
 		if err := rows.Err(); err != nil {
 			return err
 		}
@@ -211,6 +225,9 @@ func (s *Store) ListFindings(ctx context.Context, f FindingFilter) ([]Finding, e
 	if f.AssetID != 0 {
 		where = append(where, "f.asset_id = ?")
 		args = append(args, f.AssetID)
+	}
+	if f.KEV {
+		where = append(where, "v.kev = 1")
 	}
 	if !f.Since.IsZero() {
 		where = append(where, "f.first_seen >= ?")
@@ -250,7 +267,7 @@ func (s *Store) Finding(ctx context.Context, id int64) (Finding, error) {
 
 const findingSelect = `
 	SELECT f.id, f.asset_id, a.name, a.version, f.vuln_id, v.aliases, v.summary, v.severity,
-	       f.status, f.justification, f.comment, f.first_seen, f.updated_at
+	       v.kev, v.epss, f.status, f.justification, f.comment, f.first_seen, f.updated_at
 	FROM findings f
 	JOIN assets a ON a.id = f.asset_id
 	JOIN vulnerabilities v ON v.id = f.vuln_id`
@@ -259,10 +276,15 @@ func scanFinding(row interface{ Scan(...any) error }) (Finding, error) {
 	var fd Finding
 	var aliases, first, updated string
 	err := row.Scan(&fd.ID, &fd.AssetID, &fd.AssetName, &fd.AssetVersion, &fd.VulnID, &aliases,
-		&fd.Summary, &fd.Severity, &fd.Status, &fd.Justification, &fd.Comment, &first, &updated)
-	json.Unmarshal([]byte(aliases), &fd.Aliases)
+		&fd.Summary, &fd.Severity, &fd.KEV, &fd.EPSS, &fd.Status, &fd.Justification, &fd.Comment, &first, &updated)
+	if err != nil {
+		return fd, err
+	}
+	if err := json.Unmarshal([]byte(aliases), &fd.Aliases); err != nil {
+		return fd, fmt.Errorf("decode aliases of %s: %w", fd.VulnID, err)
+	}
 	fd.FirstSeen, fd.UpdatedAt = parseTime(first), parseTime(updated)
-	return fd, err
+	return fd, nil
 }
 
 // SetFindingStatus changes the triage state and records it in the history.
@@ -344,4 +366,33 @@ func nonNil(s []string) []string {
 		return []string{}
 	}
 	return s
+}
+
+// VulnCVEs returns, for every stored vulnerability, its CVE identifiers
+// (its own id when it is a CVE, plus its CVE aliases).
+func (s *Store) VulnCVEs(ctx context.Context) (map[string][]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, id FROM vulnerabilities WHERE id LIKE 'CVE-%'
+		UNION
+		SELECT v.id, j.value FROM vulnerabilities v, json_each(v.aliases) j WHERE j.value LIKE 'CVE-%'`)
+	if err != nil {
+		return nil, fmt.Errorf("list vulnerability CVEs: %w", err)
+	}
+	defer rows.Close()
+	out := map[string][]string{}
+	for rows.Next() {
+		var id, cve string
+		if err := rows.Scan(&id, &cve); err != nil {
+			return nil, err
+		}
+		out[id] = append(out[id], cve)
+	}
+	return out, rows.Err()
+}
+
+// SetExploitSignals stores KEV and EPSS data for a vulnerability.
+func (s *Store) SetExploitSignals(ctx context.Context, id string, kev bool, kevDue string, epss float64) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE vulnerabilities SET kev = ?, kev_due = ?, epss = ? WHERE id = ?`, kev, kevDue, epss, id)
+	return err
 }

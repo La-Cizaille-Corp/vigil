@@ -2,6 +2,8 @@
 {{$f := .Data.Finding}}{{$v := .Data.Vuln}}
 <dl class="card">
   <dt>Sévérité</dt><dd><span class="sev sev-{{$v.Severity}}">{{or $v.Severity "?"}}</span></dd>
+  <dt>Exploitation</dt><dd>{{if $v.KEV}}<span class="kev">Exploitée activement (CISA KEV)</span>{{if $v.KEVDue}} — échéance CISA {{$v.KEVDue}}{{end}}{{else}}Non listée dans CISA KEV{{end}}
+    {{with epss $v.EPSS}} · probabilité EPSS {{.}}{{end}}</dd>
   <dt>Alias</dt><dd>{{join $v.Aliases ", "}}</dd>
   <dt>Actif</dt><dd><a href="/assets/{{$f.AssetID}}">{{$f.AssetName}} {{$f.AssetVersion}}</a></dd>
   <dt>Statut</dt><dd>{{statusLabel $f.Status}}{{if $f.Justification}} — {{justifLabel $f.Justification}}{{end}}</dd>

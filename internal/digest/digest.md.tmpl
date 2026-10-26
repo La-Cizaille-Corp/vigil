@@ -1,13 +1,13 @@
-# Digest de veille vulnérabilités
+# Digest de veille sécurité
 
 Généré le {{date .GeneratedAt}} — période depuis le {{date .Since}}.
 
 ## Nouvelles vulnérabilités ({{len .New}})
 {{if .New}}
-| Sévérité | Vulnérabilité | Actif | Statut | Résumé |
+| Priorité | Vulnérabilité | Actif | Statut | Résumé |
 |---|---|---|---|---|
 {{- range .New}}
-| {{cell (or .Severity "?")}} | {{.VulnID}}{{if .Aliases}} ({{join .Aliases ", "}}){{end}} | {{cell .AssetName}} {{cell .AssetVersion}} | {{status .Status}} | {{cell .Summary}} |
+| {{if .KEV}}**EXPLOITÉE (KEV)** {{end}}{{cell (or .Severity "?")}}{{with epss .EPSS}} · EPSS {{.}}{{end}} | {{.VulnID}}{{if .Aliases}} ({{join .Aliases ", "}}){{end}} | {{cell .AssetName}} {{cell .AssetVersion}} | {{status .Status}} | {{cell .Summary}} |
 {{- end}}
 {{else}}
 Aucune nouvelle vulnérabilité sur la période.
@@ -15,7 +15,7 @@ Aucune nouvelle vulnérabilité sur la période.
 ## Vulnérabilités ouvertes ({{len .Open}})
 {{if .Open}}
 {{- range .Open}}
-- **{{or .Severity "?"}}** {{.VulnID}} — {{.AssetName}} {{.AssetVersion}} — {{status .Status}}
+- {{if .KEV}}**EXPLOITÉE (KEV)** {{end}}**{{or .Severity "?"}}**{{with epss .EPSS}} (EPSS {{.}}){{end}} {{.VulnID}} — {{.AssetName}} {{.AssetVersion}} — {{status .Status}}
 {{- end}}
 {{else}}
 Aucune vulnérabilité ouverte.
@@ -24,3 +24,12 @@ Aucune vulnérabilité ouverte.
 {{range .Counts}}
 - {{status .Status}} : {{.N}}
 {{- end}}
+
+## Veille menaces ({{len .CTI}}) — {{.CTIScope}}
+{{if .CTI}}
+{{- range .CTI}}
+- [{{.Title}}]({{.Link}}) — {{.FeedName}}, {{date .Published}}{{with countries .Countries}} · {{.}}{{end}}{{with sectors .Sectors}} · {{.}}{{end}}
+{{- end}}
+{{else}}
+Aucune actualité correspondante sur la période.
+{{end}}

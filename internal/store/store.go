@@ -35,11 +35,13 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		return nil, fmt.Errorf("create data directory: %w", err)
 	}
 	// SECURITY: create the file with owner-only permissions before SQLite does.
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600) // #nosec G304 -- path chosen by the operator
 	if err != nil {
 		return nil, fmt.Errorf("create database file: %w", err)
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		return nil, fmt.Errorf("create database file: %w", err)
+	}
 
 	dsn := path + "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
 	db, err := sql.Open("sqlite", dsn)
@@ -51,7 +53,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 
 	s := &Store{db: db}
 	if err := s.migrate(ctx); err != nil {
-		db.Close()
+		_ = db.Close() // the migration error is the one to report
 		return nil, err
 	}
 	return s, nil
@@ -112,7 +114,7 @@ func (s *Store) inTx(ctx context.Context, fn func(*sql.Tx) error) error {
 		return err
 	}
 	if err := fn(tx); err != nil {
-		tx.Rollback()
+		_ = tx.Rollback() // fn's error is the one to report
 		return err
 	}
 	return tx.Commit()

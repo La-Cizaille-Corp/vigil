@@ -3,15 +3,19 @@
 package tracking
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
+	"github.com/La-Cizaille-Corp/vigil/internal/sources/epss"
+	"github.com/La-Cizaille-Corp/vigil/internal/sources/kev"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/osv"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
@@ -73,6 +77,12 @@ type Syncer struct {
 	OSV   *osv.Client
 	Log   *slog.Logger
 
+	// HTTP is used for KEV and EPSS; nil disables enrichment.
+	HTTP      *http.Client
+	UserAgent string
+	KEVURL    string // defaults to kev.DefaultURL
+	EPSSURL   string // defaults to epss.DefaultURL
+
 	mu sync.Mutex
 }
 
@@ -132,6 +142,12 @@ func (s *Syncer) Run(ctx context.Context) (Result, error) {
 		}
 		res.Resolved += n
 	}
+	if s.HTTP != nil {
+		// Enrichment failures are logged but do not fail the sync.
+		if err := s.enrich(ctx); err != nil {
+			s.Log.Warn("enrichissement KEV/EPSS", "err", err)
+		}
+	}
 	s.Log.Info("sync done", "assets", res.Assets, "created", res.Created,
 		"reopened", res.Reopened, "resolved", res.Resolved)
 	return res, nil
@@ -167,6 +183,41 @@ func (s *Syncer) refreshVuln(ctx context.Context, ref osv.VulnRef) error {
 		Refs:      refs,
 		Raw:       string(v.Raw),
 	})
+}
+
+// enrich refreshes the KEV flag and EPSS score of every stored vulnerability.
+func (s *Syncer) enrich(ctx context.Context) error {
+	byVuln, err := s.Store.VulnCVEs(ctx)
+	if err != nil || len(byVuln) == 0 {
+		return err
+	}
+	catalogue, err := kev.Fetch(ctx, s.HTTP, cmp.Or(s.KEVURL, kev.DefaultURL), s.UserAgent)
+	if err != nil {
+		return err
+	}
+	var cves []string
+	for _, list := range byVuln {
+		cves = append(cves, list...)
+	}
+	scores, err := epss.Scores(ctx, s.HTTP, cmp.Or(s.EPSSURL, epss.DefaultURL), s.UserAgent, cves)
+	if err != nil {
+		return err
+	}
+	for id, list := range byVuln {
+		inKEV, due, score := false, "", -1.0
+		for _, cve := range list {
+			if e, ok := catalogue[cve]; ok {
+				inKEV, due = true, e.DueDate
+			}
+			if p, ok := scores[cve]; ok && p > score {
+				score = p
+			}
+		}
+		if err := s.Store.SetExploitSignals(ctx, id, inKEV, due, score); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func toQuery(a store.Asset) osv.Query {

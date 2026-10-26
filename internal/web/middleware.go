@@ -41,7 +41,6 @@ func (s *Server) require(role string, next http.HandlerFunc) http.Handler {
 			return
 		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			r.Body = http.MaxBytesReader(w, r.Body, maxFormBytes)
 			// SECURITY: synchronizer token pattern against CSRF.
 			if !auth.EqualTokens(r.PostFormValue("csrf"), sess.CSRFToken) {
 				http.Error(w, "Jeton CSRF invalide.", http.StatusForbidden)
@@ -88,6 +87,19 @@ func securityHeaders(next http.Handler) http.Handler {
 		if r.TLS != nil {
 			h.Set("Strict-Transport-Security", "max-age=31536000")
 		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// limitBody bounds request bodies: small forms everywhere, larger uploads on
+// the SBOM import route only.
+func limitBody(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		limit := int64(maxFormBytes)
+		if r.URL.Path == "/assets/import" {
+			limit = maxUploadBytes
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, limit)
 		next.ServeHTTP(w, r)
 	})
 }

@@ -1,5 +1,5 @@
 // Command vigil is a lightweight security watch tool: asset inventory,
-// vulnerability tracking and digests, in a single binary.
+// vulnerability tracking, threat-intelligence news and digests, in a single binary.
 package main
 
 import (
@@ -20,7 +20,11 @@ import (
 	"golang.org/x/term"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
+	"github.com/La-Cizaille-Corp/vigil/internal/cti"
 	"github.com/La-Cizaille-Corp/vigil/internal/digest"
+	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
+	"github.com/La-Cizaille-Corp/vigil/internal/notify"
+	"github.com/La-Cizaille-Corp/vigil/internal/sbom"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/osv"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
@@ -33,9 +37,11 @@ var version = "dev"
 const usage = `vigil — veille de sécurité légère
 
 Usage :
-  vigil serve   [-db fichier] [-addr 127.0.0.1:8080] [-tls-cert c -tls-key k] [-behind-proxy] [-sync-interval 6h]
-  vigil sync    [-db fichier]
-  vigil digest  [-db fichier]
+  vigil serve   [-db fichier] [-addr 127.0.0.1:8080] [-tls-cert c -tls-key k] [-behind-proxy]
+                [-sync-interval 6h] [-digest-interval 24h] [-base-url https://...] [-allow-private-urls]
+  vigil sync    [-db fichier] [-allow-private-urls]
+  vigil digest  [-db fichier] [-no-webhooks] [-allow-private-urls]
+  vigil import-sbom [-project nom] [-db fichier] fichier.json
   vigil user add -username nom [-role admin|analyst|viewer] [-db fichier]
   vigil version
 
@@ -59,7 +65,9 @@ func main() {
 	case "sync":
 		err = runSync(ctx, log, args)
 	case "digest":
-		err = runDigest(ctx, args)
+		err = runDigest(ctx, log, args)
+	case "import-sbom":
+		err = runImportSBOM(ctx, args)
 	case "user":
 		err = runUser(ctx, args)
 	case "version":
@@ -85,8 +93,37 @@ func defaultDB() string {
 	return filepath.Join(dir, "vigil", "vigil.db")
 }
 
-func newSyncer(st *store.Store, log *slog.Logger) *tracking.Syncer {
-	return &tracking.Syncer{Store: st, OSV: osv.New("vigil/" + version), Log: log}
+func userAgent() string {
+	return "vigil/" + version + " (+https://github.com/La-Cizaille-Corp/vigil)"
+}
+
+// services groups the background workers, sharing one configuration.
+type services struct {
+	syncer   *tracking.Syncer
+	cti      *cti.Collector
+	notifier *notify.Notifier
+}
+
+func newServices(st *store.Store, log *slog.Logger, allowPrivate bool) services {
+	fixed := &http.Client{Timeout: 60 * time.Second} // OSV, KEV, EPSS: fixed public hosts
+	// SECURITY: feeds and webhooks are user-supplied URLs, guarded against SSRF.
+	userURLs := netsafe.NewClient(60*time.Second, allowPrivate)
+	ua := userAgent()
+	return services{
+		syncer:   &tracking.Syncer{Store: st, OSV: osv.New(ua), Log: log, HTTP: fixed, UserAgent: ua},
+		cti:      &cti.Collector{Store: st, HTTP: userURLs, UserAgent: ua, Log: log},
+		notifier: &notify.Notifier{Store: st, HTTP: userURLs, UserAgent: ua, Log: log},
+	}
+}
+
+// refresh runs a vulnerability sync then a CTI collection.
+func (sv services) refresh(ctx context.Context) error {
+	_, syncErr := sv.syncer.Run(ctx)
+	if errors.Is(syncErr, tracking.ErrRunning) {
+		syncErr = nil
+	}
+	_, ctiErr := sv.cti.Run(ctx)
+	return errors.Join(syncErr, ctiErr)
 }
 
 func runServe(ctx context.Context, log *slog.Logger, args []string) error {
@@ -96,8 +133,11 @@ func runServe(ctx context.Context, log *slog.Logger, args []string) error {
 	certFile := fs.String("tls-cert", "", "certificat TLS (PEM)")
 	keyFile := fs.String("tls-key", "", "clé privée TLS (PEM)")
 	behindProxy := fs.Bool("behind-proxy", false, "TLS terminé par un reverse proxy")
-	interval := fs.Duration("sync-interval", 6*time.Hour, "intervalle de synchronisation automatique (0 = désactivé)")
-	fs.Parse(args)
+	syncEvery := fs.Duration("sync-interval", 6*time.Hour, "intervalle de synchronisation vulnérabilités + CTI (0 = désactivé)")
+	digestEvery := fs.Duration("digest-interval", 0, "intervalle de génération et d'envoi du digest, ex. 24h (0 = désactivé)")
+	baseURL := fs.String("base-url", "", "adresse publique de l'interface, utilisée dans les messages webhook")
+	allowPrivate := fs.Bool("allow-private-urls", false, "autoriser flux et webhooks vers des adresses privées ou locales")
+	parseFlags(fs, args)
 
 	useTLS := *certFile != "" && *keyFile != ""
 	// SECURITY: refuse to expose the UI in clear text on a non-local interface.
@@ -111,30 +151,44 @@ func runServe(ctx context.Context, log *slog.Logger, args []string) error {
 	}
 	defer st.Close()
 
-	syncer := newSyncer(st, log)
-	srv := &web.Server{Store: st, Syncer: syncer, Log: log, SecureCookies: useTLS || *behindProxy}
+	sv := newServices(st, log, *allowPrivate)
+	srv := &web.Server{Store: st, Syncer: sv.syncer, CTI: sv.cti, Notifier: sv.notifier, Log: log,
+		BaseURL: *baseURL, SecureCookies: useTLS || *behindProxy, Context: ctx}
 	handler, err := srv.Handler()
 	if err != nil {
 		return err
 	}
 	go srv.PurgeSessions(ctx)
-	if *interval > 0 {
-		go periodicSync(ctx, log, syncer, *interval)
+	if *syncEvery > 0 {
+		go every(ctx, *syncEvery, true, func() {
+			if err := sv.refresh(ctx); err != nil {
+				log.Error("synchronisation automatique", "err", err)
+			}
+		})
+	}
+	if *digestEvery > 0 {
+		go every(ctx, *digestEvery, false, func() {
+			if err := generateAndSend(ctx, st, sv.notifier, *baseURL); err != nil {
+				log.Error("digest automatique", "err", err)
+			}
+		})
 	}
 
 	httpSrv := &http.Server{
 		Addr:              *addr,
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      60 * time.Second,
+		ReadTimeout:       60 * time.Second,
+		WriteTimeout:      120 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
-	go func() {
+	go func() { // #nosec G118 -- ctx is already cancelled here; shutdown needs a fresh deadline.
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		httpSrv.Shutdown(shutdown)
+		if err := httpSrv.Shutdown(shutdown); err != nil {
+			log.Warn("arrêt du serveur", "err", err)
+		}
 	}()
 
 	scheme := "http"
@@ -153,23 +207,33 @@ func runServe(ctx context.Context, log *slog.Logger, args []string) error {
 	return err
 }
 
-func periodicSync(ctx context.Context, log *slog.Logger, s *tracking.Syncer, every time.Duration) {
-	run := func() {
-		if _, err := s.Run(ctx); err != nil && !errors.Is(err, tracking.ErrRunning) {
-			log.Error("synchronisation automatique", "err", err)
-		}
+// every calls fn every period until ctx is done, and once at start if now is set.
+func every(ctx context.Context, period time.Duration, now bool, fn func()) {
+	if now {
+		fn()
 	}
-	run()
-	t := time.NewTicker(every)
+	t := time.NewTicker(period)
 	defer t.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			run()
+			fn()
 		}
 	}
+}
+
+func generateAndSend(ctx context.Context, st *store.Store, n *notify.Notifier, baseURL string) error {
+	d, err := digest.Generate(ctx, st)
+	if err != nil {
+		return err
+	}
+	link := ""
+	if baseURL != "" {
+		link = fmt.Sprintf("%s/digests/%d", strings.TrimRight(baseURL, "/"), d.ID)
+	}
+	return n.SendDigest(ctx, d, link)
 }
 
 func isLocalAddr(addr string) bool {
@@ -187,26 +251,35 @@ func isLocalAddr(addr string) bool {
 func runSync(ctx context.Context, log *slog.Logger, args []string) error {
 	fs := flag.NewFlagSet("sync", flag.ExitOnError)
 	dbPath := fs.String("db", defaultDB(), "fichier SQLite")
-	fs.Parse(args)
+	allowPrivate := fs.Bool("allow-private-urls", false, "autoriser les flux vers des adresses privées ou locales")
+	parseFlags(fs, args)
 
 	st, err := store.Open(ctx, *dbPath)
 	if err != nil {
 		return err
 	}
 	defer st.Close()
-	res, err := newSyncer(st, log).Run(ctx)
+	sv := newServices(st, log, *allowPrivate)
+	res, err := sv.syncer.Run(ctx)
 	if err != nil {
 		return err
 	}
 	fmt.Printf("%d actifs interrogés, %d nouvelles vulnérabilités, %d réouvertes, %d résolues automatiquement\n",
 		res.Assets, res.Created, res.Reopened, res.Resolved)
+	n, err := sv.cti.Run(ctx)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%d nouvelles actualités CTI\n", n)
 	return nil
 }
 
-func runDigest(ctx context.Context, args []string) error {
+func runDigest(ctx context.Context, log *slog.Logger, args []string) error {
 	fs := flag.NewFlagSet("digest", flag.ExitOnError)
 	dbPath := fs.String("db", defaultDB(), "fichier SQLite")
-	fs.Parse(args)
+	noHooks := fs.Bool("no-webhooks", false, "ne pas envoyer le digest aux webhooks")
+	allowPrivate := fs.Bool("allow-private-urls", false, "autoriser les webhooks vers des adresses privées ou locales")
+	parseFlags(fs, args)
 
 	st, err := store.Open(ctx, *dbPath)
 	if err != nil {
@@ -218,6 +291,49 @@ func runDigest(ctx context.Context, args []string) error {
 		return err
 	}
 	fmt.Print(d.Markdown)
+	if *noHooks {
+		return nil
+	}
+	return newServices(st, log, *allowPrivate).notifier.SendDigest(ctx, d, "")
+}
+
+func runImportSBOM(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("import-sbom", flag.ExitOnError)
+	dbPath := fs.String("db", defaultDB(), "fichier SQLite")
+	project := fs.String("project", "", "projet (par défaut : nom indiqué dans le SBOM)")
+	parseFlags(fs, args)
+	if fs.NArg() != 1 {
+		return errors.New("usage : vigil import-sbom [-project nom] fichier.json")
+	}
+	f, err := os.Open(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	doc, err := sbom.Parse(f)
+	if err != nil {
+		return err
+	}
+	name := strings.TrimSpace(*project)
+	if name == "" {
+		name = doc.Name
+	}
+	if name == "" || len(name) > 200 {
+		return errors.New("le SBOM ne nomme pas de composant principal : précisez -project")
+	}
+
+	st, err := store.Open(ctx, *dbPath)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	res, err := st.ReplaceProjectAssets(ctx, name, doc.Assets)
+	if err != nil {
+		return err
+	}
+	auditCLI(ctx, st, "sbom_import", fmt.Sprintf("%s (CLI): %s +%d =%d -%d", name, doc.Format, res.Added, res.Kept, res.Removed))
+	fmt.Printf("projet %q (%s) : %d ajoutés, %d conservés, %d retirés, %d composants ignorés (sans purl)\n",
+		name, doc.Format, res.Added, res.Kept, res.Removed, doc.Skipped)
 	return nil
 }
 
@@ -229,7 +345,7 @@ func runUser(ctx context.Context, args []string) error {
 	dbPath := fs.String("db", defaultDB(), "fichier SQLite")
 	username := fs.String("username", "", "nom d'utilisateur")
 	role := fs.String("role", auth.RoleAnalyst, "rôle : admin, analyst ou viewer")
-	fs.Parse(args[1:])
+	parseFlags(fs, args[1:])
 
 	if *username == "" || len(*username) > 64 {
 		return errors.New("-username est obligatoire (64 caractères max)")
@@ -254,9 +370,20 @@ func runUser(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	st.Audit(ctx, 0, "user_create", fmt.Sprintf("id=%d role=%s (CLI)", id, *role))
+	auditCLI(ctx, st, "user_create", fmt.Sprintf("id=%d role=%s (CLI)", id, *role))
 	fmt.Printf("utilisateur %q créé (%s)\n", *username, *role)
 	return nil
+}
+
+// parseFlags parses args; with flag.ExitOnError, Parse exits on error and
+// never returns one.
+func parseFlags(fs *flag.FlagSet, args []string) { _ = fs.Parse(args) }
+
+// auditCLI records a CLI action and warns if the audit log cannot be written.
+func auditCLI(ctx context.Context, st *store.Store, action, detail string) {
+	if err := st.Audit(ctx, 0, action, detail); err != nil {
+		fmt.Fprintln(os.Stderr, "avertissement : journal d'audit non écrit :", err)
+	}
 }
 
 // readPassword reads a password without echo from a terminal, or one line from stdin.

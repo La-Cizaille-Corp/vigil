@@ -22,17 +22,18 @@ type Asset struct {
 	Owner       string
 	Notes       string
 	Source      string
+	Project     string // set for assets imported from an SBOM
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
 
-const assetColumns = `id, name, kind, ecosystem, version, purl, cpe, criticality, owner, notes, source, created_at, updated_at`
+const assetColumns = `id, name, kind, ecosystem, version, purl, cpe, criticality, owner, notes, source, project, created_at, updated_at`
 
 func scanAsset(row interface{ Scan(...any) error }) (Asset, error) {
 	var a Asset
 	var created, updated string
 	err := row.Scan(&a.ID, &a.Name, &a.Kind, &a.Ecosystem, &a.Version, &a.PURL, &a.CPE,
-		&a.Criticality, &a.Owner, &a.Notes, &a.Source, &created, &updated)
+		&a.Criticality, &a.Owner, &a.Notes, &a.Source, &a.Project, &created, &updated)
 	a.CreatedAt, a.UpdatedAt = parseTime(created), parseTime(updated)
 	return a, err
 }
@@ -41,9 +42,9 @@ func scanAsset(row interface{ Scan(...any) error }) (Asset, error) {
 func (s *Store) CreateAsset(ctx context.Context, a Asset) (int64, error) {
 	ts := now()
 	res, err := s.db.ExecContext(ctx, `
-		INSERT INTO assets (name, kind, ecosystem, version, purl, cpe, criticality, owner, notes, source, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		a.Name, a.Kind, a.Ecosystem, a.Version, a.PURL, a.CPE, a.Criticality, a.Owner, a.Notes, a.Source, ts, ts)
+		INSERT INTO assets (name, kind, ecosystem, version, purl, cpe, criticality, owner, notes, source, project, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.Name, a.Kind, a.Ecosystem, a.Version, a.PURL, a.CPE, a.Criticality, a.Owner, a.Notes, a.Source, a.Project, ts, ts)
 	if err != nil {
 		return 0, fmt.Errorf("create asset: %w", err)
 	}
@@ -54,9 +55,9 @@ func (s *Store) CreateAsset(ctx context.Context, a Asset) (int64, error) {
 func (s *Store) UpdateAsset(ctx context.Context, a Asset) error {
 	res, err := s.db.ExecContext(ctx, `
 		UPDATE assets SET name = ?, kind = ?, ecosystem = ?, version = ?, purl = ?, cpe = ?,
-		       criticality = ?, owner = ?, notes = ?, updated_at = ?
+		       criticality = ?, owner = ?, notes = ?, project = ?, updated_at = ?
 		WHERE id = ?`,
-		a.Name, a.Kind, a.Ecosystem, a.Version, a.PURL, a.CPE, a.Criticality, a.Owner, a.Notes, now(), a.ID)
+		a.Name, a.Kind, a.Ecosystem, a.Version, a.PURL, a.CPE, a.Criticality, a.Owner, a.Notes, a.Project, now(), a.ID)
 	if err != nil {
 		return fmt.Errorf("update asset: %w", err)
 	}
@@ -77,7 +78,7 @@ func (s *Store) Asset(ctx context.Context, id int64) (Asset, error) {
 
 // ListAssets returns every asset ordered by name.
 func (s *Store) ListAssets(ctx context.Context) ([]Asset, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+assetColumns+` FROM assets ORDER BY name COLLATE NOCASE, version`)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+assetColumns+` FROM assets ORDER BY project COLLATE NOCASE, name COLLATE NOCASE, version`)
 	if err != nil {
 		return nil, fmt.Errorf("list assets: %w", err)
 	}
