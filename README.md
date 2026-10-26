@@ -2,14 +2,19 @@
 
 Outil open source de **veille de sécurité** léger : un seul binaire, aucune infrastructure.
 
-- Inventaire des actifs suivis (dépendances, technologies, produits, OS) avec version, purl, CPE.
-- Détection des vulnérabilités via [OSV.dev](https://osv.dev) et suivi de leur traitement
-  (statuts alignés sur CycloneDX / VEX, historique).
-- Digest périodique consultable dans l'interface et exportable en Markdown.
-- Fonctionne en local (par défaut sur `127.0.0.1`) ou en mode client / serveur (TLS, rôles).
-
-> Statut : MVP. Feuille de route : NVD/CPE, CISA KEV, EPSS, veille CTI (RSS, filtres secteur/pays),
-> webhooks Slack/Teams/Mattermost, import SBOM CycloneDX/SPDX.
+- **Inventaire** des actifs suivis (dépendances, technologies, produits, OS) : saisie manuelle
+  ou **import de SBOM** CycloneDX / SPDX (JSON), regroupés par projet.
+- **Vulnérabilités** détectées via [OSV.dev](https://osv.dev), enrichies par
+  [CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) (exploitation avérée) et
+  [FIRST EPSS](https://www.first.org/epss/) (probabilité d'exploitation), puis priorisées :
+  KEV > EPSS élevé > sévérité.
+- **Suivi** du traitement avec les statuts CycloneDX / VEX et un historique ; résolution et
+  réouverture automatiques quand une version change.
+- **Veille CTI** : flux RSS/Atom (CERT-FR, CISA, presse spécialisée… modifiables), étiquetés par
+  **pays** et **secteur** (liste NIS2), avec filtres enregistrés.
+- **Digest** périodique (vulnérabilités + menaces filtrées) consultable dans l'interface,
+  exportable en Markdown et envoyé aux **webhooks** Slack, Mattermost, Teams ou JSON générique.
+- Fonctionne **en local** (par défaut sur `127.0.0.1`) ou **en mode client / serveur** (TLS, rôles).
 
 ## Démarrage
 
@@ -21,29 +26,44 @@ go build -o vigil ./cmd/vigil
 ```
 
 Ouvrez <http://127.0.0.1:8080> : au premier lancement, la page de configuration crée le compte
-administrateur (uniquement depuis la machine locale).
+administrateur (uniquement depuis la machine locale). La synchronisation (vulnérabilités + CTI)
+tourne au démarrage puis toutes les 6 heures.
 
 | Commande | Rôle |
 |---|---|
-| `vigil serve` | Interface web + synchronisation automatique (`-sync-interval 6h`) |
-| `vigil sync` | Synchronisation ponctuelle avec OSV |
-| `vigil digest` | Génère un digest et l'affiche en Markdown |
+| `vigil serve` | Interface web, synchronisation (`-sync-interval 6h`) et digest automatiques (`-digest-interval 24h`) |
+| `vigil sync` | Synchronisation ponctuelle : OSV, KEV, EPSS, flux CTI |
+| `vigil digest` | Génère un digest, l'affiche en Markdown et l'envoie aux webhooks (`-no-webhooks` pour ne pas l'envoyer) |
+| `vigil import-sbom -project app sbom.json` | Importe ou met à jour les composants d'un projet |
 | `vigil user add -username bob -role analyst` | Crée un compte (mot de passe lu sans écho) |
 
 La base SQLite est stockée dans le dossier de configuration de l'utilisateur ; `-db` ou la
 variable `VIGIL_DB` permettent de la déplacer.
 
+### Intégration continue
+
+Générez un SBOM dans votre pipeline (par exemple avec `syft` ou `cdxgen`), puis :
+
+```bash
+vigil import-sbom -project mon-app sbom.cdx.json
+```
+
+Un nouvel import du même projet ajoute les nouveaux composants, retire les composants disparus et
+conserve l'historique de suivi des composants inchangés.
+
 ### Mode serveur
 
 ```bash
-vigil serve -addr 0.0.0.0:8443 -tls-cert cert.pem -tls-key key.pem
+vigil serve -addr 0.0.0.0:8443 -tls-cert cert.pem -tls-key key.pem -base-url https://vigil.example.org
 # ou derrière un reverse proxy qui termine TLS :
-vigil serve -addr 0.0.0.0:8080 -behind-proxy
+vigil serve -addr 0.0.0.0:8080 -behind-proxy -base-url https://vigil.example.org
 ```
 
-Vigil refuse d'écouter sur une interface non locale sans TLS.
+Vigil refuse d'écouter sur une interface non locale sans TLS. Les flux et webhooks ne peuvent
+pas viser d'adresses privées ou locales, sauf avec `-allow-private-urls`.
 
-Rôles : `viewer` (lecture), `analyst` (inventaire, triage, synchro, digests), `admin`.
+Rôles : `viewer` (lecture), `analyst` (inventaire, triage, synchronisation, digests, filtres de
+veille), `admin` (flux CTI et webhooks en plus).
 
 ## Développement
 
@@ -52,6 +72,7 @@ go test ./...
 go vet ./...
 ```
 
+La CI exécute aussi `gofmt`, `staticcheck`, `govulncheck` et `gosec`.
 Voir [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) et [SECURITY.md](SECURITY.md).
 
 ## Licence

@@ -15,7 +15,11 @@ import (
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
+	"github.com/La-Cizaille-Corp/vigil/internal/cti"
+	"github.com/La-Cizaille-Corp/vigil/internal/digest"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
+	"github.com/La-Cizaille-Corp/vigil/internal/notify"
+	"github.com/La-Cizaille-Corp/vigil/internal/sbom"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
 )
@@ -30,13 +34,21 @@ const (
 	sessionCookie   = "vigil_session"
 	sessionDuration = 12 * time.Hour
 	maxFormBytes    = 64 << 10
+	maxUploadBytes  = sbom.MaxSize + 1<<20 // file plus multipart overhead
 )
 
 // Server holds the dependencies of the HTTP handlers.
 type Server struct {
-	Store  *store.Store
-	Syncer *tracking.Syncer
-	Log    *slog.Logger
+	Store    *store.Store
+	Syncer   *tracking.Syncer
+	CTI      *cti.Collector
+	Notifier *notify.Notifier
+	Log      *slog.Logger
+	// BaseURL is the public address of the UI, used in webhook messages.
+	BaseURL string
+	// Context is cancelled when the server stops; background jobs started
+	// from a request (sync, CTI collection) use it instead of the request's.
+	Context context.Context
 	// SecureCookies must be true whenever the UI is reached over HTTPS.
 	SecureCookies bool
 
@@ -76,7 +88,18 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.Handle("GET /digests/{id}", s.require(auth.RoleViewer, s.digestShow))
 	mux.Handle("GET /digests/{id}/markdown", s.require(auth.RoleViewer, s.digestMarkdown))
 
-	return securityHeaders(sameOrigin(mux)), nil
+	mux.Handle("POST /assets/import", s.require(auth.RoleAnalyst, s.sbomImport))
+	mux.Handle("GET /cti", s.require(auth.RoleViewer, s.ctiList))
+	mux.Handle("POST /cti/refresh", s.require(auth.RoleAnalyst, s.ctiRefresh))
+	mux.Handle("GET /settings", s.require(auth.RoleViewer, s.settings))
+	mux.Handle("POST /settings/watch", s.require(auth.RoleAnalyst, s.saveWatch))
+	mux.Handle("POST /settings/feeds", s.require(auth.RoleAdmin, s.feedCreate))
+	mux.Handle("POST /settings/feeds/{id}/toggle", s.require(auth.RoleAdmin, s.feedToggle))
+	mux.Handle("POST /settings/feeds/{id}/delete", s.require(auth.RoleAdmin, s.feedDelete))
+	mux.Handle("POST /settings/webhooks", s.require(auth.RoleAdmin, s.webhookCreate))
+	mux.Handle("POST /settings/webhooks/{id}/delete", s.require(auth.RoleAdmin, s.webhookDelete))
+
+	return securityHeaders(sameOrigin(limitBody(mux))), nil
 }
 
 func (s *Server) parseTemplates() error {
@@ -94,9 +117,24 @@ func (s *Server) parseTemplates() error {
 		"statuses":      func() []inventory.Option { return tracking.Statuses },
 		"justifs":       func() []inventory.Option { return tracking.Justifications },
 		"queryable":     inventory.Queryable,
+		"epss":          digest.FormatEPSS,
+		"countryLabel":  func(v string) string { return cti.Label(cti.Countries, v) },
+		"sectorLabel":   func(v string) string { return cti.Label(cti.Sectors, v) },
+		"countries":     func() []cti.Tag { return cti.Countries },
+		"sectors":       func() []cti.Tag { return cti.Sectors },
+		"webhookKinds":  func() []inventory.Option { return notify.Kinds },
+		"maskURL":       notify.MaskURL,
+		"has": func(list []string, v string) bool {
+			for _, x := range list {
+				if x == v {
+					return true
+				}
+			}
+			return false
+		},
 		// SECURITY: digest HTML is produced by html/template from stored data
 		// (see package digest), so it is already escaped.
-		"trustedDigest": func(s string) template.HTML { return template.HTML(s) },
+		"trustedDigest": func(s string) template.HTML { return template.HTML(s) }, // #nosec G203 -- escaped at generation
 	}
 	pages, err := fs.Glob(templatesFS, "templates/*.html")
 	if err != nil {
@@ -156,6 +194,16 @@ var flashes = map[string]string{
 	"sync-started":   "Synchronisation lancée ; actualisez la page dans quelques instants.",
 	"sync-running":   "Une synchronisation est déjà en cours.",
 	"digest-created": "Digest généré.",
+	"digest-sent":    "Digest généré et envoyé aux webhooks.",
+	"digest-webhook": "Digest généré, mais au moins un webhook a échoué (voir Paramètres).",
+	"cti-started":    "Collecte des flux CTI lancée ; actualisez dans quelques instants.",
+	"watch-saved":    "Filtres de veille enregistrés.",
+	"feed-created":   "Flux ajouté.",
+	"feed-updated":   "Flux mis à jour.",
+	"feed-deleted":   "Flux supprimé.",
+	"hook-created":   "Webhook ajouté.",
+	"hook-deleted":   "Webhook supprimé.",
+	"sbom-imported":  "SBOM importé.",
 }
 
 func redirect(w http.ResponseWriter, r *http.Request, path, msg string) {
@@ -188,6 +236,22 @@ func clientIP(r *http.Request) string {
 func isLoopback(r *http.Request) bool {
 	ip := net.ParseIP(clientIP(r))
 	return ip != nil && ip.IsLoopback()
+}
+
+// background returns the server lifetime context.
+func (s *Server) background() context.Context {
+	if s.Context != nil {
+		return s.Context
+	}
+	return context.Background()
+}
+
+// audit records an action in the audit log; a failure is logged, never
+// silently ignored, but does not fail the user's request.
+func (s *Server) audit(r *http.Request, userID int64, action, detail string) {
+	if err := s.Store.Audit(r.Context(), userID, action, detail); err != nil {
+		s.Log.Error("audit log write failed", "action", action, "err", err)
+	}
 }
 
 // PurgeSessions deletes expired sessions periodically until ctx is done.

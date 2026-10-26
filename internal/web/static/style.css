@@ -48,4 +48,16 @@ dl { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; }
 dt { color: var(--muted); } dd { margin: 0; }
 pre.wrap { white-space: pre-wrap; background: var(--card); padding: .75rem; border: 1px solid var(--border); }
 code { font-size: .85rem; }
+.small { font-size: .85rem; }
+.kev { color: var(--crit); font-weight: 700; font-size: .8rem; text-transform: uppercase; }
+.tag { display: inline-block; font-size: .75rem; padding: 0 .4rem; margin-left: .25rem; border-radius: 3px;
+  border: 1px solid var(--border); }
+.tag-sector { border-style: dashed; }
+ul.news { list-style: none; padding: 0; }
+ul.news li { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: .6rem .8rem; margin-bottom: .5rem; }
+ul.news p { margin: .3rem 0 0; }
+fieldset { border: 1px solid var(--border); border-radius: 4px; max-height: 260px; overflow-y: auto; }
+label.check { display: flex; gap: .4rem; align-items: center; margin: 0; }
+label.check input { width: auto; }
+.danger-link { color: var(--danger); }
 @media (max-width: 700px) { table { display: block; overflow-x: auto; } }

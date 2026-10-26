@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
@@ -62,7 +63,7 @@ func (s *Server) setupSubmit(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	s.Store.Audit(r.Context(), id, "setup", "compte administrateur initial créé")
+	s.audit(r, id, "setup", "compte administrateur initial créé")
 	s.startSession(w, r, id)
 }
 
@@ -101,13 +102,13 @@ func (s *Server) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	if !valid {
 		s.limiter.Fail(ip)
-		s.Store.Audit(r.Context(), 0, "login_failed", "ip="+ip)
+		s.audit(r, 0, "login_failed", "ip="+ip)
 		// SECURITY: same message whether the user exists or not.
 		s.render(w, r, http.StatusUnauthorized, "login", page{Title: "Connexion", Error: "Identifiants invalides."})
 		return
 	}
 	s.limiter.Reset(ip)
-	s.Store.Audit(r.Context(), user.ID, "login", "ip="+ip)
+	s.audit(r, user.ID, "login", "ip="+ip)
 	s.startSession(w, r, user.ID)
 }
 
@@ -127,6 +128,8 @@ func (s *Server) startSession(w http.ResponseWriter, r *http.Request, userID int
 		s.serverError(w, r, err)
 		return
 	}
+	// #nosec G124 -- Secure is set whenever the UI is served over HTTPS; a
+	// local instance on http://127.0.0.1 cannot use Secure cookies.
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookie,
 		Value:    token,
@@ -141,9 +144,11 @@ func (s *Server) startSession(w http.ResponseWriter, r *http.Request, userID int
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(sessionCookie); err == nil {
-		s.Store.DeleteSession(r.Context(), auth.HashToken(c.Value))
+		if err := s.Store.DeleteSession(r.Context(), auth.HashToken(c.Value)); err != nil {
+			s.Log.Error("delete session", "err", err)
+		}
 	}
-	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1,
+	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1, // #nosec G124 -- see startSession
 		HttpOnly: true, Secure: s.SecureCookies, SameSite: http.SameSiteStrictMode})
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
@@ -162,14 +167,19 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	digest.SortBySeverity(recent)
+	digest.SortByPriority(recent)
 	assets, err := s.Store.ListAssets(ctx)
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
+	exploited, err := s.Store.ListFindings(ctx, store.FindingFilter{KEV: true})
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
 	s.render(w, r, http.StatusOK, "dashboard", page{Title: "Tableau de bord", Data: map[string]any{
-		"Counts": counts, "Recent": recent, "AssetCount": len(assets),
+		"Counts": counts, "Recent": recent, "AssetCount": len(assets), "KEVCount": len(exploited),
 	}})
 }
 
@@ -186,13 +196,14 @@ func assetFromForm(r *http.Request) store.Asset {
 		Criticality: r.PostFormValue("criticality"),
 		Owner:       r.PostFormValue("owner"),
 		Notes:       r.PostFormValue("notes"),
+		Project:     r.PostFormValue("project"),
 	}
 	inventory.Normalize(&a)
 	return a
 }
 
 func (s *Server) assetList(w http.ResponseWriter, r *http.Request) {
-	s.renderAssets(w, r, http.StatusOK, store.Asset{Kind: "package", Criticality: "medium"}, "")
+	s.renderAssets(w, r, http.StatusOK, defaultAssetForm(), "")
 }
 
 func (s *Server) renderAssets(w http.ResponseWriter, r *http.Request, status int, form store.Asset, formErr string) {
@@ -201,8 +212,23 @@ func (s *Server) renderAssets(w http.ResponseWriter, r *http.Request, status int
 		s.serverError(w, r, err)
 		return
 	}
+	project := r.URL.Query().Get("project")
+	if project != "" {
+		var filtered []store.Asset
+		for _, a := range assets {
+			if a.Project == project {
+				filtered = append(filtered, a)
+			}
+		}
+		assets = filtered
+	}
+	projects, err := s.Store.ListProjects(r.Context())
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
 	s.render(w, r, status, "assets", page{Title: "Inventaire", Error: formErr,
-		Data: map[string]any{"Assets": assets, "Form": form}})
+		Data: map[string]any{"Assets": assets, "Form": form, "Projects": projects, "Project": project}})
 }
 
 func (s *Server) assetCreate(w http.ResponseWriter, r *http.Request) {
@@ -217,7 +243,7 @@ func (s *Server) assetCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess, _ := sessionFrom(r.Context())
-	s.Store.Audit(r.Context(), sess.User.ID, "asset_create", strconv.FormatInt(id, 10))
+	s.audit(r, sess.User.ID, "asset_create", strconv.FormatInt(id, 10))
 	redirect(w, r, "/assets", "asset-created")
 }
 
@@ -270,7 +296,7 @@ func (s *Server) assetUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess, _ := sessionFrom(r.Context())
-	s.Store.Audit(r.Context(), sess.User.ID, "asset_update", strconv.FormatInt(a.ID, 10))
+	s.audit(r, sess.User.ID, "asset_update", strconv.FormatInt(a.ID, 10))
 	redirect(w, r, "/assets", "asset-updated")
 }
 
@@ -284,7 +310,7 @@ func (s *Server) assetDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess, _ := sessionFrom(r.Context())
-	s.Store.Audit(r.Context(), sess.User.ID, "asset_delete", inventory.Describe(a))
+	s.audit(r, sess.User.ID, "asset_delete", inventory.Describe(a))
 	redirect(w, r, "/assets", "asset-deleted")
 }
 
@@ -295,14 +321,15 @@ func (s *Server) findingList(w http.ResponseWriter, r *http.Request) {
 	if inventory.Label(tracking.Statuses, status) == status {
 		status = "" // unknown value: show everything
 	}
-	findings, err := s.Store.ListFindings(r.Context(), store.FindingFilter{Status: status})
+	kev := r.URL.Query().Get("kev") == "1"
+	findings, err := s.Store.ListFindings(r.Context(), store.FindingFilter{Status: status, KEV: kev})
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
-	digest.SortBySeverity(findings)
+	digest.SortByPriority(findings)
 	s.render(w, r, http.StatusOK, "findings", page{Title: "Vulnérabilités",
-		Data: map[string]any{"Findings": findings, "Status": status}})
+		Data: map[string]any{"Findings": findings, "Status": status, "KEV": kev}})
 }
 
 func (s *Server) loadFinding(w http.ResponseWriter, r *http.Request) (store.Finding, bool) {
@@ -371,9 +398,9 @@ func (s *Server) findingUpdate(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) syncNow(w http.ResponseWriter, r *http.Request) {
 	sess, _ := sessionFrom(r.Context())
-	s.Store.Audit(r.Context(), sess.User.ID, "sync", "manuel")
+	s.audit(r, sess.User.ID, "sync", "manuel")
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+		ctx, cancel := context.WithTimeout(s.background(), 15*time.Minute)
 		defer cancel()
 		if _, err := s.Syncer.Run(ctx); err != nil && !errors.Is(err, tracking.ErrRunning) {
 			s.Log.Error("sync failed", "err", err)
@@ -397,7 +424,14 @@ func (s *Server) digestCreate(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	redirect(w, r, "/digests/"+strconv.FormatInt(d.ID, 10), "digest-created")
+	msg := "digest-created"
+	if hooks, err := s.Store.ListWebhooks(r.Context()); err == nil && len(hooks) > 0 {
+		msg = "digest-sent"
+		if err := s.Notifier.SendDigest(r.Context(), d, s.digestLink(d)); err != nil {
+			msg = "digest-webhook"
+		}
+	}
+	redirect(w, r, "/digests/"+strconv.FormatInt(d.ID, 10), msg)
 }
 
 func (s *Server) loadDigest(w http.ResponseWriter, r *http.Request) (store.Digest, bool) {
@@ -434,5 +468,13 @@ func (s *Server) digestMarkdown(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 	w.Header().Set("Content-Disposition",
 		`attachment; filename="vigil-digest-`+d.CreatedAt.Format("2006-01-02")+`.md"`)
-	w.Write([]byte(d.Markdown))
+	_, _ = w.Write([]byte(d.Markdown)) // a client that disconnects is not an error
+}
+
+// digestLink is the absolute URL of a digest, or "" when BaseURL is unknown.
+func (s *Server) digestLink(d store.Digest) string {
+	if s.BaseURL == "" {
+		return ""
+	}
+	return strings.TrimRight(s.BaseURL, "/") + "/digests/" + strconv.FormatInt(d.ID, 10)
 }

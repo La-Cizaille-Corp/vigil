@@ -84,7 +84,10 @@ func VerifyPassword(password, encoded string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	got := argon2.IDKey([]byte(password), salt, iterations, memory, threads, uint32(len(want)))
+	if len(want) != argonKeyLen {
+		return false, errors.New("unexpected argon2 key length")
+	}
+	got := argon2.IDKey([]byte(password), salt, iterations, memory, threads, argonKeyLen)
 	return subtle.ConstantTimeCompare(got, want) == 1, nil
 }
 
@@ -93,7 +96,7 @@ func VerifyPassword(password, encoded string) (bool, error) {
 var dummyHash, _ = HashPassword("not-a-real-password-just-timing")
 
 // VerifyDummy burns the same CPU time as a real verification.
-func VerifyDummy(password string) { VerifyPassword(password, dummyHash) }
+func VerifyDummy(password string) { _, _ = VerifyPassword(password, dummyHash) }
 
 // NewToken returns a URL-safe random token of 32 bytes.
 func NewToken() (string, error) {

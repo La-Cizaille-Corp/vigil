@@ -37,6 +37,13 @@ func fakeOSV(t *testing.T) *httptest.Server {
 			io.WriteString(w, `{"id":"GHSA-test","summary":"Prototype pollution","aliases":["CVE-2020-8203"],
 				"modified":"2026-01-01T00:00:00Z","database_specific":{"severity":"HIGH"},
 				"references":[{"type":"WEB","url":"https://example.org/advisory"}]}`)
+		case r.URL.Path == "/kev":
+			io.WriteString(w, `{"vulnerabilities":[{"cveID":"CVE-2020-8203","dueDate":"2026-12-01"}]}`)
+		case r.URL.Path == "/epss":
+			if r.URL.Query().Get("cve") != "CVE-2020-8203" {
+				t.Errorf("unexpected EPSS query %q", r.URL.RawQuery)
+			}
+			io.WriteString(w, `{"data":[{"cve":"CVE-2020-8203","epss":"0.42"}]}`)
 		default:
 			http.NotFound(w, r)
 		}
@@ -55,7 +62,8 @@ func TestSyncLifecycle(t *testing.T) {
 	defer srv.Close()
 	client := osv.New("vigil-test")
 	client.BaseURL = srv.URL
-	syncer := &tracking.Syncer{Store: st, OSV: client, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	syncer := &tracking.Syncer{Store: st, OSV: client, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		HTTP: srv.Client(), KEVURL: srv.URL + "/kev", EPSSURL: srv.URL + "/epss"}
 
 	asset := store.Asset{Name: "lodash", Kind: "package", PURL: "pkg:npm/lodash@4.17.15",
 		Criticality: "high", Source: "manual"}
@@ -75,6 +83,9 @@ func TestSyncLifecycle(t *testing.T) {
 	findings, _ := st.ListFindings(ctx, store.FindingFilter{})
 	if len(findings) != 1 || findings[0].Severity != "HIGH" || findings[0].Status != "in_triage" {
 		t.Fatalf("unexpected findings: %+v", findings)
+	}
+	if !findings[0].KEV || findings[0].EPSS != 0.42 {
+		t.Fatalf("KEV/EPSS enrichment missing: %+v", findings[0])
 	}
 
 	// 2. Second sync is idempotent.
