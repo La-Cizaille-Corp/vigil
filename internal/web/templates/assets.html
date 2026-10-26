@@ -1,0 +1,31 @@
+{{define "content"}}
+{{if .Data.Assets}}
+<table>
+<thead><tr><th>Nom</th><th>Version</th><th>Type</th><th>Écosystème / purl</th><th>Criticité</th><th>Responsable</th><th>Suivi auto</th></tr></thead>
+<tbody>
+{{range .Data.Assets}}
+<tr>
+  <td><a href="/assets/{{.ID}}">{{.Name}}</a></td>
+  <td>{{.Version}}</td>
+  <td>{{kindLabel .Kind}}</td>
+  <td>{{if .PURL}}<code>{{.PURL}}</code>{{else}}{{.Ecosystem}}{{end}}</td>
+  <td>{{critLabel .Criticality}}</td>
+  <td>{{.Owner}}</td>
+  <td>{{if queryable .}}oui{{else}}<span class="muted">non</span>{{end}}</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+{{else}}
+<p class="muted">Aucun actif suivi pour le moment.</p>
+{{end}}
+
+{{if can .User.Role "analyst"}}
+<h2>Ajouter un actif</h2>
+<form method="post" action="/assets" class="card">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  {{template "assetFields" .Data.Form}}
+  <button type="submit">Ajouter</button>
+</form>
+{{end}}
+{{end}}

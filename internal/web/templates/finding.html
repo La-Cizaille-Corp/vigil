@@ -1,0 +1,47 @@
+{{define "content"}}
+{{$f := .Data.Finding}}{{$v := .Data.Vuln}}
+<dl class="card">
+  <dt>Sévérité</dt><dd><span class="sev sev-{{$v.Severity}}">{{or $v.Severity "?"}}</span></dd>
+  <dt>Alias</dt><dd>{{join $v.Aliases ", "}}</dd>
+  <dt>Actif</dt><dd><a href="/assets/{{$f.AssetID}}">{{$f.AssetName}} {{$f.AssetVersion}}</a></dd>
+  <dt>Statut</dt><dd>{{statusLabel $f.Status}}{{if $f.Justification}} — {{justifLabel $f.Justification}}{{end}}</dd>
+  <dt>Détectée le</dt><dd>{{date $f.FirstSeen}}</dd>
+  <dt>Publiée</dt><dd>{{$v.Published}}</dd>
+</dl>
+
+<h2>Résumé</h2>
+<p>{{$v.Summary}}</p>
+{{if $v.Details}}<details><summary>Détails</summary><pre class="wrap">{{$v.Details}}</pre></details>{{end}}
+
+{{if $v.Refs}}
+<h2>Références</h2>
+<ul>{{range $v.Refs}}<li><a href="{{.}}" rel="noopener noreferrer" target="_blank">{{.}}</a></li>{{end}}</ul>
+{{end}}
+
+{{if can .User.Role "analyst"}}
+<h2>Mettre à jour le suivi</h2>
+<form method="post" action="/findings/{{$f.ID}}" class="card">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <label>Statut
+    <select name="status">{{range statuses}}<option value="{{.Value}}" {{if eq .Value $f.Status}}selected{{end}}>{{.Label}}</option>{{end}}</select>
+  </label>
+  <label>Justification (si « Non affecté »)
+    <select name="justification">
+      <option value="">—</option>
+      {{range justifs}}<option value="{{.Value}}" {{if eq .Value $f.Justification}}selected{{end}}>{{.Label}}</option>{{end}}
+    </select>
+  </label>
+  <label>Commentaire <textarea name="comment" maxlength="4000" rows="3">{{$f.Comment}}</textarea></label>
+  <button type="submit">Enregistrer</button>
+</form>
+{{end}}
+
+<h2>Historique</h2>
+{{if .Data.Events}}
+<ul>
+{{range .Data.Events}}
+<li>{{date .CreatedAt}} — {{or .Username "système"}} : {{statusLabel .OldStatus}} → {{statusLabel .NewStatus}}{{if .Comment}} — {{.Comment}}{{end}}</li>
+{{end}}
+</ul>
+{{else}}<p class="muted">Aucun changement.</p>{{end}}
+{{end}}

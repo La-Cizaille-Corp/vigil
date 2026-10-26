@@ -1,0 +1,46 @@
+{{define "findingTable"}}
+{{if .}}
+<table>
+<thead><tr><th>Sévérité</th><th>Vulnérabilité</th><th>Actif</th><th>Statut</th><th>Détectée</th><th>Résumé</th></tr></thead>
+<tbody>
+{{range .}}
+<tr>
+  <td><span class="sev sev-{{.Severity}}">{{or .Severity "?"}}</span></td>
+  <td><a href="/findings/{{.ID}}">{{.VulnID}}</a>{{if .Aliases}}<br><small>{{join .Aliases ", "}}</small>{{end}}</td>
+  <td><a href="/assets/{{.AssetID}}">{{.AssetName}} {{.AssetVersion}}</a></td>
+  <td>{{statusLabel .Status}}</td>
+  <td>{{date .FirstSeen}}</td>
+  <td>{{.Summary}}</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+{{else}}
+<p class="muted">Aucune vulnérabilité.</p>
+{{end}}
+{{end}}
+
+{{define "assetFields"}}
+<div class="grid">
+  <label>Nom * <input name="name" value="{{.Name}}" required maxlength="200" placeholder="lodash, nginx, Windows Server…"></label>
+  <label>Type
+    <select name="kind">{{range kinds}}<option value="{{.Value}}" {{if eq .Value $.Kind}}selected{{end}}>{{.Label}}</option>{{end}}</select>
+  </label>
+  <label>Écosystème
+    <select name="ecosystem">
+      <option value="">—</option>
+      {{range ecosystems}}<option {{if eq . $.Ecosystem}}selected{{end}}>{{.}}</option>{{end}}
+    </select>
+  </label>
+  <label>Version <input name="version" value="{{.Version}}" maxlength="100"></label>
+  <label>purl <input name="purl" value="{{.PURL}}" maxlength="500" placeholder="pkg:npm/lodash@4.17.15"></label>
+  <label>CPE <input name="cpe" value="{{.CPE}}" maxlength="500" placeholder="cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*"></label>
+  <label>Criticité
+    <select name="criticality">{{range criticalities}}<option value="{{.Value}}" {{if eq .Value $.Criticality}}selected{{end}}>{{.Label}}</option>{{end}}</select>
+  </label>
+  <label>Responsable <input name="owner" value="{{.Owner}}" maxlength="200"></label>
+</div>
+<label>Notes <textarea name="notes" maxlength="4000" rows="2">{{.Notes}}</textarea></label>
+<p class="muted">Pour la détection automatique (OSV), renseignez un purl ou un écosystème, ainsi qu'une version.
+Le suivi par CPE (produits, technologies) arrive dans une prochaine version.</p>
+{{end}}

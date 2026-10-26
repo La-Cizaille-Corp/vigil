@@ -1,0 +1,39 @@
+<section class="digest">
+<p>Généré le {{date .GeneratedAt}} — période depuis le {{date .Since}}.</p>
+
+<h2>Nouvelles vulnérabilités ({{len .New}})</h2>
+{{if .New}}
+<table>
+<thead><tr><th>Sévérité</th><th>Vulnérabilité</th><th>Actif</th><th>Statut</th><th>Résumé</th></tr></thead>
+<tbody>
+{{range .New}}
+<tr>
+<td><span class="sev sev-{{.Severity}}">{{or .Severity "?"}}</span></td>
+<td><a href="/findings/{{.ID}}">{{.VulnID}}</a>{{if .Aliases}}<br><small>{{join .Aliases ", "}}</small>{{end}}</td>
+<td>{{.AssetName}} {{.AssetVersion}}</td>
+<td>{{status .Status}}</td>
+<td>{{.Summary}}</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+{{else}}
+<p>Aucune nouvelle vulnérabilité sur la période.</p>
+{{end}}
+
+<h2>Vulnérabilités ouvertes ({{len .Open}})</h2>
+{{if .Open}}
+<ul>
+{{range .Open}}
+<li><span class="sev sev-{{.Severity}}">{{or .Severity "?"}}</span> <a href="/findings/{{.ID}}">{{.VulnID}}</a> — {{.AssetName}} {{.AssetVersion}} — {{status .Status}}</li>
+{{end}}
+</ul>
+{{else}}
+<p>Aucune vulnérabilité ouverte.</p>
+{{end}}
+
+<h2>Synthèse par statut</h2>
+<ul>
+{{range .Counts}}<li>{{status .Status}} : {{.N}}</li>{{end}}
+</ul>
+</section>

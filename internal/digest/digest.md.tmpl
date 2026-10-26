@@ -1,0 +1,26 @@
+# Digest de veille vulnérabilités
+
+Généré le {{date .GeneratedAt}} — période depuis le {{date .Since}}.
+
+## Nouvelles vulnérabilités ({{len .New}})
+{{if .New}}
+| Sévérité | Vulnérabilité | Actif | Statut | Résumé |
+|---|---|---|---|---|
+{{- range .New}}
+| {{cell (or .Severity "?")}} | {{.VulnID}}{{if .Aliases}} ({{join .Aliases ", "}}){{end}} | {{cell .AssetName}} {{cell .AssetVersion}} | {{status .Status}} | {{cell .Summary}} |
+{{- end}}
+{{else}}
+Aucune nouvelle vulnérabilité sur la période.
+{{end}}
+## Vulnérabilités ouvertes ({{len .Open}})
+{{if .Open}}
+{{- range .Open}}
+- **{{or .Severity "?"}}** {{.VulnID}} — {{.AssetName}} {{.AssetVersion}} — {{status .Status}}
+{{- end}}
+{{else}}
+Aucune vulnérabilité ouverte.
+{{end}}
+## Synthèse par statut
+{{range .Counts}}
+- {{status .Status}} : {{.N}}
+{{- end}}

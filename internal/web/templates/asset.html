@@ -1,0 +1,25 @@
+{{define "content"}}
+{{$a := .Data.Form}}
+{{if can .User.Role "analyst"}}
+<form method="post" action="/assets/{{$a.ID}}" class="card">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  {{template "assetFields" $a}}
+  <button type="submit">Enregistrer</button>
+</form>
+<form method="post" action="/assets/{{$a.ID}}/delete" class="inline">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <button type="submit" class="danger">Supprimer l'actif et ses vulnérabilités</button>
+</form>
+{{else}}
+<dl class="card">
+  <dt>Type</dt><dd>{{kindLabel $a.Kind}}</dd>
+  <dt>Version</dt><dd>{{$a.Version}}</dd>
+  <dt>purl</dt><dd>{{$a.PURL}}</dd>
+  <dt>Criticité</dt><dd>{{critLabel $a.Criticality}}</dd>
+  <dt>Responsable</dt><dd>{{$a.Owner}}</dd>
+</dl>
+{{end}}
+
+<h2>Vulnérabilités de cet actif</h2>
+{{template "findingTable" .Data.Findings}}
+{{end}}
