@@ -16,12 +16,38 @@ Outil open source de **veille de sécurité** léger : un seul binaire, aucune i
   exportable en Markdown et envoyé aux **webhooks** Slack, Mattermost, Teams ou JSON générique.
 - Fonctionne **en local** (par défaut sur `127.0.0.1`) ou **en mode client / serveur** (TLS, rôles).
 
-## Démarrage
+## Installation
 
-Prérequis pour compiler : Go (version indiquée dans `go.mod`).
+**Binaires** : téléchargez l'archive de votre système (Linux, macOS, Windows ; amd64 ou arm64)
+depuis les [releases](https://github.com/La-Cizaille-Corp/vigil/releases), puis vérifiez-la :
+
+```bash
+sha256sum --ignore-missing -c checksums.txt
+gh attestation verify vigil_*_linux_amd64.tar.gz --repo La-Cizaille-Corp/vigil
+```
+
+Chaque archive est accompagnée de son SBOM CycloneDX et d'une attestation de provenance signée.
+
+**Depuis les sources** (Go, version indiquée dans `go.mod`) :
 
 ```bash
 go build -o vigil ./cmd/vigil
+```
+
+**Docker** (image distroless, utilisateur non privilégié, données dans `/data`) :
+
+```bash
+docker run -d --name vigil -p 127.0.0.1:8080:8080 -v vigil-data:/data ghcr.io/la-cizaille-corp/vigil
+docker exec -it vigil vigil user add -username admin -role admin
+```
+
+Dans un conteneur, les requêtes ne viennent pas de `127.0.0.1` : le premier administrateur se
+crée donc avec `docker exec` plutôt que par la page de configuration. L'image écoute en
+`-behind-proxy` : exposez-la derrière un reverse proxy HTTPS (ou seulement sur `127.0.0.1`).
+
+## Démarrage
+
+```bash
 ./vigil serve
 ```
 
@@ -81,6 +107,10 @@ veille), `admin` (flux CTI et webhooks en plus).
 go test ./...
 go vet ./...
 ```
+
+Pour publier une version, poussez un tag `vX.Y.Z` : le workflow `release` construit les binaires
+avec [GoReleaser](https://goreleaser.com) (`.goreleaser.yaml`) et l'image Docker, puis prépare
+une release en brouillon à relire avant publication. Test local : `goreleaser release --snapshot --clean`.
 
 La CI exécute aussi `gofmt`, `staticcheck`, `govulncheck` et `gosec`.
 Voir [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) et [SECURITY.md](SECURITY.md).

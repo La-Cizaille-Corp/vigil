@@ -1,0 +1,52 @@
+# Release configuration: https://goreleaser.com
+# Run locally without publishing: goreleaser release --snapshot --clean
+version: 2
+
+project_name: vigil
+
+before:
+  hooks:
+    - go mod verify
+
+builds:
+  - main: ./cmd/vigil
+    binary: vigil
+    env:
+      - CGO_ENABLED=0 # pure Go: static binaries, no libc dependency
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath # reproducible builds, no local paths in the binary
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - SECURITY.md
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+# One CycloneDX SBOM per archive (needs syft, installed by the release workflow).
+sboms:
+  - artifacts: archive
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^Merge "
+
+release:
+  draft: true # reviewed and published by hand
+  prerelease: auto

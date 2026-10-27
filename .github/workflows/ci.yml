@@ -41,3 +41,17 @@ jobs:
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
       - name: gosec
         run: go run github.com/securego/gosec/v2/cmd/gosec@latest -exclude-generated ./...
+
+  release-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: check
+      - name: docker build
+        run: docker build -t vigil:ci . && docker run --rm vigil:ci version

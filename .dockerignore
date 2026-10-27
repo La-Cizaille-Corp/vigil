@@ -1,0 +1,9 @@
+.git
+.github
+dist
+*.exe
+*.exe~
+*.db
+*.db-shm
+*.db-wal
+/vigil
