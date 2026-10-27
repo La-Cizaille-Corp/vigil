@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
@@ -96,7 +97,7 @@ func securityHeaders(next http.Handler) http.Handler {
 func limitBody(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		limit := int64(maxFormBytes)
-		if r.URL.Path == "/assets/import" {
+		if r.URL.Path == "/assets/import" || strings.HasPrefix(r.URL.Path, "/api/v1/") {
 			limit = maxUploadBytes
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, limit)

@@ -98,6 +98,11 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.Handle("POST /settings/feeds/{id}/delete", s.require(auth.RoleAdmin, s.feedDelete))
 	mux.Handle("POST /settings/webhooks", s.require(auth.RoleAdmin, s.webhookCreate))
 	mux.Handle("POST /settings/webhooks/{id}/delete", s.require(auth.RoleAdmin, s.webhookDelete))
+	mux.Handle("POST /settings/tokens", s.require(auth.RoleAdmin, s.tokenCreate))
+	mux.Handle("POST /settings/tokens/{id}/delete", s.require(auth.RoleAdmin, s.tokenDelete))
+
+	// Token-authenticated API for CI pipelines (no session, no CSRF: no cookie is used).
+	mux.HandleFunc("PUT /api/v1/projects/{project}/sbom", s.apiSBOM)
 
 	return securityHeaders(sameOrigin(limitBody(mux))), nil
 }
@@ -186,7 +191,7 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name
 }
 
 // flashes maps fixed keys to messages, so no user input is ever reflected.
-var flashes = map[string]string{
+var flashes = map[string]string{ // #nosec G101 -- message keys, not credentials
 	"asset-created":  "Actif ajouté.",
 	"asset-updated":  "Actif mis à jour.",
 	"asset-deleted":  "Actif supprimé.",
@@ -204,6 +209,7 @@ var flashes = map[string]string{
 	"hook-created":   "Webhook ajouté.",
 	"hook-deleted":   "Webhook supprimé.",
 	"sbom-imported":  "SBOM importé.",
+	"token-deleted":  "Jeton révoqué.",
 }
 
 func redirect(w http.ResponseWriter, r *http.Request, path, msg string) {

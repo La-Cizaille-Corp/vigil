@@ -158,6 +158,11 @@ func runServe(ctx context.Context, log *slog.Logger, args []string) error {
 	if err != nil {
 		return err
 	}
+	// Bind before starting background work so a busy port fails fast and cleanly.
+	ln, err := net.Listen("tcp", *addr)
+	if err != nil {
+		return fmt.Errorf("écoute sur %s (port déjà utilisé ?) : %w", *addr, err)
+	}
 	go srv.PurgeSessions(ctx)
 	if *syncEvery > 0 {
 		go every(ctx, *syncEvery, true, func() {
@@ -197,9 +202,9 @@ func runServe(ctx context.Context, log *slog.Logger, args []string) error {
 	}
 	log.Info("vigil démarré", "url", scheme+"://"+*addr, "db", *dbPath)
 	if useTLS {
-		err = httpSrv.ListenAndServeTLS(*certFile, *keyFile)
+		err = httpSrv.ServeTLS(ln, *certFile, *keyFile)
 	} else {
-		err = httpSrv.ListenAndServe()
+		err = httpSrv.Serve(ln)
 	}
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil

@@ -160,3 +160,42 @@ func TestLoginRateLimit(t *testing.T) {
 		t.Fatalf("rate limit not applied: %d", code)
 	}
 }
+
+func TestAPISBOMToken(t *testing.T) {
+	st, base := newTestServer(t)
+	ctx := context.Background()
+	secret := "vgl_test-secret-value"
+	if _, err := st.CreateAPIToken(ctx, store.APIToken{Name: "ci", Project: "app"}, auth.HashToken(secret), 0); err != nil {
+		t.Fatal(err)
+	}
+	bom := `{"bomFormat":"CycloneDX","specVersion":"1.5","components":[
+		{"type":"library","name":"lodash","version":"4.17.15","purl":"pkg:npm/lodash@4.17.15"}]}`
+	put := func(project, token string) int {
+		req, _ := http.NewRequest(http.MethodPut, base+"/api/v1/projects/"+project+"/sbom", strings.NewReader(bom))
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	if code := put("app", ""); code != http.StatusUnauthorized {
+		t.Fatalf("no token: %d", code)
+	}
+	if code := put("app", "vgl_wrong"); code != http.StatusUnauthorized {
+		t.Fatalf("wrong token: %d", code)
+	}
+	if code := put("other", secret); code != http.StatusForbidden {
+		t.Fatalf("token used for another project: %d", code)
+	}
+	if code := put("app", secret); code != http.StatusOK {
+		t.Fatalf("upload: %d", code)
+	}
+	assets, _ := st.ListAssets(ctx)
+	if len(assets) != 1 || assets[0].Project != "app" {
+		t.Fatalf("assets = %+v", assets)
+	}
+}

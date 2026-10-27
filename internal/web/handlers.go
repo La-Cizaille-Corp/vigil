@@ -399,14 +399,18 @@ func (s *Server) findingUpdate(w http.ResponseWriter, r *http.Request) {
 func (s *Server) syncNow(w http.ResponseWriter, r *http.Request) {
 	sess, _ := sessionFrom(r.Context())
 	s.audit(r, sess.User.ID, "sync", "manuel")
-	go func() {
-		ctx, cancel := context.WithTimeout(s.background(), 15*time.Minute)
-		defer cancel()
-		if _, err := s.Syncer.Run(ctx); err != nil && !errors.Is(err, tracking.ErrRunning) {
-			s.Log.Error("sync failed", "err", err)
-		}
-	}()
+	go s.runSync()
 	redirect(w, r, "/", "sync-started")
+}
+
+// runSync matches the inventory against vulnerability sources in the
+// background; it is a no-op when a sync is already running.
+func (s *Server) runSync() {
+	ctx, cancel := context.WithTimeout(s.background(), 15*time.Minute)
+	defer cancel()
+	if _, err := s.Syncer.Run(ctx); err != nil && !errors.Is(err, tracking.ErrRunning) {
+		s.Log.Error("sync failed", "err", err)
+	}
 }
 
 func (s *Server) digestList(w http.ResponseWriter, r *http.Request) {

@@ -90,5 +90,41 @@ Sans sélection, tout est inclus.</p>
   </div>
   <button type="submit">Ajouter le webhook</button>
 </form>
+
+<h2>Jetons d'API (CI/CD)</h2>
+<p class="muted">Un jeton permet à un pipeline de pousser le SBOM d'un seul projet.</p>
+{{if .Data.NewToken}}
+<div class="card">
+  <p><strong>Copiez ce jeton maintenant, il ne sera plus affiché :</strong></p>
+  <pre><code>{{.Data.NewToken}}</code></pre>
+  <p class="small">Exemple :</p>
+  <pre><code>curl -X PUT -H "Authorization: Bearer $VIGIL_TOKEN" --data-binary @sbom.cdx.json {{if .Data.BaseURL}}{{.Data.BaseURL}}{{else}}https://vigil.example{{end}}/api/v1/projects/NOM_DU_PROJET/sbom</code></pre>
+</div>
+{{end}}
+{{if .Data.Tokens}}
+<table>
+<thead><tr><th>Nom</th><th>Projet</th><th>Créé</th><th>Dernière utilisation</th><th></th></tr></thead>
+<tbody>
+{{range .Data.Tokens}}
+<tr>
+  <td>{{.Name}}</td><td>{{.Project}}</td><td>{{date .CreatedAt}}</td>
+  <td>{{if .LastUsedAt.IsZero}}<span class="muted">jamais</span>{{else}}{{date .LastUsedAt}}{{end}}</td>
+  <td><form method="post" action="/settings/tokens/{{.ID}}/delete" class="inline">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <button type="submit" class="link danger-link">Révoquer</button>
+  </form></td>
+</tr>
+{{end}}
+</tbody>
+</table>
+{{end}}
+<form method="post" action="/settings/tokens" class="card">
+  <input type="hidden" name="csrf" value="{{$csrf}}">
+  <div class="grid">
+    <label>Nom <input name="name" required maxlength="100" placeholder="gitlab-ci mon-app"></label>
+    <label>Projet <input name="project" required maxlength="200"></label>
+  </div>
+  <button type="submit">Créer un jeton</button>
+</form>
 {{end}}
 {{end}}

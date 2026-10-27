@@ -48,6 +48,16 @@ Générez un SBOM dans votre pipeline (par exemple avec `syft` ou `cdxgen`), pui
 vigil import-sbom -project mon-app sbom.cdx.json
 ```
 
+Si Vigil tourne en mode serveur, le pipeline peut pousser le SBOM par l'API. Un administrateur crée
+un jeton dans **Paramètres → Jetons d'API** ; chaque jeton n'autorise qu'un seul projet.
+
+```bash
+curl -fsS -X PUT -H "Authorization: Bearer $VIGIL_TOKEN" \
+  --data-binary @sbom.cdx.json https://vigil.example.org/api/v1/projects/mon-app/sbom
+```
+
+La réponse JSON résume l'import et une synchronisation est lancée automatiquement.
+
 Un nouvel import du même projet ajoute les nouveaux composants, retire les composants disparus et
 conserve l'historique de suivi des composants inchangés.
 

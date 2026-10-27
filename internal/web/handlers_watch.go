@@ -80,14 +80,20 @@ func (s *Server) renderSettings(w http.ResponseWriter, r *http.Request, status i
 		return
 	}
 	var hooks []store.Webhook
+	var tokens []store.APIToken
 	if sess, _ := sessionFrom(ctx); sess.User.Role == "admin" {
 		if hooks, err = s.Store.ListWebhooks(ctx); err != nil {
+			s.serverError(w, r, err)
+			return
+		}
+		if tokens, err = s.Store.ListAPITokens(ctx); err != nil {
 			s.serverError(w, r, err)
 			return
 		}
 	}
 	s.render(w, r, status, "settings", page{Title: "Paramètres", Error: formErr, Data: map[string]any{
 		"Watch": watch, "Feeds": feeds, "Webhooks": hooks,
+		"Tokens": tokens, "NewToken": newTokenFrom(ctx), "BaseURL": s.BaseURL,
 	}})
 }
 
