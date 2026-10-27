@@ -1,0 +1,130 @@
+{{define "content"}}
+{{$w := .Data.Watch}}{{$csrf := .CSRF}}{{$admin := can .User.Role "admin"}}
+
+<h2>Filtres de veille</h2>
+<p class="muted">Pays et secteurs suivis : ils filtrent la page « Veille » et la section menaces du digest.
+Sans sélection, tout est inclus.</p>
+{{if can .User.Role "analyst"}}
+<form method="post" action="/settings/watch" class="card">
+  <input type="hidden" name="csrf" value="{{$csrf}}">
+  <div class="grid">
+    <fieldset><legend>Pays</legend>
+      {{range countries}}<label class="check"><input type="checkbox" name="country" value="{{.Value}}" {{if has $w.Countries .Value}}checked{{end}}> {{.Label}}</label>{{end}}
+    </fieldset>
+    <fieldset><legend>Secteurs</legend>
+      {{range sectors}}<label class="check"><input type="checkbox" name="sector" value="{{.Value}}" {{if has $w.Sectors .Value}}checked{{end}}> {{.Label}}</label>{{end}}
+    </fieldset>
+  </div>
+  <button type="submit">Enregistrer</button>
+</form>
+{{end}}
+
+<h2>Flux CTI</h2>
+<table>
+<thead><tr><th>Nom</th><th>URL</th><th>Pays / secteurs par défaut</th><th>Dernière collecte</th><th></th></tr></thead>
+<tbody>
+{{range .Data.Feeds}}
+<tr>
+  <td>{{.Name}}{{if not .Enabled}} <span class="muted">(désactivé)</span>{{end}}</td>
+  <td><code class="small">{{.URL}}</code></td>
+  <td>{{if .Country}}{{countryLabel .Country}}{{end}} {{.Sectors}}</td>
+  <td>{{if .LastFetched.IsZero}}<span class="muted">jamais</span>{{else}}{{date .LastFetched}}{{end}}
+      {{if .LastError}}<br><span class="error small">{{.LastError}}</span>{{end}}</td>
+  <td>{{if $admin}}
+    <form method="post" action="/settings/feeds/{{.ID}}/toggle" class="inline">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <input type="hidden" name="enabled" value="{{if .Enabled}}0{{else}}1{{end}}">
+      <button type="submit" class="link">{{if .Enabled}}Désactiver{{else}}Activer{{end}}</button>
+    </form>
+    <form method="post" action="/settings/feeds/{{.ID}}/delete" class="inline">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <button type="submit" class="link danger-link">Supprimer</button>
+    </form>{{end}}
+  </td>
+</tr>
+{{end}}
+</tbody>
+</table>
+
+{{if $admin}}
+<form method="post" action="/settings/feeds" class="card">
+  <input type="hidden" name="csrf" value="{{$csrf}}">
+  <div class="grid">
+    <label>Nom <input name="name" required maxlength="100"></label>
+    <label>URL du flux RSS/Atom (https) <input name="url" type="url" required maxlength="2000"></label>
+    <label>Pays de la source
+      <select name="country"><option value="">—</option>{{range countries}}<option value="{{.Value}}">{{.Label}}</option>{{end}}</select>
+    </label>
+    <label>Secteurs de la source
+      <select name="sector" multiple size="4">{{range sectors}}<option value="{{.Value}}">{{.Label}}</option>{{end}}</select>
+    </label>
+  </div>
+  <button type="submit">Ajouter le flux</button>
+</form>
+
+<h2>Webhooks</h2>
+<p class="muted">Chaque digest généré est envoyé aux webhooks actifs. L'URL est secrète et n'est plus affichée après l'enregistrement.</p>
+{{if .Data.Webhooks}}
+<table>
+<thead><tr><th>Nom</th><th>Type</th><th>Destination</th><th>Dernier envoi</th><th></th></tr></thead>
+<tbody>
+{{range .Data.Webhooks}}
+<tr>
+  <td>{{.Name}}</td><td>{{.Kind}}</td><td><code class="small">{{maskURL .URL}}</code></td>
+  <td>{{if .LastError}}<span class="error small">{{.LastError}}</span>{{else}}<span class="muted">OK ou jamais</span>{{end}}</td>
+  <td><form method="post" action="/settings/webhooks/{{.ID}}/delete" class="inline">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <button type="submit" class="link danger-link">Supprimer</button>
+  </form></td>
+</tr>
+{{end}}
+</tbody>
+</table>
+{{end}}
+<form method="post" action="/settings/webhooks" class="card">
+  <input type="hidden" name="csrf" value="{{$csrf}}">
+  <div class="grid">
+    <label>Nom <input name="name" required maxlength="100"></label>
+    <label>Type <select name="kind">{{range webhookKinds}}<option value="{{.Value}}">{{.Label}}</option>{{end}}</select></label>
+    <label>URL (https) <input name="url" type="url" required maxlength="2000" autocomplete="off"></label>
+  </div>
+  <button type="submit">Ajouter le webhook</button>
+</form>
+
+<h2>Jetons d'API (CI/CD)</h2>
+<p class="muted">Un jeton permet à un pipeline de pousser le SBOM d'un seul projet.</p>
+{{if .Data.NewToken}}
+<div class="card">
+  <p><strong>Copiez ce jeton maintenant, il ne sera plus affiché :</strong></p>
+  <pre><code>{{.Data.NewToken}}</code></pre>
+  <p class="small">Exemple :</p>
+  <pre><code>curl -X PUT -H "Authorization: Bearer $VIGIL_TOKEN" --data-binary @sbom.cdx.json {{if .Data.BaseURL}}{{.Data.BaseURL}}{{else}}https://vigil.example{{end}}/api/v1/projects/NOM_DU_PROJET/sbom</code></pre>
+</div>
+{{end}}
+{{if .Data.Tokens}}
+<table>
+<thead><tr><th>Nom</th><th>Projet</th><th>Créé</th><th>Dernière utilisation</th><th></th></tr></thead>
+<tbody>
+{{range .Data.Tokens}}
+<tr>
+  <td>{{.Name}}</td><td>{{.Project}}</td><td>{{date .CreatedAt}}</td>
+  <td>{{if .LastUsedAt.IsZero}}<span class="muted">jamais</span>{{else}}{{date .LastUsedAt}}{{end}}</td>
+  <td><form method="post" action="/settings/tokens/{{.ID}}/delete" class="inline">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <button type="submit" class="link danger-link">Révoquer</button>
+  </form></td>
+</tr>
+{{end}}
+</tbody>
+</table>
+{{end}}
+<form method="post" action="/settings/tokens" class="card">
+  <input type="hidden" name="csrf" value="{{$csrf}}">
+  <div class="grid">
+    <label>Nom <input name="name" required maxlength="100" placeholder="gitlab-ci mon-app"></label>
+    <label>Projet <input name="project" required maxlength="200"></label>
+  </div>
+  <button type="submit">Créer un jeton</button>
+</form>
+{{end}}
+{{end}}

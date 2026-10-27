@@ -1,0 +1,15 @@
+{{define "content"}}
+{{if can .User.Role "analyst"}}
+<form method="post" action="/digests" class="inline">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <button type="submit">Générer un digest</button>
+</form>
+{{end}}
+{{if .Data}}
+<ul>
+{{range .Data}}
+<li><a href="/digests/{{.ID}}">Digest du {{date .CreatedAt}}</a> <span class="muted">(depuis le {{date .Since}})</span></li>
+{{end}}
+</ul>
+{{else}}<p class="muted">Aucun digest généré.</p>{{end}}
+{{end}}

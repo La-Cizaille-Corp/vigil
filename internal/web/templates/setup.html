@@ -1,0 +1,9 @@
+{{define "content"}}
+<p>Aucun compte n'existe encore. Créez le compte administrateur.</p>
+<form method="post" action="/setup" class="card narrow">
+  <label>Nom d'utilisateur <input name="username" required maxlength="64" autocomplete="username"></label>
+  <label>Mot de passe (12 caractères minimum)
+    <input type="password" name="password" required minlength="12" autocomplete="new-password"></label>
+  <button type="submit">Créer le compte</button>
+</form>
+{{end}}

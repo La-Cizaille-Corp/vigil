@@ -1,0 +1,12 @@
+{{define "content"}}
+{{$current := .Data.Status}}
+<nav class="filters">
+  <a href="/findings" {{if not $current}}class="active"{{end}}>Toutes</a>
+  {{range statuses}}
+  <a href="/findings?status={{.Value}}" {{if eq .Value $current}}class="active"{{end}}>{{.Label}}</a>
+  {{end}}
+  <a href="/findings?kev=1" {{if .Data.KEV}}class="active"{{end}}>Exploitées (KEV)</a>
+</nav>
+{{template "findingTable" .Data.Findings}}
+{{end}}
+

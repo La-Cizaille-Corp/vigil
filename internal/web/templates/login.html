@@ -1,0 +1,7 @@
+{{define "content"}}
+<form method="post" action="/login" class="card narrow">
+  <label>Nom d'utilisateur <input name="username" required maxlength="64" autocomplete="username" autofocus></label>
+  <label>Mot de passe <input type="password" name="password" required autocomplete="current-password"></label>
+  <button type="submit">Se connecter</button>
+</form>
+{{end}}
