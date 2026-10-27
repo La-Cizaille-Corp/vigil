@@ -2,6 +2,7 @@ package netsafe
 
 import (
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -35,4 +36,17 @@ func TestClientBlocksLoopback(t *testing.T) {
 		t.Fatalf("allowPrivate client failed: %v", err)
 	}
 	resp.Body.Close()
+}
+
+func TestPublic(t *testing.T) {
+	for addr, want := range map[string]bool{
+		"8.8.8.8": true, "2606:4700::1111": true,
+		"127.0.0.1": false, "10.1.2.3": false, "169.254.169.254": false, "0.0.0.0": false,
+		"100.64.1.1": false, "198.18.0.1": false, "255.255.255.255": false,
+		"::ffff:10.0.0.1": false, "64:ff9b::a00:1": false, "::1": false, "fd00::1": false,
+	} {
+		if got := Public(net.ParseIP(addr)); got != want {
+			t.Errorf("Public(%s) = %v, want %v", addr, got, want)
+		}
+	}
 }

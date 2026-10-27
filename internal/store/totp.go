@@ -41,8 +41,14 @@ func (s *Store) DisableTOTPByName(ctx context.Context, username string) error {
 		`UPDATE users SET totp_secret = '', totp_pending = '', totp_last_step = 0 WHERE username = ?`, username))
 }
 
-// UseTOTPStep records the last accepted step so a code cannot be replayed.
-func (s *Store) UseTOTPStep(ctx context.Context, userID, step int64) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE users SET totp_last_step = ? WHERE id = ?`, step, userID)
-	return err
+// UseTOTPStep consumes a time step; it reports false when that step (or a
+// later one) was already used, so a code cannot be replayed, even concurrently.
+func (s *Store) UseTOTPStep(ctx context.Context, userID, step int64) (bool, error) {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE users SET totp_last_step = ? WHERE id = ? AND totp_last_step < ?`, step, userID, step)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
 }

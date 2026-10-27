@@ -42,8 +42,9 @@ docker run -d --name vigil -p 127.0.0.1:8080:8080 -v vigil-data:/data ghcr.io/la
 docker exec -it vigil vigil user add -username admin -role admin
 ```
 
-Dans un conteneur, les requêtes ne viennent pas de `127.0.0.1` : le premier administrateur se
-crée donc avec `docker exec` plutôt que par la page de configuration. L'image écoute en
+Dans un conteneur, et plus généralement derrière un reverse proxy (`-behind-proxy`), la page de
+configuration est désactivée : le premier administrateur se crée en ligne de commande
+(`vigil user add -username admin -role admin`, ici via `docker exec`). L'image écoute en
 `-behind-proxy` : exposez-la derrière un reverse proxy HTTPS (ou seulement sur `127.0.0.1`).
 
 ## Démarrage
@@ -131,7 +132,7 @@ Pour publier une version, poussez un tag `vX.Y.Z` : le workflow `release` constr
 avec [GoReleaser](https://goreleaser.com) (`.goreleaser.yaml`) et l'image Docker, puis prépare
 une release en brouillon à relire avant publication. Test local : `goreleaser release --snapshot --clean`.
 
-La CI exécute aussi `gofmt`, `staticcheck`, `govulncheck` et `gosec`.
+Voir [CONTRIBUTING.md](CONTRIBUTING.md) pour les contrôles exécutés en CI et en local.
 Voir [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md),
 [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) et [SECURITY.md](SECURITY.md).
 

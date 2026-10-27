@@ -156,7 +156,7 @@ func runServe(ctx context.Context, log *slog.Logger, args []string) error {
 
 	sv := newServices(st, log, *allowPrivate)
 	srv := &web.Server{Store: st, Syncer: sv.syncer, CTI: sv.cti, Notifier: sv.notifier, Log: log,
-		Version: version, BaseURL: *baseURL, SecureCookies: useTLS || *behindProxy, Context: ctx}
+		Version: version, BaseURL: *baseURL, SecureCookies: useTLS || *behindProxy, BehindProxy: *behindProxy, Context: ctx}
 	handler, err := srv.Handler()
 	if err != nil {
 		return err

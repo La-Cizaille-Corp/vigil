@@ -268,3 +268,49 @@ func TestFindingFilters(t *testing.T) {
 		}
 	}
 }
+
+func TestSetupDisabledBehindProxy(t *testing.T) {
+	st, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "proxy.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	srv := &Server{Store: st, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), BehindProxy: true}
+	h, err := srv.Handler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	// The request comes from 127.0.0.1, like any request relayed by a local proxy.
+	if code := newClient(t, ts.URL).post("/setup", url.Values{"username": {"evil"}, "password": {"a-strong-password"}}); code != http.StatusForbidden {
+		t.Fatalf("setup behind proxy: %d", code)
+	}
+}
+
+func TestTOTPReplayAndBruteForce(t *testing.T) {
+	st, base := newTestServer(t)
+	ctx := context.Background()
+	c := newClient(t, base)
+	c.post("/setup", url.Values{"username": {"admin"}, "password": {"a-strong-password"}})
+	user, _ := st.UserByName(ctx, "admin")
+	secret, _ := auth.NewTOTPSecret()
+	st.SetTOTPPending(ctx, user.ID, secret)
+	st.EnableTOTP(ctx, user.ID, 0)
+
+	if ok, _ := st.UseTOTPStep(ctx, user.ID, 100); !ok {
+		t.Fatal("first use refused")
+	}
+	if ok, _ := st.UseTOTPStep(ctx, user.ID, 100); ok {
+		t.Fatal("step replayed")
+	}
+	// Wrong codes on the disable form are rate limited per user.
+	token := c.csrf()
+	code := 0
+	for i := 0; i < 6; i++ {
+		code = c.post("/account/totp/disable", url.Values{"csrf": {token}, "code": {"000000"}})
+	}
+	if code != http.StatusTooManyRequests {
+		t.Fatalf("brute force not limited: %d", code)
+	}
+}

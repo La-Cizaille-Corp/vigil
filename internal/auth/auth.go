@@ -139,11 +139,29 @@ func (l *Limiter) Allowed(key string) bool {
 	return len(l.recent(key)) < l.MaxFailures
 }
 
+// maxTrackedKeys caps the limiter memory; when reached, expired entries are
+// swept and, if still full, the table is reset (fail-open for availability,
+// each key still needs MaxFailures new attempts to be blocked).
+const maxTrackedKeys = 100_000
+
 // Fail records a failed attempt.
 func (l *Limiter) Fail(key string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if len(l.failures) >= maxTrackedKeys {
+		l.sweep()
+	}
 	l.failures[key] = append(l.recent(key), time.Now())
+}
+
+// sweep drops the keys whose failures are all outside the window.
+func (l *Limiter) sweep() {
+	for key := range l.failures {
+		l.recent(key)
+	}
+	if len(l.failures) >= maxTrackedKeys {
+		clear(l.failures)
+	}
 }
 
 // Reset clears the failures of key after a successful login.
