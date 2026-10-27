@@ -54,6 +54,8 @@ type Server struct {
 	Context context.Context
 	// SecureCookies must be true whenever the UI is reached over HTTPS.
 	SecureCookies bool
+	// BehindProxy disables the web setup page (see setupAllowed).
+	BehindProxy bool
 
 	pages   map[string]*template.Template
 	limiter *auth.Limiter

@@ -20,7 +20,12 @@ import (
 
 // setupAllowed: the first admin can only be created from the machine itself,
 // so that an exposed server cannot be claimed by someone else.
+// SECURITY: behind a reverse proxy every request comes from the proxy, often
+// on the same host, so loopback proves nothing: the CLI must be used instead.
 func (s *Server) setupAllowed(r *http.Request) (bool, error) {
+	if s.BehindProxy {
+		return false, nil
+	}
 	n, err := s.Store.CountUsers(r.Context())
 	return n == 0 && isLoopback(r), err
 }

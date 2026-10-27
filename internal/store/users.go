@@ -83,6 +83,12 @@ func (s *Store) DeleteSession(ctx context.Context, tokenHash string) error {
 	return err
 }
 
+// DeleteOtherSessions ends every session of a user except the current one.
+func (s *Store) DeleteOtherSessions(ctx context.Context, userID int64, keepHash string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?`, userID, keepHash)
+	return err
+}
+
 // DeleteExpiredSessions purges stale sessions.
 func (s *Store) DeleteExpiredSessions(ctx context.Context) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE expires_at <= ?`, now())

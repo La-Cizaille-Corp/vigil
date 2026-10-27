@@ -1,0 +1,13 @@
+# Secret scanning configuration (https://github.com/gitleaks/gitleaks).
+[extend]
+useDefault = true
+
+[[rules]]
+id = "vigil-api-token"
+description = "Vigil API token"
+regex = '''vgl_[A-Za-z0-9_-]{43}'''
+keywords = ["vgl_"]
+
+[allowlist]
+description = "Test fixtures with fake secrets"
+paths = ['''_test\.go$''']

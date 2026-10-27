@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"syscall"
 	"time"
@@ -54,7 +55,9 @@ func NewClient(timeout time.Duration, allowPrivate bool) *http.Client {
 		}
 	}
 	transport := &http.Transport{
-		Proxy:                 http.ProxyFromEnvironment,
+		// SECURITY: through a proxy the dial check would only see the proxy
+		// address, so proxies are honoured only when private URLs are allowed.
+		Proxy:                 proxy(allowPrivate),
 		DialContext:           dialer.DialContext,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: 30 * time.Second,
@@ -76,11 +79,42 @@ func NewClient(timeout time.Duration, allowPrivate bool) *http.Client {
 	}
 }
 
+func proxy(allowPrivate bool) func(*http.Request) (*url.URL, error) {
+	if allowPrivate {
+		return http.ProxyFromEnvironment
+	}
+	return nil
+}
+
+// nonPublic lists special-purpose ranges not covered by the net.IP helpers.
+var nonPublic = []netip.Prefix{
+	netip.MustParsePrefix("100.64.0.0/10"), // carrier-grade NAT
+	netip.MustParsePrefix("192.0.0.0/24"),  // IETF protocol assignments
+	netip.MustParsePrefix("198.18.0.0/15"), // benchmarking
+	netip.MustParsePrefix("240.0.0.0/4"),   // reserved, includes broadcast
+	netip.MustParsePrefix("64:ff9b::/96"),  // NAT64: may reach internal IPv4
+	netip.MustParsePrefix("64:ff9b:1::/48"),
+	netip.MustParsePrefix("2001:db8::/32"), // documentation
+}
+
 // Public reports whether ip is a globally routable address.
 func Public(ip net.IP) bool {
-	return !(ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
 		ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() ||
-		ip.IsInterfaceLocalMulticast())
+		ip.IsInterfaceLocalMulticast() {
+		return false
+	}
+	addr, ok := netip.AddrFromSlice(ip)
+	if !ok {
+		return false
+	}
+	addr = addr.Unmap()
+	for _, p := range nonPublic {
+		if p.Contains(addr) {
+			return false
+		}
+	}
+	return true
 }
 
 // ReadLimited reads at most max bytes of r and fails if there is more.
