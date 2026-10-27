@@ -1,0 +1,51 @@
+# Vigil behind Caddy (automatic HTTPS). Usage:
+#   cp .env.example .env    # then set VIGIL_DOMAIN and, optionally, the NVD key
+#   docker compose up -d
+#   docker compose exec vigil vigil user add -username admin -role admin
+# See docs/OPERATIONS.md for backups, restore and upgrades.
+name: vigil
+
+services:
+  vigil:
+    image: ghcr.io/la-cizaille-corp/vigil:0.1 # pin a version; upgrade deliberately
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      VIGIL_DB: /data/vigil.db
+      VIGIL_BASE_URL: https://${VIGIL_DOMAIN}
+      VIGIL_BACKUP_DIR: /data/backups
+    volumes:
+      - vigil-data:/data
+    # Only Caddy reaches Vigil; the port is not published on the host.
+    expose:
+      - "8080"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      # distroless has no shell or curl: the binary checks its own database.
+      test: ["CMD", "/usr/local/bin/vigil", "check"]
+      interval: 1h
+      timeout: 30s
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      VIGIL_DOMAIN: ${VIGIL_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - vigil
+
+volumes:
+  vigil-data:
+  caddy-data:
+  caddy-config:

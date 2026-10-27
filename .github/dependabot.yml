@@ -1,9 +1,15 @@
 version: 2
+# Version updates wait a few days after a release before being proposed:
+# compromised releases are usually detected and pulled within that window.
+# Security updates (Dependabot alerts) are not delayed by the cooldown.
 updates:
   - package-ecosystem: gomod
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
     groups:
       go:
         patterns: ["*"]
@@ -11,6 +17,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       actions:
         patterns: ["*"]
@@ -18,3 +26,5 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7

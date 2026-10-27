@@ -1,0 +1,52 @@
+# systemd unit for a native install (no Docker). Install:
+#   sudo useradd --system --home /var/lib/vigil --shell /usr/sbin/nologin vigil
+#   sudo install -m 0755 vigil /usr/local/bin/vigil
+#   sudo install -m 0640 -g vigil vigil.env /etc/vigil/vigil.env   # see .env.example
+#   sudo cp vigil.service /etc/systemd/system/ && sudo systemctl enable --now vigil
+#   sudo -u vigil VIGIL_DB=/var/lib/vigil/vigil.db vigil user add -username admin -role admin
+# Put a TLS reverse proxy in front, or use -tls-cert/-tls-key.
+[Unit]
+Description=Vigil security watch
+Documentation=https://github.com/La-Cizaille-Corp/vigil
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=vigil
+Group=vigil
+StateDirectory=vigil
+StateDirectoryMode=0700
+Environment=VIGIL_DB=/var/lib/vigil/vigil.db
+Environment=VIGIL_BACKUP_DIR=/var/lib/vigil/backups
+EnvironmentFile=-/etc/vigil/vigil.env
+ExecStart=/usr/local/bin/vigil serve -addr 127.0.0.1:8080 -behind-proxy
+Restart=on-failure
+RestartSec=5s
+
+# Hardening: Vigil only needs its state directory and outbound HTTPS.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

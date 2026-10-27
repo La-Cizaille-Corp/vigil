@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"golang.org/x/term"
@@ -40,14 +41,20 @@ const usage = `vigil — veille de sécurité légère
 Usage :
   vigil serve   [-db fichier] [-addr 127.0.0.1:8080] [-tls-cert c -tls-key k] [-behind-proxy]
                 [-sync-interval 6h] [-digest-interval 24h] [-base-url https://...] [-allow-private-urls]
+                [-backup-dir dossier -backup-interval 24h -backup-keep 14]
   vigil sync    [-db fichier] [-allow-private-urls]
   vigil digest  [-db fichier] [-no-webhooks] [-allow-private-urls]
   vigil import-sbom [-project nom] [-db fichier] fichier.json
+  vigil backup  -o fichier.db [-db fichier]
+  vigil check   [-db fichier]
   vigil user add -username nom [-role admin|analyst|viewer] [-db fichier]
+  vigil user reset-totp -username nom [-db fichier]
   vigil version
 
 La base par défaut se trouve dans le dossier de configuration de l'utilisateur
 (variable VIGIL_DB pour la changer). Clé NVD facultative : VIGIL_NVD_API_KEY.
+Chaque option peut aussi venir de l'environnement : -sync-interval → VIGIL_SYNC_INTERVAL ;
+une option passée en ligne de commande l'emporte.
 `
 
 func main() {
@@ -56,7 +63,8 @@ func main() {
 		os.Exit(2)
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	// SIGTERM is what Docker and systemd send: shut down cleanly on it too.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	var err error
@@ -71,6 +79,10 @@ func main() {
 		err = runImportSBOM(ctx, args)
 	case "user":
 		err = runUser(ctx, args)
+	case "backup":
+		err = runBackup(ctx, args)
+	case "check":
+		err = runCheck(ctx, args)
 	case "version":
 		fmt.Println(version)
 	default:
@@ -140,6 +152,9 @@ func runServe(ctx context.Context, log *slog.Logger, args []string) error {
 	digestEvery := fs.Duration("digest-interval", 0, "intervalle de génération et d'envoi du digest, ex. 24h (0 = désactivé)")
 	baseURL := fs.String("base-url", "", "adresse publique de l'interface, utilisée dans les messages webhook")
 	allowPrivate := fs.Bool("allow-private-urls", false, "autoriser flux et webhooks vers des adresses privées ou locales")
+	backupDir := fs.String("backup-dir", "", "dossier des sauvegardes automatiques (vide = désactivées)")
+	backupEvery := fs.Duration("backup-interval", 24*time.Hour, "intervalle des sauvegardes automatiques")
+	backupKeep := fs.Int("backup-keep", 14, "nombre de sauvegardes automatiques conservées")
 	parseFlags(fs, args)
 
 	useTLS := *certFile != "" && *keyFile != ""
@@ -171,6 +186,15 @@ func runServe(ctx context.Context, log *slog.Logger, args []string) error {
 		go every(ctx, *syncEvery, true, func() {
 			if err := sv.refresh(ctx); err != nil {
 				log.Error("synchronisation automatique", "err", err)
+			}
+		})
+	}
+	if *backupDir != "" && *backupEvery > 0 {
+		go every(ctx, *backupEvery, true, func() {
+			if path, err := st.BackupTo(ctx, *backupDir, *backupKeep); err != nil {
+				log.Error("sauvegarde automatique", "err", err)
+			} else {
+				log.Info("sauvegarde", "file", path)
 			}
 		})
 	}
@@ -388,7 +412,59 @@ func runUser(ctx context.Context, args []string) error {
 
 // parseFlags parses args; with flag.ExitOnError, Parse exits on error and
 // never returns one.
-func parseFlags(fs *flag.FlagSet, args []string) { _ = fs.Parse(args) }
+// parseFlags parses the command line, then fills every option not given on
+// it from the environment (VIGIL_ + name in upper snake case), so that a
+// container or a systemd unit can be configured with an environment file.
+func parseFlags(fs *flag.FlagSet, args []string) {
+	_ = fs.Parse(args) // ExitOnError: never returns an error
+	set := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+	fs.VisitAll(func(f *flag.Flag) {
+		env := "VIGIL_" + strings.ToUpper(strings.ReplaceAll(f.Name, "-", "_"))
+		if v, ok := os.LookupEnv(env); ok && !set[f.Name] {
+			if err := fs.Set(f.Name, v); err != nil {
+				fmt.Fprintf(os.Stderr, "erreur : %s=%q : %v\n", env, v, err)
+				os.Exit(2)
+			}
+		}
+	})
+}
+
+// runBackup writes a consistent copy of the database, safe while the server runs.
+func runBackup(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("backup", flag.ExitOnError)
+	dbPath := fs.String("db", defaultDB(), "fichier SQLite")
+	out := fs.String("o", "", "fichier de sauvegarde à créer")
+	parseFlags(fs, args)
+	if *out == "" {
+		return errors.New("-o est obligatoire")
+	}
+	if _, err := os.Stat(*out); err == nil {
+		return fmt.Errorf("%s existe déjà", *out)
+	}
+	st, err := store.Open(ctx, *dbPath)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	if err := st.Backup(ctx, *out); err != nil {
+		return err
+	}
+	fmt.Printf("sauvegarde cohérente écrite et vérifiée : %s\n", *out)
+	return nil
+}
+
+// runCheck verifies the integrity of a database or of a backup before a restore.
+func runCheck(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("check", flag.ExitOnError)
+	dbPath := fs.String("db", defaultDB(), "fichier SQLite ou sauvegarde à vérifier")
+	parseFlags(fs, args)
+	if err := store.CheckIntegrity(ctx, *dbPath); err != nil {
+		return err
+	}
+	fmt.Printf("%s : intègre\n", *dbPath)
+	return nil
+}
 
 // auditCLI records a CLI action and warns if the audit log cannot be written.
 func auditCLI(ctx context.Context, st *store.Store, action, detail string) {

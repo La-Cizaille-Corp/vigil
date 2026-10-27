@@ -1,0 +1,15 @@
+# Review owners. With branch protection "Require review from Code Owners",
+# changes to these paths need an approval from a listed owner.
+# Add a second maintainer next to each line as soon as there is one.
+*                       @La-Cizaille
+
+# Security-sensitive code and the supply chain.
+/internal/auth/         @La-Cizaille
+/internal/web/          @La-Cizaille
+/internal/netsafe/      @La-Cizaille
+/internal/store/migrations/ @La-Cizaille
+/go.mod                 @La-Cizaille
+/go.sum                 @La-Cizaille
+/.github/               @La-Cizaille
+/Dockerfile             @La-Cizaille
+/.goreleaser.yaml       @La-Cizaille

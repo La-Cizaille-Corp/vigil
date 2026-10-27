@@ -8,6 +8,10 @@
 - Les points sensibles du code portent un commentaire `// SECURITY:` ; une exception à un outil
   d'analyse (`#nosec`) est toujours accompagnée de sa justification.
 - Toute évolution de la surface d'attaque met à jour [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
+- Tout choix structurant est consigné dans le registre des arbitrages de
+  [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (décision, options écartées, conséquences).
+- Une PR Dependabot n'est pas fusionnée « parce que la CI est verte » : lire le changelog et le
+  diff de la dépendance, surtout pour `modernc.org/*`.
 
 ## Contrôles
 
@@ -18,11 +22,12 @@
 | staticcheck, gosec, govulncheck (versions épinglées) | `ci.yml` | oui |
 | Secrets dans tout l'historique (gitleaks, règle dédiée aux jetons `vgl_`) | `ci.yml` | oui |
 | Revue des dépendances ajoutées (vulnérabilités, licences) | `ci.yml`, PR | oui |
-| Config GoReleaser, build Docker, scan de l'image (Trivy HIGH/CRITICAL corrigeables) | `ci.yml` | oui |
+| Nouvelles capacités d'un paquet (réseau, fichiers, exécution…) par rapport à la branche cible (capslock) | `ci.yml`, PR | oui ; une capacité légitime s'accepte en revue |
+| Config GoReleaser, build Docker, Compose valide, scan de l'image (Trivy HIGH/CRITICAL corrigeables) | `ci.yml` | oui |
 | SBOM CycloneDX du code source (artefact `sbom`) | `ci.yml` | — |
 | CodeQL (Go et workflows GitHub Actions) | `codeql.yml` | alertes dans *Security* |
 | OpenSSF Scorecard | `scorecard.yml` | alertes dans *Security* |
-| Mises à jour des dépendances, actions et images | `dependabot.yml` | PR hebdomadaires |
+| Mises à jour des dépendances, actions et images | `dependabot.yml` | PR hebdomadaires, après 7 jours d'attente |
 
 Les actions GitHub sont épinglées par SHA de commit et les images de base par digest :
 une étiquette compromise ne peut pas changer ce qui s'exécute. Dependabot propose les mises à jour.

@@ -22,6 +22,7 @@ env:
   GOSEC_VERSION: v2.30.0
   GITLEAKS_IMAGE: ghcr.io/gitleaks/gitleaks:v8.30.1
   TRIVY_IMAGE: aquasec/trivy:0.76.1
+  CAPSLOCK_VERSION: v0.3.4
 
 jobs:
   test:
@@ -74,6 +75,33 @@ jobs:
       - name: gitleaks
         run: docker run --rm -v "$PWD:/repo" "$GITLEAKS_IMAGE" git /repo --redact --verbose --config /repo/.gitleaks.toml
 
+  # Fails when a change (typically a dependency update) gives a package a
+  # capability it did not have on the target branch: network, files,
+  # process execution... A legitimate new capability is accepted by review.
+  capabilities:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.base_ref }}
+          path: base
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: head
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: head/go.mod
+      - run: go install github.com/google/capslock/cmd/capslock@${CAPSLOCK_VERSION}
+      - name: capabilities of the target branch
+        working-directory: base
+        run: capslock -packages ./... -output json > "$RUNNER_TEMP/base.json"
+      - name: compare
+        working-directory: head
+        run: capslock -packages ./... -output compare -granularity package "$RUNNER_TEMP/base.json"
+
   dependency-review:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -106,6 +134,8 @@ jobs:
           upload-artifact: false
       - name: docker build
         run: docker build -t vigil:ci . && docker run --rm vigil:ci version
+      - name: compose file
+        run: cp deploy/.env.example deploy/.env && docker compose -f deploy/docker-compose.yml config --quiet
       - name: image scan (Trivy)
         run: >-
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "$TRIVY_IMAGE"

@@ -1,0 +1,6 @@
+# Caddy obtains and renews the TLS certificate of VIGIL_DOMAIN automatically.
+{$VIGIL_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy vigil:8080
+	header Strict-Transport-Security "max-age=31536000"
+}
