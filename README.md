@@ -37,6 +37,9 @@ Chaque archive est accompagnée de son SBOM CycloneDX et d'une attestation de pr
 go build -o vigil ./cmd/vigil
 ```
 
+**Service systemd ou Docker Compose (avec HTTPS automatique par Caddy)** : fichiers prêts dans
+[deploy/](deploy/), procédure dans [docs/OPERATIONS.md](docs/OPERATIONS.md).
+
 **Docker** (image distroless, utilisateur non privilégié, données dans `/data`) :
 
 ```bash
@@ -135,8 +138,10 @@ avec [GoReleaser](https://goreleaser.com) (`.goreleaser.yaml`) et l'image Docker
 une release en brouillon à relire avant publication. Test local : `goreleaser release --snapshot --clean`.
 
 Voir [CONTRIBUTING.md](CONTRIBUTING.md) pour les contrôles exécutés en CI et en local.
-Voir [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md),
-[docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) et [SECURITY.md](SECURITY.md).
+Voir [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (architecture et arbitrages),
+[docs/OPERATIONS.md](docs/OPERATIONS.md) (déploiement, sauvegarde, restauration),
+[docs/THREAT_MODEL.md](docs/THREAT_MODEL.md), [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md)
+et [SECURITY.md](SECURITY.md).
 
 ## Licence
 
