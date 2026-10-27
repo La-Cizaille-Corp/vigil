@@ -16,6 +16,7 @@ type Feed struct {
 	URL         string
 	Country     string
 	Sectors     string
+	Regulations string // comma-separated, applied to every item
 	Enabled     bool
 	LastFetched time.Time
 	LastError   string
@@ -23,29 +24,32 @@ type Feed struct {
 
 // CTIItem is one news item from a feed.
 type CTIItem struct {
-	ID        int64
-	FeedName  string
-	GUID      string
-	Title     string
-	Link      string
-	Summary   string
-	Published time.Time
-	Countries []string
-	Sectors   []string
+	ID          int64
+	FeedName    string
+	GUID        string
+	Title       string
+	Link        string
+	Summary     string
+	Published   time.Time
+	Countries   []string
+	Sectors     []string
+	Regulations []string
 }
 
 // CTIFilter selects items. An empty list means "any".
 type CTIFilter struct {
-	Countries []string
-	Sectors   []string
-	Since     time.Time
-	Limit     int
+	Countries     []string
+	Sectors       []string
+	Regulations   []string
+	AnyRegulation bool // only items tagged with at least one regulation
+	Since         time.Time
+	Limit         int
 }
 
 // ListFeeds returns every feed.
 func (s *Store) ListFeeds(ctx context.Context) ([]Feed, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, name, url, country, sectors, enabled, last_fetched, last_error
+		SELECT id, name, url, country, sectors, regulations, enabled, last_fetched, last_error
 		FROM cti_feeds ORDER BY name COLLATE NOCASE`)
 	if err != nil {
 		return nil, fmt.Errorf("list feeds: %w", err)
@@ -55,7 +59,7 @@ func (s *Store) ListFeeds(ctx context.Context) ([]Feed, error) {
 	for rows.Next() {
 		var f Feed
 		var fetched string
-		if err := rows.Scan(&f.ID, &f.Name, &f.URL, &f.Country, &f.Sectors, &f.Enabled, &fetched, &f.LastError); err != nil {
+		if err := rows.Scan(&f.ID, &f.Name, &f.URL, &f.Country, &f.Sectors, &f.Regulations, &f.Enabled, &fetched, &f.LastError); err != nil {
 			return nil, err
 		}
 		f.LastFetched = parseTime(fetched)
@@ -67,8 +71,8 @@ func (s *Store) ListFeeds(ctx context.Context) ([]Feed, error) {
 // CreateFeed adds a feed.
 func (s *Store) CreateFeed(ctx context.Context, f Feed) (int64, error) {
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO cti_feeds (name, url, country, sectors, enabled) VALUES (?, ?, ?, ?, ?)`,
-		f.Name, f.URL, f.Country, f.Sectors, f.Enabled)
+		`INSERT INTO cti_feeds (name, url, country, sectors, regulations, enabled) VALUES (?, ?, ?, ?, ?, ?)`,
+		f.Name, f.URL, f.Country, f.Sectors, f.Regulations, f.Enabled)
 	if err != nil {
 		return 0, fmt.Errorf("create feed: %w", err)
 	}
@@ -100,11 +104,11 @@ func (s *Store) RecordFeedFetch(ctx context.Context, id int64, fetchErr error) e
 // whether the item is new.
 func (s *Store) InsertCTIItem(ctx context.Context, feedID int64, it CTIItem) (bool, error) {
 	res, err := s.db.ExecContext(ctx, `
-		INSERT INTO cti_items (feed_id, guid, title, link, summary, published, countries, sectors, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO cti_items (feed_id, guid, title, link, summary, published, countries, sectors, regulations, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (feed_id, guid) DO NOTHING`,
 		feedID, it.GUID, it.Title, it.Link, it.Summary, formatTime(it.Published),
-		joinTags(it.Countries), joinTags(it.Sectors), now())
+		joinTags(it.Countries), joinTags(it.Sectors), joinTags(it.Regulations), now())
 	if err != nil {
 		return false, fmt.Errorf("insert cti item: %w", err)
 	}
@@ -130,11 +134,15 @@ func (s *Store) ListCTIItems(ctx context.Context, f CTIFilter) ([]CTIItem, error
 	}
 	anyTag("i.countries", f.Countries)
 	anyTag("i.sectors", f.Sectors)
+	anyTag("i.regulations", f.Regulations)
+	if f.AnyRegulation {
+		where = append(where, "i.regulations <> ''")
+	}
 	if !f.Since.IsZero() {
 		where = append(where, "i.created_at >= ?")
 		args = append(args, formatTime(f.Since))
 	}
-	q := `SELECT i.id, fd.name, i.guid, i.title, i.link, i.summary, i.published, i.countries, i.sectors
+	q := `SELECT i.id, fd.name, i.guid, i.title, i.link, i.summary, i.published, i.countries, i.sectors, i.regulations
 		FROM cti_items i JOIN cti_feeds fd ON fd.id = i.feed_id`
 	if len(where) > 0 {
 		// #nosec G202 -- only fixed column expressions are joined; values are parameters.
@@ -155,13 +163,13 @@ func (s *Store) ListCTIItems(ctx context.Context, f CTIFilter) ([]CTIItem, error
 	var out []CTIItem
 	for rows.Next() {
 		var it CTIItem
-		var published, countries, sectors string
+		var published, countries, sectors, regulations string
 		if err := rows.Scan(&it.ID, &it.FeedName, &it.GUID, &it.Title, &it.Link, &it.Summary,
-			&published, &countries, &sectors); err != nil {
+			&published, &countries, &sectors, &regulations); err != nil {
 			return nil, err
 		}
 		it.Published = parseTime(published)
-		it.Countries, it.Sectors = splitTags(countries), splitTags(sectors)
+		it.Countries, it.Sectors, it.Regulations = splitTags(countries), splitTags(sectors), splitTags(regulations)
 		out = append(out, it)
 	}
 	return out, rows.Err()

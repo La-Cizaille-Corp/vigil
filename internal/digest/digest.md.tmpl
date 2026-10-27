@@ -33,3 +33,12 @@ Aucune vulnérabilité ouverte.
 {{else}}
 Aucune actualité correspondante sur la période.
 {{end}}
+
+## Veille réglementaire ({{len .Regulatory}}) — {{.RegScope}}
+{{if .Regulatory}}
+{{- range .Regulatory}}
+- [{{.Title}}]({{.Link}}) — {{.FeedName}}, {{date .Published}} · {{regs .Regulations}}
+{{- end}}
+{{else}}
+Aucune actualité réglementaire sur la période.
+{{end}}

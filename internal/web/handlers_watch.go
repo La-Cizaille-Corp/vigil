@@ -20,9 +20,17 @@ import (
 
 func (s *Server) ctiList(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	filter := store.CTIFilter{Countries: knownOnly(cti.Countries, q["country"]), Sectors: knownOnly(cti.Sectors, q["sector"])}
-	watched := false
-	if len(filter.Countries) == 0 && len(filter.Sectors) == 0 && q.Get("all") == "" {
+	filter := store.CTIFilter{Countries: knownOnly(cti.Countries, q["country"]), Sectors: knownOnly(cti.Sectors, q["sector"]),
+		Regulations: knownOnly(cti.Regulations, q["regulation"])}
+	watched, regulatory := false, q.Get("view") == "regulatory"
+	switch {
+	case regulatory:
+		var err error
+		if filter, err = cti.WatchedRegulations(r.Context(), s.Store); err != nil {
+			s.serverError(w, r, err)
+			return
+		}
+	case len(filter.Countries) == 0 && len(filter.Sectors) == 0 && len(filter.Regulations) == 0 && q.Get("all") == "":
 		var err error
 		if filter, err = cti.WatchedFilter(r.Context(), s.Store); err != nil {
 			s.serverError(w, r, err)
@@ -36,7 +44,7 @@ func (s *Server) ctiList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, r, http.StatusOK, "cti", page{Title: "Veille menaces", Data: map[string]any{
-		"Items": items, "Filter": filter, "Watched": watched,
+		"Items": items, "Filter": filter, "Watched": watched, "Regulatory": regulatory,
 	}})
 }
 
@@ -74,6 +82,12 @@ func (s *Server) renderSettings(w http.ResponseWriter, r *http.Request, status i
 		s.serverError(w, r, err)
 		return
 	}
+	regs, err := cti.WatchedRegulations(ctx, s.Store)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	watch.Regulations = regs.Regulations
 	feeds, err := s.Store.ListFeeds(ctx)
 	if err != nil {
 		s.serverError(w, r, err)
@@ -102,7 +116,7 @@ func (s *Server) saveWatch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Formulaire invalide.", http.StatusBadRequest)
 		return
 	}
-	if err := cti.SaveWatched(r.Context(), s.Store, r.PostForm["country"], r.PostForm["sector"]); err != nil {
+	if err := cti.SaveWatched(r.Context(), s.Store, r.PostForm["country"], r.PostForm["sector"], r.PostForm["regulation"]); err != nil {
 		s.serverError(w, r, err)
 		return
 	}
@@ -121,6 +135,7 @@ func (s *Server) feedCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f.Sectors = strings.Join(knownOnly(cti.Sectors, r.PostForm["sector"]), ",")
+	f.Regulations = strings.Join(knownOnly(cti.Regulations, r.PostForm["regulation"]), ",")
 	if f.Country != "" && !cti.Known(cti.Countries, f.Country) {
 		f.Country = ""
 	}

@@ -139,17 +139,19 @@ func (s *Server) parseTemplates() error {
 			}
 			return strconv.FormatFloat(v, 'f', 1, 64)
 		},
-		"ecosystems":   func() []string { return inventory.Ecosystems },
-		"statuses":     func() []inventory.Option { return tracking.Statuses },
-		"justifs":      func() []inventory.Option { return tracking.Justifications },
-		"queryable":    inventory.Queryable,
-		"epss":         digest.FormatEPSS,
-		"countryLabel": func(v string) string { return cti.Label(cti.Countries, v) },
-		"sectorLabel":  func(v string) string { return cti.Label(cti.Sectors, v) },
-		"countries":    func() []cti.Tag { return cti.Countries },
-		"sectors":      func() []cti.Tag { return cti.Sectors },
-		"webhookKinds": func() []inventory.Option { return notify.Kinds },
-		"maskURL":      notify.MaskURL,
+		"ecosystems":      func() []string { return inventory.Ecosystems },
+		"statuses":        func() []inventory.Option { return tracking.Statuses },
+		"justifs":         func() []inventory.Option { return tracking.Justifications },
+		"queryable":       inventory.Queryable,
+		"epss":            digest.FormatEPSS,
+		"countryLabel":    func(v string) string { return cti.Label(cti.Countries, v) },
+		"sectorLabel":     func(v string) string { return cti.Label(cti.Sectors, v) },
+		"countries":       func() []cti.Tag { return cti.Countries },
+		"sectors":         func() []cti.Tag { return cti.Sectors },
+		"regulations":     func() []cti.Tag { return cti.Regulations },
+		"regulationLabel": func(v string) string { return cti.Label(cti.Regulations, v) },
+		"webhookKinds":    func() []inventory.Option { return notify.Kinds },
+		"maskURL":         notify.MaskURL,
 		"has": func(list []string, v string) bool {
 			for _, x := range list {
 				if x == v {

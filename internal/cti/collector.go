@@ -13,8 +13,9 @@ import (
 
 // Setting keys holding the watched countries and sectors (comma-separated).
 const (
-	SettingCountries = "cti_countries"
-	SettingSectors   = "cti_sectors"
+	SettingCountries   = "cti_countries"
+	SettingSectors     = "cti_sectors"
+	SettingRegulations = "cti_regulations"
 )
 
 // Retention of CTI items.
@@ -72,10 +73,10 @@ func (c *Collector) collect(ctx context.Context, f store.Feed) (int, error) {
 		if it.GUID == "" || it.Title == "" || it.Published.Before(cutoff) {
 			continue
 		}
-		countries, sectors := Classify(it, f.Country, splitNonEmpty(f.Sectors))
+		tags := Classify(it, f)
 		isNew, err := c.Store.InsertCTIItem(ctx, f.ID, store.CTIItem{
-			GUID: it.GUID, Title: it.Title, Link: it.Link, Summary: it.Summary,
-			Published: it.Published, Countries: countries, Sectors: sectors,
+			GUID: it.GUID, Title: it.Title, Link: it.Link, Summary: it.Summary, Published: it.Published,
+			Countries: tags.Countries, Sectors: tags.Sectors, Regulations: tags.Regulations,
 		})
 		if err != nil {
 			return n, err
@@ -85,6 +86,20 @@ func (c *Collector) collect(ctx context.Context, f store.Feed) (int, error) {
 		}
 	}
 	return n, nil
+}
+
+// WatchedRegulations returns the filter of the regulatory watch: items tagged
+// with one of the watched regulations, or with any regulation when none is
+// selected. Countries and sectors do not apply: a regulation concerns everyone
+// it covers.
+func WatchedRegulations(ctx context.Context, st *store.Store) (store.CTIFilter, error) {
+	regs, err := st.Setting(ctx, SettingRegulations)
+	if err != nil {
+		return store.CTIFilter{}, err
+	}
+	f := store.CTIFilter{Regulations: splitNonEmpty(regs)}
+	f.AnyRegulation = len(f.Regulations) == 0
+	return f, nil
 }
 
 // WatchedFilter returns the filter built from the watched countries and sectors.
@@ -100,8 +115,9 @@ func WatchedFilter(ctx context.Context, st *store.Store) (store.CTIFilter, error
 	return store.CTIFilter{Countries: splitNonEmpty(countries), Sectors: splitNonEmpty(sectors)}, nil
 }
 
-// SaveWatched stores the watched countries and sectors, ignoring unknown values.
-func SaveWatched(ctx context.Context, st *store.Store, countries, sectors []string) error {
+// SaveWatched stores the watched countries, sectors and regulations, ignoring
+// unknown values.
+func SaveWatched(ctx context.Context, st *store.Store, countries, sectors, regulations []string) error {
 	keep := func(tags []Tag, values []string) string {
 		var out []string
 		for _, v := range values {
@@ -112,6 +128,9 @@ func SaveWatched(ctx context.Context, st *store.Store, countries, sectors []stri
 		return strings.Join(out, ",")
 	}
 	if err := st.SetSetting(ctx, SettingCountries, keep(Countries, countries)); err != nil {
+		return err
+	}
+	if err := st.SetSetting(ctx, SettingRegulations, keep(Regulations, regulations)); err != nil {
 		return err
 	}
 	return st.SetSetting(ctx, SettingSectors, keep(Sectors, sectors))

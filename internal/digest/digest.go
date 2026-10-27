@@ -31,6 +31,7 @@ var funcs = map[string]any{
 	"epss":      FormatEPSS,
 	"countries": func(v []string) string { return labels(cti.Countries, v) },
 	"sectors":   func(v []string) string { return labels(cti.Sectors, v) },
+	"regs":      func(v []string) string { return labels(cti.Regulations, v) },
 	// cell makes a value safe inside a Markdown table cell.
 	"cell": func(s string) string {
 		return strings.NewReplacer("|", `\|`, "\r", " ", "\n", " ").Replace(s)
@@ -54,6 +55,8 @@ type Data struct {
 	Counts      []Count
 	CTI         []store.CTIItem // threat news matching the watched countries/sectors
 	CTIScope    string          // human description of that filter
+	Regulatory  []store.CTIItem // regulation and standards news
+	RegScope    string
 }
 
 // maxCTIItems bounds the CTI section of a digest.
@@ -108,6 +111,19 @@ func Generate(ctx context.Context, st *store.Store) (store.Digest, error) {
 		return store.Digest{}, err
 	}
 	d.CTIScope = describeScope(filter)
+
+	regs, err := cti.WatchedRegulations(ctx, st)
+	if err != nil {
+		return store.Digest{}, err
+	}
+	regs.Since, regs.Limit = since, maxCTIItems
+	if d.Regulatory, err = st.ListCTIItems(ctx, regs); err != nil {
+		return store.Digest{}, err
+	}
+	d.RegScope = "toutes les réglementations et normes"
+	if len(regs.Regulations) > 0 {
+		d.RegScope = labels(cti.Regulations, regs.Regulations)
+	}
 
 	var md, html bytes.Buffer
 	if err := mdTmpl.Execute(&md, d); err != nil {

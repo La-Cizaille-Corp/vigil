@@ -49,4 +49,17 @@
 {{else}}
 <p>Aucune actualité correspondante sur la période.</p>
 {{end}}
+
+<h2>Veille réglementaire ({{len .Regulatory}})</h2>
+<p class="muted">{{.RegScope}}</p>
+{{if .Regulatory}}
+<ul>
+{{range .Regulatory}}
+<li>{{if .Link}}<a href="{{.Link}}" rel="noopener noreferrer" target="_blank">{{.Title}}</a>{{else}}{{.Title}}{{end}}
+<small class="muted">— {{.FeedName}}, {{date .Published}} · {{regs .Regulations}}</small></li>
+{{end}}
+</ul>
+{{else}}
+<p>Aucune actualité réglementaire sur la période.</p>
+{{end}}
 </section>

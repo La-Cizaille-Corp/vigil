@@ -12,7 +12,9 @@ Outil open source de **veille de sécurité** léger : un seul binaire, aucune i
 - **Suivi** du traitement avec les statuts CycloneDX / VEX et un historique ; résolution et
   réouverture automatiques quand une version change ; **export et import VEX** CycloneDX.
 - **Veille CTI** : flux RSS/Atom (CERT-FR, CISA, presse spécialisée… modifiables), étiquetés par
-  **pays** et **secteur** (liste NIS2), avec filtres enregistrés.
+  **pays** et **secteur** (liste NIS2), avec filtres enregistrés ; **veille réglementaire** (NIS2,
+  CRA, DORA, RGPD, AI Act, ISO 27001, SecNumCloud…) alimentée par des sources officielles (Commission
+  européenne, CNIL, EDPB, EBA) et par la détection des réglementations citées dans tous les flux.
 - **Digest** périodique (vulnérabilités + menaces filtrées) consultable dans l'interface,
   exportable en Markdown et envoyé aux **webhooks** Slack, Mattermost, Teams ou JSON générique.
 - Fonctionne **en local** (par défaut sur `127.0.0.1`) ou **en mode client / serveur** (TLS, rôles).
