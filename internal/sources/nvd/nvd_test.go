@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -23,7 +24,7 @@ func TestForCPE(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := &Client{URL: srv.URL, HTTP: srv.Client()}
-	cves, err := c.ForCPE(context.Background(), WithVersion("cpe:2.3:o:fortinet:fortios:*:*:*:*:*:*:*:*", "7.2.4"))
+	cves, err := c.ForCPE(context.Background(), Query{CPE: "cpe:2.3:o:fortinet:fortios:*:*:*:*:*:*:*:*", Version: "7.2.4"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,10 +43,37 @@ func TestWholeProduct(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := &Client{URL: srv.URL, HTTP: srv.Client()}
-	if _, err := c.ForCPE(context.Background(), "cpe:2.3:o:fortinet:fortios:*:*:*:*:*:*:*:*"); err != nil {
+	if _, err := c.ForCPE(context.Background(), Query{CPE: "cpe:2.3:o:fortinet:fortios:*:*:*:*:*:*:*:*"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.ForCPE(context.Background(), "cpe:2.3:bad"); err == nil {
+	if _, err := c.ForCPE(context.Background(), Query{CPE: "cpe:2.3:bad"}); err == nil {
 		t.Fatal("invalid CPE accepted")
+	}
+}
+
+func TestModes(t *testing.T) {
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.URL.RawQuery)
+		io.WriteString(w, `{"totalResults":0,"vulnerabilities":[]}`)
+	}))
+	defer srv.Close()
+	c := &Client{URL: srv.URL, HTTP: srv.Client()}
+	ctx := context.Background()
+	// A versioned CPE is widened to the product for product-wide modes.
+	cpe := "cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*"
+	for _, q := range []Query{{CPE: cpe, Mode: "all"}, {CPE: cpe, Mode: "from", From: "7.0.0"}} {
+		if _, err := c.ForCPE(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !strings.Contains(got[0], "virtualMatchString=cpe%3A2.3%3Ao%3Afortinet%3Afortios%3A%2A") || strings.Contains(got[0], "pubStartDate") {
+		t.Errorf("all: %s", got[0])
+	}
+	if !strings.Contains(got[1], "versionStart=7.0.0") || !strings.Contains(got[1], "versionStartType=including") {
+		t.Errorf("from: %s", got[1])
+	}
+	if _, err := c.ForCPE(ctx, Query{CPE: cpe, Mode: "from"}); err == nil {
+		t.Error("from without version accepted")
 	}
 }

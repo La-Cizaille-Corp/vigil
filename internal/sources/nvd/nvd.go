@@ -7,9 +7,11 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -50,13 +52,24 @@ type CVE struct {
 }
 
 // ProductCPE splits a CPE 2.3 name and reports whether it designates a whole
-// product (version "*" or "-"), in which case Vigil subscribes to every new CVE.
+// product (version "*" or "-") rather than one release.
 func ProductCPE(cpe string) (fields []string, wholeProduct bool, err error) {
 	fields = strings.Split(cpe, ":")
 	if len(fields) != 13 || fields[0] != "cpe" || fields[1] != "2.3" {
 		return nil, false, fmt.Errorf("CPE 2.3 invalide : %q", cpe)
 	}
 	return fields, fields[5] == "*" || fields[5] == "-", nil
+}
+
+// Query describes how a product is tracked.
+type Query struct {
+	CPE     string
+	Version string // asset version, used when the CPE version is a wildcard
+	// Mode: "" exact version (falls back to "recent" without any version),
+	// "recent" CVEs published within SubscriptionWindow, "all" every CVE of
+	// the product, "from" CVEs affecting versions >= From.
+	Mode string
+	From string
 }
 
 // WithVersion fills the version of a CPE when it is a wildcard.
@@ -69,22 +82,45 @@ func WithVersion(cpe, version string) string {
 	return strings.Join(fields, ":")
 }
 
-// ForCPE returns the CVEs affecting a CPE. A versioned CPE is matched by the
-// NVD against the affected version ranges; a whole-product CPE returns the
-// CVEs published within SubscriptionWindow.
-func (c *Client) ForCPE(ctx context.Context, cpe string) ([]CVE, error) {
-	_, whole, err := ProductCPE(cpe)
+// productWide replaces the version of a CPE with a wildcard.
+func productWide(fields []string) string {
+	f := slices.Clone(fields)
+	f[5] = "*"
+	return strings.Join(f, ":")
+}
+
+// ForCPE returns the CVEs matching a query. For an exact version the NVD
+// matches the affected version ranges itself.
+func (c *Client) ForCPE(ctx context.Context, query Query) ([]CVE, error) {
+	cpe := WithVersion(query.CPE, query.Version)
+	fields, whole, err := ProductCPE(cpe)
 	if err != nil {
 		return nil, err
 	}
+	mode := query.Mode
+	if mode == "" && whole {
+		mode = "recent"
+	}
 	q := url.Values{}
-	if whole {
+	switch mode {
+	case "":
+		q.Set("cpeName", cpe)
+	case "recent":
 		end := time.Now().UTC()
-		q.Set("virtualMatchString", cpe)
+		q.Set("virtualMatchString", productWide(fields))
 		q.Set("pubStartDate", end.Add(-SubscriptionWindow).Format("2006-01-02T15:04:05.000Z"))
 		q.Set("pubEndDate", end.Format("2006-01-02T15:04:05.000Z"))
-	} else {
-		q.Set("cpeName", cpe)
+	case "all":
+		q.Set("virtualMatchString", productWide(fields))
+	case "from":
+		if query.From == "" {
+			return nil, errors.New("version de départ manquante")
+		}
+		q.Set("virtualMatchString", productWide(fields))
+		q.Set("versionStart", query.From)
+		q.Set("versionStartType", "including")
+	default:
+		return nil, fmt.Errorf("mode de suivi NVD inconnu : %q", mode)
 	}
 	q.Set("resultsPerPage", fmt.Sprint(pageSize))
 

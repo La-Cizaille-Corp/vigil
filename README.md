@@ -110,8 +110,13 @@ téléphone perdu : `vigil user reset-totp -username NOM`.
   Les SBOM en fournissent un par composant.
 - Un **CPE** (`cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*`, à chercher sur
   <https://nvd.nist.gov/products/cpe/search>) est interrogé dans la NVD quand l'actif n'a pas de purl.
-  Avec la version `*` (et sans version d'actif), Vigil s'abonne au produit : toutes les CVE publiées
-  dans les 120 derniers jours sont remontées, à trier à la main.
+  Le champ **Suivi NVD** de l'actif choisit ce qui est remonté :
+  - *version exacte* (défaut) : CVE affectant la version du CPE ou du champ Version ;
+  - *nouvelles CVE du produit* : CVE publiées dans les 120 derniers jours, toutes versions ;
+  - *toutes les CVE du produit* : tout l'historique (plusieurs centaines pour un produit répandu) ;
+  - *à partir de la version X* : CVE affectant les versions ≥ X.
+- Un actif qui a un purl est interrogé dans OSV uniquement : son CPE est alors ignoré, il n'y a donc
+  pas de doublon. Évitez en revanche de déclarer le même produit en deux actifs (un purl, un CPE).
 - Sans clé, la NVD limite à 5 requêtes par 30 secondes : une clé gratuite
   (variable `VIGIL_NVD_API_KEY`) accélère la synchronisation des gros inventaires.
 

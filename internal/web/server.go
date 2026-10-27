@@ -127,6 +127,7 @@ func (s *Server) parseTemplates() error {
 		"join":          strings.Join,
 		"kinds":         func() []inventory.Option { return inventory.Kinds },
 		"criticalities": func() []inventory.Option { return inventory.Criticalities },
+		"cpeModes":      func() []inventory.Option { return inventory.CPEModes },
 		"ecosystems":    func() []string { return inventory.Ecosystems },
 		"statuses":      func() []inventory.Option { return tracking.Statuses },
 		"justifs":       func() []inventory.Option { return tracking.Justifications },

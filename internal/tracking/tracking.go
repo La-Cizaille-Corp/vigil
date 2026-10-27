@@ -139,7 +139,7 @@ func (s *Syncer) Run(ctx context.Context) (Result, error) {
 	}
 
 	for _, a := range cpeTargets {
-		cves, err := s.NVD.ForCPE(ctx, nvd.WithVersion(a.CPE, a.Version))
+		cves, err := s.NVD.ForCPE(ctx, nvd.Query{CPE: a.CPE, Version: a.Version, Mode: a.CPEMode, From: a.CPEFrom})
 		if err != nil {
 			// One unreachable or invalid CPE must not block the others.
 			s.Log.Warn("NVD", "asset", a.Name, "err", err)
