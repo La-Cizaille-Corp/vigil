@@ -2,6 +2,8 @@
 <form method="post" action="/login" class="card narrow">
   <label>Nom d'utilisateur <input name="username" required maxlength="64" autocomplete="username" autofocus></label>
   <label>Mot de passe <input type="password" name="password" required autocomplete="current-password"></label>
+  <label>Code à usage unique <span class="muted small">(si la double authentification est activée)</span>
+    <input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7"></label>
   <button type="submit">Se connecter</button>
 </form>
 {{end}}

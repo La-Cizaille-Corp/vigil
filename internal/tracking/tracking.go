@@ -16,6 +16,7 @@ import (
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/epss"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/kev"
+	"github.com/La-Cizaille-Corp/vigil/internal/sources/nvd"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/osv"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
@@ -76,6 +77,8 @@ type Syncer struct {
 	Store *store.Store
 	OSV   *osv.Client
 	Log   *slog.Logger
+	// NVD matches assets that only have a CPE; nil disables it.
+	NVD *nvd.Client
 
 	// HTTP is used for KEV and EPSS; nil disables enrichment.
 	HTTP      *http.Client
@@ -100,47 +103,58 @@ func (s *Syncer) Run(ctx context.Context) (Result, error) {
 	if err != nil {
 		return res, err
 	}
-	var targets []store.Asset
+	var targets, cpeTargets []store.Asset
 	var queries []osv.Query
 	for _, a := range assets {
-		if inventory.Queryable(a) {
+		switch {
+		case inventory.Queryable(a):
 			targets = append(targets, a)
 			queries = append(queries, toQuery(a))
+		case a.CPE != "" && s.NVD != nil:
+			cpeTargets = append(cpeTargets, a)
 		}
 	}
-	res.Assets = len(targets)
-	if len(targets) == 0 {
+	res.Assets = len(targets) + len(cpeTargets)
+	if res.Assets == 0 {
 		return res, nil
 	}
 
-	results, err := s.OSV.QueryBatch(ctx, queries)
-	if err != nil {
-		return res, err
+	if len(targets) > 0 {
+		results, err := s.OSV.QueryBatch(ctx, queries)
+		if err != nil {
+			return res, err
+		}
+		for i, a := range targets {
+			var reported []string
+			for _, ref := range results[i] {
+				reported = append(reported, ref.ID)
+				if err := s.refreshVuln(ctx, ref); err != nil {
+					return res, err
+				}
+			}
+			if err := s.record(ctx, &res, a, reported, start); err != nil {
+				return res, err
+			}
+		}
 	}
 
-	for i, a := range targets {
-		var reported []string
-		for _, ref := range results[i] {
-			reported = append(reported, ref.ID)
-			if err := s.refreshVuln(ctx, ref); err != nil {
-				return res, err
-			}
-			touch, err := s.Store.ObserveFinding(ctx, a.ID, ref.ID, start)
-			if err != nil {
-				return res, err
-			}
-			switch touch {
-			case store.TouchCreated:
-				res.Created++
-			case store.TouchReopened:
-				res.Reopened++
-			}
-		}
-		n, err := s.Store.AutoResolveStale(ctx, a.ID, reported)
+	for _, a := range cpeTargets {
+		cves, err := s.NVD.ForCPE(ctx, nvd.WithVersion(a.CPE, a.Version))
 		if err != nil {
-			return res, fmt.Errorf("auto-resolve asset %d: %w", a.ID, err)
+			// One unreachable or invalid CPE must not block the others.
+			s.Log.Warn("NVD", "asset", a.Name, "err", err)
+			continue
 		}
-		res.Resolved += n
+		var reported []string
+		for _, c := range cves {
+			reported = append(reported, c.ID)
+			if err := s.Store.UpsertVulnerability(ctx, nvdVuln(c)); err != nil {
+				return res, err
+			}
+		}
+		if err := s.record(ctx, &res, a, reported, start); err != nil {
+			return res, err
+		}
 	}
 	if s.HTTP != nil {
 		// Enrichment failures are logged but do not fail the sync.
@@ -151,6 +165,42 @@ func (s *Syncer) Run(ctx context.Context) (Result, error) {
 	s.Log.Info("sync done", "assets", res.Assets, "created", res.Created,
 		"reopened", res.Reopened, "resolved", res.Resolved)
 	return res, nil
+}
+
+// record creates or reopens the findings of an asset and auto-resolves the
+// ones its source no longer reports.
+func (s *Syncer) record(ctx context.Context, res *Result, a store.Asset, reported []string, seen time.Time) error {
+	for _, id := range reported {
+		touch, err := s.Store.ObserveFinding(ctx, a.ID, id, seen)
+		if err != nil {
+			return err
+		}
+		switch touch {
+		case store.TouchCreated:
+			res.Created++
+		case store.TouchReopened:
+			res.Reopened++
+		}
+	}
+	n, err := s.Store.AutoResolveStale(ctx, a.ID, reported)
+	if err != nil {
+		return fmt.Errorf("auto-resolve asset %d: %w", a.ID, err)
+	}
+	res.Resolved += n
+	return nil
+}
+
+func nvdVuln(c nvd.CVE) store.Vulnerability {
+	summary := c.Description
+	if i := strings.Index(summary, ". "); i > 0 && i < 300 {
+		summary = summary[:i+1]
+	} else if len(summary) > 300 {
+		summary = summary[:300] + "…"
+	}
+	return store.Vulnerability{
+		ID: c.ID, Summary: summary, Details: c.Description, Severity: c.Severity,
+		Published: c.Published, Modified: c.Modified, Refs: c.Refs, Raw: string(c.Raw),
+	}
 }
 
 // refreshVuln downloads the advisory if unknown or modified since last fetch.

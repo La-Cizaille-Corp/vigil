@@ -32,6 +32,9 @@ type Finding struct {
 	AssetID       int64
 	AssetName     string
 	AssetVersion  string
+	AssetPURL     string
+	AssetCPE      string
+	AssetProject  string
 	VulnID        string
 	Aliases       []string
 	Summary       string
@@ -60,6 +63,7 @@ type FindingFilter struct {
 	AssetID int64
 	Since   time.Time // first_seen >= Since
 	KEV     bool      // only known exploited vulnerabilities
+	Project string
 }
 
 // VulnModified returns the stored "modified" date of a vulnerability.
@@ -226,6 +230,10 @@ func (s *Store) ListFindings(ctx context.Context, f FindingFilter) ([]Finding, e
 		where = append(where, "f.asset_id = ?")
 		args = append(args, f.AssetID)
 	}
+	if f.Project != "" {
+		where = append(where, "a.project = ?")
+		args = append(args, f.Project)
+	}
 	if f.KEV {
 		where = append(where, "v.kev = 1")
 	}
@@ -266,7 +274,7 @@ func (s *Store) Finding(ctx context.Context, id int64) (Finding, error) {
 }
 
 const findingSelect = `
-	SELECT f.id, f.asset_id, a.name, a.version, f.vuln_id, v.aliases, v.summary, v.severity,
+	SELECT f.id, f.asset_id, a.name, a.version, a.purl, a.cpe, a.project, f.vuln_id, v.aliases, v.summary, v.severity,
 	       v.kev, v.epss, f.status, f.justification, f.comment, f.first_seen, f.updated_at
 	FROM findings f
 	JOIN assets a ON a.id = f.asset_id
@@ -275,7 +283,8 @@ const findingSelect = `
 func scanFinding(row interface{ Scan(...any) error }) (Finding, error) {
 	var fd Finding
 	var aliases, first, updated string
-	err := row.Scan(&fd.ID, &fd.AssetID, &fd.AssetName, &fd.AssetVersion, &fd.VulnID, &aliases,
+	err := row.Scan(&fd.ID, &fd.AssetID, &fd.AssetName, &fd.AssetVersion,
+		&fd.AssetPURL, &fd.AssetCPE, &fd.AssetProject, &fd.VulnID, &aliases,
 		&fd.Summary, &fd.Severity, &fd.KEV, &fd.EPSS, &fd.Status, &fd.Justification, &fd.Comment, &first, &updated)
 	if err != nil {
 		return fd, err

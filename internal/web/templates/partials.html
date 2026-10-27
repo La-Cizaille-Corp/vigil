@@ -35,6 +35,7 @@
   <label>Version <input name="version" value="{{.Version}}" maxlength="100"></label>
   <label>purl <input name="purl" value="{{.PURL}}" maxlength="500" placeholder="pkg:npm/lodash@4.17.15"></label>
   <label>CPE <input name="cpe" value="{{.CPE}}" maxlength="500" placeholder="cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*"></label>
+  <p class="muted small">Sans purl, le CPE est interrogé dans la NVD. Version « * » : abonnement à toutes les nouvelles CVE du produit (120 derniers jours). Recherche : nvd.nist.gov/products/cpe/search</p>
   <label>Criticité
     <select name="criticality">{{range criticalities}}<option value="{{.Value}}" {{if eq .Value $.Criticality}}selected{{end}}>{{.Label}}</option>{{end}}</select>
   </label>

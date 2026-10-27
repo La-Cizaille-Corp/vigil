@@ -1,0 +1,31 @@
+{{define "content"}}
+<h2>Double authentification (TOTP)</h2>
+{{if .Data.Enabled}}
+<p>La double authentification est <strong>activée</strong> : un code de votre application est demandé à chaque connexion.</p>
+<form method="post" action="/account/totp/disable" class="card narrow">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <label>Code actuel <input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" required></label>
+  <button type="submit">Désactiver</button>
+</form>
+{{else if .Data.Pending}}
+<div class="card">
+  <p>Dans votre application d'authentification (Aegis, FreeOTP, Google Authenticator…), ajoutez un compte
+     avec cette clé :</p>
+  <pre><code>{{.Data.Pending}}</code></pre>
+  <p class="small muted">ou l'URI : <code>{{.Data.URI}}</code></p>
+  <form method="post" action="/account/totp/confirm">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <label>Code affiché par l'application <input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" required autofocus></label>
+    <button type="submit">Activer</button>
+  </form>
+</div>
+{{else}}
+<p>Recommandée en mode serveur : en plus du mot de passe, un code à 6 chiffres est demandé à la connexion.</p>
+<form method="post" action="/account/totp/start">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <button type="submit">Configurer la double authentification</button>
+</form>
+{{end}}
+<p class="small muted">Application perdue : un administrateur peut désactiver le second facteur sur le serveur avec
+<code>vigil user reset-totp -username NOM</code>.</p>
+{{end}}

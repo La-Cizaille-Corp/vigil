@@ -97,7 +97,7 @@ func securityHeaders(next http.Handler) http.Handler {
 func limitBody(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		limit := int64(maxFormBytes)
-		if r.URL.Path == "/assets/import" || strings.HasPrefix(r.URL.Path, "/api/v1/") {
+		if r.URL.Path == "/assets/import" || r.URL.Path == "/findings/vex" || strings.HasPrefix(r.URL.Path, "/api/v1/") {
 			limit = maxUploadBytes
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, limit)

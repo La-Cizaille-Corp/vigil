@@ -100,6 +100,12 @@ func (s *Server) loginSubmit(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if valid {
+		if valid, err = s.checkTOTP(r, user.ID, r.PostFormValue("code")); err != nil {
+			s.serverError(w, r, err)
+			return
+		}
+	}
 	if !valid {
 		s.limiter.Fail(ip)
 		s.audit(r, 0, "login_failed", "ip="+ip)
