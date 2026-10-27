@@ -199,3 +199,22 @@ func TestAPISBOMToken(t *testing.T) {
 		t.Fatalf("assets = %+v", assets)
 	}
 }
+
+func TestTOTPLogin(t *testing.T) {
+	st, base := newTestServer(t)
+	ctx := context.Background()
+	hash, _ := auth.HashPassword("a-strong-password")
+	id, _ := st.CreateUser(ctx, "alice", hash, auth.RoleViewer)
+	secret, _ := auth.NewTOTPSecret()
+	st.SetTOTPPending(ctx, id, secret)
+	st.EnableTOTP(ctx, id, 0)
+
+	login := url.Values{"username": {"alice"}, "password": {"a-strong-password"}}
+	if code := newClient(t, base).post("/login", login); code != http.StatusUnauthorized {
+		t.Fatalf("login without code: %d", code)
+	}
+	login.Set("code", "000000")
+	if code := newClient(t, base).post("/login", login); code != http.StatusUnauthorized {
+		t.Fatalf("login with wrong code: %d", code)
+	}
+}

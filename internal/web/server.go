@@ -44,6 +44,8 @@ type Server struct {
 	CTI      *cti.Collector
 	Notifier *notify.Notifier
 	Log      *slog.Logger
+	// Version is reported in exported documents.
+	Version string
 	// BaseURL is the public address of the UI, used in webhook messages.
 	BaseURL string
 	// Context is cancelled when the server stops; background jobs started
@@ -73,6 +75,11 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.HandleFunc("POST /login", s.loginSubmit)
 	mux.Handle("POST /logout", s.require(auth.RoleViewer, s.logout))
 
+	mux.Handle("GET /account", s.require(auth.RoleViewer, s.account))
+	mux.Handle("POST /account/totp/start", s.require(auth.RoleViewer, s.totpStart))
+	mux.Handle("POST /account/totp/confirm", s.require(auth.RoleViewer, s.totpConfirm))
+	mux.Handle("POST /account/totp/disable", s.require(auth.RoleViewer, s.totpDisable))
+
 	mux.Handle("GET /{$}", s.require(auth.RoleViewer, s.dashboard))
 	mux.Handle("GET /assets", s.require(auth.RoleViewer, s.assetList))
 	mux.Handle("POST /assets", s.require(auth.RoleAnalyst, s.assetCreate))
@@ -80,6 +87,8 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.Handle("POST /assets/{id}", s.require(auth.RoleAnalyst, s.assetUpdate))
 	mux.Handle("POST /assets/{id}/delete", s.require(auth.RoleAnalyst, s.assetDelete))
 	mux.Handle("GET /findings", s.require(auth.RoleViewer, s.findingList))
+	mux.Handle("GET /findings/vex", s.require(auth.RoleViewer, s.vexExport))
+	mux.Handle("POST /findings/vex", s.require(auth.RoleAnalyst, s.vexImport))
 	mux.Handle("GET /findings/{id}", s.require(auth.RoleViewer, s.findingShow))
 	mux.Handle("POST /findings/{id}", s.require(auth.RoleAnalyst, s.findingUpdate))
 	mux.Handle("POST /sync", s.require(auth.RoleAnalyst, s.syncNow))
@@ -118,6 +127,7 @@ func (s *Server) parseTemplates() error {
 		"join":          strings.Join,
 		"kinds":         func() []inventory.Option { return inventory.Kinds },
 		"criticalities": func() []inventory.Option { return inventory.Criticalities },
+		"cpeModes":      func() []inventory.Option { return inventory.CPEModes },
 		"ecosystems":    func() []string { return inventory.Ecosystems },
 		"statuses":      func() []inventory.Option { return tracking.Statuses },
 		"justifs":       func() []inventory.Option { return tracking.Justifications },
@@ -210,6 +220,9 @@ var flashes = map[string]string{ // #nosec G101 -- message keys, not credentials
 	"hook-deleted":   "Webhook supprimé.",
 	"sbom-imported":  "SBOM importé.",
 	"token-deleted":  "Jeton révoqué.",
+	"totp-enabled":   "Double authentification activée.",
+	"totp-disabled":  "Double authentification désactivée.",
+	"vex-imported":   "VEX importé : les analyses correspondantes ont été appliquées.",
 }
 
 func redirect(w http.ResponseWriter, r *http.Request, path, msg string) {

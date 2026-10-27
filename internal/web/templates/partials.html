@@ -35,6 +35,12 @@
   <label>Version <input name="version" value="{{.Version}}" maxlength="100"></label>
   <label>purl <input name="purl" value="{{.PURL}}" maxlength="500" placeholder="pkg:npm/lodash@4.17.15"></label>
   <label>CPE <input name="cpe" value="{{.CPE}}" maxlength="500" placeholder="cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*"></label>
+  <label>Suivi NVD (actifs sans purl)
+    <select name="cpe_mode">{{range cpeModes}}<option value="{{.Value}}" {{if eq .Value $.CPEMode}}selected{{end}}>{{.Label}}</option>{{end}}</select>
+  </label>
+  <label>À partir de la version <input name="cpe_from" value="{{.CPEFrom}}" maxlength="100" placeholder="7.2.0"></label>
+  <p class="muted small">Sans purl, le CPE est interrogé dans la NVD (recherche : nvd.nist.gov/products/cpe/search).
+    Pour suivre un produit sans version, mettez « * » à la place de la version dans le CPE.</p>
   <label>Criticité
     <select name="criticality">{{range criticalities}}<option value="{{.Value}}" {{if eq .Value $.Criticality}}selected{{end}}>{{.Label}}</option>{{end}}</select>
   </label>

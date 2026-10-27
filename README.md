@@ -4,12 +4,13 @@ Outil open source de **veille de sécurité** léger : un seul binaire, aucune i
 
 - **Inventaire** des actifs suivis (dépendances, technologies, produits, OS) : saisie manuelle
   ou **import de SBOM** CycloneDX / SPDX (JSON), regroupés par projet.
-- **Vulnérabilités** détectées via [OSV.dev](https://osv.dev), enrichies par
+- **Vulnérabilités** détectées via [OSV.dev](https://osv.dev) pour les paquets (purl) et la
+  [NVD](https://nvd.nist.gov) pour les produits identifiés par un CPE, enrichies par
   [CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) (exploitation avérée) et
   [FIRST EPSS](https://www.first.org/epss/) (probabilité d'exploitation), puis priorisées :
   KEV > EPSS élevé > sévérité.
 - **Suivi** du traitement avec les statuts CycloneDX / VEX et un historique ; résolution et
-  réouverture automatiques quand une version change.
+  réouverture automatiques quand une version change ; **export et import VEX** CycloneDX.
 - **Veille CTI** : flux RSS/Atom (CERT-FR, CISA, presse spécialisée… modifiables), étiquetés par
   **pays** et **secteur** (liste NIS2), avec filtres enregistrés.
 - **Digest** périodique (vulnérabilités + menaces filtrées) consultable dans l'interface,
@@ -99,7 +100,25 @@ Vigil refuse d'écouter sur une interface non locale sans TLS. Les flux et webho
 pas viser d'adresses privées ou locales, sauf avec `-allow-private-urls`.
 
 Rôles : `viewer` (lecture), `analyst` (inventaire, triage, synchronisation, digests, filtres de
-veille), `admin` (flux CTI et webhooks en plus).
+veille), `admin` (flux CTI, webhooks et jetons d'API en plus). Chaque utilisateur peut activer la
+**double authentification TOTP** dans « Mon compte » (recommandé en mode serveur) ; en cas de
+téléphone perdu : `vigil user reset-totp -username NOM`.
+
+### Paquets et produits : purl ou CPE
+
+- Un **purl** (`pkg:npm/lodash@4.17.21`) est interrogé dans OSV : correspondance de version précise.
+  Les SBOM en fournissent un par composant.
+- Un **CPE** (`cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*`, à chercher sur
+  <https://nvd.nist.gov/products/cpe/search>) est interrogé dans la NVD quand l'actif n'a pas de purl.
+  Le champ **Suivi NVD** de l'actif choisit ce qui est remonté :
+  - *version exacte* (défaut) : CVE affectant la version du CPE ou du champ Version ;
+  - *nouvelles CVE du produit* : CVE publiées dans les 120 derniers jours, toutes versions ;
+  - *toutes les CVE du produit* : tout l'historique (plusieurs centaines pour un produit répandu) ;
+  - *à partir de la version X* : CVE affectant les versions ≥ X.
+- Un actif qui a un purl est interrogé dans OSV uniquement : son CPE est alors ignoré, il n'y a donc
+  pas de doublon. Évitez en revanche de déclarer le même produit en deux actifs (un purl, un CPE).
+- Sans clé, la NVD limite à 5 requêtes par 30 secondes : une clé gratuite
+  (variable `VIGIL_NVD_API_KEY`) accélère la synchronisation des gros inventaires.
 
 ## Développement
 
@@ -113,7 +132,8 @@ avec [GoReleaser](https://goreleaser.com) (`.goreleaser.yaml`) et l'image Docker
 une release en brouillon à relire avant publication. Test local : `goreleaser release --snapshot --clean`.
 
 La CI exécute aussi `gofmt`, `staticcheck`, `govulncheck` et `gosec`.
-Voir [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) et [SECURITY.md](SECURITY.md).
+Voir [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md),
+[docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) et [SECURITY.md](SECURITY.md).
 
 ## Licence
 

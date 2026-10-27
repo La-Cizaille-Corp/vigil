@@ -25,6 +25,7 @@ import (
 	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
 	"github.com/La-Cizaille-Corp/vigil/internal/notify"
 	"github.com/La-Cizaille-Corp/vigil/internal/sbom"
+	"github.com/La-Cizaille-Corp/vigil/internal/sources/nvd"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/osv"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
@@ -46,7 +47,7 @@ Usage :
   vigil version
 
 La base par défaut se trouve dans le dossier de configuration de l'utilisateur
-(variable VIGIL_DB pour la changer).
+(variable VIGIL_DB pour la changer). Clé NVD facultative : VIGIL_NVD_API_KEY.
 `
 
 func main() {
@@ -110,7 +111,9 @@ func newServices(st *store.Store, log *slog.Logger, allowPrivate bool) services 
 	userURLs := netsafe.NewClient(60*time.Second, allowPrivate)
 	ua := userAgent()
 	return services{
-		syncer:   &tracking.Syncer{Store: st, OSV: osv.New(ua), Log: log, HTTP: fixed, UserAgent: ua},
+		syncer: &tracking.Syncer{Store: st, OSV: osv.New(ua), Log: log, HTTP: fixed, UserAgent: ua,
+			// The optional key (free, https://nvd.nist.gov/developers/request-an-api-key) raises the rate limit.
+			NVD: &nvd.Client{URL: nvd.DefaultURL, HTTP: fixed, UserAgent: ua, APIKey: os.Getenv("VIGIL_NVD_API_KEY")}},
 		cti:      &cti.Collector{Store: st, HTTP: userURLs, UserAgent: ua, Log: log},
 		notifier: &notify.Notifier{Store: st, HTTP: userURLs, UserAgent: ua, Log: log},
 	}
@@ -153,7 +156,7 @@ func runServe(ctx context.Context, log *slog.Logger, args []string) error {
 
 	sv := newServices(st, log, *allowPrivate)
 	srv := &web.Server{Store: st, Syncer: sv.syncer, CTI: sv.cti, Notifier: sv.notifier, Log: log,
-		BaseURL: *baseURL, SecureCookies: useTLS || *behindProxy, Context: ctx}
+		Version: version, BaseURL: *baseURL, SecureCookies: useTLS || *behindProxy, Context: ctx}
 	handler, err := srv.Handler()
 	if err != nil {
 		return err
@@ -343,8 +346,11 @@ func runImportSBOM(ctx context.Context, args []string) error {
 }
 
 func runUser(ctx context.Context, args []string) error {
+	if len(args) > 0 && args[0] == "reset-totp" {
+		return runResetTOTP(ctx, args[1:])
+	}
 	if len(args) == 0 || args[0] != "add" {
-		return errors.New("sous-commande attendue : user add")
+		return errors.New("sous-commande attendue : user add ou user reset-totp")
 	}
 	fs := flag.NewFlagSet("user add", flag.ExitOnError)
 	dbPath := fs.String("db", defaultDB(), "fichier SQLite")
@@ -405,4 +411,23 @@ func readPassword() (string, error) {
 		return "", err
 	}
 	return strings.TrimRight(line, "\r\n"), nil
+}
+
+// runResetTOTP disables the second factor of a user who lost their authenticator.
+func runResetTOTP(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("user reset-totp", flag.ExitOnError)
+	dbPath := fs.String("db", defaultDB(), "fichier SQLite")
+	username := fs.String("username", "", "nom d'utilisateur")
+	parseFlags(fs, args)
+	st, err := store.Open(ctx, *dbPath)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	if err := st.DisableTOTPByName(ctx, *username); err != nil {
+		return fmt.Errorf("utilisateur %q : %w", *username, err)
+	}
+	auditCLI(ctx, st, "totp_reset", *username)
+	fmt.Printf("double authentification désactivée pour %q\n", *username)
+	return nil
 }

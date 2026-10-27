@@ -8,5 +8,16 @@
   <a href="/findings?kev=1" {{if .Data.KEV}}class="active"{{end}}>Exploitées (KEV)</a>
 </nav>
 {{template "findingTable" .Data.Findings}}
+
+<h2>Échange VEX (CycloneDX)</h2>
+<p><a href="/findings/vex">Exporter toutes les analyses en VEX</a></p>
+{{if can .User.Role "analyst"}}
+<form method="post" action="/findings/vex" enctype="multipart/form-data" class="card">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <label>Importer un VEX CycloneDX (JSON) : les analyses s'appliquent aux vulnérabilités correspondantes
+    (même purl ou CPE, même identifiant ou alias) <input type="file" name="vex" accept=".json,application/json" required></label>
+  <button type="submit">Importer</button>
+</form>
+{{end}}
 {{end}}
 

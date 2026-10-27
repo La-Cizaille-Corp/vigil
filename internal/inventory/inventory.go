@@ -32,6 +32,14 @@ var Ecosystems = []string{
 	"Pub", "Hex", "Debian", "Ubuntu", "Alpine", "Rocky Linux", "AlmaLinux", "Red Hat",
 }
 
+// CPEModes are the ways a CPE-only asset is tracked in the NVD.
+var CPEModes = []Option{
+	{Value: "", Label: "Version exacte (CPE ou champ Version)"},
+	{Value: "recent", Label: "Nouvelles CVE du produit (120 derniers jours)"},
+	{Value: "all", Label: "Toutes les CVE du produit"},
+	{Value: "from", Label: "CVE touchant les versions à partir de…"},
+}
+
 // Option is a value with a display label.
 type Option struct {
 	Value string
@@ -40,7 +48,7 @@ type Option struct {
 
 // Normalize trims fields and applies defaults.
 func Normalize(a *store.Asset) {
-	for _, f := range []*string{&a.Name, &a.Kind, &a.Ecosystem, &a.Version, &a.PURL, &a.CPE, &a.Criticality, &a.Owner, &a.Notes, &a.Project} {
+	for _, f := range []*string{&a.Name, &a.Kind, &a.Ecosystem, &a.Version, &a.PURL, &a.CPE, &a.CPEMode, &a.CPEFrom, &a.Criticality, &a.Owner, &a.Notes, &a.Project} {
 		*f = strings.TrimSpace(*f)
 	}
 	if a.Version == "" {
@@ -70,6 +78,9 @@ func Validate(a store.Asset) error {
 	check(a.Ecosystem == "" || contains(Ecosystems, a.Ecosystem), "écosystème non supporté")
 	check(a.PURL == "" || strings.HasPrefix(a.PURL, "pkg:"), "un purl doit commencer par « pkg: »")
 	check(a.CPE == "" || strings.HasPrefix(a.CPE, "cpe:2.3:"), "un CPE doit commencer par « cpe:2.3: »")
+	check(isOption(CPEModes, a.CPEMode), "mode de suivi NVD invalide")
+	check(a.CPEMode != "from" || (a.CPEFrom != "" && maxLen(a.CPEFrom, 100) && !strings.ContainsAny(a.CPEFrom, ":*?")),
+		"indiquez la version de départ du suivi")
 	return errors.Join(errs...)
 }
 
