@@ -3,6 +3,8 @@ package cti
 import (
 	"reflect"
 	"testing"
+
+	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
 
 const rss = `<?xml version="1.0" encoding="ISO-8859-1"?>
@@ -32,9 +34,9 @@ func TestParseRSS(t *testing.T) {
 	if items[1].Link != "" {
 		t.Errorf("javascript link kept: %q", items[1].Link)
 	}
-	countries, sectors := Classify(items[0], "", nil)
-	if !reflect.DeepEqual(countries, []string{"FR"}) || !reflect.DeepEqual(sectors, []string{"health"}) {
-		t.Errorf("classify = %v %v", countries, sectors)
+	tags := Classify(items[0], store.Feed{})
+	if !reflect.DeepEqual(tags.Countries, []string{"FR"}) || !reflect.DeepEqual(tags.Sectors, []string{"health"}) {
+		t.Errorf("classify = %+v", tags)
 	}
 }
 
@@ -46,9 +48,9 @@ func TestParseAtom(t *testing.T) {
 	if len(items) != 1 || items[0].Link != "https://example.org/b" || items[0].Published.IsZero() {
 		t.Fatalf("unexpected items: %+v", items)
 	}
-	countries, sectors := Classify(items[0], "EU", []string{"digital"})
-	if !reflect.DeepEqual(countries, []string{"DE", "EU"}) || !reflect.DeepEqual(sectors, []string{"digital", "finance"}) {
-		t.Errorf("classify = %v %v", countries, sectors)
+	tags := Classify(items[0], store.Feed{Country: "EU", Sectors: "digital"})
+	if !reflect.DeepEqual(tags.Countries, []string{"DE", "EU"}) || !reflect.DeepEqual(tags.Sectors, []string{"digital", "finance"}) {
+		t.Errorf("classify = %+v", tags)
 	}
 }
 
@@ -67,8 +69,23 @@ func TestParseDate(t *testing.T) {
 
 func TestClassifyWholeWords(t *testing.T) {
 	// "Ukraine" must not match inside another word, "uk" must not match "Ukraine".
-	countries, _ := Classify(Item{Title: "Ukrainian CERT warns"}, "", nil)
-	if !reflect.DeepEqual(countries, []string{"UA"}) {
-		t.Errorf("countries = %v", countries)
+	tags := Classify(Item{Title: "Ukrainian CERT warns"}, store.Feed{})
+	if !reflect.DeepEqual(tags.Countries, []string{"UA"}) {
+		t.Errorf("countries = %v", tags.Countries)
+	}
+}
+
+func TestClassifyRegulations(t *testing.T) {
+	for title, want := range map[string][]string{
+		"La Commission précise l'application de NIS2 et du Cyber Resilience Act": {"cra", "gdpr", "nis2"},
+		"EDPB adopts guidelines":                      {"gdpr"}, // from the feed
+		"ESAs publish DORA incident reporting RTS":    {"dora", "gdpr"},
+		"Nouvelle version du référentiel SecNumCloud": {"gdpr", "secnumcloud"},
+		"Cracking the code of ransomware":             {"gdpr"}, // "cra" inside a word is ignored
+	} {
+		tags := Classify(Item{Title: title}, store.Feed{Regulations: "gdpr"})
+		if !reflect.DeepEqual(tags.Regulations, want) {
+			t.Errorf("%q: %v, want %v", title, tags.Regulations, want)
+		}
 	}
 }

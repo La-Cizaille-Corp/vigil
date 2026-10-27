@@ -12,10 +12,17 @@
         {{range sectors}}<option value="{{.Value}}" {{if has $f.Sectors .Value}}selected{{end}}>{{.Label}}</option>{{end}}
       </select>
     </label>
+    <label>Réglementations et normes
+      <select name="regulation" multiple size="6">
+        {{range regulations}}<option value="{{.Value}}" {{if has $f.Regulations .Value}}selected{{end}}>{{.Label}}</option>{{end}}
+      </select>
+    </label>
   </div>
   <button type="submit">Filtrer</button>
   <a href="/cti?all=1">Tout afficher</a>
+  <a href="/cti?view=regulatory" {{if .Data.Regulatory}}class="active"{{end}}>Veille réglementaire</a>
   {{if .Data.Watched}}<span class="muted">— filtre de veille enregistré appliqué (<a href="/settings">modifier</a>)</span>{{end}}
+  {{if .Data.Regulatory}}<span class="muted">— actualités liées {{if $f.Regulations}}aux réglementations suivies{{else}}à une réglementation ou une norme{{end}} (<a href="/settings">modifier</a>)</span>{{end}}
 </form>
 
 {{if can .User.Role "analyst"}}
@@ -33,6 +40,7 @@
   <div class="muted small">{{.FeedName}} · {{date .Published}}
     {{range .Countries}}<span class="tag">{{countryLabel .}}</span>{{end}}
     {{range .Sectors}}<span class="tag tag-sector">{{sectorLabel .}}</span>{{end}}
+    {{range .Regulations}}<span class="tag tag-regulation">{{regulationLabel .}}</span>{{end}}
   </div>
   {{if .Summary}}<p class="small">{{.Summary}}</p>{{end}}
 </li>

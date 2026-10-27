@@ -53,6 +53,7 @@ code { font-size: .85rem; }
 .tag { display: inline-block; font-size: .75rem; padding: 0 .4rem; margin-left: .25rem; border-radius: 3px;
   border: 1px solid var(--border); }
 .tag-sector { border-style: dashed; }
+.tag-regulation { border-style: double; font-style: italic; }
 ul.news { list-style: none; padding: 0; }
 ul.news li { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: .6rem .8rem; margin-bottom: .5rem; }
 ul.news p { margin: .3rem 0 0; }

@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
 
 // Tag is a sector or a country with the keywords that reveal it.
@@ -33,6 +35,26 @@ var Sectors = []Tag{
 	{"retail", "Commerce", []string{"retail", "e-commerce", "retailer", "commerce", "point of sale"}},
 	{"water", "Eau", []string{"water utility", "wastewater", "eau potable", "water treatment"}},
 	{"digital", "Services numériques / IT", []string{"cloud", "saas", "msp", "managed service provider", "hosting", "hébergeur", "data center", "datacenter", "software supply chain"}},
+}
+
+// Regulations are the regulations and reference standards followed by the
+// regulatory watch. Keywords avoid bare acronyms that are common words
+// (e.g. "CRA" alone) to limit false positives.
+var Regulations = []Tag{
+	{"nis2", "NIS2", []string{"nis2", "nis 2", "nis-2", "directive (eu) 2022/2555", "directive 2022/2555"}},
+	{"cra", "Cyber Resilience Act", []string{"cyber resilience act", "cyber-resilience act", "cyberrésilience", "cyber-résilience", "règlement cra", "the cra", "le cra", "regulation (eu) 2024/2847"}},
+	{"dora", "DORA", []string{"dora", "digital operational resilience", "résilience opérationnelle numérique", "regulation (eu) 2022/2554"}},
+	{"gdpr", "RGPD", []string{"gdpr", "rgpd", "general data protection regulation", "règlement général sur la protection des données", "data protection authority", "protection des données personnelles"}},
+	{"ai_act", "AI Act", []string{"ai act", "artificial intelligence act", "règlement sur l'intelligence artificielle", "règlement sur l'ia", "règlement ia", "regulation (eu) 2024/1689"}},
+	{"cybersecurity_act", "Cybersecurity Act / certification UE", []string{"cybersecurity act", "eucc", "eucs", "eu5g", "certification de cybersécurité", "cybersecurity certification"}},
+	{"eidas", "eIDAS", []string{"eidas", "eudi wallet", "european digital identity", "identité numérique européenne"}},
+	{"data_act", "Data Act", []string{"data act", "règlement sur les données"}},
+	{"iso27001", "ISO/IEC 27001", []string{"iso 27001", "iso/iec 27001", "iso27001", "iso 27002", "iso/iec 27002", "iso 27005"}},
+	{"secnumcloud", "SecNumCloud", []string{"secnumcloud"}},
+	{"hds", "HDS (données de santé)", []string{"hébergement de données de santé", "hébergeur de données de santé", "certification hds"}},
+	{"pci_dss", "PCI DSS", []string{"pci dss", "pci-dss"}},
+	{"lpm", "LPM / OIV", []string{"loi de programmation militaire", "opérateur d'importance vitale", "opérateurs d'importance vitale"}},
+	{"nist_csf", "NIST CSF / SP 800", []string{"nist csf", "cybersecurity framework", "nist sp 800", "sp 800-53"}},
 }
 
 // Countries most commonly cited in CTI news; extend as needed.
@@ -63,7 +85,7 @@ var Countries = []Tag{
 var tagPatterns = map[string]*regexp.Regexp{}
 
 func init() {
-	for _, list := range [][]Tag{Sectors, Countries} {
+	for _, list := range [][]Tag{Sectors, Countries, Regulations} {
 		for _, t := range list {
 			quoted := make([]string, len(t.Keywords))
 			for i, k := range t.Keywords {
@@ -75,13 +97,20 @@ func init() {
 	}
 }
 
-// Classify returns the countries and sectors of an item: those of its feed
-// plus those detected in its title and summary.
-func Classify(it Item, feedCountry string, feedSectors []string) (countries, sectors []string) {
+// Tags are the classification of an item.
+type Tags struct {
+	Countries, Sectors, Regulations []string
+}
+
+// Classify returns the tags of an item: those of its feed plus those
+// detected in its title and summary.
+func Classify(it Item, f store.Feed) Tags {
 	text := it.Title + " " + it.Summary
-	countries = match(Countries, text, splitNonEmpty(feedCountry))
-	sectors = match(Sectors, text, feedSectors)
-	return countries, sectors
+	return Tags{
+		Countries:   match(Countries, text, splitNonEmpty(f.Country)),
+		Sectors:     match(Sectors, text, splitNonEmpty(f.Sectors)),
+		Regulations: match(Regulations, text, splitNonEmpty(f.Regulations)),
+	}
 }
 
 func match(tags []Tag, text string, initial []string) []string {
