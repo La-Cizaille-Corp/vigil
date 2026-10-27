@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -128,17 +129,25 @@ func (s *Server) parseTemplates() error {
 		"kinds":         func() []inventory.Option { return inventory.Kinds },
 		"criticalities": func() []inventory.Option { return inventory.Criticalities },
 		"cpeModes":      func() []inventory.Option { return inventory.CPEModes },
-		"ecosystems":    func() []string { return inventory.Ecosystems },
-		"statuses":      func() []inventory.Option { return tracking.Statuses },
-		"justifs":       func() []inventory.Option { return tracking.Justifications },
-		"queryable":     inventory.Queryable,
-		"epss":          digest.FormatEPSS,
-		"countryLabel":  func(v string) string { return cti.Label(cti.Countries, v) },
-		"sectorLabel":   func(v string) string { return cti.Label(cti.Sectors, v) },
-		"countries":     func() []cti.Tag { return cti.Countries },
-		"sectors":       func() []cti.Tag { return cti.Sectors },
-		"webhookKinds":  func() []inventory.Option { return notify.Kinds },
-		"maskURL":       notify.MaskURL,
+		"severities":    func() []inventory.Option { return severities },
+		"sortOrders":    func() []inventory.Option { return sortOrders },
+		"cvss": func(v float64) string {
+			if v < 0 {
+				return ""
+			}
+			return strconv.FormatFloat(v, 'f', 1, 64)
+		},
+		"ecosystems":   func() []string { return inventory.Ecosystems },
+		"statuses":     func() []inventory.Option { return tracking.Statuses },
+		"justifs":      func() []inventory.Option { return tracking.Justifications },
+		"queryable":    inventory.Queryable,
+		"epss":         digest.FormatEPSS,
+		"countryLabel": func(v string) string { return cti.Label(cti.Countries, v) },
+		"sectorLabel":  func(v string) string { return cti.Label(cti.Sectors, v) },
+		"countries":    func() []cti.Tag { return cti.Countries },
+		"sectors":      func() []cti.Tag { return cti.Sectors },
+		"webhookKinds": func() []inventory.Option { return notify.Kinds },
+		"maskURL":      notify.MaskURL,
 		"has": func(list []string, v string) bool {
 			for _, x := range list {
 				if x == v {

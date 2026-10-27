@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -24,6 +25,7 @@ type Vulnerability struct {
 	KEV       bool    // listed in CISA Known Exploited Vulnerabilities
 	KEVDue    string  // CISA remediation due date
 	EPSS      float64 // exploitation probability, -1 when unknown
+	CVSS      float64 // CVSS base score, -1 when unknown
 }
 
 // Finding links an asset to a vulnerability affecting it, with its triage state.
@@ -39,6 +41,7 @@ type Finding struct {
 	Aliases       []string
 	Summary       string
 	Severity      string
+	CVSS          float64
 	KEV           bool
 	EPSS          float64
 	Status        string
@@ -64,7 +67,30 @@ type FindingFilter struct {
 	Since   time.Time // first_seen >= Since
 	KEV     bool      // only known exploited vulnerabilities
 	Project string
+
+	Statuses   []string // any of these statuses
+	Severities []string // any of these ratings; "UNKNOWN" matches findings without one
+	Kinds      []string // any of these asset kinds
+	MinCVSS    float64  // 0 = any
+	MinEPSS    float64  // 0 = any
+	Search     string   // substring of the vulnerability id, aliases, summary or asset name
+	Sort       string   // "cvss", "epss", "recent" (default) or "" handled by the caller
 }
+
+// inClause adds "column IN (?, ?...)" for a non-empty list.
+func inClause(where []string, args []any, column string, values []string) ([]string, []any) {
+	if len(values) == 0 {
+		return where, args
+	}
+	marks := strings.TrimSuffix(strings.Repeat("?, ", len(values)), ", ")
+	for _, v := range values {
+		args = append(args, v)
+	}
+	return append(where, column+" IN ("+marks+")"), args
+}
+
+// likeEscaper protects LIKE wildcards in user search terms.
+var likeEscaper = strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`)
 
 // VulnModified returns the stored "modified" date of a vulnerability.
 func (s *Store) VulnModified(ctx context.Context, id string) (string, bool, error) {
@@ -81,13 +107,13 @@ func (s *Store) UpsertVulnerability(ctx context.Context, v Vulnerability) error 
 	aliases, _ := json.Marshal(nonNil(v.Aliases))
 	refs, _ := json.Marshal(nonNil(v.Refs))
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO vulnerabilities (id, aliases, summary, details, severity, published, modified, refs, raw, fetched_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO vulnerabilities (id, aliases, summary, details, severity, cvss, published, modified, refs, raw, fetched_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
 			aliases = excluded.aliases, summary = excluded.summary, details = excluded.details,
-			severity = excluded.severity, published = excluded.published, modified = excluded.modified,
+			severity = excluded.severity, cvss = excluded.cvss, published = excluded.published, modified = excluded.modified,
 			refs = excluded.refs, raw = excluded.raw, fetched_at = excluded.fetched_at`,
-		v.ID, string(aliases), v.Summary, v.Details, v.Severity, v.Published, v.Modified, string(refs), v.Raw, now())
+		v.ID, string(aliases), v.Summary, v.Details, v.Severity, v.CVSS, v.Published, v.Modified, string(refs), v.Raw, now())
 	if err != nil {
 		return fmt.Errorf("upsert vulnerability %s: %w", v.ID, err)
 	}
@@ -99,9 +125,9 @@ func (s *Store) Vulnerability(ctx context.Context, id string) (Vulnerability, er
 	var v Vulnerability
 	var aliases, refs string
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, aliases, summary, details, severity, published, modified, refs, kev, kev_due, epss
+		SELECT id, aliases, summary, details, severity, cvss, published, modified, refs, kev, kev_due, epss
 		FROM vulnerabilities WHERE id = ?`, id).
-		Scan(&v.ID, &aliases, &v.Summary, &v.Details, &v.Severity, &v.Published, &v.Modified, &refs,
+		Scan(&v.ID, &aliases, &v.Summary, &v.Details, &v.Severity, &v.CVSS, &v.Published, &v.Modified, &refs,
 			&v.KEV, &v.KEVDue, &v.EPSS)
 	if errors.Is(err, sql.ErrNoRows) {
 		return v, ErrNotFound
@@ -241,12 +267,40 @@ func (s *Store) ListFindings(ctx context.Context, f FindingFilter) ([]Finding, e
 		where = append(where, "f.first_seen >= ?")
 		args = append(args, formatTime(f.Since))
 	}
+	where, args = inClause(where, args, "f.status", f.Statuses)
+	where, args = inClause(where, args, "a.kind", f.Kinds)
+	severities := f.Severities
+	if slices.Contains(severities, "UNKNOWN") {
+		severities = append(slices.Clone(severities), "")
+	}
+	where, args = inClause(where, args, "UPPER(v.severity)", severities)
+	if f.MinCVSS > 0 {
+		where = append(where, "v.cvss >= ?")
+		args = append(args, f.MinCVSS)
+	}
+	if f.MinEPSS > 0 {
+		where = append(where, "v.epss >= ?")
+		args = append(args, f.MinEPSS)
+	}
+	if f.Search != "" {
+		where = append(where, `(f.vuln_id LIKE ? ESCAPE '\' OR v.aliases LIKE ? ESCAPE '\'
+			OR v.summary LIKE ? ESCAPE '\' OR a.name LIKE ? ESCAPE '\')`)
+		term := "%" + likeEscaper.Replace(f.Search) + "%"
+		args = append(args, term, term, term, term)
+	}
 	q := findingSelect
 	if len(where) > 0 {
 		// Only fixed column expressions are joined here; values stay parameterised.
 		q += " WHERE " + strings.Join(where, " AND ")
 	}
-	q += " ORDER BY f.first_seen DESC, f.id DESC"
+	switch f.Sort {
+	case "cvss":
+		q += " ORDER BY v.cvss DESC, f.first_seen DESC, f.id DESC"
+	case "epss":
+		q += " ORDER BY v.epss DESC, f.first_seen DESC, f.id DESC"
+	default:
+		q += " ORDER BY f.first_seen DESC, f.id DESC"
+	}
 
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -275,7 +329,7 @@ func (s *Store) Finding(ctx context.Context, id int64) (Finding, error) {
 
 const findingSelect = `
 	SELECT f.id, f.asset_id, a.name, a.version, a.purl, a.cpe, a.project, f.vuln_id, v.aliases, v.summary, v.severity,
-	       v.kev, v.epss, f.status, f.justification, f.comment, f.first_seen, f.updated_at
+	       v.cvss, v.kev, v.epss, f.status, f.justification, f.comment, f.first_seen, f.updated_at
 	FROM findings f
 	JOIN assets a ON a.id = f.asset_id
 	JOIN vulnerabilities v ON v.id = f.vuln_id`
@@ -285,7 +339,7 @@ func scanFinding(row interface{ Scan(...any) error }) (Finding, error) {
 	var aliases, first, updated string
 	err := row.Scan(&fd.ID, &fd.AssetID, &fd.AssetName, &fd.AssetVersion,
 		&fd.AssetPURL, &fd.AssetCPE, &fd.AssetProject, &fd.VulnID, &aliases,
-		&fd.Summary, &fd.Severity, &fd.KEV, &fd.EPSS, &fd.Status, &fd.Justification, &fd.Comment, &first, &updated)
+		&fd.Summary, &fd.Severity, &fd.CVSS, &fd.KEV, &fd.EPSS, &fd.Status, &fd.Justification, &fd.Comment, &first, &updated)
 	if err != nil {
 		return fd, err
 	}

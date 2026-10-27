@@ -198,7 +198,7 @@ func nvdVuln(c nvd.CVE) store.Vulnerability {
 		summary = summary[:300] + "…"
 	}
 	return store.Vulnerability{
-		ID: c.ID, Summary: summary, Details: c.Description, Severity: c.Severity,
+		ID: c.ID, Summary: summary, Details: c.Description, Severity: c.Severity, CVSS: c.CVSS,
 		Published: c.Published, Modified: c.Modified, Refs: c.Refs, Raw: string(c.Raw),
 	}
 }
@@ -228,6 +228,7 @@ func (s *Syncer) refreshVuln(ctx context.Context, ref osv.VulnRef) error {
 		Summary:   v.Summary,
 		Details:   v.Details,
 		Severity:  v.SeverityLabel(),
+		CVSS:      v.CVSSScore(),
 		Published: v.Published,
 		Modified:  v.Modified,
 		Refs:      refs,

@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/La-Cizaille-Corp/vigil/internal/cvss"
 )
 
 // DefaultBaseURL is the public OSV API.
@@ -80,8 +82,18 @@ type Vuln struct {
 	Raw json.RawMessage `json:"-"`
 }
 
+// CVSSScore returns the highest CVSS 3.x base score computed from the
+// advisory vectors, or cvss.Unknown.
+func (v Vuln) CVSSScore() float64 {
+	best := cvss.Unknown
+	for _, s := range v.Severity {
+		best = max(best, cvss.BaseScore(s.Score))
+	}
+	return best
+}
+
 // SeverityLabel returns the advisory severity (e.g. HIGH) when the database
-// provides one, otherwise the first CVSS vector, otherwise "".
+// provides one, otherwise the rating of the CVSS score, otherwise "".
 func (v Vuln) SeverityLabel() string {
 	if s := strings.ToUpper(v.DatabaseSpecific.Severity); s != "" {
 		if s == "MODERATE" {
@@ -89,12 +101,7 @@ func (v Vuln) SeverityLabel() string {
 		}
 		return s
 	}
-	for _, s := range v.Severity {
-		if strings.HasPrefix(s.Type, "CVSS") {
-			return s.Score
-		}
-	}
-	return ""
+	return cvss.Severity(v.CVSSScore())
 }
 
 // QueryBatch returns, for each query, the vulnerabilities affecting it.

@@ -5,7 +5,7 @@
 <tbody>
 {{range .}}
 <tr>
-  <td>{{if .KEV}}<span class="kev">Exploitée</span><br>{{end}}<span class="sev sev-{{.Severity}}">{{or .Severity "?"}}</span>{{with epss .EPSS}}<br><small>EPSS {{.}}</small>{{end}}</td>
+  <td>{{if .KEV}}<span class="kev">Exploitée</span><br>{{end}}<span class="sev sev-{{.Severity}}">{{or .Severity "?"}}</span>{{with cvss .CVSS}} <small>CVSS {{.}}</small>{{end}}{{with epss .EPSS}}<br><small>EPSS {{.}}</small>{{end}}</td>
   <td><a href="/findings/{{.ID}}">{{.VulnID}}</a>{{if .Aliases}}<br><small>{{join .Aliases ", "}}</small>{{end}}</td>
   <td><a href="/assets/{{.AssetID}}">{{.AssetName}} {{.AssetVersion}}</a></td>
   <td>{{statusLabel .Status}}</td>
