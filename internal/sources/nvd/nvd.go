@@ -44,7 +44,8 @@ type Client struct {
 type CVE struct {
 	ID          string
 	Description string
-	Severity    string // CRITICAL, HIGH, MEDIUM, LOW or ""
+	Severity    string  // CRITICAL, HIGH, MEDIUM, LOW or ""
+	CVSS        float64 // base score of the most recent CVSS version, -1 if none
 	Published   string
 	Modified    string
 	Refs        []string
@@ -205,7 +206,8 @@ type record struct {
 	} `json:"descriptions"`
 	Metrics map[string][]struct {
 		CVSSData struct {
-			BaseSeverity string `json:"baseSeverity"`
+			BaseSeverity string  `json:"baseSeverity"`
+			BaseScore    float64 `json:"baseScore"`
 		} `json:"cvssData"`
 		BaseSeverity string `json:"baseSeverity"` // CVSS v2 puts it here
 	} `json:"metrics"`
@@ -225,7 +227,7 @@ func parse(data []byte) ([]CVE, int, error) {
 		if err := json.Unmarshal(v.CVE, &rec); err != nil || rec.ID == "" {
 			continue
 		}
-		c := CVE{ID: rec.ID, Published: rec.Published, Modified: rec.LastModified, Raw: v.CVE}
+		c := CVE{CVSS: -1, ID: rec.ID, Published: rec.Published, Modified: rec.LastModified, Raw: v.CVE}
 		for _, d := range rec.Descriptions {
 			if d.Lang == "en" {
 				c.Description = d.Value
@@ -235,6 +237,7 @@ func parse(data []byte) ([]CVE, int, error) {
 		for _, key := range []string{"cvssMetricV40", "cvssMetricV31", "cvssMetricV30", "cvssMetricV2"} {
 			if m := rec.Metrics[key]; len(m) > 0 {
 				c.Severity = strings.ToUpper(cmp.Or(m[0].CVSSData.BaseSeverity, m[0].BaseSeverity))
+				c.CVSS = m[0].CVSSData.BaseScore
 				break
 			}
 		}

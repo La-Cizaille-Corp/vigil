@@ -1,16 +1,43 @@
 {{define "content"}}
-{{$current := .Data.Status}}
-<nav class="filters">
-  <a href="/findings" {{if not $current}}class="active"{{end}}>Toutes</a>
-  {{range statuses}}
-  <a href="/findings?status={{.Value}}" {{if eq .Value $current}}class="active"{{end}}>{{.Label}}</a>
-  {{end}}
-  <a href="/findings?kev=1" {{if .Data.KEV}}class="active"{{end}}>Exploitées (KEV)</a>
-</nav>
+{{$f := .Data.Filter}}
+<form method="get" action="/findings" class="card filters-form">
+  <div class="grid">
+    <label>Recherche <input type="search" name="q" value="{{$f.Search}}" maxlength="200" placeholder="CVE-2021-44228, log4j, injection…"></label>
+    <label>Projet
+      <select name="project"><option value="">Tous</option>
+        {{range .Data.Projects}}<option {{if eq . $f.Project}}selected{{end}}>{{.}}</option>{{end}}
+      </select>
+    </label>
+    <label>CVSS minimum <input type="number" name="cvss" min="0" max="10" step="0.1" value="{{if $f.MinCVSS}}{{$f.MinCVSS}}{{end}}" placeholder="ex. 7"></label>
+    <label>EPSS minimum (%) <input type="number" name="epss" min="0" max="100" step="0.1" value="{{if $f.MinEPSS}}{{.Data.MinEPSSPercent}}{{end}}" placeholder="ex. 10"></label>
+    <label>Tri
+      <select name="sort">{{range sortOrders}}<option value="{{.Value}}" {{if eq .Value $f.Sort}}selected{{end}}>{{.Label}}</option>{{end}}</select>
+    </label>
+  </div>
+  <div class="grid">
+    <fieldset><legend>Statut</legend>
+      {{range statuses}}<label class="check"><input type="checkbox" name="status" value="{{.Value}}" {{if has $f.Statuses .Value}}checked{{end}}> {{.Label}}</label>{{end}}
+    </fieldset>
+    <fieldset><legend>Sévérité</legend>
+      {{range severities}}<label class="check"><input type="checkbox" name="severity" value="{{.Value}}" {{if has $f.Severities .Value}}checked{{end}}> {{.Label}}</label>{{end}}
+    </fieldset>
+    <fieldset><legend>Type d'actif</legend>
+      {{range kinds}}<label class="check"><input type="checkbox" name="kind" value="{{.Value}}" {{if has $f.Kinds .Value}}checked{{end}}> {{.Label}}</label>{{end}}
+    </fieldset>
+    <fieldset><legend>Exploitation</legend>
+      <label class="check"><input type="checkbox" name="kev" value="1" {{if $f.KEV}}checked{{end}}> Exploitée (CISA KEV)</label>
+    </fieldset>
+  </div>
+  <button type="submit">Filtrer</button>
+  <a href="/findings">Réinitialiser</a>
+  <a href="/findings?status=in_triage&amp;status=exploitable">Non traitées</a>
+  <a href="/findings?status=in_triage&amp;status=exploitable&amp;severity=CRITICAL&amp;severity=HIGH">Critiques et hautes à traiter</a>
+</form>
+<p class="muted">{{len .Data.Findings}} vulnérabilité(s)</p>
 {{template "findingTable" .Data.Findings}}
 
 <h2>Échange VEX (CycloneDX)</h2>
-<p><a href="/findings/vex">Exporter toutes les analyses en VEX</a></p>
+<p><a href="/findings/vex{{if $f.Project}}?project={{$f.Project}}{{end}}">Exporter les analyses en VEX{{if $f.Project}} (projet {{$f.Project}}){{end}}</a></p>
 {{if can .User.Role "analyst"}}
 <form method="post" action="/findings/vex" enctype="multipart/form-data" class="card">
   <input type="hidden" name="csrf" value="{{.CSRF}}">

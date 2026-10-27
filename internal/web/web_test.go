@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
@@ -216,5 +217,54 @@ func TestTOTPLogin(t *testing.T) {
 	login.Set("code", "000000")
 	if code := newClient(t, base).post("/login", login); code != http.StatusUnauthorized {
 		t.Fatalf("login with wrong code: %d", code)
+	}
+}
+
+func TestFindingFilters(t *testing.T) {
+	st, base := newTestServer(t)
+	ctx := context.Background()
+	seed := func(asset, vuln, sev string, score float64) {
+		id, err := st.CreateAsset(ctx, store.Asset{Name: asset, Kind: "package", Criticality: "high", Source: "manual"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		st.UpsertVulnerability(ctx, store.Vulnerability{ID: vuln, Summary: "summary of " + vuln, Severity: sev, CVSS: score})
+		if _, err := st.ObserveFinding(ctx, id, vuln, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seed("log4j-core", "CVE-2021-44228", "CRITICAL", 10)
+	seed("lodash", "CVE-2020-8203", "HIGH", 7.4)
+	seed("openssl", "CVE-2023-0001", "LOW", 3.1)
+
+	c := newClient(t, base)
+	c.post("/setup", url.Values{"username": {"admin"}, "password": {"a-strong-password"}})
+	for query, want := range map[string][]string{
+		"":                      {"CVE-2021-44228", "CVE-2020-8203", "CVE-2023-0001"},
+		"cvss=7":                {"CVE-2021-44228", "CVE-2020-8203"},
+		"severity=LOW":          {"CVE-2023-0001"},
+		"q=log4j":               {"CVE-2021-44228"},
+		"q=%25":                 {}, // LIKE wildcard is escaped
+		"status=resolved":       {},
+		"severity=BOGUS&cvss=x": {"CVE-2021-44228", "CVE-2020-8203", "CVE-2023-0001"},
+	} {
+		code, body := c.get("/findings?" + query)
+		if code != http.StatusOK {
+			t.Fatalf("%s: %d", query, code)
+		}
+		got := 0
+		for _, id := range []string{"CVE-2021-44228", "CVE-2020-8203", "CVE-2023-0001"} {
+			if strings.Contains(body, ">"+id+"<") {
+				got++
+			}
+		}
+		if got != len(want) {
+			t.Errorf("%q: %d results, want %d", query, got, len(want))
+		}
+		for _, id := range want {
+			if !strings.Contains(body, ">"+id+"<") {
+				t.Errorf("%q: missing %s", query, id)
+			}
+		}
 	}
 }

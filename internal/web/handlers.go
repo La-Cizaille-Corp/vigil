@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -325,19 +326,73 @@ func (s *Server) assetDelete(w http.ResponseWriter, r *http.Request) {
 // --- findings -------------------------------------------------------------
 
 func (s *Server) findingList(w http.ResponseWriter, r *http.Request) {
-	status := r.URL.Query().Get("status")
-	if inventory.Label(tracking.Statuses, status) == status {
-		status = "" // unknown value: show everything
-	}
-	kev := r.URL.Query().Get("kev") == "1"
-	findings, err := s.Store.ListFindings(r.Context(), store.FindingFilter{Status: status, KEV: kev})
+	f := findingFilterFrom(r.URL.Query())
+	findings, err := s.Store.ListFindings(r.Context(), f)
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
-	digest.SortByPriority(findings)
-	s.render(w, r, http.StatusOK, "findings", page{Title: "Vulnérabilités",
-		Data: map[string]any{"Findings": findings, "Status": status, "KEV": kev}})
+	if f.Sort == "" {
+		digest.SortByPriority(findings)
+	}
+	projects, err := s.Store.ListProjects(r.Context())
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	s.render(w, r, http.StatusOK, "findings", page{Title: "Vulnérabilités", Data: map[string]any{
+		"Findings": findings, "Filter": f, "Projects": projects, "Query": r.URL.RawQuery,
+		"MinEPSSPercent": f.MinEPSS * 100,
+	}})
+}
+
+// findingFilterFrom reads the filter form. Unknown values are dropped, so a
+// crafted URL can only narrow the list.
+func findingFilterFrom(q url.Values) store.FindingFilter {
+	keep := func(values []string, allowed []inventory.Option) []string {
+		var out []string
+		for _, v := range values {
+			if inventory.Label(allowed, v) != v {
+				out = append(out, v)
+			}
+		}
+		return out
+	}
+	number := func(key string, maxValue float64) float64 {
+		v, err := strconv.ParseFloat(strings.ReplaceAll(q.Get(key), ",", "."), 64)
+		if err != nil || v < 0 || v > maxValue {
+			return 0
+		}
+		return v
+	}
+	f := store.FindingFilter{
+		Statuses:   keep(q["status"], tracking.Statuses),
+		Severities: keep(q["severity"], severities),
+		Kinds:      keep(q["kind"], inventory.Kinds),
+		KEV:        q.Get("kev") == "1",
+		MinCVSS:    number("cvss", 10),
+		MinEPSS:    number("epss", 100) / 100, // entered as a percentage
+		Project:    q.Get("project"),
+		Search:     strings.TrimSpace(q.Get("q")),
+		Sort:       q.Get("sort"),
+	}
+	if len(f.Search) > 200 {
+		f.Search = f.Search[:200]
+	}
+	if inventory.Label(sortOrders, f.Sort) == f.Sort {
+		f.Sort = ""
+	}
+	return f
+}
+
+var severities = []inventory.Option{
+	{Value: "CRITICAL", Label: "Critique"}, {Value: "HIGH", Label: "Haute"},
+	{Value: "MEDIUM", Label: "Moyenne"}, {Value: "LOW", Label: "Basse"}, {Value: "UNKNOWN", Label: "Inconnue"},
+}
+
+var sortOrders = []inventory.Option{
+	{Value: "", Label: "Priorité (KEV, EPSS, sévérité)"}, {Value: "cvss", Label: "Score CVSS"},
+	{Value: "epss", Label: "Probabilité EPSS"}, {Value: "recent", Label: "Plus récentes"},
 }
 
 func (s *Server) loadFinding(w http.ResponseWriter, r *http.Request) (store.Finding, bool) {

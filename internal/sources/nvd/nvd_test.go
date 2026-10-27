@@ -12,7 +12,7 @@ import (
 const sample = `{"totalResults":1,"vulnerabilities":[{"cve":{"id":"CVE-2024-21762",
  "published":"2024-02-09T09:15:08.087","lastModified":"2024-02-13T16:00:00.000",
  "descriptions":[{"lang":"en","value":"A out-of-bounds write in Fortinet FortiOS. Details follow."}],
- "metrics":{"cvssMetricV31":[{"cvssData":{"baseSeverity":"CRITICAL"}}]},
+ "metrics":{"cvssMetricV31":[{"cvssData":{"baseSeverity":"CRITICAL","baseScore":9.8}}]},
  "references":[{"url":"https://fortiguard.com/psirt/FG-IR-24-015"},{"url":"javascript:alert(1)"}]}}]}`
 
 func TestForCPE(t *testing.T) {
@@ -28,7 +28,7 @@ func TestForCPE(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cves) != 1 || cves[0].ID != "CVE-2024-21762" || cves[0].Severity != "CRITICAL" || len(cves[0].Refs) != 1 {
+	if len(cves) != 1 || cves[0].ID != "CVE-2024-21762" || cves[0].Severity != "CRITICAL" || cves[0].CVSS != 9.8 || len(cves[0].Refs) != 1 {
 		t.Fatalf("unexpected: %+v", cves)
 	}
 }
