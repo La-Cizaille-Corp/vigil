@@ -7,7 +7,7 @@ name: vigil
 
 services:
   vigil:
-    image: ghcr.io/la-cizaille-corp/vigil:0.1 # pin a version; upgrade deliberately
+    image: ghcr.io/la-cizaille-corp/vigil:0.2 # pin a version; upgrade deliberately (data stays in the vigil-data volume)
     restart: unless-stopped
     env_file: .env
     environment:

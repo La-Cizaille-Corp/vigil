@@ -84,7 +84,7 @@ func main() {
 	case "check":
 		err = runCheck(ctx, args)
 	case "version":
-		fmt.Println(version)
+		fmt.Printf("%s (schéma de base %d)\n", version, store.LatestSchema())
 	default:
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
@@ -104,6 +104,19 @@ func defaultDB() string {
 		return "vigil.db"
 	}
 	return filepath.Join(dir, "vigil", "vigil.db")
+}
+
+// openStore opens the database, upgrading its schema if this version is newer.
+func openStore(ctx context.Context, path string) (*store.Store, error) {
+	st, err := store.Open(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	if b := st.UpgradeBackup(); b != "" {
+		v, _ := st.SchemaVersion(ctx)
+		fmt.Fprintf(os.Stderr, "base mise à jour vers le schéma %d ; copie de l'ancienne base : %s\n", v, b)
+	}
+	return st, nil
 }
 
 func userAgent() string {
@@ -163,7 +176,7 @@ func runServe(ctx context.Context, log *slog.Logger, args []string) error {
 		return errors.New("écoute sur une interface non locale : fournissez -tls-cert/-tls-key ou -behind-proxy")
 	}
 
-	st, err := store.Open(ctx, *dbPath)
+	st, err := openStore(ctx, *dbPath)
 	if err != nil {
 		return err
 	}
@@ -286,7 +299,7 @@ func runSync(ctx context.Context, log *slog.Logger, args []string) error {
 	allowPrivate := fs.Bool("allow-private-urls", false, "autoriser les flux vers des adresses privées ou locales")
 	parseFlags(fs, args)
 
-	st, err := store.Open(ctx, *dbPath)
+	st, err := openStore(ctx, *dbPath)
 	if err != nil {
 		return err
 	}
@@ -313,7 +326,7 @@ func runDigest(ctx context.Context, log *slog.Logger, args []string) error {
 	allowPrivate := fs.Bool("allow-private-urls", false, "autoriser les webhooks vers des adresses privées ou locales")
 	parseFlags(fs, args)
 
-	st, err := store.Open(ctx, *dbPath)
+	st, err := openStore(ctx, *dbPath)
 	if err != nil {
 		return err
 	}
@@ -354,7 +367,7 @@ func runImportSBOM(ctx context.Context, args []string) error {
 		return errors.New("le SBOM ne nomme pas de composant principal : précisez -project")
 	}
 
-	st, err := store.Open(ctx, *dbPath)
+	st, err := openStore(ctx, *dbPath)
 	if err != nil {
 		return err
 	}
@@ -396,7 +409,7 @@ func runUser(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	st, err := store.Open(ctx, *dbPath)
+	st, err := openStore(ctx, *dbPath)
 	if err != nil {
 		return err
 	}
@@ -442,12 +455,8 @@ func runBackup(ctx context.Context, args []string) error {
 	if _, err := os.Stat(*out); err == nil {
 		return fmt.Errorf("%s existe déjà", *out)
 	}
-	st, err := store.Open(ctx, *dbPath)
-	if err != nil {
-		return err
-	}
-	defer st.Close()
-	if err := st.Backup(ctx, *out); err != nil {
+	// The copy is taken as is: no schema upgrade, even with a newer binary.
+	if err := store.BackupFile(ctx, *dbPath, *out); err != nil {
 		return err
 	}
 	fmt.Printf("sauvegarde cohérente écrite et vérifiée : %s\n", *out)
@@ -462,7 +471,18 @@ func runCheck(ctx context.Context, args []string) error {
 	if err := store.CheckIntegrity(ctx, *dbPath); err != nil {
 		return err
 	}
-	fmt.Printf("%s : intègre\n", *dbPath)
+	schema, err := store.FileSchema(ctx, *dbPath)
+	if err != nil {
+		return err
+	}
+	switch latest := store.LatestSchema(); {
+	case schema > latest:
+		fmt.Printf("%s : intègre, schéma %d, plus récent que cette version de Vigil (schéma %d)\n", *dbPath, schema, latest)
+	case schema < latest:
+		fmt.Printf("%s : intègre, schéma %d, mis à jour vers le schéma %d au prochain démarrage\n", *dbPath, schema, latest)
+	default:
+		fmt.Printf("%s : intègre, schéma %d (à jour)\n", *dbPath, schema)
+	}
 	return nil
 }
 
@@ -495,7 +515,7 @@ func runResetTOTP(ctx context.Context, args []string) error {
 	dbPath := fs.String("db", defaultDB(), "fichier SQLite")
 	username := fs.String("username", "", "nom d'utilisateur")
 	parseFlags(fs, args)
-	st, err := store.Open(ctx, *dbPath)
+	st, err := openStore(ctx, *dbPath)
 	if err != nil {
 		return err
 	}
