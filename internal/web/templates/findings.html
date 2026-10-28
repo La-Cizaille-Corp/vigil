@@ -1,51 +1,56 @@
 {{define "content"}}
 {{$f := .Data.Filter}}
 {{template "syncBar" .}}
+{{$more := or $f.Statuses $f.Severities $f.Kinds $f.KEV $f.Priority $f.Overdue $f.MinCVSS $f.MinEPSS $f.Project $f.Tag}}
+<nav class="filters" aria-label="Raccourcis">
+  <a href="/findings?status=in_triage&amp;status=exploitable">Non traitées</a>
+  <a href="/findings?status=in_triage&amp;status=exploitable&amp;priority=1">Prioritaires</a>
+  <a href="/findings?status=in_triage&amp;status=exploitable&amp;severity=CRITICAL&amp;severity=HIGH">Critiques et hautes à traiter</a>
+  <a href="/findings?overdue=1">Hors délai</a>
+</nav>
 <form method="get" action="/findings" class="card filters-form">
   <div class="grid">
     <label>Recherche <input type="search" name="q" value="{{$f.Search}}" maxlength="200" placeholder="CVE-2021-44228, log4j, injection…"></label>
-    <label>Projet
-      <select name="project"><option value="">Tous</option>
-        {{range .Data.Projects}}<option {{if eq . $f.Project}}selected{{end}}>{{.}}</option>{{end}}
-      </select>
-    </label>
-    <label>Étiquette d'actif
-      <select name="tag"><option value="">Toutes</option>
-        {{range .Data.Tags}}<option {{if eq .Tag $f.Tag}}selected{{end}}>{{.Tag}}</option>{{end}}
-      </select>
-    </label>
-    <label>CVSS minimum <input type="number" name="cvss" min="0" max="10" step="0.1" value="{{if $f.MinCVSS}}{{$f.MinCVSS}}{{end}}" placeholder="ex. 7"></label>
-    <label>EPSS minimum (%) <input type="number" name="epss" min="0" max="100" step="0.1" value="{{if $f.MinEPSS}}{{.Data.MinEPSSPercent}}{{end}}" placeholder="ex. 10"></label>
     <label>Tri
       <select name="sort">{{range sortOrders}}<option value="{{.Value}}" {{if eq .Value $f.Sort}}selected{{end}}>{{.Label}}</option>{{end}}</select>
     </label>
   </div>
-  <div class="grid">
-    <fieldset><legend>Statut</legend>
-      {{range statuses}}<label class="check"><input type="checkbox" name="status" value="{{.Value}}" {{if has $f.Statuses .Value}}checked{{end}}> {{.Label}}</label>{{end}}
-    </fieldset>
-    <fieldset><legend>Sévérité</legend>
-      {{range severities}}<label class="check"><input type="checkbox" name="severity" value="{{.Value}}" {{if has $f.Severities .Value}}checked{{end}}> {{.Label}}</label>{{end}}
-    </fieldset>
-    <fieldset><legend>Type d'actif</legend>
-      {{range kinds}}<label class="check"><input type="checkbox" name="kind" value="{{.Value}}" {{if has $f.Kinds .Value}}checked{{end}}> {{.Label}}</label>{{end}}
-    </fieldset>
-    <fieldset><legend>Exploitation</legend>
-      <label class="check"><input type="checkbox" name="kev" value="1" {{if $f.KEV}}checked{{end}}> Exploitée (CISA KEV)</label>
-      <label class="check"><input type="checkbox" name="priority" value="1" {{if $f.Priority}}checked{{end}}> Prioritaire (KEV ou EPSS ≥ 10 %)</label>
-      <label class="check"><input type="checkbox" name="overdue" value="1" {{if $f.Overdue}}checked{{end}}> Hors délai de traitement</label>
-    </fieldset>
-  </div>
+  <details class="more-filters"{{if $more}} open{{end}}>
+    <summary>Plus de filtres{{if $more}} (actifs){{end}}</summary>
+    <div class="grid">
+      <label>Projet
+        <select name="project"><option value="">Tous</option>
+          {{range .Data.Projects}}<option {{if eq . $f.Project}}selected{{end}}>{{.}}</option>{{end}}
+        </select>
+      </label>
+      <label>Étiquette d'actif
+        <select name="tag"><option value="">Toutes</option>
+          {{range .Data.Tags}}<option {{if eq .Tag $f.Tag}}selected{{end}}>{{.Tag}}</option>{{end}}
+        </select>
+      </label>
+      <label>CVSS minimum <input type="number" name="cvss" min="0" max="10" step="0.1" value="{{if $f.MinCVSS}}{{$f.MinCVSS}}{{end}}" placeholder="ex. 7"></label>
+      <label>EPSS minimum (%) <input type="number" name="epss" min="0" max="100" step="0.1" value="{{if $f.MinEPSS}}{{.Data.MinEPSSPercent}}{{end}}" placeholder="ex. 10"></label>
+    </div>
+    <div class="grid">
+      <fieldset><legend>Statut</legend>
+        {{range statuses}}<label class="check"><input type="checkbox" name="status" value="{{.Value}}" {{if has $f.Statuses .Value}}checked{{end}}> {{.Label}}</label>{{end}}
+      </fieldset>
+      <fieldset><legend>Sévérité</legend>
+        {{range severities}}<label class="check"><input type="checkbox" name="severity" value="{{.Value}}" {{if has $f.Severities .Value}}checked{{end}}> {{.Label}}</label>{{end}}
+      </fieldset>
+      <fieldset><legend>Type d'actif</legend>
+        {{range kinds}}<label class="check"><input type="checkbox" name="kind" value="{{.Value}}" {{if has $f.Kinds .Value}}checked{{end}}> {{.Label}}</label>{{end}}
+      </fieldset>
+      <fieldset><legend>Exploitation</legend>
+        <label class="check"><input type="checkbox" name="kev" value="1" {{if $f.KEV}}checked{{end}}> Exploitée (CISA KEV)</label>
+        <label class="check"><input type="checkbox" name="priority" value="1" {{if $f.Priority}}checked{{end}}> Prioritaire (KEV ou EPSS ≥ 10 %)</label>
+        <label class="check"><input type="checkbox" name="overdue" value="1" {{if $f.Overdue}}checked{{end}}> Hors délai de traitement</label>
+      </fieldset>
+    </div>
+  </details>
   <div class="toolbar form-actions">
     <button type="submit">Filtrer</button>
     <a href="/findings">Réinitialiser</a>
-    <span class="filters">
-      <span class="muted small">Raccourcis :</span>
-      <a href="/findings?status=in_triage&amp;status=exploitable">Non traitées</a>
-      <a href="/findings?status=in_triage&amp;status=exploitable&amp;priority=1">Prioritaires</a>
-      <a href="/findings?status=in_triage&amp;status=exploitable&amp;severity=CRITICAL&amp;severity=HIGH">Critiques et hautes à traiter</a>
-      <a href="/findings?overdue=1">Hors délai</a>
-    </span>
   </div>
 </form>
 {{$analyst := can .User.Role "analyst"}}

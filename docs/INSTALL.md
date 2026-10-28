@@ -247,6 +247,9 @@ docker run -d --name vigil --restart unless-stopped -p 127.0.0.1:8080:8080 -v vi
 docker exec -it vigil vigil user add -username admin -role admin
 ```
 
+Gardez `127.0.0.1:` devant le port : l'image écoute en clair derrière un proxy attendu, et
+`-p 8080:8080` exposerait l'interface au réseau sans TLS.
+
 **Serveur avec HTTPS automatique** ([docker-compose.yml](../deploy/docker-compose.yml) + Caddy) :
 
 ```bash

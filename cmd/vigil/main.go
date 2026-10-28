@@ -48,6 +48,10 @@ Usage :
   vigil backup  -o fichier.db [-db fichier]
   vigil check   [-db fichier]
   vigil user add -username nom [-role admin|analyst|viewer] [-db fichier]
+  vigil user list [-db fichier]
+  vigil user set-role -username nom -role admin|analyst|viewer [-db fichier]
+  vigil user disable|enable -username nom [-db fichier]
+  vigil user reset-password -username nom [-db fichier]
   vigil user reset-totp -username nom [-db fichier]
   vigil version
 
@@ -149,7 +153,8 @@ func smtpFlags(fs *flag.FlagSet) func() (*notify.Mailer, error) {
 }
 
 func newServices(st *store.Store, log *slog.Logger, allowPrivate bool, mail *notify.Mailer, baseURL string) services {
-	fixed := &http.Client{Timeout: 60 * time.Second} // OSV, KEV, EPSS: fixed public hosts
+	// OSV, NVD, KEV, EPSS: fixed public hosts.
+	fixed := &http.Client{Timeout: 60 * time.Second, CheckRedirect: safeRedirect}
 	// SECURITY: feeds and webhooks are user-supplied URLs, guarded against SSRF.
 	userURLs := netsafe.NewClient(60*time.Second, allowPrivate)
 	ua := userAgent()
@@ -162,6 +167,22 @@ func newServices(st *store.Store, log *slog.Logger, allowPrivate bool, mail *not
 	}
 	sv.syncer.Alert = sv.notifier.SendAlerts
 	return sv
+}
+
+// safeRedirect follows at most 5 redirects, in HTTPS only. SECURITY: Go
+// forwards custom headers on redirect; the NVD key is dropped when the host
+// changes, so that it cannot leak to another site.
+func safeRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 5 {
+		return errors.New("trop de redirections")
+	}
+	if req.URL.Scheme != "https" {
+		return fmt.Errorf("redirection refusée vers %s://%s", req.URL.Scheme, req.URL.Host)
+	}
+	if req.URL.Host != via[0].URL.Host {
+		req.Header.Del("apiKey")
+	}
+	return nil
 }
 
 // refresh runs a vulnerability sync then a CTI collection.
@@ -194,6 +215,9 @@ func runServe(ctx context.Context, log *slog.Logger, args []string) error {
 	if err != nil {
 		return err
 	}
+	if mail.Cleartext() {
+		log.Warn("e-mails envoyés sans chiffrement à un serveur distant (-smtp-tls none) : préférez starttls ou tls", "smtp", mail.Addr)
+	}
 
 	useTLS := *certFile != "" && *keyFile != ""
 	// SECURITY: refuse to expose the UI in clear text on a non-local interface.
@@ -209,7 +233,8 @@ func runServe(ctx context.Context, log *slog.Logger, args []string) error {
 
 	sv := newServices(st, log, *allowPrivate, mail, *baseURL)
 	srv := &web.Server{Store: st, Syncer: sv.syncer, CTI: sv.cti, Notifier: sv.notifier, Log: log,
-		Version: version, BaseURL: *baseURL, SecureCookies: useTLS || *behindProxy, BehindProxy: *behindProxy, Context: ctx}
+		Version: version, BaseURL: *baseURL, SecureCookies: useTLS || *behindProxy, BehindProxy: *behindProxy, Context: ctx,
+		LocalOnly: isLocalAddr(*addr) && !useTLS && !*behindProxy}
 	handler, err := srv.Handler()
 	if err != nil {
 		return err
@@ -419,11 +444,16 @@ func runImportSBOM(ctx context.Context, args []string) error {
 }
 
 func runUser(ctx context.Context, args []string) error {
-	if len(args) > 0 && args[0] == "reset-totp" {
-		return runResetTOTP(ctx, args[1:])
+	if len(args) > 0 {
+		switch args[0] {
+		case "reset-totp":
+			return runResetTOTP(ctx, args[1:])
+		case "list", "set-role", "disable", "enable", "reset-password":
+			return runUserChange(ctx, args[0], args[1:])
+		}
 	}
 	if len(args) == 0 || args[0] != "add" {
-		return errors.New("sous-commande attendue : user add ou user reset-totp")
+		return errors.New("sous-commande attendue : user add, list, set-role, disable, enable, reset-password ou reset-totp")
 	}
 	fs := flag.NewFlagSet("user add", flag.ExitOnError)
 	dbPath := fs.String("db", defaultDB(), "fichier SQLite")
@@ -546,6 +576,80 @@ func readPassword() (string, error) {
 }
 
 // runResetTOTP disables the second factor of a user who lost their authenticator.
+// runUserChange lists the accounts or changes one of them. Disabling,
+// changing the password or the role takes effect at once on open sessions.
+func runUserChange(ctx context.Context, cmd string, args []string) error {
+	fs := flag.NewFlagSet("user "+cmd, flag.ExitOnError)
+	dbPath := fs.String("db", defaultDB(), "fichier SQLite")
+	username := fs.String("username", "", "nom d'utilisateur")
+	role := fs.String("role", "", "rôle : admin, analyst ou viewer")
+	parseFlags(fs, args)
+	if cmd != "list" && *username == "" {
+		return errors.New("-username est obligatoire")
+	}
+	if cmd == "set-role" && !auth.ValidRole(*role) {
+		return errors.New("-role doit valoir admin, analyst ou viewer")
+	}
+	var hash string
+	if cmd == "reset-password" {
+		password, err := readPassword()
+		if err != nil {
+			return err
+		}
+		if hash, err = auth.HashPassword(password); err != nil {
+			return err
+		}
+	}
+	st, err := openStore(ctx, *dbPath)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	if cmd == "list" {
+		accounts, err := st.ListAccounts(ctx)
+		if err != nil {
+			return err
+		}
+		for _, a := range accounts {
+			state := "actif"
+			if a.Disabled {
+				state = "désactivé"
+			}
+			totp := ""
+			if a.TOTP {
+				totp = ", double authentification"
+			}
+			fmt.Printf("%-24s %-8s %s%s\n", a.Username, a.Role, state, totp)
+		}
+		return nil
+	}
+	a, err := st.AccountByName(ctx, *username)
+	if err != nil {
+		return fmt.Errorf("utilisateur %q : %w", *username, err)
+	}
+	detail := *username + " (CLI)"
+	switch cmd {
+	case "set-role":
+		err, detail = st.SetRole(ctx, a.ID, *role), *username+" role="+*role+" (CLI)"
+	case "disable":
+		err = st.SetDisabled(ctx, a.ID, true)
+	case "enable":
+		err = st.SetDisabled(ctx, a.ID, false)
+	case "reset-password":
+		err = st.ResetPassword(ctx, a.ID, hash)
+	}
+	if errors.Is(err, store.ErrLastAdmin) {
+		return errors.New("refusé : il doit rester au moins un administrateur actif")
+	}
+	if err != nil {
+		return fmt.Errorf("utilisateur %q : %w", *username, err)
+	}
+	auditCLI(ctx, st, map[string]string{"set-role": "user_role", "disable": "user_disable", "enable": "user_enable",
+		"reset-password": "password_reset"}[cmd], detail)
+	fmt.Printf("%s : fait pour %q\n", cmd, *username)
+	return nil
+}
+
 func runResetTOTP(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("user reset-totp", flag.ExitOnError)
 	dbPath := fs.String("db", defaultDB(), "fichier SQLite")

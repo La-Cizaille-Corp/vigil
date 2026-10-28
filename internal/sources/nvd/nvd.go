@@ -177,17 +177,24 @@ func cloneValues(v url.Values) url.Values {
 	return out
 }
 
+// maxPages bounds a query: 100 000 vulnerabilities, more than any real
+// product, so that a wrong totalResults cannot stall the synchronisation.
+const maxPages = 50
+
 // pages fetches every page of results of q.
 func (c *Client) pages(ctx context.Context, q url.Values) ([]CVE, error) {
 	var out []CVE
-	for start := 0; ; start += pageSize {
+	for start, n := 0, 0; ; start, n = start+pageSize, n+1 {
+		if n == maxPages {
+			return nil, fmt.Errorf("nvd: more than %d pages of results", maxPages)
+		}
 		q.Set("startIndex", fmt.Sprint(start))
 		page, total, err := c.get(ctx, q)
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, page...)
-		if start+pageSize >= total {
+		if start+pageSize >= total || len(page) == 0 {
 			return out, nil
 		}
 	}

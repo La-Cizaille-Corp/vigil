@@ -167,6 +167,11 @@ var nonPublic = []netip.Prefix{
 	netip.MustParsePrefix("64:ff9b::/96"),  // NAT64: may reach internal IPv4
 	netip.MustParsePrefix("64:ff9b:1::/48"),
 	netip.MustParsePrefix("2001:db8::/32"), // documentation
+	netip.MustParsePrefix("0.0.0.0/8"),     // "this network", reaches the host on some systems
+	netip.MustParsePrefix("::/96"),         // IPv4-compatible (deprecated), e.g. ::7f00:1
+	netip.MustParsePrefix("fec0::/10"),     // site-local (deprecated)
+	netip.MustParsePrefix("2002::/16"),     // 6to4: embeds any IPv4 address
+	netip.MustParsePrefix("2001::/32"),     // Teredo: embeds any IPv4 address
 }
 
 // Public reports whether ip is a globally routable address.

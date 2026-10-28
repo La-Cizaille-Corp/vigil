@@ -111,7 +111,8 @@ func (s *Server) tokenCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tokenDelete(w http.ResponseWriter, r *http.Request) {
-	s.byID(w, r, func(id int64) error { return s.Store.DeleteAPIToken(r.Context(), id) }, "/settings", "token-deleted")
+	s.byID(w, r, s.audited(r, "api_token_delete", "", func(id int64) error { return s.Store.DeleteAPIToken(r.Context(), id) }),
+		"/settings", "token-deleted")
 }
 
 type newTokenKey struct{}

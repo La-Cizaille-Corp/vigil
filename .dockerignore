@@ -7,3 +7,9 @@ dist
 *.db-shm
 *.db-wal
 /vigil
+.env
+*.env
+deploy/.env
+*.bak
+*.db.tmp
+backups/

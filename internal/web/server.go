@@ -32,7 +32,10 @@ var templatesFS embed.FS
 var staticFS embed.FS
 
 const (
+	// sessionCookie is the session cookie name over plain HTTP; over HTTPS the
+	// __Host- prefix forbids a sibling domain or a plain-HTTP page to plant one.
 	sessionCookie   = "vigil_session"
+	secureCookie    = "__Host-vigil_session"
 	sessionDuration = 12 * time.Hour
 	maxFormBytes    = 64 << 10
 	// maxPasswordBytes bounds the argon2 input on password change.
@@ -58,9 +61,13 @@ type Server struct {
 	SecureCookies bool
 	// BehindProxy disables the web setup page (see setupAllowed).
 	BehindProxy bool
+	// LocalOnly is set when the UI listens on the loopback interface in plain
+	// HTTP: requests must then name the machine (see checkHost).
+	LocalOnly bool
 
-	pages   map[string]*template.Template
-	limiter *auth.Limiter
+	pages    map[string]*template.Template
+	limiter  *auth.Limiter // failed sign-ins per client address
+	accounts *auth.Limiter // failed sign-ins per account name
 }
 
 // Handler builds the routes and middleware.
@@ -69,6 +76,7 @@ func (s *Server) Handler() (http.Handler, error) {
 		return nil, err
 	}
 	s.limiter = auth.NewLimiter(5, 15*time.Minute)
+	s.accounts = auth.NewLimiter(10, 15*time.Minute)
 
 	static, _ := fs.Sub(staticFS, "static")
 	mux := http.NewServeMux()
@@ -123,6 +131,13 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.Handle("POST /settings/webhooks/{id}/toggle", s.require(auth.RoleAdmin, s.webhookToggle))
 	mux.Handle("POST /settings/sla", s.require(auth.RoleAdmin, s.slaSave))
 	mux.Handle("GET /settings/audit", s.require(auth.RoleAdmin, s.auditList))
+	mux.Handle("GET /settings/users", s.require(auth.RoleAdmin, s.userList))
+	mux.Handle("POST /settings/users", s.require(auth.RoleAdmin, s.userCreate))
+	mux.Handle("POST /settings/users/{id}/role", s.require(auth.RoleAdmin, s.userRole))
+	mux.Handle("POST /settings/users/{id}/disable", s.require(auth.RoleAdmin, s.userDisable))
+	mux.Handle("POST /settings/users/{id}/enable", s.require(auth.RoleAdmin, s.userEnable))
+	mux.Handle("POST /settings/users/{id}/password", s.require(auth.RoleAdmin, s.userPassword))
+	mux.Handle("POST /settings/users/{id}/totp-reset", s.require(auth.RoleAdmin, s.userTOTPReset))
 	mux.Handle("POST /settings/webhooks/{id}/delete", s.require(auth.RoleAdmin, s.webhookDelete))
 	mux.Handle("POST /settings/tokens", s.require(auth.RoleAdmin, s.tokenCreate))
 	mux.Handle("POST /settings/tokens/{id}/delete", s.require(auth.RoleAdmin, s.tokenDelete))
@@ -130,20 +145,19 @@ func (s *Server) Handler() (http.Handler, error) {
 	// Token-authenticated API for CI pipelines (no session, no CSRF: no cookie is used).
 	mux.HandleFunc("PUT /api/v1/projects/{project}/sbom", s.apiSBOM)
 
-	return securityHeaders(sameOrigin(limitBody(mux))), nil
+	return securityHeaders(s.checkHost(sameOrigin(limitBody(mux)))), nil
 }
 
 func (s *Server) parseTemplates() error {
 	funcs := template.FuncMap{
-		"date":      func(t time.Time) string { return t.Local().Format("02/01/2006 15:04") },
-		"isoDate":   isoDate,
-		"sevLabel":  tracking.SeverityLabel,
-		"roleLabel": func(v string) string { return inventory.Label(roles, v) },
-		"tracking":  trackingSource,
-		"vendorOf": func(a store.Asset) string {
-			v, _ := inventory.VendorProduct(a)
-			return v
-		},
+		"date":        func(t time.Time) string { return t.Local().Format("02/01/2006 15:04") },
+		"isoDate":     isoDate,
+		"sevLabel":    tracking.SeverityLabel,
+		"roleLabel":   func(v string) string { return inventory.Label(roles, v) },
+		"roles":       func() []inventory.Option { return roles },
+		"maskURL":     maskURL,
+		"tracking":    trackingSource,
+		"vendorOf":    inventory.VendorName,
 		"wholeVendor": inventory.WholeVendor,
 		"knownTags":   s.knownTags,
 		"syncStatus":  s.syncStatus,
@@ -284,6 +298,10 @@ var flashes = map[string]string{ // #nosec G101 -- message keys, not credentials
 	"sbom-imported":    "SBOM importé ; synchronisation lancée, actualisez la page dans quelques instants.",
 	"password-changed": "Mot de passe modifié ; vos autres sessions ont été fermées.",
 	"token-deleted":    "Jeton révoqué.",
+	"user-updated":     "Rôle modifié ; il s'applique aussitôt.",
+	"user-disabled":    "Compte désactivé ; ses sessions sont fermées.",
+	"user-enabled":     "Compte réactivé.",
+	"user-totp-reset":  "Double authentification retirée ; les sessions de l'utilisateur sont fermées.",
 	"totp-enabled":     "Double authentification activée.",
 	"totp-disabled":    "Double authentification désactivée.",
 	"vex-imported":     "VEX importé : les analyses correspondantes ont été appliquées.",
@@ -325,6 +343,24 @@ func (s *Server) clientIP(r *http.Request) string {
 	return remoteHost(r)
 }
 
+// limitKey is the rate-limiting key of a client address: an IPv6 client
+// usually owns a whole /64, so it counts as one.
+func limitKey(addr string) string {
+	ip := net.ParseIP(addr)
+	if ip == nil || ip.To4() != nil {
+		return addr
+	}
+	return ip.Mask(net.CIDRMask(64, 128)).String() + "/64"
+}
+
+// cookieName is the name of the session cookie (see sessionCookie).
+func (s *Server) cookieName() string {
+	if s.SecureCookies {
+		return secureCookie
+	}
+	return sessionCookie
+}
+
 // remoteHost is the address of the TCP peer: the proxy, if there is one.
 func remoteHost(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
@@ -350,6 +386,9 @@ func (s *Server) background() context.Context {
 // audit records an action in the audit log; a failure is logged, never
 // silently ignored, but does not fail the user's request.
 func (s *Server) audit(r *http.Request, userID int64, action, detail string) {
+	// The journal keeps a copy outside the database: shipped to a log server,
+	// it survives a lost or altered database.
+	s.Log.Info("audit", "action", action, "user_id", userID, "detail", detail, "ip", s.clientIP(r))
 	if err := s.Store.Audit(r.Context(), userID, action, detail); err != nil {
 		s.Log.Error("audit log write failed", "action", action, "err", err)
 	}

@@ -14,6 +14,7 @@ import (
 	texttemplate "text/template"
 	"time"
 
+	"github.com/La-Cizaille-Corp/vigil/internal/chattext"
 	"github.com/La-Cizaille-Corp/vigil/internal/cti"
 	"github.com/La-Cizaille-Corp/vigil/internal/cvss"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
@@ -43,9 +44,15 @@ var funcs = map[string]any{
 	"countries": func(v []string) string { return labels(cti.Countries, v) },
 	"sectors":   func(v []string) string { return labels(cti.Sectors, v) },
 	"regs":      func(v []string) string { return labels(cti.Regulations, v) },
-	// cell makes a value safe inside a Markdown table cell.
-	"cell": func(s string) string {
-		return strings.NewReplacer("|", `\|`, "\r", " ", "\n", " ").Replace(s)
+	// Untrusted text (sources, feeds, SBOMs) in the Markdown digest goes
+	// through chattext, so that it cannot ping a channel or disguise a link.
+	"md":   chattext.Text,
+	"cell": chattext.Cell,
+	"link": func(title, link string) string {
+		if link == "" {
+			return chattext.Text(title)
+		}
+		return "[" + strings.NewReplacer("[", "(", "]", ")").Replace(chattext.Text(title)) + "](" + chattext.URL(link) + ")"
 	},
 }
 

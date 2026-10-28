@@ -143,5 +143,11 @@ func (d *Document) check() error {
 	if len(d.Assets)+d.Skipped > maxComponents {
 		return fmt.Errorf("SBOM trop volumineux (plus de %d composants)", maxComponents)
 	}
+	// SECURITY: an import replaces the project's assets, and removing an asset
+	// removes its triage history; an empty or unusable file (truncated upload,
+	// failed generation) must not wipe a project.
+	if len(d.Assets) == 0 {
+		return errors.New("aucun composant exploitable dans le SBOM : le projet n'a pas été modifié")
+	}
 	return nil
 }

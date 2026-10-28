@@ -6,12 +6,12 @@ Généré le {{date .GeneratedAt}} — période depuis le {{date .Since}}.
 {{if .New.Groups}}
 {{template "breakdown" .New}}
 {{range .New.Groups}}
-### {{.Vendor}} ({{len .Findings}}) — {{.Summary}}
+### {{md .Vendor}} ({{len .Findings}}) — {{.Summary}}
 
 | Sévérité | Vulnérabilité | Actif | Statut | Résumé |
 |---|---|---|---|---|
 {{- range .Findings}}
-| {{if .KEV}}**EXPLOITÉE (KEV)** {{end}}{{sev (band .)}}{{with score .CVSS}} · CVSS {{.}}{{end}}{{with epss .EPSS}} · EPSS {{.}}{{end}} | {{.VulnID}}{{if .Aliases}} ({{join .Aliases ", "}}){{end}} | {{cell .AssetName}} {{cell .AssetVersion}} | {{status .Status}} | {{cell .Summary}} |
+| {{if .KEV}}**EXPLOITÉE (KEV)** {{end}}{{sev (band .)}}{{with score .CVSS}} · CVSS {{.}}{{end}}{{with epss .EPSS}} · EPSS {{.}}{{end}} | {{cell .VulnID}}{{if .Aliases}} ({{cell (join .Aliases ", ")}}){{end}} | {{cell .AssetName}} {{cell .AssetVersion}} | {{status .Status}} | {{cell .Summary}} |
 {{- end}}
 {{end}}
 {{- else}}
@@ -20,22 +20,22 @@ Aucune nouvelle vulnérabilité sur la période.
 {{if .Overdue}}## Hors délai de traitement ({{len .Overdue}})
 
 {{range .Overdue}}
-- **{{sev (band .)}}**{{if .KEV}} **EXPLOITÉE (KEV)**{{end}} {{.VulnID}} — {{.AssetName}} {{.AssetVersion}} — échéance {{.Due.Format "02/01/2006"}}
+- **{{sev (band .)}}**{{if .KEV}} **EXPLOITÉE (KEV)**{{end}} {{md .VulnID}} — {{md .AssetName}} {{md .AssetVersion}} — échéance {{.Due.Format "02/01/2006"}}
 {{- end}}
 
 {{end}}{{if .Concerning}}## Actualités citant vos vulnérabilités ({{len .Concerning}})
 
 {{range .Concerning}}
-- [{{.Title}}]({{.Link}}) — {{.FeedName}}, {{date .Published}} · {{join .Concerns ", "}}
+- {{link .Title .Link}} — {{md .FeedName}}, {{date .Published}} · {{md (join .Concerns ", ")}}
 {{- end}}
 
 {{end}}## Vulnérabilités ouvertes ({{len .Open.Total.Findings}})
 {{if .Open.Groups}}
 {{template "breakdown" .Open}}
 {{range .Open.Groups}}
-### {{.Vendor}} ({{len .Findings}}) — {{.Summary}}
+### {{md .Vendor}} ({{len .Findings}}) — {{.Summary}}
 {{range .Listed}}
-- {{if .KEV}}**EXPLOITÉE (KEV)** {{end}}**{{sev (band .)}}**{{with score .CVSS}} (CVSS {{.}}){{end}}{{with epss .EPSS}} (EPSS {{.}}){{end}} {{.VulnID}} — {{.AssetName}} {{.AssetVersion}} — {{status .Status}}
+- {{if .KEV}}**EXPLOITÉE (KEV)** {{end}}**{{sev (band .)}}**{{with score .CVSS}} (CVSS {{.}}){{end}}{{with epss .EPSS}} (EPSS {{.}}){{end}} {{md .VulnID}} — {{md .AssetName}} {{md .AssetVersion}} — {{status .Status}}
 {{- end}}
 {{- with .Unlisted}}
 - … et {{.}} autres, moins sévères, à consulter dans Vigil
@@ -52,7 +52,7 @@ Aucune vulnérabilité ouverte.
 ## Veille menaces ({{len .CTI}}) — {{.CTIScope}}
 {{if .CTI}}
 {{- range .CTI}}
-- [{{.Title}}]({{.Link}}) — {{.FeedName}}, {{date .Published}}{{with countries .Countries}} · {{.}}{{end}}{{with sectors .Sectors}} · {{.}}{{end}}
+- {{link .Title .Link}} — {{md .FeedName}}, {{date .Published}}{{with countries .Countries}} · {{.}}{{end}}{{with sectors .Sectors}} · {{.}}{{end}}
 {{- end}}
 {{else}}
 Aucune actualité correspondante sur la période.
@@ -61,7 +61,7 @@ Aucune actualité correspondante sur la période.
 ## Veille réglementaire ({{len .Regulatory}}) — {{.RegScope}}
 {{if .Regulatory}}
 {{- range .Regulatory}}
-- [{{.Title}}]({{.Link}}) — {{.FeedName}}, {{date .Published}} · {{regs .Regulations}}
+- {{link .Title .Link}} — {{md .FeedName}}, {{date .Published}} · {{regs .Regulations}}
 {{- end}}
 {{else}}
 Aucune actualité réglementaire sur la période.

@@ -60,6 +60,17 @@ func NewMailer(addr, mode, username, password, from string) (*Mailer, error) {
 		From: sender.Address, Timeout: 30 * time.Second}, nil
 }
 
+// Cleartext reports whether e-mails leave the machine unencrypted: they
+// describe the inventory's weaknesses, so the operator is warned.
+func (m *Mailer) Cleartext() bool {
+	if m == nil || m.TLS != MailNoTLS {
+		return false
+	}
+	host, _, _ := net.SplitHostPort(m.Addr)
+	ip := net.ParseIP(host)
+	return host != "localhost" && (ip == nil || !ip.IsLoopback())
+}
+
 // ParseRecipients reads a comma- or semicolon-separated list of addresses.
 func ParseRecipients(list string) ([]string, error) {
 	parsed, err := mail.ParseAddressList(strings.ReplaceAll(list, ";", ","))

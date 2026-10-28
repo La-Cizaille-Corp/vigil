@@ -91,4 +91,20 @@ version validée.
 - La page Paramètres affiche la dernière erreur de chaque flux CTI et de chaque canal de
   notification (webhook ou e-mail) ; le journal trace aussi les alertes en échec.
 - Paramètres → Journal d'audit (administrateurs) : connexions, comptes, inventaire, triage par lot,
-  réglages.
+  réglages. Chaque entrée est aussi écrite dans le journal du service (`msg=audit`) : envoyé à un
+  serveur de journaux (journald distant, syslog, SIEM), il garde une trace hors de la base, que
+  l'altération ou la perte de la base n'efface pas.
+
+## Gérer les comptes
+
+- **Arrivée** : Paramètres → Utilisateurs → « Ajouter un utilisateur ». Un mot de passe provisoire
+  s'affiche une fois ; transmettez-le par un canal sûr, l'utilisateur le change dans « Mon compte ».
+- **Départ ou compte compromis** : « Désactiver… ». La connexion est refusée et les sessions sont
+  fermées aussitôt ; le nom reste dans l'historique de triage et le journal d'audit. Révoquez aussi
+  les jetons d'API que la personne utilisait.
+- **Mot de passe oublié, téléphone perdu** : « Nouveau mot de passe… » ou « Retirer la double
+  authentification… ».
+- **Plus aucun administrateur ne peut se connecter** : sur le serveur, `vigil user list`, puis
+  `vigil user reset-password -username NOM` ou `vigil user set-role -username NOM -role admin`.
+- Un administrateur ne peut ni se désactiver ni changer son propre rôle, et le dernier
+  administrateur actif ne peut pas être désactivé ni rétrogradé.

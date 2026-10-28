@@ -55,7 +55,7 @@ header nav a[aria-current="page"] { background: var(--accent-soft); color: var(-
 header form.inline { margin: 0; }
 .account-link { color: var(--fg); font-weight: 600; }
 .account-link[aria-current="page"] { color: var(--accent); }
-main { max-width: 1240px; margin: 0 auto; padding: 1.25rem 1.25rem 3rem; }
+main { max-width: 1240px; margin: 0 auto; padding: 1.25rem 1.25rem 3rem; overflow-wrap: break-word; }
 
 /* --- surfaces ------------------------------------------------------------ */
 .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.15rem;
@@ -103,6 +103,8 @@ button.link { background: none; color: var(--accent); padding: 0; font-weight: 5
 form.inline { display: inline-flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: .5rem 0; }
 details > summary { cursor: pointer; }
 details.card > summary { color: var(--accent); font-weight: 600; }
+details.more-filters { margin: .25rem 0 .75rem; }
+details.more-filters > summary { color: var(--accent); font-weight: 600; margin-bottom: .5rem; }
 details.confirm { display: inline-block; margin: .25rem 0; }
 details.confirm > summary { color: var(--danger); }
 details.confirm[open] { display: block; }

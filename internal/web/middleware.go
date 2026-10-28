@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -22,7 +23,7 @@ func sessionFrom(ctx context.Context) (store.Session, bool) {
 // methods, the CSRF token.
 func (s *Server) require(role string, next http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cookie, err := r.Cookie(sessionCookie)
+		cookie, err := r.Cookie(s.cookieName())
 		if err != nil {
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
@@ -49,6 +50,32 @@ func (s *Server) require(role string, next http.HandlerFunc) http.Handler {
 			}
 		}
 		next(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, sess)))
+	})
+}
+
+// localHosts are the names a browser uses for this machine.
+var localHosts = map[string]bool{"localhost": true, "127.0.0.1": true, "::1": true}
+
+// checkHost rejects, on a local instance, requests addressed to another host
+// name. SECURITY: a web page can make its own domain resolve to 127.0.0.1
+// (DNS rebinding); its requests then reach Vigil with that domain as Host and
+// Origin, which look same-origin, and could claim the first-run setup.
+func (s *Server) checkHost(next http.Handler) http.Handler {
+	allowed := map[string]bool{}
+	if u, err := url.Parse(s.BaseURL); err == nil && u.Hostname() != "" {
+		allowed[strings.ToLower(u.Hostname())] = true
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := r.Host
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+		host = strings.ToLower(strings.Trim(host, "[]"))
+		if s.LocalOnly && !localHosts[host] && !allowed[host] {
+			http.Error(w, "Hôte non autorisé : ouvrez Vigil par http://127.0.0.1 ou http://localhost.", http.StatusMisdirectedRequest)
+			return
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 

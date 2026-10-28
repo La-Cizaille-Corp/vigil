@@ -37,7 +37,7 @@ func (s *Server) totpAttempt(w http.ResponseWriter, r *http.Request, userID int6
 
 // endOtherSessions logs out the user's other browsers after a security change.
 func (s *Server) endOtherSessions(r *http.Request, userID int64) error {
-	cookie, err := r.Cookie(sessionCookie)
+	cookie, err := r.Cookie(s.cookieName())
 	if err != nil {
 		return err
 	}
@@ -64,6 +64,16 @@ func (s *Server) renderAccount(w http.ResponseWriter, r *http.Request, status in
 
 func (s *Server) totpStart(w http.ResponseWriter, r *http.Request) {
 	sess, _ := sessionFrom(r.Context())
+	// SECURITY: an active second factor is only replaced after disabling it,
+	// which takes a valid code.
+	if active, _, _, err := s.Store.UserTOTP(r.Context(), sess.User.ID); err != nil || active != "" {
+		if err != nil {
+			s.serverError(w, r, err)
+			return
+		}
+		redirect(w, r, "/account", "")
+		return
+	}
 	secret, err := auth.NewTOTPSecret()
 	if err == nil {
 		err = s.Store.SetTOTPPending(r.Context(), sess.User.ID, secret)
@@ -84,6 +94,11 @@ func (s *Server) totpConfirm(w http.ResponseWriter, r *http.Request) {
 	_, pending, _, err := s.Store.UserTOTP(r.Context(), sess.User.ID)
 	if err != nil {
 		s.serverError(w, r, err)
+		return
+	}
+	// SECURITY: enabling the second factor takes the password, so that a
+	// stolen session cannot lock the owner out with the thief's authenticator.
+	if !s.passwordMatches(w, r, sess.User.Username, key) {
 		return
 	}
 	step, ok := auth.VerifyTOTP(pending, r.PostFormValue("code"), time.Now(), 0)
@@ -133,6 +148,27 @@ func (s *Server) totpDisable(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, sess.User.ID, "totp_disable", "")
 	redirect(w, r, "/account", "totp-disabled")
+}
+
+// passwordMatches checks the "password" field against the signed-in user's
+// password, counting a failure against key; it renders the error itself.
+func (s *Server) passwordMatches(w http.ResponseWriter, r *http.Request, username, key string) bool {
+	password := r.PostFormValue("password")
+	if len(password) > maxPasswordBytes {
+		s.renderAccount(w, r, http.StatusBadRequest, "Mot de passe trop long.")
+		return false
+	}
+	user, err := s.Store.UserByName(r.Context(), username)
+	if err != nil {
+		s.serverError(w, r, err)
+		return false
+	}
+	if ok, err := auth.VerifyPassword(password, user.PasswordHash); err != nil || !ok {
+		s.limiter.Fail(key)
+		s.renderAccount(w, r, http.StatusBadRequest, "Mot de passe incorrect.")
+		return false
+	}
+	return true
 }
 
 // passwordChange replaces the password of the signed-in user, who must give

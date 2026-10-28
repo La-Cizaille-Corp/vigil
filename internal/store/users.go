@@ -41,11 +41,12 @@ func (s *Store) CreateUser(ctx context.Context, username, passwordHash, role str
 	return res.LastInsertId()
 }
 
-// UserByName looks up a user by username.
+// UserByName looks up an active user by username; a disabled one is
+// ErrNotFound, so that it cannot sign in.
 func (s *Store) UserByName(ctx context.Context, username string) (User, error) {
 	var u User
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, username, password_hash, role FROM users WHERE username = ?`, username).
+		`SELECT id, username, password_hash, role FROM users WHERE username = ? AND disabled_at = ''`, username).
 		Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role)
 	if errors.Is(err, sql.ErrNoRows) {
 		return u, ErrNotFound
@@ -68,7 +69,7 @@ func (s *Store) SessionByHash(ctx context.Context, tokenHash string) (Session, e
 	err := s.db.QueryRowContext(ctx, `
 		SELECT u.id, u.username, u.role, s.csrf_token, s.expires_at
 		FROM sessions s JOIN users u ON u.id = s.user_id
-		WHERE s.token_hash = ? AND s.expires_at > ?`, tokenHash, now()).
+		WHERE s.token_hash = ? AND s.expires_at > ? AND u.disabled_at = ''`, tokenHash, now()).
 		Scan(&sess.User.ID, &sess.User.Username, &sess.User.Role, &sess.CSRFToken, &expires)
 	if errors.Is(err, sql.ErrNoRows) {
 		return sess, ErrNotFound

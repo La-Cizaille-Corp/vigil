@@ -1,0 +1,82 @@
+{{define "content"}}
+{{$csrf := .CSRF}}{{$me := .User.ID}}
+<p><a href="/settings">← Paramètres</a></p>
+<p class="muted">Un compte désactivé ne peut plus se connecter et ses sessions sont fermées aussitôt.
+Il reste nommé dans l'historique de triage et le journal d'audit, et peut être réactivé.</p>
+
+{{with .Data.Secret}}
+<div class="card">
+  <p><strong>Mot de passe provisoire de {{.Username}}, à transmettre par un canal sûr. Il ne sera plus affiché :</strong></p>
+  <pre><code>{{.Password}}</code></pre>
+  <p class="small">L'utilisateur le remplace dans « Mon compte » après sa connexion.</p>
+</div>
+{{end}}
+
+<table>
+<thead><tr><th>Utilisateur</th><th>Rôle</th><th>Double authentification</th><th>Créé le</th><th>État</th><th></th></tr></thead>
+<tbody>
+{{range .Data.Users}}
+<tr>
+  <td>{{.Username}}{{if eq .ID $me}} <span class="muted">(vous)</span>{{end}}</td>
+  <td>{{if or (eq .ID $me) .Disabled}}{{roleLabel .Role}}{{else}}
+    <form method="post" action="/settings/users/{{.ID}}/role" class="inline">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <select name="role" aria-label="Rôle de {{.Username}}">
+        {{$role := .Role}}{{range roles}}<option value="{{.Value}}"{{if eq .Value $role}} selected{{end}}>{{.Label}}</option>{{end}}
+      </select>
+      <button type="submit" class="link">Changer</button>
+    </form>{{end}}</td>
+  <td>{{if .TOTP}}Activée{{else}}<span class="muted">Non</span>{{end}}</td>
+  <td>{{date .CreatedAt}}</td>
+  <td>{{if .Disabled}}<span class="late">Désactivé</span>{{else}}Actif{{end}}</td>
+  <td>{{if ne .ID $me}}
+    {{if .Disabled}}
+    <form method="post" action="/settings/users/{{.ID}}/enable" class="inline">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <button type="submit" class="link">Réactiver</button>
+    </form>
+    {{else}}
+    <details class="confirm">
+      <summary>Désactiver…</summary>
+      <form method="post" action="/settings/users/{{.ID}}/disable" class="inline">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        <button type="submit" class="danger">Désactiver {{.Username}}</button>
+      </form>
+    </details>
+    <details class="confirm">
+      <summary>Nouveau mot de passe…</summary>
+      <form method="post" action="/settings/users/{{.ID}}/password" class="inline">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        <button type="submit" class="danger">Générer un mot de passe provisoire</button>
+      </form>
+    </details>
+    {{if .TOTP}}
+    <details class="confirm">
+      <summary>Retirer la double authentification…</summary>
+      <form method="post" action="/settings/users/{{.ID}}/totp-reset" class="inline">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        <button type="submit" class="danger">Retirer (application perdue)</button>
+      </form>
+    </details>
+    {{end}}
+    {{end}}
+  {{end}}</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+
+<h2>Ajouter un utilisateur</h2>
+<form method="post" action="/settings/users" class="card">
+  <input type="hidden" name="csrf" value="{{$csrf}}">
+  <div class="grid">
+    <label>Nom d'utilisateur <input name="username" required maxlength="64" autocomplete="off"></label>
+    <label>Rôle
+      <select name="role">{{range roles}}<option value="{{.Value}}"{{if eq .Value "analyst"}} selected{{end}}>{{.Label}}</option>{{end}}</select>
+    </label>
+  </div>
+  <p class="small muted">Un mot de passe provisoire est généré et affiché une seule fois.
+  Lecteur : consultation ; analyste : inventaire et triage ; administrateur : paramètres et comptes.</p>
+  <button type="submit">Créer le compte</button>
+</form>
+{{end}}
