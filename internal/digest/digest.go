@@ -27,6 +27,7 @@ var htmlSource string
 var funcs = map[string]any{
 	"date":      func(t time.Time) string { return t.Local().Format("02/01/2006 15:04") },
 	"status":    func(s string) string { return inventory.Label(tracking.Statuses, s) },
+	"sev":       tracking.SeverityLabel,
 	"join":      strings.Join,
 	"epss":      FormatEPSS,
 	"countries": func(v []string) string { return labels(cti.Countries, v) },
@@ -57,6 +58,8 @@ type Data struct {
 	CTIScope    string          // human description of that filter
 	Regulatory  []store.CTIItem // regulation and standards news
 	RegScope    string
+	Overdue     []store.Finding // open and past their remediation deadline
+	Concerning  []store.CTIItem // news of the period citing an open finding's vulnerability
 }
 
 // maxCTIItems bounds the CTI section of a digest.
@@ -101,6 +104,13 @@ func Generate(ctx context.Context, st *store.Store) (store.Digest, error) {
 	}
 	SortByPriority(d.New)
 	SortByPriority(d.Open)
+	if d.Overdue, err = st.ListFindings(ctx, store.FindingFilter{Overdue: true}); err != nil {
+		return store.Digest{}, err
+	}
+	SortByPriority(d.Overdue)
+	if d.Concerning, err = st.ListCTIItems(ctx, store.CTIFilter{Concerning: true, Since: since, Limit: maxCTIItems}); err != nil {
+		return store.Digest{}, err
+	}
 
 	filter, err := cti.WatchedFilter(ctx, st)
 	if err != nil {

@@ -1,21 +1,122 @@
 {{define "content"}}
-{{$counts := .Data.Counts}}
-<section class="tiles">
-  <div class="tile"><span class="num">{{.Data.AssetCount}}</span> actifs suivis</div>
-  <a class="tile" href="/findings?kev=1"><span class="num kev">{{.Data.KEVCount}}</span> exploitées (KEV)</a>
-  {{range statuses}}
-  <a class="tile" href="/findings?status={{.Value}}"><span class="num">{{index $counts .Value}}</span> {{.Label}}</a>
-  {{end}}
+{{$s := .Data.Stats}}{{$open := .Data.OpenQuery}}
+{{template "syncBar" .}}
+
+<section class="kpis" aria-label="Indicateurs clés">
+  <a class="kpi kpi-hero" href="/findings?{{$open}}&amp;priority=1">
+    <span class="kpi-label">À traiter en priorité</span>
+    <span class="kpi-value">{{$s.Priority}}</span>
+    <span class="kpi-note">dont {{$s.OpenKEV}} exploitée(s) (CISA KEV), les autres probables (EPSS ≥ 10 %)</span>
+  </a>
+  <a class="kpi" href="/findings?{{$open}}">
+    <span class="kpi-label">Vulnérabilités ouvertes</span>
+    <span class="kpi-value">{{$s.Open}}</span>
+    <span class="kpi-note">dont {{.Data.Severe}} critique(s) ou haute(s)</span>
+  </a>
+  <a class="kpi" href="/findings?overdue=1">
+    <span class="kpi-label">Hors délai</span>
+    <span class="kpi-value">{{$s.Overdue}}</span>
+    <span class="kpi-note">{{if $s.OverdueKEV}}<span class="alert">▲ dont {{$s.OverdueKEV}} exploitée(s)</span>{{else}}délais : {{.Data.SLA.Critical}} j (critique), {{.Data.SLA.High}} j (haute){{end}}</span>
+  </a>
+  <a class="kpi" href="/findings?status=in_triage&amp;sort=recent">
+    <span class="kpi-label">À analyser</span>
+    <span class="kpi-value">{{$s.ToTriage}}</span>
+    <span class="kpi-note">{{if $s.StaleTriage}}<span class="alert">▲ {{$s.StaleTriage}} en attente depuis plus de 30 jours</span>{{else}}aucune en attente depuis plus de 30 jours{{end}}</span>
+  </a>
+  <div class="kpi">
+    <span class="kpi-label">Délai moyen de traitement</span>
+    <span class="kpi-value">{{if ge $s.MeanDaysToFix 0.0}}{{days $s.MeanDaysToFix}}{{else}}—{{end}}</span>
+    <span class="kpi-note">{{$s.Closed90}} vulnérabilité(s) traitée(s) en 90 jours</span>
+  </div>
+  <a class="kpi" href="/assets">
+    <span class="kpi-label">Couverture de détection</span>
+    <span class="kpi-value">{{if ge .Data.Coverage 0}}{{.Data.Coverage}} %{{else}}—{{end}}</span>
+    <span class="kpi-note">{{.Data.Tracked}} actif(s) sur {{.Data.Assets}} vérifié(s) automatiquement</span>
+  </a>
 </section>
 
-{{if can .User.Role "analyst"}}
-<form method="post" action="/sync" class="inline">
-  <input type="hidden" name="csrf" value="{{.CSRF}}">
-  <button type="submit">Synchroniser maintenant</button>
-</form>
-{{end}}
+<section class="dash-grid">
+  <article class="card chart-card">
+    <h2>Ouvertes par sévérité</h2>
+    {{with .Data.Donut}}{{if .Total}}
+    <div class="donut-wrap">
+      <svg class="donut" viewBox="0 0 120 120" role="img" aria-label="Vulnérabilités ouvertes par sévérité">
+        <circle class="donut-track" cx="60" cy="60" r="46"/>
+        {{range .Segments}}<a href="{{.Link}}"><circle class="donut-seg viz-sev-{{lower .Severity}}" cx="60" cy="60" r="46" stroke-dasharray="{{.Dash}} {{.Gap}}" stroke-dashoffset="{{.Offset}}" transform="rotate(-90 60 60)"><title>{{.Label}} : {{.N}} ({{.Percent}} %)</title></circle></a>{{end}}
+        <text class="donut-total" x="60" y="62" text-anchor="middle">{{.Total}}</text>
+        <text class="donut-caption" x="60" y="77" text-anchor="middle">ouvertes</text>
+      </svg>
+      <ul class="legend">
+        {{range .Segments}}<li><span class="swatch viz-sev-{{lower .Severity}}"></span><a href="{{.Link}}">{{.Label}}</a><strong>{{.N}}</strong><span class="muted">{{.Percent}} %</span></li>{{end}}
+      </ul>
+    </div>
+    {{else}}<p class="empty">Aucune vulnérabilité ouverte.</p>{{end}}{{end}}
+  </article>
+
+  <article class="card chart-card span-2">
+    <h2>Activité des 12 dernières semaines</h2>
+    {{with .Data.Weekly}}{{if .Empty}}<p class="empty">Aucune vulnérabilité détectée ou traitée sur la période.</p>{{else}}
+    <ul class="legend inline">
+      <li><span class="swatch viz-new"></span>Nouvelles</li>
+      <li><span class="swatch viz-closed"></span>Traitées (corrigées, non affectées ou faux positifs)</li>
+    </ul>
+    <svg class="chart" viewBox="0 0 {{.Width}} {{.Height}}" role="img" aria-label="Vulnérabilités nouvelles et traitées par semaine">
+      {{range .Ticks}}<line class="grid" x1="40" x2="632" y1="{{.Y}}" y2="{{.Y}}"/><text class="axis" x="{{.X}}" y="{{.Y}}" dy="4" text-anchor="end">{{.Label}}</text>{{end}}
+      {{range .Bars}}<path class="bar {{.Class}}" d="{{.Path}}"><title>{{.Title}}</title></path>{{end}}
+      {{range .Labels}}<text class="axis" x="{{.X}}" y="{{.Y}}" text-anchor="middle">{{.Label}}</text>{{end}}
+    </svg>
+    <details class="data-table">
+      <summary>Voir les données</summary>
+      <table>
+        <thead><tr><th>Semaine du</th><th>Nouvelles</th><th>Traitées</th></tr></thead>
+        <tbody>{{range .Weeks}}<tr><td>{{.Start.Format "02/01/2006"}}</td><td class="num">{{.New}}</td><td class="num">{{.Closed}}</td></tr>{{end}}</tbody>
+      </table>
+    </details>
+    {{end}}{{end}}
+  </article>
+
+  <article class="card chart-card span-2">
+    <h2>Actifs les plus exposés</h2>
+    {{with .Data.TopAssets}}{{if .Rows}}
+    <ul class="legend inline">
+      <li><span class="swatch viz-sev-critical"></span>Critique</li>
+      <li><span class="swatch viz-sev-high"></span>Haute</li>
+      <li><span class="swatch viz-sev-medium"></span>Moyenne</li>
+      <li><span class="swatch viz-sev-other"></span>Basse ou inconnue</li>
+    </ul>
+    <svg class="chart" viewBox="0 0 {{.Width}} {{.Height}}" role="img" aria-label="Vulnérabilités ouvertes des actifs les plus exposés, par sévérité">
+      {{range .Rows}}
+      <a href="{{.Link}}"><text class="row-label" x="0" y="{{.LabelY}}">{{.Asset.Name}} {{.Asset.Version}}</text></a>
+      {{range .Segments}}<path class="bar {{.Class}}" d="{{.Path}}"><title>{{.Title}}</title></path>{{end}}
+      <text class="value" x="{{.TotalX}}" y="{{.ValueY}}">{{.Asset.Total}}</text>
+      {{end}}
+    </svg>
+    <details class="data-table">
+      <summary>Voir les données</summary>
+      <table>
+        <thead><tr><th>Actif</th><th>Critiques</th><th>Hautes</th><th>Moyennes</th><th>Basses ou inconnues</th><th>Total</th></tr></thead>
+        <tbody>{{range .Rows}}<tr><td><a href="{{.Link}}">{{.Asset.Name}} {{.Asset.Version}}</a></td><td class="num">{{.Asset.Critical}}</td><td class="num">{{.Asset.High}}</td><td class="num">{{.Asset.Medium}}</td><td class="num">{{.Asset.Other}}</td><td class="num">{{.Asset.Total}}</td></tr>{{end}}</tbody>
+      </table>
+    </details>
+    {{else}}<p class="empty">Aucun actif n'a de vulnérabilité ouverte.</p>{{end}}{{end}}
+  </article>
+
+  <article class="card">
+    <h2>Suivi</h2>
+    <ul class="stat-list">
+      {{range statuses}}<li><a href="/findings?status={{.Value}}">{{.Label}}</a><strong>{{index $.Data.Counts .Value}}</strong></li>{{end}}
+    </ul>
+    <h2>Veille</h2>
+    <ul class="stat-list">
+      <li><a href="/cti">Actualités des 7 derniers jours</a><strong>{{$s.CTIWeek}}</strong></li>
+      <li><a href="/cti?view=regulatory">Actualités réglementaires (30 jours)</a><strong>{{$s.Regulatory30}}</strong></li>
+      <li><a href="/cti?all=1&amp;concerning=1">Citant vos vulnérabilités ouvertes (30 jours)</a><strong>{{$s.Concerning30}}</strong></li>
+    </ul>
+  </article>
+</section>
 
 <h2>Nouvelles vulnérabilités (7 derniers jours)</h2>
-{{template "findingTable" .Data.Recent}}
+{{template "findingTable" (findingRows .Data.Recent false)}}
+{{if gt .Data.RecentTotal (len .Data.Recent)}}<p><a href="/findings?sort=recent">Voir les {{.Data.RecentTotal}} vulnérabilités de la semaine</a></p>
+{{else}}<p><a href="/findings?sort=recent">Voir toutes les vulnérabilités</a></p>{{end}}
 {{end}}
-

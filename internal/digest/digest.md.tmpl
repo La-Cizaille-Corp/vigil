@@ -7,15 +7,27 @@ Généré le {{date .GeneratedAt}} — période depuis le {{date .Since}}.
 | Priorité | Vulnérabilité | Actif | Statut | Résumé |
 |---|---|---|---|---|
 {{- range .New}}
-| {{if .KEV}}**EXPLOITÉE (KEV)** {{end}}{{cell (or .Severity "?")}}{{with epss .EPSS}} · EPSS {{.}}{{end}} | {{.VulnID}}{{if .Aliases}} ({{join .Aliases ", "}}){{end}} | {{cell .AssetName}} {{cell .AssetVersion}} | {{status .Status}} | {{cell .Summary}} |
+| {{if .KEV}}**EXPLOITÉE (KEV)** {{end}}{{cell (sev .Severity)}}{{with epss .EPSS}} · EPSS {{.}}{{end}} | {{.VulnID}}{{if .Aliases}} ({{join .Aliases ", "}}){{end}} | {{cell .AssetName}} {{cell .AssetVersion}} | {{status .Status}} | {{cell .Summary}} |
 {{- end}}
 {{else}}
 Aucune nouvelle vulnérabilité sur la période.
 {{end}}
-## Vulnérabilités ouvertes ({{len .Open}})
+{{if .Overdue}}## Hors délai de traitement ({{len .Overdue}})
+
+{{range .Overdue}}
+- **{{sev .Severity}}**{{if .KEV}} **EXPLOITÉE (KEV)**{{end}} {{.VulnID}} — {{.AssetName}} {{.AssetVersion}} — échéance {{.Due.Format "02/01/2006"}}
+{{- end}}
+
+{{end}}{{if .Concerning}}## Actualités citant vos vulnérabilités ({{len .Concerning}})
+
+{{range .Concerning}}
+- [{{.Title}}]({{.Link}}) — {{.FeedName}}, {{date .Published}} · {{join .Concerns ", "}}
+{{- end}}
+
+{{end}}## Vulnérabilités ouvertes ({{len .Open}})
 {{if .Open}}
 {{- range .Open}}
-- {{if .KEV}}**EXPLOITÉE (KEV)** {{end}}**{{or .Severity "?"}}**{{with epss .EPSS}} (EPSS {{.}}){{end}} {{.VulnID}} — {{.AssetName}} {{.AssetVersion}} — {{status .Status}}
+- {{if .KEV}}**EXPLOITÉE (KEV)** {{end}}**{{sev .Severity}}**{{with epss .EPSS}} (EPSS {{.}}){{end}} {{.VulnID}} — {{.AssetName}} {{.AssetVersion}} — {{status .Status}}
 {{- end}}
 {{else}}
 Aucune vulnérabilité ouverte.

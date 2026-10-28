@@ -1,0 +1,13 @@
+{{define "content"}}
+<p><a href="/settings">← Paramètres</a></p>
+<p class="muted">Les 500 dernières actions sensibles : connexions, comptes, inventaire, triage par lot, paramètres.
+  Une action sans utilisateur vient de la ligne de commande ou du système.</p>
+{{if .Data}}
+<table>
+<thead><tr><th>Date</th><th>Utilisateur</th><th>Action</th><th>Détail</th></tr></thead>
+<tbody>
+{{range .Data}}<tr><td>{{date .CreatedAt}}</td><td>{{or .Username "—"}}</td><td><code class="small">{{.Action}}</code></td><td class="small">{{.Detail}}</td></tr>{{end}}
+</tbody>
+</table>
+{{else}}<p class="muted">Journal vide.</p>{{end}}
+{{end}}

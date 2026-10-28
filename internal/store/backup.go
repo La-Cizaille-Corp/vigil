@@ -18,6 +18,25 @@ import (
 // Copying vigil.db with a file tool while it is open is NOT safe: recent
 // transactions live in the -wal file.
 func (s *Store) Backup(ctx context.Context, dest string) error {
+	return backup(ctx, s.db, dest)
+}
+
+// BackupFile copies the database at src to dest without opening it as a
+// Store: no migration runs, so a backup taken with a newer binary before an
+// upgrade is a copy of the database as the running version left it.
+func BackupFile(ctx context.Context, src, dest string) error {
+	if _, err := os.Stat(src); err != nil {
+		return fmt.Errorf("backup: %w", err)
+	}
+	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(src)+"?mode=ro&_pragma=busy_timeout(5000)")
+	if err != nil {
+		return fmt.Errorf("backup: %w", err)
+	}
+	defer db.Close()
+	return backup(ctx, db, dest)
+}
+
+func backup(ctx context.Context, db *sql.DB, dest string) error {
 	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
 		return fmt.Errorf("backup directory: %w", err)
 	}
@@ -33,7 +52,7 @@ func (s *Store) Backup(ctx context.Context, dest string) error {
 	if err := f.Close(); err != nil {
 		return fmt.Errorf("backup file: %w", err)
 	}
-	if _, err := s.db.ExecContext(ctx, `VACUUM INTO ?`, tmp); err != nil {
+	if _, err := db.ExecContext(ctx, `VACUUM INTO ?`, tmp); err != nil {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("backup: %w", err)
 	}
@@ -63,6 +82,24 @@ func CheckIntegrity(ctx context.Context, path string) error {
 		return fmt.Errorf("integrity check of %s failed: %s", path, result)
 	}
 	return nil
+}
+
+// FileSchema returns the schema version of a database file without changing
+// it (0 for a file that Vigil never initialised).
+func FileSchema(ctx context.Context, path string) (int, error) {
+	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?mode=ro")
+	if err != nil {
+		return 0, fmt.Errorf("schema version: %w", err)
+	}
+	defer db.Close()
+	var exists int
+	if err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'`).Scan(&exists); err != nil || exists == 0 {
+		return 0, err
+	}
+	var v int
+	err = db.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&v)
+	return v, err
 }
 
 // backupPrefix and backupSuffix name the files written by RotateBackups, so

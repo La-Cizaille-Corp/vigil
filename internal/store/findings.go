@@ -49,6 +49,8 @@ type Finding struct {
 	Comment       string
 	FirstSeen     time.Time
 	UpdatedAt     time.Time
+	Due           time.Time // remediation deadline (see SLA), zero without one
+	Late          bool      // open and past its deadline
 }
 
 // FindingEvent is one entry of a finding's status history.
@@ -66,13 +68,16 @@ type FindingFilter struct {
 	AssetID int64
 	Since   time.Time // first_seen >= Since
 	KEV     bool      // only known exploited vulnerabilities
-	Project string
+	// Priority keeps vulnerabilities exploited (KEV) or likely to be (EPSS >= 10 %).
+	Priority bool
+	Project  string
 
 	Statuses   []string // any of these statuses
 	Severities []string // any of these ratings; "UNKNOWN" matches findings without one
 	Kinds      []string // any of these asset kinds
 	MinCVSS    float64  // 0 = any
 	MinEPSS    float64  // 0 = any
+	Overdue    bool     // open and past the remediation deadline
 	Search     string   // substring of the vulnerability id, aliases, summary or asset name
 	Sort       string   // "cvss", "epss", "recent" (default) or "" handled by the caller
 }
@@ -192,9 +197,32 @@ func (s *Store) ObserveFinding(ctx context.Context, assetID int64, vulnID string
 	return result, nil
 }
 
+// inPeriod is the SQL condition, on vulnerabilities aliased v, for a
+// vulnerability inside a tracked period starting at the date given as two
+// parameters ("" = no limit). Exploited (KEV) and undated vulnerabilities are
+// always inside.
+const inPeriod = `(? = '' OR v.kev OR v.published = '' OR substr(v.published, 1, 10) >= ?)`
+
+// InTrackedPeriod reports whether vulnID should be tracked for assetID given
+// the asset's period start (see Asset.TrackSince): the vulnerability is in the
+// period, or the asset already has a finding for it.
+func (s *Store) InTrackedPeriod(ctx context.Context, assetID int64, vulnID, since string) (bool, error) {
+	var in bool
+	err := s.db.QueryRowContext(ctx, `
+		SELECT EXISTS (SELECT 1 FROM findings WHERE asset_id = ? AND vuln_id = ?)
+		    OR EXISTS (SELECT 1 FROM vulnerabilities v WHERE v.id = ? AND `+inPeriod+`)`,
+		assetID, vulnID, vulnID, since, since).Scan(&in)
+	if err != nil {
+		return false, fmt.Errorf("tracked period %d/%s: %w", assetID, vulnID, err)
+	}
+	return in, nil
+}
+
 // AutoResolveStale closes open findings of assetID whose vulnerability is not
-// in reported, i.e. the source no longer lists it. It returns how many were closed.
-func (s *Store) AutoResolveStale(ctx context.Context, assetID int64, reported []string) (int, error) {
+// in reported, i.e. the source no longer lists it. Findings of vulnerabilities
+// published before since are left alone: sources may not be asked about that
+// period. It returns how many were closed.
+func (s *Store) AutoResolveStale(ctx context.Context, assetID int64, reported []string, since string) (int, error) {
 	still := make(map[string]bool, len(reported))
 	for _, id := range reported {
 		still[id] = true
@@ -203,8 +231,9 @@ func (s *Store) AutoResolveStale(ctx context.Context, assetID int64, reported []
 	closed := 0
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
 		rows, err := tx.QueryContext(ctx, `
-			SELECT id, vuln_id, status FROM findings
-			WHERE asset_id = ? AND status IN ('in_triage', 'exploitable')`, assetID)
+			SELECT f.id, f.vuln_id, f.status FROM findings f JOIN vulnerabilities v ON v.id = f.vuln_id
+			WHERE f.asset_id = ? AND f.status IN ('in_triage', 'exploitable') AND `+inPeriod,
+			assetID, since, since)
 		if err != nil {
 			return err
 		}
@@ -246,8 +275,12 @@ func (s *Store) AutoResolveStale(ctx context.Context, assetID int64, reported []
 
 // ListFindings returns findings with their asset and vulnerability, most recent first.
 func (s *Store) ListFindings(ctx context.Context, f FindingFilter) ([]Finding, error) {
+	sla, err := s.SLA(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var where []string
-	var args []any
+	args := sla.args() // for the deadline column of findingSelect
 	if f.Status != "" {
 		where = append(where, "f.status = ?")
 		args = append(args, f.Status)
@@ -262,6 +295,9 @@ func (s *Store) ListFindings(ctx context.Context, f FindingFilter) ([]Finding, e
 	}
 	if f.KEV {
 		where = append(where, "v.kev = 1")
+	}
+	if f.Priority {
+		where = append(where, "(v.kev = 1 OR v.epss >= 0.1)")
 	}
 	if !f.Since.IsZero() {
 		where = append(where, "f.first_seen >= ?")
@@ -281,6 +317,10 @@ func (s *Store) ListFindings(ctx context.Context, f FindingFilter) ([]Finding, e
 	if f.MinEPSS > 0 {
 		where = append(where, "v.epss >= ?")
 		args = append(args, f.MinEPSS)
+	}
+	if f.Overdue {
+		where = append(where, "f.status IN "+openStatuses+" AND "+dueExpr+" < date('now')")
+		args = append(args, sla.args()...)
 	}
 	if f.Search != "" {
 		where = append(where, `(f.vuln_id LIKE ? ESCAPE '\' OR v.aliases LIKE ? ESCAPE '\'
@@ -320,33 +360,53 @@ func (s *Store) ListFindings(ctx context.Context, f FindingFilter) ([]Finding, e
 
 // Finding returns one finding.
 func (s *Store) Finding(ctx context.Context, id int64) (Finding, error) {
-	fd, err := scanFinding(s.db.QueryRowContext(ctx, findingSelect+" WHERE f.id = ?", id))
+	sla, err := s.SLA(ctx)
+	if err != nil {
+		return Finding{}, err
+	}
+	fd, err := scanFinding(s.db.QueryRowContext(ctx, findingSelect+" WHERE f.id = ?", append(sla.args(), id)...))
 	if errors.Is(err, sql.ErrNoRows) {
 		return fd, ErrNotFound
 	}
 	return fd, err
 }
 
-const findingSelect = `
-	SELECT f.id, f.asset_id, a.name, a.version, a.purl, a.cpe, a.project, f.vuln_id, v.aliases, v.summary, v.severity,
-	       v.cvss, v.kev, v.epss, f.status, f.justification, f.comment, f.first_seen, f.updated_at
+// openStatuses are the statuses of findings still to triage or to fix.
+const openStatuses = `('in_triage', 'exploitable')`
+
+// findingColumns and findingFrom select findings with their asset and
+// vulnerability; the deadline column takes the SLA arguments first.
+const (
+	findingColumns = `f.id, f.asset_id, a.name, a.version, a.purl, a.cpe, a.project, f.vuln_id, v.aliases, v.summary, v.severity,
+	       v.cvss, v.kev, v.epss, f.status, f.justification, f.comment, f.first_seen, f.updated_at, ` + dueExpr
+	findingFrom = `
 	FROM findings f
 	JOIN assets a ON a.id = f.asset_id
 	JOIN vulnerabilities v ON v.id = f.vuln_id`
+	findingSelect = "SELECT " + findingColumns + findingFrom
+)
 
-func scanFinding(row interface{ Scan(...any) error }) (Finding, error) {
+// scanFinding reads the columns of findingSelect, then extra ones if given.
+func scanFinding(row interface{ Scan(...any) error }, extra ...any) (Finding, error) {
 	var fd Finding
 	var aliases, first, updated string
-	err := row.Scan(&fd.ID, &fd.AssetID, &fd.AssetName, &fd.AssetVersion,
+	var due sql.NullString
+	dest := append([]any{&fd.ID, &fd.AssetID, &fd.AssetName, &fd.AssetVersion,
 		&fd.AssetPURL, &fd.AssetCPE, &fd.AssetProject, &fd.VulnID, &aliases,
-		&fd.Summary, &fd.Severity, &fd.CVSS, &fd.KEV, &fd.EPSS, &fd.Status, &fd.Justification, &fd.Comment, &first, &updated)
-	if err != nil {
+		&fd.Summary, &fd.Severity, &fd.CVSS, &fd.KEV, &fd.EPSS, &fd.Status, &fd.Justification, &fd.Comment, &first, &updated,
+		&due}, extra...)
+	if err := row.Scan(dest...); err != nil {
 		return fd, err
 	}
 	if err := json.Unmarshal([]byte(aliases), &fd.Aliases); err != nil {
 		return fd, fmt.Errorf("decode aliases of %s: %w", fd.VulnID, err)
 	}
 	fd.FirstSeen, fd.UpdatedAt = parseTime(first), parseTime(updated)
+	if due.Valid {
+		fd.Due, _ = time.Parse(time.DateOnly, due.String)
+		today := time.Now().UTC().Format(time.DateOnly)
+		fd.Late = (fd.Status == "in_triage" || fd.Status == "exploitable") && due.String < today
+	}
 	return fd, nil
 }
 
@@ -369,6 +429,42 @@ func (s *Store) SetFindingStatus(ctx context.Context, id, userID int64, status, 
 		}
 		return insertEvent(ctx, tx, id, userID, old, status, comment, ts)
 	})
+}
+
+// SetFindingsStatus applies one triage decision to several findings in a
+// single transaction, with an event in the history of each. An empty comment
+// keeps each finding's own comment instead of erasing it. Unknown ids are
+// skipped; it returns how many findings were updated.
+func (s *Store) SetFindingsStatus(ctx context.Context, ids []int64, userID int64, status, justification, comment string) (int, error) {
+	ts := now()
+	done := 0
+	err := s.inTx(ctx, func(tx *sql.Tx) error {
+		for _, id := range ids {
+			var old string
+			err := tx.QueryRowContext(ctx, `SELECT status FROM findings WHERE id = ?`, id).Scan(&old)
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE findings SET status = ?, justification = ?, auto_resolved = 0, updated_at = ?,
+				       comment = CASE WHEN ? = '' THEN comment ELSE ? END
+				WHERE id = ?`, status, justification, ts, comment, comment, id); err != nil {
+				return err
+			}
+			if err := insertEvent(ctx, tx, id, userID, old, status, comment, ts); err != nil {
+				return err
+			}
+			done++
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, fmt.Errorf("bulk status: %w", err)
+	}
+	return done, nil
 }
 
 // FindingEvents returns the history of a finding, oldest first.

@@ -20,6 +20,7 @@ type Asset struct {
 	CPE         string
 	CPEMode     string // NVD tracking mode, see nvd.Modes
 	CPEFrom     string // first tracked version when CPEMode is "from"
+	TrackSince  string // "YYYY-MM-DD": vulnerabilities published before are not reported; "" = whole history
 	Criticality string
 	Owner       string
 	Notes       string
@@ -29,12 +30,12 @@ type Asset struct {
 	UpdatedAt   time.Time
 }
 
-const assetColumns = `id, name, kind, ecosystem, version, purl, cpe, cpe_mode, cpe_from, criticality, owner, notes, source, project, created_at, updated_at`
+const assetColumns = `id, name, kind, ecosystem, version, purl, cpe, cpe_mode, cpe_from, track_since, criticality, owner, notes, source, project, created_at, updated_at`
 
 func scanAsset(row interface{ Scan(...any) error }) (Asset, error) {
 	var a Asset
 	var created, updated string
-	err := row.Scan(&a.ID, &a.Name, &a.Kind, &a.Ecosystem, &a.Version, &a.PURL, &a.CPE, &a.CPEMode, &a.CPEFrom,
+	err := row.Scan(&a.ID, &a.Name, &a.Kind, &a.Ecosystem, &a.Version, &a.PURL, &a.CPE, &a.CPEMode, &a.CPEFrom, &a.TrackSince,
 		&a.Criticality, &a.Owner, &a.Notes, &a.Source, &a.Project, &created, &updated)
 	a.CreatedAt, a.UpdatedAt = parseTime(created), parseTime(updated)
 	return a, err
@@ -44,9 +45,9 @@ func scanAsset(row interface{ Scan(...any) error }) (Asset, error) {
 func (s *Store) CreateAsset(ctx context.Context, a Asset) (int64, error) {
 	ts := now()
 	res, err := s.db.ExecContext(ctx, `
-		INSERT INTO assets (name, kind, ecosystem, version, purl, cpe, cpe_mode, cpe_from, criticality, owner, notes, source, project, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		a.Name, a.Kind, a.Ecosystem, a.Version, a.PURL, a.CPE, a.CPEMode, a.CPEFrom, a.Criticality, a.Owner, a.Notes, a.Source, a.Project, ts, ts)
+		INSERT INTO assets (name, kind, ecosystem, version, purl, cpe, cpe_mode, cpe_from, track_since, criticality, owner, notes, source, project, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.Name, a.Kind, a.Ecosystem, a.Version, a.PURL, a.CPE, a.CPEMode, a.CPEFrom, a.TrackSince, a.Criticality, a.Owner, a.Notes, a.Source, a.Project, ts, ts)
 	if err != nil {
 		return 0, fmt.Errorf("create asset: %w", err)
 	}
@@ -56,10 +57,10 @@ func (s *Store) CreateAsset(ctx context.Context, a Asset) (int64, error) {
 // UpdateAsset replaces the editable fields of an asset.
 func (s *Store) UpdateAsset(ctx context.Context, a Asset) error {
 	res, err := s.db.ExecContext(ctx, `
-		UPDATE assets SET name = ?, kind = ?, ecosystem = ?, version = ?, purl = ?, cpe = ?, cpe_mode = ?, cpe_from = ?,
+		UPDATE assets SET name = ?, kind = ?, ecosystem = ?, version = ?, purl = ?, cpe = ?, cpe_mode = ?, cpe_from = ?, track_since = ?,
 		       criticality = ?, owner = ?, notes = ?, project = ?, updated_at = ?
 		WHERE id = ?`,
-		a.Name, a.Kind, a.Ecosystem, a.Version, a.PURL, a.CPE, a.CPEMode, a.CPEFrom, a.Criticality, a.Owner, a.Notes, a.Project, now(), a.ID)
+		a.Name, a.Kind, a.Ecosystem, a.Version, a.PURL, a.CPE, a.CPEMode, a.CPEFrom, a.TrackSince, a.Criticality, a.Owner, a.Notes, a.Project, now(), a.ID)
 	if err != nil {
 		return fmt.Errorf("update asset: %w", err)
 	}

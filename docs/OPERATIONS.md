@@ -2,6 +2,8 @@
 
 ## Déployer
 
+Installation pas à pas par système, réseau compris : [INSTALL.md](INSTALL.md).
+
 | Mode | Quand | Fichiers |
 |---|---|---|
 | Binaire seul | Poste d'analyste, usage local (`127.0.0.1`) | `vigil serve` |
@@ -47,21 +49,46 @@ systemctl start vigil
 ```
 
 Une sauvegarde plus ancienne que le binaire est mise à niveau automatiquement au démarrage
-(migrations). L'inverse (sauvegarde plus récente que le binaire) n'est pas pris en charge :
-restaurez avec une version au moins aussi récente. Les vulnérabilités se recalculent à la
+(migrations, précédées d'une copie `.bak`). Une sauvegarde plus récente que le binaire est refusée
+au démarrage : restaurez avec une version au moins aussi récente. `vigil check -db fichier` indique
+la version de schéma d'une sauvegarde avant de la restaurer. Les vulnérabilités se recalculent à la
 synchronisation suivante ; seul le travail de triage postérieur à la sauvegarde est perdu.
 
 Testez une restauration de temps en temps : une sauvegarde jamais restaurée n'est pas une sauvegarde.
 
 ## Mettre à jour
 
-1. `vigil backup -o …` ;
+Les données ne sont jamais dans le binaire ni dans l'image : fichier SQLite (`-db`, `VIGIL_DB`) ou
+volume `/data`. Procédure par système : [INSTALL.md](INSTALL.md#7-mettre-à-jour-en-conservant-les-données).
+
+1. `vigil backup -o …` (copie la base telle quelle, sans la mettre à jour, quel que soit le binaire) ;
 2. vérifier la release (checksums, `gh attestation verify`, voir le README) ;
-3. remplacer le binaire ou changer le tag de l'image, redémarrer. Les migrations s'appliquent seules
-   et ne suppriment jamais de données utilisateur sans le signaler dans les notes de version.
+3. remplacer le binaire ou changer le tag de l'image, redémarrer ;
+4. lire le journal : « base mise à jour vers le schéma N ; copie de l'ancienne base : … », puis
+   `vigil check`.
+
+Garanties (registre A36 de [ARCHITECTURE.md](ARCHITECTURE.md)) :
+
+- avant toute évolution de schéma d'une base existante, Vigil écrit à côté d'elle une copie
+  cohérente `vigil.db.schema-N.<date UTC>.bak` ; si elle échoue (disque plein, droits), rien n'est
+  modifié et Vigil s'arrête avec l'erreur ;
+- chaque migration s'applique dans une transaction : une coupure en cours de route laisse la base
+  dans l'état précédent ;
+- une migration publiée n'est jamais modifiée, et aucune ne supprime de donnée utilisateur sans
+  le signaler dans les notes de version ;
+- une base écrite par une version plus récente est refusée (retour arrière d'un binaire sans
+  restaurer la base) : restaurez la copie `.bak` ou réinstallez la version récente ;
+- les tests ouvrent de vraies bases produites par chaque version publiée et vérifient que chaque
+  valeur est conservée.
+
+Les copies `.bak` ne sont pas supprimées automatiquement : effacez-les une fois la nouvelle
+version validée.
 
 ## Surveiller
 
 - Le journal (stderr, ou `journalctl -u vigil`) trace synchronisations, sauvegardes, webhooks en échec.
 - `vigil check` vérifie l'intégrité de la base (utilisé comme healthcheck Docker).
-- La page Paramètres affiche la dernière erreur de chaque flux CTI et de chaque webhook.
+- La page Paramètres affiche la dernière erreur de chaque flux CTI et de chaque canal de
+  notification (webhook ou e-mail) ; le journal trace aussi les alertes en échec.
+- Paramètres → Journal d'audit (administrateurs) : connexions, comptes, inventaire, triage par lot,
+  réglages.

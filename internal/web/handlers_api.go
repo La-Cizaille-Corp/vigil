@@ -22,7 +22,7 @@ const tokenPrefix = "vgl_"
 //	Authorization: Bearer vgl_...
 //	body: CycloneDX or SPDX JSON
 func (s *Server) apiSBOM(w http.ResponseWriter, r *http.Request) {
-	ip := "api:" + clientIP(r)
+	ip := "api:" + s.clientIP(r)
 	if !s.limiter.Allowed(ip) {
 		apiError(w, http.StatusTooManyRequests, "trop de tentatives, réessayez plus tard")
 		return

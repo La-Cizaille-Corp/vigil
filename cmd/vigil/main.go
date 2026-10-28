@@ -41,9 +41,9 @@ const usage = `vigil — veille de sécurité légère
 Usage :
   vigil serve   [-db fichier] [-addr 127.0.0.1:8080] [-tls-cert c -tls-key k] [-behind-proxy]
                 [-sync-interval 6h] [-digest-interval 24h] [-base-url https://...] [-allow-private-urls]
-                [-backup-dir dossier -backup-interval 24h -backup-keep 14]
-  vigil sync    [-db fichier] [-allow-private-urls]
-  vigil digest  [-db fichier] [-no-webhooks] [-allow-private-urls]
+                [-backup-dir dossier -backup-interval 24h -backup-keep 14] [options SMTP]
+  vigil sync    [-db fichier] [-allow-private-urls] [options SMTP]
+  vigil digest  [-db fichier] [-no-webhooks] [-allow-private-urls] [options SMTP]
   vigil import-sbom [-project nom] [-db fichier] fichier.json
   vigil backup  -o fichier.db [-db fichier]
   vigil check   [-db fichier]
@@ -55,6 +55,10 @@ La base par défaut se trouve dans le dossier de configuration de l'utilisateur
 (variable VIGIL_DB pour la changer). Clé NVD facultative : VIGIL_NVD_API_KEY.
 Chaque option peut aussi venir de l'environnement : -sync-interval → VIGIL_SYNC_INTERVAL ;
 une option passée en ligne de commande l'emporte.
+
+Options SMTP (notifications par e-mail) : -smtp-addr hôte:port -smtp-from adresse
+  [-smtp-tls starttls|tls|none] [-smtp-username nom] ; mot de passe : VIGIL_SMTP_PASSWORD.
+Proxy sortant : variables HTTPS_PROXY et NO_PROXY.
 `
 
 func main() {
@@ -84,7 +88,7 @@ func main() {
 	case "check":
 		err = runCheck(ctx, args)
 	case "version":
-		fmt.Println(version)
+		fmt.Printf("%s (schéma de base %d)\n", version, store.LatestSchema())
 	default:
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
@@ -106,6 +110,19 @@ func defaultDB() string {
 	return filepath.Join(dir, "vigil", "vigil.db")
 }
 
+// openStore opens the database, upgrading its schema if this version is newer.
+func openStore(ctx context.Context, path string) (*store.Store, error) {
+	st, err := store.Open(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	if b := st.UpgradeBackup(); b != "" {
+		v, _ := st.SchemaVersion(ctx)
+		fmt.Fprintf(os.Stderr, "base mise à jour vers le schéma %d ; copie de l'ancienne base : %s\n", v, b)
+	}
+	return st, nil
+}
+
 func userAgent() string {
 	return "vigil/" + version + " (+https://github.com/La-Cizaille-Corp/vigil)"
 }
@@ -117,18 +134,34 @@ type services struct {
 	notifier *notify.Notifier
 }
 
-func newServices(st *store.Store, log *slog.Logger, allowPrivate bool) services {
+// smtpFlags registers the SMTP options of a command; the returned function
+// builds the mailer once the flags are parsed (nil without -smtp-addr).
+func smtpFlags(fs *flag.FlagSet) func() (*notify.Mailer, error) {
+	addr := fs.String("smtp-addr", "", "serveur SMTP hôte:port pour les notifications par e-mail (vide = désactivé)")
+	mode := fs.String("smtp-tls", notify.MailSTARTTLS, "chiffrement SMTP : starttls (587), tls (465) ou none (relais local)")
+	username := fs.String("smtp-username", "", "identifiant SMTP (facultatif)")
+	// SECURITY: prefer VIGIL_SMTP_PASSWORD: a command-line value is visible to other local users.
+	password := fs.String("smtp-password", "", "mot de passe SMTP (préférez la variable VIGIL_SMTP_PASSWORD)")
+	from := fs.String("smtp-from", "", "adresse d'expédition des e-mails")
+	return func() (*notify.Mailer, error) {
+		return notify.NewMailer(*addr, *mode, *username, *password, *from)
+	}
+}
+
+func newServices(st *store.Store, log *slog.Logger, allowPrivate bool, mail *notify.Mailer, baseURL string) services {
 	fixed := &http.Client{Timeout: 60 * time.Second} // OSV, KEV, EPSS: fixed public hosts
 	// SECURITY: feeds and webhooks are user-supplied URLs, guarded against SSRF.
 	userURLs := netsafe.NewClient(60*time.Second, allowPrivate)
 	ua := userAgent()
-	return services{
+	sv := services{
 		syncer: &tracking.Syncer{Store: st, OSV: osv.New(ua), Log: log, HTTP: fixed, UserAgent: ua,
 			// The optional key (free, https://nvd.nist.gov/developers/request-an-api-key) raises the rate limit.
 			NVD: &nvd.Client{URL: nvd.DefaultURL, HTTP: fixed, UserAgent: ua, APIKey: os.Getenv("VIGIL_NVD_API_KEY")}},
 		cti:      &cti.Collector{Store: st, HTTP: userURLs, UserAgent: ua, Log: log},
-		notifier: &notify.Notifier{Store: st, HTTP: userURLs, UserAgent: ua, Log: log},
+		notifier: &notify.Notifier{Store: st, HTTP: userURLs, Mail: mail, BaseURL: baseURL, UserAgent: ua, Log: log},
 	}
+	sv.syncer.Alert = sv.notifier.SendAlerts
+	return sv
 }
 
 // refresh runs a vulnerability sync then a CTI collection.
@@ -155,7 +188,12 @@ func runServe(ctx context.Context, log *slog.Logger, args []string) error {
 	backupDir := fs.String("backup-dir", "", "dossier des sauvegardes automatiques (vide = désactivées)")
 	backupEvery := fs.Duration("backup-interval", 24*time.Hour, "intervalle des sauvegardes automatiques")
 	backupKeep := fs.Int("backup-keep", 14, "nombre de sauvegardes automatiques conservées")
+	mailer := smtpFlags(fs)
 	parseFlags(fs, args)
+	mail, err := mailer()
+	if err != nil {
+		return err
+	}
 
 	useTLS := *certFile != "" && *keyFile != ""
 	// SECURITY: refuse to expose the UI in clear text on a non-local interface.
@@ -163,13 +201,13 @@ func runServe(ctx context.Context, log *slog.Logger, args []string) error {
 		return errors.New("écoute sur une interface non locale : fournissez -tls-cert/-tls-key ou -behind-proxy")
 	}
 
-	st, err := store.Open(ctx, *dbPath)
+	st, err := openStore(ctx, *dbPath)
 	if err != nil {
 		return err
 	}
 	defer st.Close()
 
-	sv := newServices(st, log, *allowPrivate)
+	sv := newServices(st, log, *allowPrivate, mail, *baseURL)
 	srv := &web.Server{Store: st, Syncer: sv.syncer, CTI: sv.cti, Notifier: sv.notifier, Log: log,
 		Version: version, BaseURL: *baseURL, SecureCookies: useTLS || *behindProxy, BehindProxy: *behindProxy, Context: ctx}
 	handler, err := srv.Handler()
@@ -283,15 +321,21 @@ func isLocalAddr(addr string) bool {
 func runSync(ctx context.Context, log *slog.Logger, args []string) error {
 	fs := flag.NewFlagSet("sync", flag.ExitOnError)
 	dbPath := fs.String("db", defaultDB(), "fichier SQLite")
-	allowPrivate := fs.Bool("allow-private-urls", false, "autoriser les flux vers des adresses privées ou locales")
+	allowPrivate := fs.Bool("allow-private-urls", false, "autoriser flux et webhooks vers des adresses privées ou locales")
+	baseURL := fs.String("base-url", "", "adresse publique de l'interface, pour les liens des alertes")
+	mailer := smtpFlags(fs)
 	parseFlags(fs, args)
+	mail, err := mailer()
+	if err != nil {
+		return err
+	}
 
-	st, err := store.Open(ctx, *dbPath)
+	st, err := openStore(ctx, *dbPath)
 	if err != nil {
 		return err
 	}
 	defer st.Close()
-	sv := newServices(st, log, *allowPrivate)
+	sv := newServices(st, log, *allowPrivate, mail, *baseURL)
 	res, err := sv.syncer.Run(ctx)
 	if err != nil {
 		return err
@@ -311,9 +355,14 @@ func runDigest(ctx context.Context, log *slog.Logger, args []string) error {
 	dbPath := fs.String("db", defaultDB(), "fichier SQLite")
 	noHooks := fs.Bool("no-webhooks", false, "ne pas envoyer le digest aux webhooks")
 	allowPrivate := fs.Bool("allow-private-urls", false, "autoriser les webhooks vers des adresses privées ou locales")
+	mailer := smtpFlags(fs)
 	parseFlags(fs, args)
+	mail, err := mailer()
+	if err != nil {
+		return err
+	}
 
-	st, err := store.Open(ctx, *dbPath)
+	st, err := openStore(ctx, *dbPath)
 	if err != nil {
 		return err
 	}
@@ -326,7 +375,7 @@ func runDigest(ctx context.Context, log *slog.Logger, args []string) error {
 	if *noHooks {
 		return nil
 	}
-	return newServices(st, log, *allowPrivate).notifier.SendDigest(ctx, d, "")
+	return newServices(st, log, *allowPrivate, mail, "").notifier.SendDigest(ctx, d, "")
 }
 
 func runImportSBOM(ctx context.Context, args []string) error {
@@ -354,7 +403,7 @@ func runImportSBOM(ctx context.Context, args []string) error {
 		return errors.New("le SBOM ne nomme pas de composant principal : précisez -project")
 	}
 
-	st, err := store.Open(ctx, *dbPath)
+	st, err := openStore(ctx, *dbPath)
 	if err != nil {
 		return err
 	}
@@ -396,7 +445,7 @@ func runUser(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	st, err := store.Open(ctx, *dbPath)
+	st, err := openStore(ctx, *dbPath)
 	if err != nil {
 		return err
 	}
@@ -442,12 +491,8 @@ func runBackup(ctx context.Context, args []string) error {
 	if _, err := os.Stat(*out); err == nil {
 		return fmt.Errorf("%s existe déjà", *out)
 	}
-	st, err := store.Open(ctx, *dbPath)
-	if err != nil {
-		return err
-	}
-	defer st.Close()
-	if err := st.Backup(ctx, *out); err != nil {
+	// The copy is taken as is: no schema upgrade, even with a newer binary.
+	if err := store.BackupFile(ctx, *dbPath, *out); err != nil {
 		return err
 	}
 	fmt.Printf("sauvegarde cohérente écrite et vérifiée : %s\n", *out)
@@ -462,7 +507,18 @@ func runCheck(ctx context.Context, args []string) error {
 	if err := store.CheckIntegrity(ctx, *dbPath); err != nil {
 		return err
 	}
-	fmt.Printf("%s : intègre\n", *dbPath)
+	schema, err := store.FileSchema(ctx, *dbPath)
+	if err != nil {
+		return err
+	}
+	switch latest := store.LatestSchema(); {
+	case schema > latest:
+		fmt.Printf("%s : intègre, schéma %d, plus récent que cette version de Vigil (schéma %d)\n", *dbPath, schema, latest)
+	case schema < latest:
+		fmt.Printf("%s : intègre, schéma %d, mis à jour vers le schéma %d au prochain démarrage\n", *dbPath, schema, latest)
+	default:
+		fmt.Printf("%s : intègre, schéma %d (à jour)\n", *dbPath, schema)
+	}
 	return nil
 }
 
@@ -495,7 +551,7 @@ func runResetTOTP(ctx context.Context, args []string) error {
 	dbPath := fs.String("db", defaultDB(), "fichier SQLite")
 	username := fs.String("username", "", "nom d'utilisateur")
 	parseFlags(fs, args)
-	st, err := store.Open(ctx, *dbPath)
+	st, err := openStore(ctx, *dbPath)
 	if err != nil {
 		return err
 	}

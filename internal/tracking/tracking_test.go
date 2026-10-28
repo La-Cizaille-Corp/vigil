@@ -30,6 +30,11 @@ func fakeOSV(t *testing.T) *httptest.Server {
 				if strings.HasSuffix(q.Package.PURL, "@4.17.15") {
 					vulns = append(vulns, osv.VulnRef{ID: "GHSA-test", Modified: "2026-01-01T00:00:00Z"})
 				}
+				if strings.HasSuffix(q.Package.PURL, "@1.0.0") {
+					vulns = append(vulns, osv.VulnRef{ID: "GHSA-old", Modified: "2019-01-01T00:00:00Z"},
+						osv.VulnRef{ID: "GHSA-oldkev", Modified: "2019-01-01T00:00:00Z"},
+						osv.VulnRef{ID: "GHSA-new", Modified: "2026-01-01T00:00:00Z"})
+				}
 				results = append(results, map[string]any{"vulns": vulns})
 			}
 			json.NewEncoder(w).Encode(map[string]any{"results": results})
@@ -37,10 +42,16 @@ func fakeOSV(t *testing.T) *httptest.Server {
 			io.WriteString(w, `{"id":"GHSA-test","summary":"Prototype pollution","aliases":["CVE-2020-8203"],
 				"modified":"2026-01-01T00:00:00Z","database_specific":{"severity":"HIGH"},
 				"references":[{"type":"WEB","url":"https://example.org/advisory"}]}`)
+		case r.URL.Path == "/v1/vulns/GHSA-old":
+			io.WriteString(w, `{"id":"GHSA-old","aliases":["CVE-2019-0001"],"published":"2019-01-01T00:00:00Z","modified":"2019-01-01T00:00:00Z"}`)
+		case r.URL.Path == "/v1/vulns/GHSA-oldkev":
+			io.WriteString(w, `{"id":"GHSA-oldkev","aliases":["CVE-2020-8203"],"published":"2019-01-01T00:00:00Z","modified":"2019-01-01T00:00:00Z"}`)
+		case r.URL.Path == "/v1/vulns/GHSA-new":
+			io.WriteString(w, `{"id":"GHSA-new","published":"2026-09-01T00:00:00Z","modified":"2026-01-01T00:00:00Z"}`)
 		case r.URL.Path == "/kev":
 			io.WriteString(w, `{"vulnerabilities":[{"cveID":"CVE-2020-8203","dueDate":"2026-12-01"}]}`)
 		case r.URL.Path == "/epss":
-			if r.URL.Query().Get("cve") != "CVE-2020-8203" {
+			if !strings.Contains(r.URL.Query().Get("cve"), "CVE-2020-8203") {
 				t.Errorf("unexpected EPSS query %q", r.URL.RawQuery)
 			}
 			io.WriteString(w, `{"data":[{"cve":"CVE-2020-8203","epss":"0.42"}]}`)
@@ -125,6 +136,53 @@ func TestSyncLifecycle(t *testing.T) {
 	}
 	if !strings.Contains(d.Markdown, "GHSA-test") || !strings.Contains(d.HTML, "CVE-2020-8203") {
 		t.Fatalf("digest misses the vulnerability:\n%s", d.Markdown)
+	}
+}
+
+// TestTrackedPeriod checks that an asset only reports vulnerabilities
+// published since the start of its tracked period, or exploited.
+func TestTrackedPeriod(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	srv := fakeOSV(t)
+	defer srv.Close()
+	client := osv.New("vigil-test")
+	client.BaseURL = srv.URL
+	syncer := &tracking.Syncer{Store: st, OSV: client, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		HTTP: srv.Client(), KEVURL: srv.URL + "/kev", EPSSURL: srv.URL + "/epss"}
+
+	id, err := st.CreateAsset(ctx, store.Asset{Name: "lib", Kind: "package", PURL: "pkg:npm/lib@1.0.0",
+		Criticality: "medium", Source: "manual", TrackSince: "2026-06-01"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := syncer.RunAsset(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Created != 2 || res.Skipped != 1 {
+		t.Fatalf("created %d, skipped %d; want 2 and 1", res.Created, res.Skipped)
+	}
+	findings, _ := st.ListFindings(ctx, store.FindingFilter{AssetID: id})
+	for _, f := range findings {
+		if f.VulnID == "GHSA-old" {
+			t.Errorf("old vulnerability reported")
+		}
+	}
+	if s := syncer.Status(); s.Running || s.Asset != "lib" || s.Result.Created != 2 || s.Finished.IsZero() {
+		t.Errorf("status: %+v", s)
+	}
+
+	// Whole history: the old one is reported too.
+	a, _ := st.Asset(ctx, id)
+	a.TrackSince = ""
+	st.UpdateAsset(ctx, a)
+	if res, _ = syncer.RunAsset(ctx, id); res.Created != 1 {
+		t.Fatalf("created %d, want 1", res.Created)
 	}
 }
 

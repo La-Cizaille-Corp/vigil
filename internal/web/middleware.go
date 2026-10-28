@@ -93,12 +93,15 @@ func securityHeaders(next http.Handler) http.Handler {
 }
 
 // limitBody bounds request bodies: small forms everywhere, larger uploads on
-// the SBOM import route only.
+// the import routes only.
 func limitBody(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		limit := int64(maxFormBytes)
-		if r.URL.Path == "/assets/import" || r.URL.Path == "/findings/vex" || strings.HasPrefix(r.URL.Path, "/api/v1/") {
+		switch {
+		case r.URL.Path == "/assets/import" || r.URL.Path == "/findings/vex" || strings.HasPrefix(r.URL.Path, "/api/v1/"):
 			limit = maxUploadBytes
+		case r.URL.Path == "/assets/import-csv":
+			limit = maxCSVBytes + 64<<10 // file plus multipart overhead
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, limit)
 		next.ServeHTTP(w, r)

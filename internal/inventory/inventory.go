@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
@@ -32,12 +33,27 @@ var Ecosystems = []string{
 	"Pub", "Hex", "Debian", "Ubuntu", "Alpine", "Rocky Linux", "AlmaLinux", "Red Hat",
 }
 
-// CPEModes are the ways a CPE-only asset is tracked in the NVD.
+// CPEModes are the versions of a CPE-only asset tracked in the NVD. With
+// mode "" a CPE without version ("*") tracks every version.
 var CPEModes = []Option{
-	{Value: "", Label: "Version exacte (CPE ou champ Version)"},
-	{Value: "recent", Label: "Nouvelles CVE du produit (120 derniers jours)"},
-	{Value: "all", Label: "Toutes les CVE du produit"},
-	{Value: "from", Label: "CVE touchant les versions à partir de…"},
+	{Value: "", Label: "Version de l'actif (CPE ou champ Version)"},
+	{Value: "all", Label: "Toutes les versions du produit"},
+	{Value: "from", Label: "Versions à partir de…"},
+}
+
+// DefaultWindow is how far back a new asset is checked: vulnerabilities
+// published earlier are not reported unless exploited (KEV).
+const DefaultWindow = 120 * 24 * time.Hour
+
+const dateLayout = "2006-01-02"
+
+// DefaultSince is the start of the tracked period of an asset added at t.
+func DefaultSince(t time.Time) string { return t.Add(-DefaultWindow).Format(dateLayout) }
+
+// SinceTime is the start of the tracked period of a, zero for the whole history.
+func SinceTime(a store.Asset) time.Time {
+	t, _ := time.Parse(dateLayout, a.TrackSince)
+	return t
 }
 
 // Option is a value with a display label.
@@ -48,7 +64,7 @@ type Option struct {
 
 // Normalize trims fields and applies defaults.
 func Normalize(a *store.Asset) {
-	for _, f := range []*string{&a.Name, &a.Kind, &a.Ecosystem, &a.Version, &a.PURL, &a.CPE, &a.CPEMode, &a.CPEFrom, &a.Criticality, &a.Owner, &a.Notes, &a.Project} {
+	for _, f := range []*string{&a.Name, &a.Kind, &a.Ecosystem, &a.Version, &a.PURL, &a.CPE, &a.CPEMode, &a.CPEFrom, &a.TrackSince, &a.Criticality, &a.Owner, &a.Notes, &a.Project} {
 		*f = strings.TrimSpace(*f)
 	}
 	if a.Version == "" {
@@ -81,6 +97,8 @@ func Validate(a store.Asset) error {
 	check(isOption(CPEModes, a.CPEMode), "mode de suivi NVD invalide")
 	check(a.CPEMode != "from" || (a.CPEFrom != "" && maxLen(a.CPEFrom, 100) && !strings.ContainsAny(a.CPEFrom, ":*?")),
 		"indiquez la version de départ du suivi")
+	_, dateErr := time.Parse(dateLayout, a.TrackSince)
+	check(a.TrackSince == "" || dateErr == nil, "date de début du suivi invalide")
 	return errors.Join(errs...)
 }
 

@@ -5,8 +5,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 const sample = `{"totalResults":1,"vulnerabilities":[{"cve":{"id":"CVE-2024-21762",
@@ -34,19 +36,40 @@ func TestForCPE(t *testing.T) {
 }
 
 func TestWholeProduct(t *testing.T) {
+	var got []url.Values
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		q := r.URL.Query()
-		if q.Get("virtualMatchString") == "" || q.Get("pubStartDate") == "" {
-			t.Errorf("subscription query expected, got %s", r.URL.RawQuery)
-		}
-		io.WriteString(w, `{"totalResults":0,"vulnerabilities":[]}`)
+		got = append(got, r.URL.Query())
+		io.WriteString(w, sample) // the same CVE in every answer: it must be reported once
 	}))
 	defer srv.Close()
 	c := &Client{URL: srv.URL, HTTP: srv.Client()}
-	if _, err := c.ForCPE(context.Background(), Query{CPE: "cpe:2.3:o:fortinet:fortios:*:*:*:*:*:*:*:*"}); err != nil {
+	ctx := context.Background()
+	product := "cpe:2.3:o:fortinet:fortios:*:*:*:*:*:*:*:*"
+
+	// Tracked period of 200 days: two 120-day ranges, then the exploited CVEs.
+	cves, err := c.ForCPE(ctx, Query{CPE: product, Since: time.Now().Add(-200 * 24 * time.Hour)})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.ForCPE(context.Background(), Query{CPE: "cpe:2.3:bad"}); err == nil {
+	if len(cves) != 1 {
+		t.Errorf("duplicates not merged: %d CVEs", len(cves))
+	}
+	if len(got) != 3 || got[0].Get("virtualMatchString") != product || got[0].Get("pubStartDate") == "" ||
+		got[1].Get("pubEndDate") == "" || !got[2].Has("hasKev") || got[2].Has("pubStartDate") {
+		t.Errorf("unexpected requests: %v", got)
+	}
+
+	// Without a period, or with one too long for date ranges: one request.
+	for _, since := range []time.Time{{}, time.Now().AddDate(-5, 0, 0)} {
+		got = nil
+		if _, err := c.ForCPE(ctx, Query{CPE: product, Since: since}); err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 || got[0].Has("pubStartDate") || got[0].Has("hasKev") {
+			t.Errorf("since %v: %v", since, got)
+		}
+	}
+	if _, err := c.ForCPE(ctx, Query{CPE: "cpe:2.3:bad"}); err == nil {
 		t.Fatal("invalid CPE accepted")
 	}
 }

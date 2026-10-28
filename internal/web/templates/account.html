@@ -26,6 +26,16 @@
   <button type="submit">Configurer la double authentification</button>
 </form>
 {{end}}
-<p class="small muted">Application perdue : un administrateur peut désactiver le second facteur sur le serveur avec
+<p class="small muted">Application perdue : un administrateur peut désactiver la double authentification sur le serveur avec
 <code>vigil user reset-totp -username NOM</code>.</p>
+
+<h2>Mot de passe</h2>
+<form method="post" action="/account/password" class="card narrow">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <label>Mot de passe actuel <input type="password" name="current" autocomplete="current-password" required maxlength="1024"></label>
+  <label>Nouveau mot de passe (12 caractères minimum) <input type="password" name="new" autocomplete="new-password" required minlength="12" maxlength="1024"></label>
+  <label>Confirmation <input type="password" name="confirm" autocomplete="new-password" required minlength="12" maxlength="1024"></label>
+  <button type="submit">Changer le mot de passe</button>
+</form>
+<p class="small muted">Vos autres sessions sont fermées après le changement.</p>
 {{end}}

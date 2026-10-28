@@ -8,9 +8,9 @@
 <tbody>
 {{range .New}}
 <tr>
-<td>{{if .KEV}}<span class="kev">Exploitée</span><br>{{end}}<span class="sev sev-{{.Severity}}">{{or .Severity "?"}}</span>{{with epss .EPSS}}<br><small>EPSS {{.}}</small>{{end}}</td>
+<td>{{if .KEV}}<span class="kev">Exploitée</span><br>{{end}}<span class="sev sev-{{.Severity}}">{{sev .Severity}}</span>{{with epss .EPSS}}<br><small>EPSS {{.}}</small>{{end}}</td>
 <td><a href="/findings/{{.ID}}">{{.VulnID}}</a>{{if .Aliases}}<br><small>{{join .Aliases ", "}}</small>{{end}}</td>
-<td>{{.AssetName}} {{.AssetVersion}}</td>
+<td><a href="/assets/{{.AssetID}}">{{.AssetName}} {{.AssetVersion}}</a></td>
 <td>{{status .Status}}</td>
 <td>{{.Summary}}</td>
 </tr>
@@ -21,11 +21,30 @@
 <p>Aucune nouvelle vulnérabilité sur la période.</p>
 {{end}}
 
+{{if .Overdue}}
+<h2>Hors délai de traitement ({{len .Overdue}})</h2>
+<ul>
+{{range .Overdue}}
+<li><span class="sev sev-{{.Severity}}">{{sev .Severity}}</span>{{if .KEV}} <span class="kev">Exploitée</span>{{end}} <a href="/findings/{{.ID}}">{{.VulnID}}</a> — {{.AssetName}} {{.AssetVersion}} — échéance {{.Due.Format "02/01/2006"}}</li>
+{{end}}
+</ul>
+{{end}}
+
+{{if .Concerning}}
+<h2>Actualités citant vos vulnérabilités ({{len .Concerning}})</h2>
+<ul>
+{{range .Concerning}}
+<li>{{if .Link}}<a href="{{.Link}}" rel="noopener noreferrer" target="_blank">{{.Title}}</a>{{else}}{{.Title}}{{end}}
+<small class="muted">— {{.FeedName}}, {{date .Published}} · {{join .Concerns ", "}}</small></li>
+{{end}}
+</ul>
+{{end}}
+
 <h2>Vulnérabilités ouvertes ({{len .Open}})</h2>
 {{if .Open}}
 <ul>
 {{range .Open}}
-<li>{{if .KEV}}<span class="kev">Exploitée</span> {{end}}<span class="sev sev-{{.Severity}}">{{or .Severity "?"}}</span>{{with epss .EPSS}} <small>EPSS {{.}}</small>{{end}} <a href="/findings/{{.ID}}">{{.VulnID}}</a> — {{.AssetName}} {{.AssetVersion}} — {{status .Status}}</li>
+<li>{{if .KEV}}<span class="kev">Exploitée</span> {{end}}<span class="sev sev-{{.Severity}}">{{sev .Severity}}</span>{{with epss .EPSS}} <small>EPSS {{.}}</small>{{end}} <a href="/findings/{{.ID}}">{{.VulnID}}</a> — {{.AssetName}} {{.AssetVersion}} — {{status .Status}}</li>
 {{end}}
 </ul>
 {{else}}

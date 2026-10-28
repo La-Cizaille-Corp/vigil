@@ -1,25 +1,50 @@
 {{define "content"}}
 {{$a := .Data.Form}}
+<p><a href="/assets{{with $a.Project}}?project={{.}}{{end}}">← Inventaire</a></p>
+<div class="toolbar">
+  {{if can .User.Role "analyst"}}
+  <form method="post" action="/assets/{{$a.ID}}/scan" class="inline">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <button type="submit">Analyser cet actif</button>
+  </form>
+  {{end}}
+  <span class="muted small">{{template "syncText" syncStatus}}</span>
+</div>
+
+<h2>Vulnérabilités de cet actif</h2>
+<p class="muted small">{{if $a.TrackSince}}Période de suivi : vulnérabilités publiées depuis le {{isoDate $a.TrackSince}}, plus les plus anciennes
+  activement exploitées (CISA KEV).{{if can .User.Role "analyst"}} Pour voir tout l'historique, videz la date de début ci-dessous.{{end}}{{else}}Période de suivi : tout l'historique.{{end}}
+  {{if not (tracking $a)}}<strong>Aucune détection automatique</strong> : renseignez un purl, un écosystème avec une version, ou un CPE.{{end}}</p>
+{{template "findingTable" (findingRows .Data.Findings false)}}
+
 {{if can .User.Role "analyst"}}
+<h2>Modifier l'actif</h2>
 <form method="post" action="/assets/{{$a.ID}}" class="card">
   <input type="hidden" name="csrf" value="{{.CSRF}}">
   {{template "assetFields" $a}}
   <button type="submit">Enregistrer</button>
 </form>
-<form method="post" action="/assets/{{$a.ID}}/delete" class="inline">
-  <input type="hidden" name="csrf" value="{{.CSRF}}">
-  <button type="submit" class="danger">Supprimer l'actif et ses vulnérabilités</button>
-</form>
+<details class="confirm">
+  <summary>Supprimer l'actif…</summary>
+  <form method="post" action="/assets/{{$a.ID}}/delete" class="inline">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <span>L'actif, ses vulnérabilités et leur historique de suivi seront supprimés.</span>
+    <button type="submit" class="danger">Confirmer la suppression</button>
+  </form>
+</details>
 {{else}}
+<h2>Détails</h2>
 <dl class="card">
   <dt>Type</dt><dd>{{kindLabel $a.Kind}}</dd>
-  <dt>Version</dt><dd>{{$a.Version}}</dd>
-  <dt>purl</dt><dd>{{$a.PURL}}</dd>
+  {{with $a.Version}}<dt>Version</dt><dd>{{.}}</dd>{{end}}
+  {{with $a.PURL}}<dt>purl</dt><dd><code>{{.}}</code></dd>{{end}}
+  {{with $a.Ecosystem}}<dt>Écosystème</dt><dd>{{.}}</dd>{{end}}
+  {{with $a.CPE}}<dt>CPE</dt><dd><code>{{.}}</code></dd>{{end}}
+  <dt>Détection</dt><dd>{{with tracking $a}}{{.}}{{else}}aucune{{end}}, {{if $a.TrackSince}}vulnérabilités publiées depuis le {{isoDate $a.TrackSince}}{{else}}tout l'historique{{end}}</dd>
   <dt>Criticité</dt><dd>{{critLabel $a.Criticality}}</dd>
-  <dt>Responsable</dt><dd>{{$a.Owner}}</dd>
+  {{with $a.Owner}}<dt>Responsable</dt><dd>{{.}}</dd>{{end}}
+  {{with $a.Project}}<dt>Projet</dt><dd>{{.}}</dd>{{end}}
+  {{with $a.Notes}}<dt>Notes</dt><dd>{{.}}</dd>{{end}}
 </dl>
 {{end}}
-
-<h2>Vulnérabilités de cet actif</h2>
-{{template "findingTable" .Data.Findings}}
 {{end}}

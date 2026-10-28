@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -63,11 +64,11 @@ func TestFindingLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The source stops reporting it: resolved automatically; reporting it again reopens it.
-	if n, _ := st.AutoResolveStale(ctx, assetID, nil); n != 0 {
+	if n, _ := st.AutoResolveStale(ctx, assetID, nil, ""); n != 0 {
 		t.Errorf("a triaged not_affected finding must not be auto-resolved (got %d)", n)
 	}
 	st.SetFindingStatus(ctx, fs[0].ID, userID, "exploitable", "", "")
-	if n, _ := st.AutoResolveStale(ctx, assetID, nil); n != 1 {
+	if n, _ := st.AutoResolveStale(ctx, assetID, nil, ""); n != 1 {
 		t.Fatalf("auto-resolved = %d", n)
 	}
 	if touch, _ := st.ObserveFinding(ctx, assetID, "GHSA-1", time.Now()); touch != TouchReopened {
@@ -167,5 +168,29 @@ func TestSettingsDigestsWebhooks(t *testing.T) {
 	st.RecordWebhookResult(ctx, hid, nil)
 	if hs, _ := st.ListWebhooks(ctx); hs[0].LastError != "" {
 		t.Error("success did not clear the error")
+	}
+}
+
+// TestMigrationRecentMode replays migration 008 on an asset that used the
+// former sliding "recent" mode: it becomes a fixed tracked period.
+func TestMigrationRecentMode(t *testing.T) {
+	ctx := context.Background()
+	st := openTest(t)
+	id, err := st.CreateAsset(ctx, Asset{Name: "fortios", Kind: "os", CPE: "cpe:2.3:o:fortinet:fortios:*:*:*:*:*:*:*:*",
+		Criticality: "high", Source: "manual"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.ExecContext(ctx, `UPDATE assets SET cpe_mode = 'recent', created_at = '2026-10-27T08:12:11Z' WHERE id = ?`, id); err != nil {
+		t.Fatal(err)
+	}
+	sql, _ := migrationsFS.ReadFile("migrations/008_track_since.sql")
+	update := string(sql[strings.Index(string(sql), "UPDATE"):])
+	if _, err := st.db.ExecContext(ctx, update); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := st.Asset(ctx, id)
+	if a.CPEMode != "all" || a.TrackSince != "2026-06-29" {
+		t.Fatalf("migrated asset: mode %q, since %q", a.CPEMode, a.TrackSince)
 	}
 }

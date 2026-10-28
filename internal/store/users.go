@@ -106,3 +106,39 @@ func (s *Store) Audit(ctx context.Context, userID int64, action, detail string) 
 		uid, action, detail, now())
 	return err
 }
+
+// SetPassword replaces the password hash of a user.
+func (s *Store) SetPassword(ctx context.Context, userID int64, passwordHash string) error {
+	return expectRow(s.db.ExecContext(ctx, `UPDATE users SET password_hash = ? WHERE id = ?`, passwordHash, userID))
+}
+
+// AuditEntry is one line of the audit log.
+type AuditEntry struct {
+	Username  string // empty for the command line or the system
+	Action    string
+	Detail    string
+	CreatedAt time.Time
+}
+
+// ListAudit returns the most recent audit entries, newest first.
+func (s *Store) ListAudit(ctx context.Context, limit int) ([]AuditEntry, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT COALESCE(u.username, ''), l.action, l.detail, l.created_at
+		FROM audit_log l LEFT JOIN users u ON u.id = l.user_id
+		ORDER BY l.id DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list audit: %w", err)
+	}
+	defer rows.Close()
+	var out []AuditEntry
+	for rows.Next() {
+		var e AuditEntry
+		var created string
+		if err := rows.Scan(&e.Username, &e.Action, &e.Detail, &created); err != nil {
+			return nil, err
+		}
+		e.CreatedAt = parseTime(created)
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}

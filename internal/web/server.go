@@ -35,7 +35,9 @@ const (
 	sessionCookie   = "vigil_session"
 	sessionDuration = 12 * time.Hour
 	maxFormBytes    = 64 << 10
-	maxUploadBytes  = sbom.MaxSize + 1<<20 // file plus multipart overhead
+	// maxPasswordBytes bounds the argon2 input on password change.
+	maxPasswordBytes = 1024
+	maxUploadBytes   = sbom.MaxSize + 1<<20 // file plus multipart overhead
 )
 
 // Server holds the dependencies of the HTTP handlers.
@@ -82,14 +84,21 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.Handle("POST /account/totp/start", s.require(auth.RoleViewer, s.totpStart))
 	mux.Handle("POST /account/totp/confirm", s.require(auth.RoleViewer, s.totpConfirm))
 	mux.Handle("POST /account/totp/disable", s.require(auth.RoleViewer, s.totpDisable))
+	mux.Handle("POST /account/password", s.require(auth.RoleViewer, s.passwordChange))
 
 	mux.Handle("GET /{$}", s.require(auth.RoleViewer, s.dashboard))
 	mux.Handle("GET /assets", s.require(auth.RoleViewer, s.assetList))
+	mux.Handle("GET /assets.csv", s.require(auth.RoleViewer, s.assetCSV))
+	mux.Handle("POST /assets/import-csv", s.require(auth.RoleAnalyst, s.assetCSVImport))
+	mux.Handle("GET /assets/cpe", s.require(auth.RoleAnalyst, s.cpeSearch))
 	mux.Handle("POST /assets", s.require(auth.RoleAnalyst, s.assetCreate))
 	mux.Handle("GET /assets/{id}", s.require(auth.RoleViewer, s.assetEdit))
 	mux.Handle("POST /assets/{id}", s.require(auth.RoleAnalyst, s.assetUpdate))
 	mux.Handle("POST /assets/{id}/delete", s.require(auth.RoleAnalyst, s.assetDelete))
+	mux.Handle("POST /assets/{id}/scan", s.require(auth.RoleAnalyst, s.assetScan))
 	mux.Handle("GET /findings", s.require(auth.RoleViewer, s.findingList))
+	mux.Handle("GET /findings.csv", s.require(auth.RoleViewer, s.findingCSV))
+	mux.Handle("POST /findings/bulk", s.require(auth.RoleAnalyst, s.findingBulk))
 	mux.Handle("GET /findings/vex", s.require(auth.RoleViewer, s.vexExport))
 	mux.Handle("POST /findings/vex", s.require(auth.RoleAnalyst, s.vexImport))
 	mux.Handle("GET /findings/{id}", s.require(auth.RoleViewer, s.findingShow))
@@ -106,9 +115,14 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.Handle("GET /settings", s.require(auth.RoleViewer, s.settings))
 	mux.Handle("POST /settings/watch", s.require(auth.RoleAnalyst, s.saveWatch))
 	mux.Handle("POST /settings/feeds", s.require(auth.RoleAdmin, s.feedCreate))
+	mux.Handle("POST /settings/feeds/{id}", s.require(auth.RoleAdmin, s.feedUpdate))
 	mux.Handle("POST /settings/feeds/{id}/toggle", s.require(auth.RoleAdmin, s.feedToggle))
 	mux.Handle("POST /settings/feeds/{id}/delete", s.require(auth.RoleAdmin, s.feedDelete))
 	mux.Handle("POST /settings/webhooks", s.require(auth.RoleAdmin, s.webhookCreate))
+	mux.Handle("POST /settings/webhooks/{id}", s.require(auth.RoleAdmin, s.webhookDelivery))
+	mux.Handle("POST /settings/webhooks/{id}/toggle", s.require(auth.RoleAdmin, s.webhookToggle))
+	mux.Handle("POST /settings/sla", s.require(auth.RoleAdmin, s.slaSave))
+	mux.Handle("GET /settings/audit", s.require(auth.RoleAdmin, s.auditList))
 	mux.Handle("POST /settings/webhooks/{id}/delete", s.require(auth.RoleAdmin, s.webhookDelete))
 	mux.Handle("POST /settings/tokens", s.require(auth.RoleAdmin, s.tokenCreate))
 	mux.Handle("POST /settings/tokens/{id}/delete", s.require(auth.RoleAdmin, s.tokenDelete))
@@ -121,13 +135,25 @@ func (s *Server) Handler() (http.Handler, error) {
 
 func (s *Server) parseTemplates() error {
 	funcs := template.FuncMap{
-		"date":          func(t time.Time) string { return t.Local().Format("02/01/2006 15:04") },
+		"date":       func(t time.Time) string { return t.Local().Format("02/01/2006 15:04") },
+		"isoDate":    isoDate,
+		"sevLabel":   tracking.SeverityLabel,
+		"roleLabel":  func(v string) string { return inventory.Label(roles, v) },
+		"tracking":   trackingSource,
+		"syncStatus": s.syncStatus,
+		"tags":       splitTags,
+		"dict3": func(countries, sectors, regulations []string) tagSelection {
+			return tagSelection{countries, sectors, regulations}
+		},
 		"kindLabel":     func(v string) string { return inventory.Label(inventory.Kinds, v) },
 		"critLabel":     func(v string) string { return inventory.Label(inventory.Criticalities, v) },
 		"statusLabel":   func(v string) string { return inventory.Label(tracking.Statuses, v) },
 		"justifLabel":   func(v string) string { return inventory.Label(tracking.Justifications, v) },
 		"can":           auth.RoleAtLeast,
 		"join":          strings.Join,
+		"hasPrefix":     strings.HasPrefix,
+		"lower":         strings.ToLower,
+		"days":          formatDays,
 		"kinds":         func() []inventory.Option { return inventory.Kinds },
 		"criticalities": func() []inventory.Option { return inventory.Criticalities },
 		"cpeModes":      func() []inventory.Option { return inventory.CPEModes },
@@ -139,19 +165,25 @@ func (s *Server) parseTemplates() error {
 			}
 			return strconv.FormatFloat(v, 'f', 1, 64)
 		},
-		"ecosystems":      func() []string { return inventory.Ecosystems },
-		"statuses":        func() []inventory.Option { return tracking.Statuses },
-		"justifs":         func() []inventory.Option { return tracking.Justifications },
-		"queryable":       inventory.Queryable,
-		"epss":            digest.FormatEPSS,
-		"countryLabel":    func(v string) string { return cti.Label(cti.Countries, v) },
-		"sectorLabel":     func(v string) string { return cti.Label(cti.Sectors, v) },
-		"countries":       func() []cti.Tag { return cti.Countries },
-		"sectors":         func() []cti.Tag { return cti.Sectors },
-		"regulations":     func() []cti.Tag { return cti.Regulations },
-		"regulationLabel": func(v string) string { return cti.Label(cti.Regulations, v) },
-		"webhookKinds":    func() []inventory.Option { return notify.Kinds },
-		"maskURL":         notify.MaskURL,
+		"ecosystems":       func() []string { return inventory.Ecosystems },
+		"statuses":         func() []inventory.Option { return tracking.Statuses },
+		"justifs":          func() []inventory.Option { return tracking.Justifications },
+		"queryable":        inventory.Queryable,
+		"epss":             digest.FormatEPSS,
+		"countryLabel":     func(v string) string { return cti.Label(cti.Countries, v) },
+		"sectorLabel":      func(v string) string { return cti.Label(cti.Sectors, v) },
+		"countries":        func() []cti.Tag { return cti.Countries },
+		"sectors":          func() []cti.Tag { return cti.Sectors },
+		"regulations":      func() []cti.Tag { return cti.Regulations },
+		"regulationLabel":  func(v string) string { return cti.Label(cti.Regulations, v) },
+		"webhookKinds":     func() []inventory.Option { return notify.Kinds },
+		"webhookKindLabel": func(v string) string { return inventory.Label(notify.Kinds, v) },
+		"target":           notify.Target,
+		"alertOptions":     func() []inventory.Option { return notify.AlertOptions },
+		"alertLabel":       func(v string) string { return inventory.Label(notify.AlertOptions, v) },
+		"findingRows": func(list []store.Finding, selectable bool) map[string]any {
+			return map[string]any{"List": list, "Select": selectable}
+		},
 		"has": func(list []string, v string) bool {
 			for _, x := range list {
 				if x == v {
@@ -186,6 +218,7 @@ func (s *Server) parseTemplates() error {
 
 // page is the data passed to every template.
 type page struct {
+	Path  string // of the request, to mark the current menu entry
 	Title string
 	User  *store.User
 	CSRF  string
@@ -201,6 +234,8 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name
 	if p.Flash == "" {
 		p.Flash = flashes[r.URL.Query().Get("msg")]
 	}
+	p.Path = r.URL.Path
+	p.Error = sentences(p.Error)
 	t, ok := s.pages[name]
 	if !ok {
 		s.serverError(w, r, errors.New("unknown template "+name))
@@ -215,27 +250,37 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name
 
 // flashes maps fixed keys to messages, so no user input is ever reflected.
 var flashes = map[string]string{ // #nosec G101 -- message keys, not credentials
-	"asset-created":  "Actif ajouté.",
-	"asset-updated":  "Actif mis à jour.",
-	"asset-deleted":  "Actif supprimé.",
-	"status-updated": "Statut mis à jour.",
-	"sync-started":   "Synchronisation lancée ; actualisez la page dans quelques instants.",
-	"sync-running":   "Une synchronisation est déjà en cours.",
-	"digest-created": "Digest généré.",
-	"digest-sent":    "Digest généré et envoyé aux webhooks.",
-	"digest-webhook": "Digest généré, mais au moins un webhook a échoué (voir Paramètres).",
-	"cti-started":    "Collecte des flux CTI lancée ; actualisez dans quelques instants.",
-	"watch-saved":    "Filtres de veille enregistrés.",
-	"feed-created":   "Flux ajouté.",
-	"feed-updated":   "Flux mis à jour.",
-	"feed-deleted":   "Flux supprimé.",
-	"hook-created":   "Webhook ajouté.",
-	"hook-deleted":   "Webhook supprimé.",
-	"sbom-imported":  "SBOM importé.",
-	"token-deleted":  "Jeton révoqué.",
-	"totp-enabled":   "Double authentification activée.",
-	"totp-disabled":  "Double authentification désactivée.",
-	"vex-imported":   "VEX importé : les analyses correspondantes ont été appliquées.",
+	"asset-created":    "Actif ajouté ; recherche de ses vulnérabilités lancée, actualisez la page dans quelques instants.",
+	"asset-updated":    "Actif enregistré ; recherche de ses vulnérabilités relancée, actualisez la page dans quelques instants.",
+	"asset-deleted":    "Actif supprimé.",
+	"scan-started":     "Recherche des vulnérabilités de l'actif lancée ; actualisez la page dans quelques instants.",
+	"status-updated":   "Statut mis à jour.",
+	"sync-started":     "Synchronisation lancée ; actualisez la page dans quelques instants.",
+	"sync-running":     "Une synchronisation est déjà en cours ; actualisez la page dans quelques instants.",
+	"digest-created":   "Digest généré.",
+	"digest-sent":      "Digest généré et envoyé aux canaux de notification.",
+	"digest-webhook":   "Digest généré, mais au moins un canal de notification a échoué (détail dans Paramètres, visible par un administrateur).",
+	"cti-started":      "Collecte des flux lancée ; actualisez la page dans quelques instants.",
+	"watch-saved":      "Filtres de veille enregistrés.",
+	"feed-created":     "Flux ajouté.",
+	"feed-updated":     "Étiquettes du flux enregistrées ; elles s'appliquent aussi aux actualités déjà collectées.",
+	"feed-enabled":     "Flux activé.",
+	"feed-disabled":    "Flux désactivé.",
+	"feed-deleted":     "Flux supprimé.",
+	"hook-created":     "Canal de notification ajouté.",
+	"hook-updated":     "Canal de notification enregistré.",
+	"hook-enabled":     "Canal de notification activé.",
+	"hook-disabled":    "Canal de notification désactivé.",
+	"hook-deleted":     "Canal de notification supprimé.",
+	"csv-imported":     "Inventaire importé ; synchronisation lancée, actualisez la page dans quelques instants.",
+	"bulk-updated":     "Statut appliqué aux vulnérabilités sélectionnées.",
+	"sla-saved":        "Délais de traitement enregistrés ; les échéances sont recalculées.",
+	"sbom-imported":    "SBOM importé ; synchronisation lancée, actualisez la page dans quelques instants.",
+	"password-changed": "Mot de passe modifié ; vos autres sessions ont été fermées.",
+	"token-deleted":    "Jeton révoqué.",
+	"totp-enabled":     "Double authentification activée.",
+	"totp-disabled":    "Double authentification désactivée.",
+	"vex-imported":     "VEX importé : les analyses correspondantes ont été appliquées.",
 }
 
 func redirect(w http.ResponseWriter, r *http.Request, path, msg string) {
@@ -255,9 +300,27 @@ func (s *Server) notFound(w http.ResponseWriter) {
 	http.Error(w, "Introuvable.", http.StatusNotFound)
 }
 
-// clientIP is the remote address used for rate limiting. Behind a reverse
-// proxy every client shares the proxy address, which is a safe default.
-func clientIP(r *http.Request) string {
+// clientIP is the client address used for rate limiting and the audit log.
+// Behind a reverse proxy (-behind-proxy), it is the last address of
+// X-Forwarded-For: the one the proxy itself appended. Earlier entries come
+// from the client and can be forged; the last one cannot, because Vigil is
+// then only reachable through the proxy. Without this, every user would share
+// the proxy address, and five failed logins would lock everyone out.
+func (s *Server) clientIP(r *http.Request) string {
+	if s.BehindProxy {
+		forwarded := r.Header.Values("X-Forwarded-For")
+		if n := len(forwarded); n > 0 {
+			hops := strings.Split(forwarded[n-1], ",")
+			if ip := net.ParseIP(strings.TrimSpace(hops[len(hops)-1])); ip != nil {
+				return ip.String()
+			}
+		}
+	}
+	return remoteHost(r)
+}
+
+// remoteHost is the address of the TCP peer: the proxy, if there is one.
+func remoteHost(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
@@ -266,7 +329,7 @@ func clientIP(r *http.Request) string {
 }
 
 func isLoopback(r *http.Request) bool {
-	ip := net.ParseIP(clientIP(r))
+	ip := net.ParseIP(remoteHost(r))
 	return ip != nil && ip.IsLoopback()
 }
 

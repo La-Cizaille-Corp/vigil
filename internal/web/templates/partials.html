@@ -1,15 +1,19 @@
+{{/* findingTable: a vulnerability list. Data: findingRows list selectable;
+   selectable adds checkboxes bound to the form id="bulk" of the page. */}}
 {{define "findingTable"}}
-{{if .}}
+{{if .List}}
 <table>
-<thead><tr><th>Priorité</th><th>Vulnérabilité</th><th>Actif</th><th>Statut</th><th>Détectée</th><th>Résumé</th></tr></thead>
+<thead><tr>{{if .Select}}<th class="select"><span class="sr-only">Sélection</span></th>{{end}}<th>Priorité</th><th>Vulnérabilité</th><th>Actif</th><th>Statut</th><th>Détectée le</th><th>Échéance</th><th>Résumé</th></tr></thead>
 <tbody>
-{{range .}}
+{{range .List}}
 <tr>
-  <td>{{if .KEV}}<span class="kev">Exploitée</span><br>{{end}}<span class="sev sev-{{.Severity}}">{{or .Severity "?"}}</span>{{with cvss .CVSS}} <small>CVSS {{.}}</small>{{end}}{{with epss .EPSS}}<br><small>EPSS {{.}}</small>{{end}}</td>
+  {{if $.Select}}<td class="select"><input type="checkbox" name="id" value="{{.ID}}" form="bulk" aria-label="Sélectionner {{.VulnID}} sur {{.AssetName}}"></td>{{end}}
+  <td>{{if .KEV}}<span class="kev">Exploitée</span><br>{{end}}<span class="sev sev-{{.Severity}}">{{sevLabel .Severity}}</span>{{with cvss .CVSS}} <small>CVSS {{.}}</small>{{end}}{{with epss .EPSS}}<br><small>EPSS {{.}}</small>{{end}}</td>
   <td><a href="/findings/{{.ID}}">{{.VulnID}}</a>{{if .Aliases}}<br><small>{{join .Aliases ", "}}</small>{{end}}</td>
-  <td><a href="/assets/{{.AssetID}}">{{.AssetName}} {{.AssetVersion}}</a></td>
+  <td><a href="/assets/{{.AssetID}}">{{.AssetName}} {{.AssetVersion}}</a>{{with .AssetProject}}<br><small class="muted">projet {{.}}</small>{{end}}</td>
   <td>{{statusLabel .Status}}</td>
   <td>{{date .FirstSeen}}</td>
+  <td>{{if .Late}}<span class="late">Hors délai</span><br><small>{{.Due.Format "02/01/2006"}}</small>{{else if and (not .Due.IsZero) (or (eq .Status "in_triage") (eq .Status "exploitable"))}}{{.Due.Format "02/01/2006"}}{{else}}<span class="muted">—</span>{{end}}</td>
   <td>{{.Summary}}</td>
 </tr>
 {{end}}
@@ -20,34 +24,84 @@
 {{end}}
 {{end}}
 
+{{/* syncBar: inventory synchronisation button and state, for pages that list vulnerabilities. */}}
+{{define "syncBar"}}
+{{$st := syncStatus}}
+<div class="toolbar">
+  {{if can .User.Role "analyst"}}
+  <form method="post" action="/sync" class="inline">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <input type="hidden" name="next" value="{{.Path}}">
+    <button type="submit" {{if $st.Running}}disabled{{end}}>Synchroniser l'inventaire</button>
+  </form>
+  {{end}}
+  <span class="muted small">{{template "syncText" $st}}</span>
+</div>
+{{end}}
+
+{{define "syncText"}}
+{{- if .Running -}}
+  Synchronisation en cours{{with .Asset}} (actif {{.}}){{end}} depuis {{date .Started}} : <a href="">actualisez la page</a> pour voir le résultat.
+{{- else if not .Finished.IsZero -}}
+  Dernière synchronisation{{with .Asset}} (actif {{.}}){{end}} le {{date .Finished}} :
+  {{if .Err}}<span class="danger-link">échec ({{.Err}}).</span>{{else}}{{.Result.Created}} nouvelle(s), {{.Result.Reopened}} rouverte(s), {{.Result.Resolved}} corrigée(s) automatiquement{{if .Result.Skipped}}, {{.Result.Skipped}} ignorée(s) car publiée(s) avant la période de suivi{{end}}.{{end}}
+{{- else -}}
+  Aucune synchronisation depuis le démarrage du serveur.
+{{- end -}}
+{{end}}
+
+
 {{define "assetFields"}}
 <div class="grid">
   <label>Nom * <input name="name" value="{{.Name}}" required maxlength="200" placeholder="lodash, nginx, Windows Server…"></label>
+  <label>Version <input name="version" value="{{.Version}}" maxlength="100"></label>
   <label>Type
     <select name="kind">{{range kinds}}<option value="{{.Value}}" {{if eq .Value $.Kind}}selected{{end}}>{{.Label}}</option>{{end}}</select>
   </label>
-  <label>Écosystème
-    <select name="ecosystem">
-      <option value="">—</option>
-      {{range ecosystems}}<option {{if eq . $.Ecosystem}}selected{{end}}>{{.}}</option>{{end}}
-    </select>
-  </label>
-  <label>Version <input name="version" value="{{.Version}}" maxlength="100"></label>
-  <label>purl <input name="purl" value="{{.PURL}}" maxlength="500" placeholder="pkg:npm/lodash@4.17.15"></label>
-  <label>CPE <input name="cpe" value="{{.CPE}}" maxlength="500" placeholder="cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*"></label>
-  <label>Suivi NVD (actifs sans purl)
-    <select name="cpe_mode">{{range cpeModes}}<option value="{{.Value}}" {{if eq .Value $.CPEMode}}selected{{end}}>{{.Label}}</option>{{end}}</select>
-  </label>
-  <label>À partir de la version <input name="cpe_from" value="{{.CPEFrom}}" maxlength="100" placeholder="7.2.0"></label>
-  <p class="muted small">Sans purl, le CPE est interrogé dans la NVD (recherche : nvd.nist.gov/products/cpe/search).
-    Pour suivre un produit sans version, mettez « * » à la place de la version dans le CPE.</p>
   <label>Criticité
     <select name="criticality">{{range criticalities}}<option value="{{.Value}}" {{if eq .Value $.Criticality}}selected{{end}}>{{.Label}}</option>{{end}}</select>
   </label>
   <label>Responsable <input name="owner" value="{{.Owner}}" maxlength="200"></label>
   <label>Projet <input name="project" value="{{.Project}}" maxlength="200"></label>
 </div>
+<fieldset class="plain">
+  <legend>Détection des vulnérabilités</legend>
+  <p class="muted small">Renseignez un purl, ou un écosystème avec une version : l'actif est vérifié dans OSV.
+    Pour un produit ou une technologie sans purl, renseignez un CPE : il est vérifié dans la NVD
+    (pour le trouver : « Trouver son CPE » sur la page Inventaire ; mettez « * » à la place de la version pour suivre le produit entier).</p>
+  <div class="grid">
+    <label>purl <input name="purl" value="{{.PURL}}" maxlength="500" placeholder="pkg:npm/lodash@4.17.15"></label>
+    <label>Écosystème
+      <select name="ecosystem">
+        <option value="">—</option>
+        {{range ecosystems}}<option {{if eq . $.Ecosystem}}selected{{end}}>{{.}}</option>{{end}}
+      </select>
+    </label>
+    <label>CPE <input name="cpe" value="{{.CPE}}" maxlength="500" placeholder="cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*"></label>
+    <label>Versions suivies dans la NVD (CPE)
+      <select name="cpe_mode">{{range cpeModes}}<option value="{{.Value}}" {{if eq .Value $.CPEMode}}selected{{end}}>{{.Label}}</option>{{end}}</select>
+    </label>
+    <label>À partir de la version <input name="cpe_from" value="{{.CPEFrom}}" maxlength="100" placeholder="7.2.0"></label>
+    <label>Vulnérabilités publiées depuis le <input type="date" name="track_since" value="{{.TrackSince}}"></label>
+  </div>
+  <p class="muted small">Période de suivi : par défaut, les 120 jours précédant l'ajout de l'actif, puis toutes les nouvelles
+    vulnérabilités. Celles publiées avant ne sont signalées que si elles sont activement exploitées (CISA KEV).
+    Videz la date pour suivre tout l'historique.</p>
+</fieldset>
 <label>Notes <textarea name="notes" maxlength="4000" rows="2">{{.Notes}}</textarea></label>
-<p class="muted">Pour la détection automatique (OSV), renseignez un purl ou un écosystème, ainsi qu'une version.
-Les actifs sans purl (produits, technologies) ne sont pas encore rapprochés automatiquement : importez un SBOM ou suivez-les via la veille CTI.</p>
+{{end}}
+
+{{/* tagFields: checkbox groups for countries, sectors and regulations. Data: tagSelection. */}}
+{{define "tagFields"}}
+<div class="grid">
+  <fieldset><legend>Pays</legend>
+    {{range countries}}<label class="check"><input type="checkbox" name="country" value="{{.Value}}" {{if has $.Countries .Value}}checked{{end}}> {{.Label}}</label>{{end}}
+  </fieldset>
+  <fieldset><legend>Secteurs</legend>
+    {{range sectors}}<label class="check"><input type="checkbox" name="sector" value="{{.Value}}" {{if has $.Sectors .Value}}checked{{end}}> {{.Label}}</label>{{end}}
+  </fieldset>
+  <fieldset><legend>Réglementations et normes</legend>
+    {{range regulations}}<label class="check"><input type="checkbox" name="regulation" value="{{.Value}}" {{if has $.Regulations .Value}}checked{{end}}> {{.Label}}</label>{{end}}
+  </fieldset>
+</div>
 {{end}}

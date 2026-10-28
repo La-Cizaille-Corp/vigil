@@ -1,38 +1,47 @@
 {{define "content"}}
+{{template "syncBar" .}}
 {{if .Data.Projects}}
 <nav class="filters">
   <a href="/assets" {{if not .Data.Project}}class="active"{{end}}>Tous les actifs</a>
   {{range .Data.Projects}}<a href="/assets?project={{.}}" {{if eq . $.Data.Project}}class="active"{{end}}>{{.}}</a>{{end}}
+  {{with .Data.Project}}<span class="muted">— <a href="/findings?project={{.}}">vulnérabilités de ce projet</a></span>{{end}}
 </nav>
 {{end}}
 {{if .Data.Assets}}
 <table>
-<thead><tr><th>Projet</th><th>Nom</th><th>Version</th><th>Type</th><th>Écosystème / purl</th><th>Criticité</th><th>Responsable</th><th>Suivi auto</th></tr></thead>
+<thead><tr><th>Nom</th><th>Version</th><th>Type</th><th>Identifiant (purl, CPE ou écosystème)</th><th>Projet</th><th>Criticité</th><th>Responsable</th><th>Détection</th></tr></thead>
 <tbody>
 {{range .Data.Assets}}
 <tr>
-  <td>{{.Project}}</td>
   <td><a href="/assets/{{.ID}}">{{.Name}}</a></td>
   <td>{{.Version}}</td>
   <td>{{kindLabel .Kind}}</td>
-  <td>{{if .PURL}}<code>{{.PURL}}</code>{{else}}{{.Ecosystem}}{{end}}</td>
+  <td>{{if .PURL}}<code>{{.PURL}}</code>{{else if .CPE}}<code>{{.CPE}}</code>{{else}}{{.Ecosystem}}{{end}}</td>
+  <td>{{.Project}}</td>
   <td>{{critLabel .Criticality}}</td>
   <td>{{.Owner}}</td>
-  <td>{{if queryable .}}oui{{else}}<span class="muted">non</span>{{end}}</td>
+  <td>{{with tracking .}}{{.}}{{else}}<span class="muted">aucune</span>{{end}}
+    <br><small class="muted">{{if .TrackSince}}depuis le {{isoDate .TrackSince}}{{else}}tout l'historique{{end}}</small></td>
 </tr>
 {{end}}
 </tbody>
 </table>
+<p class="muted small"><a href="/assets.csv{{with .Data.Project}}?project={{.}}{{end}}">Exporter {{if .Data.Project}}les actifs du projet{{else}}l'inventaire{{end}} (CSV)</a></p>
 {{else}}
-<p class="muted">Aucun actif suivi pour le moment.</p>
+<p class="muted">Aucun actif pour le moment.</p>
 {{end}}
 
 {{if can .User.Role "analyst"}}
-<h2>Ajouter un actif</h2>
+<h2 id="ajouter">Ajouter un actif</h2>
+<form method="get" action="/assets/cpe" class="card inline-search">
+  <label>Produit ou technologie sans purl ? Trouver son CPE dans le dictionnaire de la NVD
+    <input type="search" name="q" maxlength="100" placeholder="fortios 7.2.4, exchange server 2019, nginx…" required></label>
+  <button type="submit">Rechercher</button>
+</form>
 <form method="post" action="/assets" class="card">
   <input type="hidden" name="csrf" value="{{.CSRF}}">
   {{template "assetFields" .Data.Form}}
-  <button type="submit">Ajouter</button>
+  <button type="submit">Ajouter l'actif</button>
 </form>
 
 <h2>Importer un SBOM</h2>
@@ -42,8 +51,24 @@
     <label>Fichier CycloneDX ou SPDX (JSON, 20 Mo max) <input type="file" name="sbom" accept=".json,application/json" required></label>
     <label>Projet (par défaut : nom indiqué dans le SBOM) <input name="project" maxlength="200"></label>
   </div>
-  <p class="muted">Un nouvel import du même projet remplace ses composants : les composants inchangés gardent leur historique de suivi.</p>
-  <button type="submit">Importer</button>
+  <p class="muted small">Un nouvel import du même projet remplace ses actifs : les actifs inchangés gardent leur historique de suivi.
+    Les nouveaux actifs sont suivis sur les 120 derniers jours, comme un ajout manuel.</p>
+  <button type="submit">Importer le SBOM</button>
+</form>
+
+<h2>Importer un tableau (CSV)</h2>
+<form method="post" action="/assets/import-csv" enctype="multipart/form-data" class="card">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <label>Fichier CSV (2 Mo max), séparé par des virgules ou des points-virgules
+    <input type="file" name="csv" accept=".csv,text/csv" required></label>
+  <p class="muted small">Première ligne : noms des colonnes. Seule <code>name</code> (ou <code>nom</code>) est obligatoire ;
+    colonnes reconnues : <code>version</code>, <code>kind</code> (<code>type</code>), <code>criticality</code> (<code>criticité</code>),
+    <code>owner</code> (<code>responsable</code>), <code>project</code> (<code>projet</code>), <code>purl</code>, <code>ecosystem</code>,
+    <code>cpe</code>, <code>cpe_mode</code>, <code>cpe_from</code>, <code>track_since</code>, <code>notes</code>.
+    Les types et criticités s'écrivent comme dans l'interface (« Produit », « Haute »…) ou par leur code. Le plus simple :
+    partir d'un <a href="/assets.csv">export de l'inventaire</a>. Le fichier entier est refusé à la moindre ligne invalide ;
+    les lignes identiques à un actif existant sont ignorées.</p>
+  <button type="submit">Importer le tableau</button>
 </form>
 {{end}}
 {{end}}

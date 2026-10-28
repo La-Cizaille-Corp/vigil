@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
@@ -34,10 +35,10 @@ func TestSendDigest(t *testing.T) {
 	}))
 	defer srv.Close()
 	for _, h := range []store.Webhook{
-		{Name: "chat", Kind: "slack", URL: srv.URL + "/slack-SECRET", Enabled: true},
-		{Name: "siem", Kind: "generic", URL: srv.URL + "/generic-SECRET", Enabled: true},
-		{Name: "down", Kind: "teams", URL: srv.URL + "/broken-SECRET", Enabled: true},
-		{Name: "off", Kind: "slack", URL: srv.URL + "/off-SECRET", Enabled: false},
+		{Digests: true, Name: "chat", Kind: "slack", URL: srv.URL + "/slack-SECRET", Enabled: true},
+		{Digests: true, Name: "siem", Kind: "generic", URL: srv.URL + "/generic-SECRET", Enabled: true},
+		{Digests: true, Name: "down", Kind: "teams", URL: srv.URL + "/broken-SECRET", Enabled: true},
+		{Digests: true, Name: "off", Kind: "slack", URL: srv.URL + "/off-SECRET", Enabled: false},
 	} {
 		if _, err := st.CreateWebhook(ctx, h); err != nil {
 			t.Fatal(err)
@@ -79,5 +80,33 @@ func TestValidateAndMask(t *testing.T) {
 	}
 	if got := MaskURL("https://hooks.slack.com/services/T0/B0/secret"); got != "https://hooks.slack.com/…" {
 		t.Errorf("MaskURL = %q", got)
+	}
+}
+
+// A digest longer than chat platforms accept is cut once, keeping the
+// truncation note and the link, without splitting a UTF-8 character.
+func TestLongDigestKeepsLink(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "n.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	var text string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]string
+		json.NewDecoder(r.Body).Decode(&body)
+		text = body["text"]
+	}))
+	defer srv.Close()
+	st.CreateWebhook(ctx, store.Webhook{Name: "chat", Kind: "slack", URL: srv.URL + "/h", Enabled: true, Digests: true})
+	n := &Notifier{Store: st, HTTP: srv.Client(), UserAgent: "test", Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	long := strings.Repeat("é", maxText) // 2 bytes each: twice the limit
+	if err := n.SendDigest(ctx, store.Digest{ID: 9, Markdown: long}, "https://vigil.example/digests/9"); err != nil {
+		t.Fatal(err)
+	}
+	if len(text) > maxText || !strings.HasSuffix(text, "https://vigil.example/digests/9") ||
+		!strings.Contains(text, "tronqué") || !utf8.ValidString(text) {
+		t.Errorf("digest message: %d bytes, ends with %q", len(text), text[max(0, len(text)-60):])
 	}
 }

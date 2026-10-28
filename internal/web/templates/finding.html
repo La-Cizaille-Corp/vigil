@@ -1,19 +1,31 @@
 {{define "content"}}
 {{$f := .Data.Finding}}{{$v := .Data.Vuln}}
+<p><a href="/findings">← Vulnérabilités</a></p>
 <dl class="card">
-  <dt>Sévérité</dt><dd><span class="sev sev-{{$v.Severity}}">{{or $v.Severity "?"}}</span></dd>
-  <dt>Exploitation</dt><dd>{{if $v.KEV}}<span class="kev">Exploitée activement (CISA KEV)</span>{{if $v.KEVDue}} — échéance CISA {{$v.KEVDue}}{{end}}{{else}}Non listée dans CISA KEV{{end}}
+  <dt>Sévérité</dt><dd><span class="sev sev-{{$v.Severity}}">{{sevLabel $v.Severity}}</span>{{with cvss $v.CVSS}} — CVSS {{.}}{{end}}</dd>
+  <dt>Exploitation</dt><dd>{{if $v.KEV}}<span class="kev">Exploitée activement (CISA KEV)</span>{{if $v.KEVDue}} — échéance CISA {{isoDate $v.KEVDue}}{{end}}{{else}}Non listée dans CISA KEV{{end}}
     {{with epss $v.EPSS}} · probabilité EPSS {{.}}{{end}}</dd>
-  <dt>Alias</dt><dd>{{join $v.Aliases ", "}}</dd>
-  <dt>Actif</dt><dd><a href="/assets/{{$f.AssetID}}">{{$f.AssetName}} {{$f.AssetVersion}}</a></dd>
+  {{if $v.Aliases}}<dt>Alias</dt><dd>{{join $v.Aliases ", "}}</dd>{{end}}
+  <dt>Actif</dt><dd><a href="/assets/{{$f.AssetID}}">{{$f.AssetName}} {{$f.AssetVersion}}</a>{{with $f.AssetProject}} <span class="muted">(projet {{.}})</span>{{end}}</dd>
   <dt>Statut</dt><dd>{{statusLabel $f.Status}}{{if $f.Justification}} — {{justifLabel $f.Justification}}{{end}}</dd>
   <dt>Détectée le</dt><dd>{{date $f.FirstSeen}}</dd>
-  <dt>Publiée</dt><dd>{{$v.Published}}</dd>
+  {{if not $f.Due.IsZero}}<dt>Échéance de traitement</dt><dd>{{$f.Due.Format "02/01/2006"}}{{if $f.Late}} <span class="late">Hors délai</span>{{end}}
+    <small class="muted">(selon la sévérité{{if $v.KEV}} ; exploitée : délai « critique »{{end}})</small></dd>{{end}}
+  <dt>Publiée le</dt><dd>{{with $v.Published}}{{isoDate .}}{{else}}<span class="muted">inconnu</span>{{end}}</dd>
 </dl>
 
 <h2>Résumé</h2>
 <p>{{$v.Summary}}</p>
 {{if $v.Details}}<details><summary>Détails</summary><pre class="wrap">{{$v.Details}}</pre></details>{{end}}
+
+{{if .Data.Mentions}}
+<h2>Dans l'actualité</h2>
+<p class="muted small">Actualités de veille qui citent cette vulnérabilité :</p>
+<ul class="news">
+{{range .Data.Mentions}}<li>{{if .Link}}<a href="{{.Link}}" rel="noopener noreferrer" target="_blank">{{.Title}}</a>{{else}}{{.Title}}{{end}}
+  <div class="muted small">{{.FeedName}} · {{date .Published}}</div></li>{{end}}
+</ul>
+{{end}}
 
 {{if $v.Refs}}
 <h2>Références</h2>

@@ -52,9 +52,9 @@ func (s *Store) ReplaceProjectAssets(ctx context.Context, project string, assets
 				continue
 			}
 			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO assets (name, kind, ecosystem, version, purl, cpe, criticality, owner, notes, source, project, created_at, updated_at)
-				VALUES (?, ?, '', ?, ?, ?, 'medium', '', '', 'sbom', ?, ?, ?)`,
-				a.Name, a.Kind, a.Version, a.PURL, a.CPE, project, ts, ts); err != nil {
+				INSERT INTO assets (name, kind, ecosystem, version, purl, cpe, track_since, criticality, owner, notes, source, project, created_at, updated_at)
+				VALUES (?, ?, '', ?, ?, ?, ?, 'medium', '', '', 'sbom', ?, ?, ?)`,
+				a.Name, a.Kind, a.Version, a.PURL, a.CPE, a.TrackSince, project, ts, ts); err != nil {
 				return err
 			}
 			res.Added++
