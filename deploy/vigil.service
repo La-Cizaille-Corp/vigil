@@ -1,6 +1,7 @@
 # systemd unit for a native install (no Docker). Install:
 #   sudo useradd --system --home /var/lib/vigil --shell /usr/sbin/nologin vigil
 #   sudo install -m 0755 vigil /usr/local/bin/vigil
+#   sudo install -d -m 0750 -g vigil /etc/vigil
 #   sudo install -m 0640 -g vigil vigil.env /etc/vigil/vigil.env   # see .env.example
 #   sudo cp vigil.service /etc/systemd/system/ && sudo systemctl enable --now vigil
 #   sudo -u vigil VIGIL_DB=/var/lib/vigil/vigil.db vigil user add -username admin -role admin

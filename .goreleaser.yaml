@@ -31,6 +31,10 @@ archives:
       - LICENSE
       - README.md
       - SECURITY.md
+      - docs/*.md
+      - deploy/*
+      - deploy/.env.example
+      - deploy/launchd/*
 
 checksum:
   name_template: checksums.txt

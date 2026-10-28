@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchAgent macOS : démarre Vigil à l'ouverture de session et le relance s'il s'arrête.
+  launchd ne développe ni ~ ni $HOME : remplacez /Users/UTILISATEUR par votre dossier,
+  par exemple avec :
+    sed "s|/Users/UTILISATEUR|$HOME|g" org.lacizaille.vigil.plist > ~/Library/LaunchAgents/org.lacizaille.vigil.plist
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/org.lacizaille.vigil.plist
+  Voir docs/INSTALL.md.
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>org.lacizaille.vigil</string>
+
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/local/bin/vigil</string>
+		<string>serve</string>
+		<string>-addr</string>
+		<string>127.0.0.1:8080</string>
+	</array>
+
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>VIGIL_DB</key>
+		<string>/Users/UTILISATEUR/Library/Application Support/vigil/vigil.db</string>
+		<key>VIGIL_BACKUP_DIR</key>
+		<string>/Users/UTILISATEUR/Library/Application Support/vigil/backups</string>
+		<!-- Facultatif : clé NVD gratuite, proxy d'entreprise.
+		<key>VIGIL_NVD_API_KEY</key>
+		<string></string>
+		<key>HTTPS_PROXY</key>
+		<string>http://proxy.example.org:3128</string>
+		-->
+	</dict>
+
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<!-- Au moins 10 s entre deux relances, pour ne pas boucler sur une erreur de configuration. -->
+	<key>ThrottleInterval</key>
+	<integer>10</integer>
+
+	<key>StandardOutPath</key>
+	<string>/Users/UTILISATEUR/Library/Logs/vigil.log</string>
+	<key>StandardErrorPath</key>
+	<string>/Users/UTILISATEUR/Library/Logs/vigil.log</string>
+
+	<key>ProcessType</key>
+	<string>Background</string>
+</dict>
+</plist>

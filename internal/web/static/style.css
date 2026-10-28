@@ -134,7 +134,8 @@ dt { color: var(--muted); } dd { margin: 0; }
 th.select, td.select { width: 2rem; text-align: center; }
 td.select input { width: 1.05rem; height: 1.05rem; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-form.bulk { margin-top: 1rem; }
+details.bulk { margin: .5rem 0 1rem; }
+details.bulk form { margin-top: .75rem; }
 form.inline-search { display: flex; flex-wrap: wrap; gap: .75rem; align-items: flex-end; }
 form.inline-search label { flex: 1 1 22rem; }
 form.delivery { display: flex; flex-wrap: wrap; gap: .4rem .6rem; align-items: center; }

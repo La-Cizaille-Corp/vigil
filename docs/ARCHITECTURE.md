@@ -45,7 +45,7 @@ internal/cvss          Calcul du score CVSS 3.x depuis un vecteur
 internal/tracking      Synchronisation inventaire ↔ sources, enrichissement, statuts VEX
 internal/cti           Flux RSS/Atom, étiquetage pays / secteur / réglementation
 internal/digest        Génération du digest (Markdown + HTML)
-internal/notify        Envoi des digests aux webhooks
+internal/notify        Digests et alertes vers les webhooks et par e-mail (SMTP)
 internal/netsafe       Client HTTP anti-SSRF pour les URL fournies par les utilisateurs
 internal/auth          argon2id, jetons, TOTP, limitation des tentatives, rôles
 internal/web           Handlers HTTP, middleware de sécurité, templates, API CI
@@ -72,8 +72,10 @@ modification, ou sur demande), par l'API après un import SBOM, ou par `vigil sy
 4. `findings` : création si nouveau et dans la période de suivi de l'actif, réouverture si résolu
    automatiquement puis signalé à nouveau, résolution automatique si la source ne le signale plus
    (version mise à jour).
-5. `cti.Collector` récupère les flux ; les items reçoivent pays, secteurs et réglementations.
-   Purge après 180 jours.
+5. Alertes immédiates (A37) : les vulnérabilités ouvertes devenues urgentes sont envoyées aux
+   canaux qui les demandent, une fois par niveau d'urgence.
+6. `cti.Collector` récupère les flux ; les items reçoivent pays, secteurs et réglementations, et
+   leurs identifiants CVE sont indexés (A40). Purge après 180 jours.
 
 ### Digest
 
@@ -290,6 +292,64 @@ utilisent un client ordinaire.
 est stocké haché, affiché une seule fois, préfixé `vgl_` (repérable par les scanners de secrets).
 *Limite assumée* : pas d'expiration, révocation manuelle.
 
+### Notifications, délais et échanges (0.3)
+
+Ces décisions viennent d'un comparatif avec OpenCVE, Dependency-Track, DefectDojo, CIRCL
+Vulnerability-Lookup et Taranis AI (voir [BENCHMARK.md](BENCHMARK.md)) : elles comblent les
+manques qui gênaient l'usage quotidien d'une petite équipe, sans viser la profondeur de ces outils.
+
+**A37. Alertes immédiates par niveau d'urgence, une fois par niveau.** OpenCVE et
+Dependency-Track préviennent dès qu'une vulnérabilité correspond ; Vigil n'avait que le digest.
+Chaque vulnérabilité ouverte a une classe : prioritaire (KEV ou EPSS ≥ 10 %), sévère (critique ou
+haute), autre. À la fin de chaque synchronisation, celles dont la classe dépasse la classe déjà
+notifiée (`findings.alerted`) partent, en un message par canal, vers les canaux qui demandent ce
+niveau ; une vulnérabilité qui devient exploitée est donc signalée à nouveau. Écartés : une alerte
+par vulnérabilité (avalanche au premier import d'un SBOM), un moteur de règles à la
+Dependency-Track (configuration lourde pour la cible). La migration marque les vulnérabilités
+existantes comme déjà notifiées : pas d'avalanche après la mise à jour. Une alerte en échec n'est
+pas renvoyée : l'erreur s'affiche sur le canal et le digest suivant liste la vulnérabilité.
+
+**A38. E-mail par SMTP direct, dans les mêmes canaux que les webhooks.** Toutes les solutions
+comparées notifient par e-mail ; c'est le canal universel des petites structures. `net/smtp` de la
+bibliothèque standard suffit (aucune dépendance) ; le serveur est fixé par l'exploitant (options
+`-smtp-*`), les destinataires par l'administrateur, comme un webhook. STARTTLS est exigé par défaut
+(pas de repli en clair si le serveur ne le propose pas), `net/smtp` refuse d'envoyer un mot de
+passe sans TLS sauf vers la machine locale. Messages en texte (le Markdown du digest se lit tel
+quel), en-tête `Auto-Submitted` contre les réponses automatiques.
+
+**A39. Délais de traitement calculés à partir de la détection, par sévérité.** DefectDojo et les
+politiques internes (NIS2 : traitement « dans des délais appropriés ») suivent des échéances.
+Délais par défaut de la directive CISA BOD 19-02 (15 jours critique, 30 haute) complétés (90, 180),
+réglables, 0 = aucun. Une vulnérabilité exploitée (KEV) prend le délai critique ; l'échéance CISA
+reste affichée à titre d'information mais n'est pas utilisée (elle peut précéder la détection). Les
+échéances sont calculées en SQL à la lecture, jamais stockées : changer un délai recalcule tout.
+Différé : délais selon la criticité de l'actif ou par projet.
+
+**A40. Actualités qui concernent l'inventaire, par identifiant CVE.** L'atout d'un outil qui fait
+à la fois inventaire et veille : signaler l'avis du CERT-FR qui parle d'une vulnérabilité ouverte
+chez soi. Les identifiants CVE cités dans le titre et le résumé de chaque actualité sont indexés
+(`cti_mentions`, rempli pour l'existant par une étape Go de la migration) et croisés avec les
+vulnérabilités ouvertes (identifiant ou alias). Écartés : rapprochement par nom de produit
+(faux positifs nombreux), NLP. Limite : une actualité qui ne cite pas l'identifiant n'est pas reliée.
+
+**A41. Échanges par tableur : CSV en entrée et en sortie.** La cible tient souvent son inventaire
+dans un tableur. Export des vulnérabilités (avec les filtres affichés) et de l'inventaire ; import
+de l'inventaire en virgules ou points-virgules (Excel en français), en-têtes et libellés français
+acceptés. Import tout ou rien : la moindre ligne invalide refuse le fichier, avec les numéros de
+ligne. *Sécurité* : toute cellule commençant par `=`, `+`, `-`, `@` est préfixée d'une apostrophe
+(injection de formules à l'ouverture dans un tableur).
+
+**A42. Recherche de CPE dans le dictionnaire de la NVD, à la demande.** Écrire un CPE à la main
+était le principal frein au suivi des produits. La page de recherche interroge l'API CPE de la NVD
+et préremplit le formulaire (version précise ou produit entier). Écarté : copie locale du
+dictionnaire (plus d'un million d'entrées, mises à jour quotidiennes) — contraire à A9. Les
+requêtes partagent l'espacement de la synchronisation (limite de débit de la NVD).
+
+**A43. Triage par lot et journal d'audit consultable.** Le triage par lot applique une même
+décision à des vulnérabilités cochées, avec un événement d'historique pour chacune (pas de
+raccourci qui perdrait la traçabilité). Le journal d'audit, déjà écrit, devient lisible par les
+administrateurs (exigence fréquente des audits NIS2 ou ISO 27001).
+
 ### Construction, distribution, exploitation
 
 **A26. Trois dépendances directes.** Chaque ajout se justifie dans
@@ -310,6 +370,38 @@ l'image n'écoute pas en clair sur le réseau sans proxy.
 commit), six plateformes, checksums, SBOM par archive, attestation de provenance signée ; release
 créée en brouillon et publiée après relecture.
 
+**A36. Mettre à jour sans jamais perdre de données.** Les données vivent hors du binaire (fichier
+SQLite ou volume Docker) ; une mise à jour remplace le binaire et applique les migrations au
+démarrage. Règles :
+- une migration publiée ne change plus (empreintes vérifiées par `TestMigrationsFrozen`) ; une
+  correction passe par une nouvelle migration ;
+- une migration ajoute ou transforme, ne supprime pas de donnée utilisateur ; chaque transformation
+  voulue est déclarée dans le test de mise à jour ;
+- chaque migration s'exécute dans une transaction qui prend le verrou d'écriture d'emblée et
+  revérifie qu'elle n'a pas déjà été appliquée (un `vigil sync` lancé pendant le démarrage du
+  serveur) ;
+- avant la première migration d'une base existante, une copie cohérente
+  `<base>.schema-N.<date>.bak` est écrite à côté ; si elle échoue, rien n'est migré ;
+- une base écrite par une version plus récente est refusée (`ErrNewerSchema`) : un ancien binaire
+  pourrait l'abîmer sans le savoir ;
+- `vigil backup` copie la base sans la migrer, même lancé avec le nouveau binaire.
+*Vérification* : `TestUpgradeFromReleases` ouvre des bases réellement produites par chaque version
+publiée (`internal/store/testdata/upgrade/vX.Y.Z.sql` : comptes, import SBOM, synchronisation
+réelle, triage, flux, webhooks, digest) et vérifie que chaque valeur est intacte et lisible par le
+code actuel. À chaque release, on ajoute le dump de la version publiée.
+
+**A44. Proxy d'entreprise et adresse réelle du client.** Sortant : `HTTPS_PROXY` / `NO_PROXY`
+sont honorés partout, y compris pour les URL saisies (flux, webhooks), auparavant privées de proxy
+pour préserver le contrôle anti-SSRF. Le nom de destination est désormais résolu et vérifié avant
+de confier la requête au proxy, qui seul peut avoir une adresse privée. *Risque résiduel* : le proxy
+résout le nom à nouveau (rebinding DNS possible entre les deux) ; le proxy doit lui aussi refuser
+les destinations internes. Entrant : derrière un reverse proxy, toutes les connexions venaient de
+son adresse, si bien que cinq échecs de connexion bloquaient tous les utilisateurs. Avec
+`-behind-proxy`, la limitation et le journal d'audit utilisent la dernière adresse de
+`X-Forwarded-For`, celle qu'ajoute le proxy (les précédentes peuvent être forgées par le client).
+*Condition* : Vigil n'est joignable que par le proxy (écoute sur `127.0.0.1` ou réseau interne au
+Compose), sinon l'en-tête pourrait être forgé.
+
 **A30. Chaîne d'approvisionnement défendue en profondeur.** Voir
 [CONTRIBUTING.md](../CONTRIBUTING.md) et [DEPENDENCIES.md](DEPENDENCIES.md) : actions épinglées
 par SHA, images par digest, outils versionnés, délai de 7 jours avant toute mise à jour non
@@ -327,3 +419,9 @@ l'historique, analyse statique et CodeQL, revue des dépendances, scan de l'imag
 | CVSS 4.0 | Différé | Formule complexe ; peu de vecteurs 4.0 seuls aujourd'hui. |
 | Rapprochement d'actifs en double (purl ↔ CPE) | Différé | Correspondance purl ↔ CPE peu fiable ; consigne : un actif par produit. |
 | Expiration des jetons d'API | Différé | Révocation manuelle suffisante à ce stade. |
+| Assignation des vulnérabilités à une personne | Différé | Peu utile aux équipes de 1 à 3 personnes visées ; le champ Responsable de l'actif oriente déjà. |
+| Tickets (Jira, GitLab) | Différé | Le webhook JSON générique (digests et alertes) permet de brancher un outil de tickets. |
+| API de lecture (JSON) | Différé | Exports CSV et VEX couvrent les besoins de reporting ; à ouvrir avec des jetons en lecture seule si demande. |
+| Acceptation de risque avec date d'expiration | Différé | Statuts VEX et commentaires suffisent pour l'instant ; une date de réexamen serait la prochaine étape. |
+| Base européenne EUVD (ENISA) | Différé | API récente et encore mouvante ; les CVE qu'elle référence sont déjà couvertes par OSV et la NVD. |
+| Service Windows natif | Différé | Planificateur de tâches ou WinSW suffisent (voir [INSTALL.md](INSTALL.md)) ; éviterait une dépendance. |

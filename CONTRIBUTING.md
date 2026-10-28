@@ -48,3 +48,23 @@ go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 Pousser un tag `vX.Y.Z` sur `main` déclenche `release.yml` : binaires (GoReleaser), SBOM par
 archive, checksums, attestations de provenance, image multi-architecture sur ghcr.io. La release
 est créée en brouillon et publiée à la main après relecture.
+
+## Schéma de la base
+
+Les données des utilisateurs doivent survivre à chaque mise à jour (registre A36 de
+[ARCHITECTURE.md](docs/ARCHITECTURE.md)) :
+
+- toute évolution passe par une **nouvelle** migration `internal/store/migrations/NNN_description.sql` ;
+  une migration publiée ne se modifie jamais (`TestMigrationsFrozen`) ;
+- une migration ne supprime pas de donnée utilisateur ; une transformation voulue se déclare dans
+  la liste `transformed` de `internal/store/upgrade_test.go` ;
+- une transformation impossible en SQL s'écrit en Go dans `afterMigration` (`store.go`), dans la
+  même transaction.
+
+À chaque release, après publication :
+
+1. ajouter les empreintes des nouvelles migrations à `releasedMigrations` (`upgrade_test.go`) ;
+2. produire avec le binaire publié une base de démonstration (comptes, import SBOM, synchronisation,
+   triage, flux, canal de notification, digest), la réduire, et l'ajouter en
+   `internal/store/testdata/upgrade/vX.Y.Z.sql` (`sqlite3 base.db .dump`) : `TestUpgradeFromReleases`
+   vérifiera ensuite que chaque version future la reprend sans perte.

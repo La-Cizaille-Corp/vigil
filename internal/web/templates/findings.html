@@ -46,12 +46,13 @@
 {{$analyst := can .User.Role "analyst"}}
 <p class="muted">{{len .Data.Findings}} vulnérabilité(s){{with $f.Project}} — <a href="/assets?project={{.}}">actifs du projet {{.}}</a>{{end}}
   · <a href="{{.Data.CSVLink}}">Exporter cette liste (CSV)</a></p>
-{{template "findingTable" (findingRows .Data.Findings (and $analyst (gt (len .Data.Findings) 0)))}}
 {{if and $analyst .Data.Findings}}
-<form method="post" action="/findings/bulk" id="bulk" class="card bulk">
+<details class="card bulk" id="traiter">
+  <summary>Traiter la sélection…</summary>
+<form method="post" action="/findings/bulk" id="bulk">
   <input type="hidden" name="csrf" value="{{.CSRF}}">
   <input type="hidden" name="next" value="{{.Data.Next}}">
-  <p class="small"><strong>Traiter la sélection</strong> : cochez des lignes du tableau, puis appliquez-leur une même décision (enregistrée dans l'historique de chacune).</p>
+  <p class="small">Cochez des lignes du tableau ci-dessous, puis appliquez-leur une même décision (enregistrée dans l'historique de chacune).</p>
   <div class="grid">
     <label>Nouveau statut
       <select name="status">{{range statuses}}<option value="{{.Value}}">{{.Label}}</option>{{end}}</select>
@@ -63,7 +64,9 @@
   </div>
   <button type="submit">Appliquer à la sélection</button>
 </form>
+</details>
 {{end}}
+{{template "findingTable" (findingRows .Data.Findings (and $analyst (gt (len .Data.Findings) 0)))}}
 
 <h2>Échange VEX (CycloneDX)</h2>
 <p><a href="/findings/vex{{if $f.Project}}?project={{$f.Project}}{{end}}">Exporter les analyses en VEX{{if $f.Project}} (projet {{$f.Project}}){{end}}</a></p>
