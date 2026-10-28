@@ -387,8 +387,11 @@ func (s *Server) background() context.Context {
 // silently ignored, but does not fail the user's request.
 func (s *Server) audit(r *http.Request, userID int64, action, detail string) {
 	// The journal keeps a copy outside the database: shipped to a log server,
-	// it survives a lost or altered database.
-	s.Log.Info("audit", "action", action, "user_id", userID, "detail", detail, "ip", s.clientIP(r))
+	// it survives a lost or altered database. SECURITY: the detail may hold a
+	// typed username or feed name; line breaks are removed so that it cannot
+	// forge another log entry, whatever the log handler.
+	line := strings.ReplaceAll(strings.ReplaceAll(detail, "\n", " "), "\r", " ")
+	s.Log.Info("audit", "action", action, "user_id", userID, "detail", line, "ip", s.clientIP(r))
 	if err := s.Store.Audit(r.Context(), userID, action, detail); err != nil {
 		s.Log.Error("audit log write failed", "action", action, "err", err)
 	}
