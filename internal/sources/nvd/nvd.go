@@ -81,10 +81,11 @@ type Query struct {
 	Since time.Time
 }
 
-// WithVersion fills the version of a CPE when it is a wildcard.
+// WithVersion fills the version of a CPE when it is a wildcard, unless the
+// CPE covers every product of a vendor.
 func WithVersion(cpe, version string) string {
 	fields, whole, err := ProductCPE(cpe)
-	if err != nil || !whole || version == "" || strings.ContainsAny(version, ":*?") {
+	if err != nil || !whole || version == "" || strings.ContainsAny(version, ":*?") || fields[4] == "*" {
 		return cpe
 	}
 	fields[5] = version
@@ -107,8 +108,8 @@ func (c *Client) ForCPE(ctx context.Context, query Query) ([]CVE, error) {
 		return nil, err
 	}
 	mode := query.Mode
-	if mode == "" && whole {
-		mode = "all"
+	if (mode == "" && whole) || fields[4] == "*" {
+		mode = "all" // a whole product, or every product of a vendor
 	}
 	q := url.Values{}
 	switch mode {

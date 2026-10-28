@@ -48,6 +48,8 @@ func trackingSource(a store.Asset) string {
 	switch {
 	case inventory.Queryable(a):
 		return "OSV"
+	case inventory.WholeVendor(a):
+		return "NVD (éditeur)"
 	case a.CPE != "":
 		return "NVD"
 	}
@@ -139,4 +141,15 @@ func formatDays(d float64) string {
 		return strings.Replace(strconv.FormatFloat(d, 'f', 1, 64), ".", ",", 1) + " j"
 	}
 	return strconv.FormatFloat(d, 'f', 0, 64) + " j"
+}
+
+// knownTags lists the asset tags in use, as hints under the tags field.
+func (s *Server) knownTags() []store.TagCount {
+	ctx, cancel := context.WithTimeout(s.background(), 5*time.Second)
+	defer cancel()
+	tags, err := s.Store.AssetTags(ctx)
+	if err != nil {
+		s.Log.Warn("asset tags", "err", err)
+	}
+	return tags
 }

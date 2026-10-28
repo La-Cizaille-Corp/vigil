@@ -28,6 +28,8 @@ sont en gras.
 |---|---|---|---|---|---|---|---|
 | Inventaire saisi à la main (produits sans SBOM) | Oui | Oui | Oui (éditeur, produit) | Partiel | Non | Oui (liste de surveillance) | Non |
 | Aide pour identifier un produit (recherche CPE) | Non | **Oui** | Oui | ? | Non | Oui | Non |
+| Suivre tous les produits d'un éditeur | Non | **Oui** | Oui | Non | Non | Oui | Non |
+| Étiquettes libres sur l'inventaire | Non | **Oui** | ? | Oui | Oui | Non | Non |
 | Import d'inventaire par tableur | Non | **Oui (CSV)** | Non | Non | Partiel | Non | Non |
 | Import SBOM | Oui (CycloneDX, SPDX) | Oui | Non | Oui (CycloneDX) | Oui | Non | Non |
 | Correspondance par version précise | Oui (OSV, NVD) | Oui | Non | Oui | Via les scanners | Partiel | Non |

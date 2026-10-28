@@ -226,19 +226,43 @@ func TestNotificationChannels(t *testing.T) {
 	}
 }
 
+// cpeEntry is a CPE dictionary entry as returned by the NVD.
+func cpeEntry(name, title, created string) string {
+	return `{"cpe":{"cpeName":"` + name + `","created":"` + created + `","titles":[{"title":"` + title + `","lang":"en"}]}}`
+}
+
+// The dictionary returns old vendor names first: the current one must come
+// first, the old one be flagged, and the versions follow the search.
 func TestCPESearch(t *testing.T) {
 	dict := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, `{"products":[{"cpe":{"cpeName":"cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*",
-			"titles":[{"title":"Fortinet FortiOS 7.2.4","lang":"en"}]}}]}`)
+		if r.URL.Query().Get("cpeMatchString") != "cpe:2.3:*:*:elasticsearch" {
+			io.WriteString(w, `{"totalResults":0,"products":[]}`)
+			return
+		}
+		io.WriteString(w, `{"totalResults":4,"products":[`+
+			cpeEntry("cpe:2.3:a:elasticsearch:elasticsearch:1.4.0:*:*:*:*:*:*:*", "Elasticsearch 1.4.0", "2014-07-29T18:13:07.643")+`,`+
+			cpeEntry("cpe:2.3:a:elastic:elasticsearch:8.15.0:*:*:*:*:*:*:*", "Elastic Elasticsearch 8.15.0", "2024-08-10T10:00:00.000")+`,`+
+			cpeEntry("cpe:2.3:a:elastic:elasticsearch:8.15.1:*:*:*:*:*:*:*", "Elastic Elasticsearch 8.15.1", "2024-09-10T10:00:00.000")+`,`+
+			cpeEntry("cpe:2.3:a:elastic:elasticsearch:9.1.0:*:*:*:*:*:*:*", "Elastic Elasticsearch 9.1.0", "2026-10-08T10:00:00.000")+`]}`)
 	}))
 	defer dict.Close()
 	_, base := newServerWith(t, func(s *Server) {
 		s.Syncer = &tracking.Syncer{Store: s.Store, NVD: &nvd.Client{URL: dict.URL, CPEURL: dict.URL, HTTP: dict.Client()}}
 	})
 	c := loginAs(t, base, "analyst", "a-strong-password")
-	code, body := c.get("/assets/cpe?q=fortios+7.2.4")
-	if code != http.StatusOK || !strings.Contains(body, "cpe:2.3:o:fortinet:fortios:*:*:*:*:*:*:*:*") {
+	code, body := c.get("/assets/cpe?q=elasticsearch+8.15")
+	if code != http.StatusOK {
 		t.Fatalf("search: %d\n%s", code, body)
+	}
+	current, old := strings.Index(body, "<code class=\"small\">elastic</code>"), strings.Index(body, "<code class=\"small\">elasticsearch</code> <span class=\"tag\">ancien nom</span>")
+	if current < 0 || old < 0 || current > old {
+		t.Errorf("current vendor %d, old vendor %d: the current name must come first, the old one flagged", current, old)
+	}
+	if !strings.Contains(body, "Suivre tous les produits Elastic") || !strings.Contains(body, "cpe%3A2.3%3A%2A%3Aelastic%3A%2A") {
+		t.Error("no link to track every product of the vendor")
+	}
+	if !strings.Contains(body, "Elastic Elasticsearch 8.15.1") || strings.Contains(body, "Elastic Elasticsearch 9.1.0") {
+		t.Error("versions offered do not follow the search")
 	}
 	// "Use" prefills the new asset form.
 	_, body = c.get("/assets?cpe=cpe%3A2.3%3Ao%3Afortinet%3Afortios%3A7.2.4%3A*%3A*%3A*%3A*%3A*%3A*%3A*&kind=os&name=Fortinet+FortiOS&version=7.2.4")
@@ -264,5 +288,60 @@ func TestClientIPBehindProxy(t *testing.T) {
 	r.Header.Del("X-Forwarded-For")
 	if got := proxied.clientIP(r); got != "127.0.0.1" {
 		t.Errorf("no header: %s", got)
+	}
+}
+
+func TestCompareVersions(t *testing.T) {
+	ordered := []string{"10.0", "9.5.5", "9.5.3", "8.19.23", "1.4.1", "1.4.0", "1.4.0-rc1", "1.4.0-beta1"}
+	for i := 0; i+1 < len(ordered); i++ {
+		if compareVersions(ordered[i], ordered[i+1]) <= 0 || compareVersions(ordered[i+1], ordered[i]) >= 0 {
+			t.Errorf("%s should rank above %s", ordered[i], ordered[i+1])
+		}
+	}
+	if compareVersions("2019", "2019") != 0 {
+		t.Error("equal versions")
+	}
+}
+
+func TestAssetTags(t *testing.T) {
+	st, base := newServerWith(t, nil)
+	ctx := context.Background()
+	c := loginAs(t, base, "analyst", "a-strong-password")
+	code, loc := c.postLocation("/assets", url.Values{"csrf": {c.csrf()}, "name": {"nginx"}, "kind": {"technology"},
+		"criticality": {"high"}, "tags": {"Prod, Équipe Web; prod"}})
+	if code != http.StatusSeeOther {
+		t.Fatalf("create: %d %s", code, loc)
+	}
+	other, _ := st.CreateAsset(ctx, store.Asset{Name: "redis", Kind: "technology", Criticality: "low", Source: "manual", Tags: []string{"recette"}})
+	assets, _ := st.ListAssets(ctx)
+	var nginx store.Asset
+	for _, a := range assets {
+		if a.Name == "nginx" {
+			nginx = a
+		}
+	}
+	if strings.Join(nginx.Tags, "|") != "prod|équipe web" {
+		t.Fatalf("tags: %q", nginx.Tags)
+	}
+	// Inventory filtered by tag, with the tags in use offered.
+	_, body := c.get("/assets?tag=prod")
+	if !strings.Contains(body, ">nginx</a>") || strings.Contains(body, ">redis</a>") || !strings.Contains(body, "recette <small>1</small>") {
+		t.Errorf("inventory filtered by tag:\n%s", body)
+	}
+	// Vulnerabilities filtered by the tag of their asset.
+	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-1", Severity: "HIGH", EPSS: -1, CVSS: -1})
+	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-2", Severity: "HIGH", EPSS: -1, CVSS: -1})
+	st.ObserveFinding(ctx, nginx.ID, "CVE-1", time.Now())
+	st.ObserveFinding(ctx, other, "CVE-2", time.Now())
+	list, _ := st.ListFindings(ctx, store.FindingFilter{Tag: "équipe web"})
+	if len(list) != 1 || list[0].VulnID != "CVE-1" {
+		t.Errorf("findings with tag: %+v", list)
+	}
+	if _, body := c.get("/findings?tag=recette"); !strings.Contains(body, "CVE-2") || strings.Contains(body, "CVE-1") {
+		t.Error("findings page not filtered by tag")
+	}
+	// Tags survive a CSV round trip.
+	if _, body := c.get("/assets.csv"); !strings.Contains(body, "prod, équipe web") {
+		t.Errorf("CSV export misses the tags:\n%s", body)
 	}
 }

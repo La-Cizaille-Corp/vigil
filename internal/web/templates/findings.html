@@ -9,6 +9,11 @@
         {{range .Data.Projects}}<option {{if eq . $f.Project}}selected{{end}}>{{.}}</option>{{end}}
       </select>
     </label>
+    <label>Étiquette d'actif
+      <select name="tag"><option value="">Toutes</option>
+        {{range .Data.Tags}}<option {{if eq .Tag $f.Tag}}selected{{end}}>{{.Tag}}</option>{{end}}
+      </select>
+    </label>
     <label>CVSS minimum <input type="number" name="cvss" min="0" max="10" step="0.1" value="{{if $f.MinCVSS}}{{$f.MinCVSS}}{{end}}" placeholder="ex. 7"></label>
     <label>EPSS minimum (%) <input type="number" name="epss" min="0" max="100" step="0.1" value="{{if $f.MinEPSS}}{{.Data.MinEPSSPercent}}{{end}}" placeholder="ex. 10"></label>
     <label>Tri

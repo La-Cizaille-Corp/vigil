@@ -135,13 +135,19 @@ func (s *Server) Handler() (http.Handler, error) {
 
 func (s *Server) parseTemplates() error {
 	funcs := template.FuncMap{
-		"date":       func(t time.Time) string { return t.Local().Format("02/01/2006 15:04") },
-		"isoDate":    isoDate,
-		"sevLabel":   tracking.SeverityLabel,
-		"roleLabel":  func(v string) string { return inventory.Label(roles, v) },
-		"tracking":   trackingSource,
-		"syncStatus": s.syncStatus,
-		"tags":       splitTags,
+		"date":      func(t time.Time) string { return t.Local().Format("02/01/2006 15:04") },
+		"isoDate":   isoDate,
+		"sevLabel":  tracking.SeverityLabel,
+		"roleLabel": func(v string) string { return inventory.Label(roles, v) },
+		"tracking":  trackingSource,
+		"vendorOf": func(a store.Asset) string {
+			v, _ := inventory.VendorProduct(a)
+			return v
+		},
+		"wholeVendor": inventory.WholeVendor,
+		"knownTags":   s.knownTags,
+		"syncStatus":  s.syncStatus,
+		"tags":        splitTags,
 		"dict3": func(countries, sectors, regulations []string) tagSelection {
 			return tagSelection{countries, sectors, regulations}
 		},

@@ -344,9 +344,35 @@ fichier y commencerait une cellule.
 
 **A42. Recherche de CPE dans le dictionnaire de la NVD, à la demande.** Écrire un CPE à la main
 était le principal frein au suivi des produits. La page de recherche interroge l'API CPE de la NVD
-et préremplit le formulaire (version précise ou produit entier). Écarté : copie locale du
-dictionnaire (plus d'un million d'entrées, mises à jour quotidiennes) — contraire à A9. Les
-requêtes partagent l'espacement de la synchronisation (limite de débit de la NVD).
+et préremplit le formulaire (version précise, produit entier ou éditeur entier). Piège constaté
+en test : l'API renvoie les entrées des plus anciennes aux plus récentes, et beaucoup de produits
+ont changé de nom d'éditeur (`elasticsearch:elasticsearch`, dernière version référencée en 2015,
+devenu `elastic:elasticsearch` ; `joyent:node.js` devenu `nodejs:node.js`). Une recherche par
+mots-clés limitée aux premières entrées ne proposait donc que des noms abandonnés, sans aucune
+vulnérabilité récente. La recherche essaie d'abord le nom exact du produit (tous ses éditeurs), puis
+« éditeur produit », puis l'éditeur seul, enfin les mots-clés en ne gardant que les entrées les
+plus récentes. Les résultats sont regroupés par éditeur et produit, avec le nombre de versions et la
+date de la dernière entrée ; un produit sans nouvelle entrée depuis trois ans est signalé comme
+« ancien nom » et placé après les noms actuels ; les versions proposées sont triées par numéro.
+Écarté : copie locale du dictionnaire (plus d'un million d'entrées, mises à jour quotidiennes) —
+contraire à A9. Les requêtes partagent l'espacement de la synchronisation (limite de débit de la NVD).
+
+**A45. Suivre tous les produits d'un éditeur.** Comme les abonnements d'OpenCVE : un actif dont le
+CPE n'a ni produit ni version (`cpe:2.3:*:fortinet:*:*:*:*:*:*:*:*:*`) reçoit toute vulnérabilité
+publiée pour l'éditeur, quel que soit le produit. La NVD accepte ce motif dans le même mode que
+« toutes les versions » : aucune logique nouvelle de synchronisation, la période de suivi et les
+KEV s'appliquent pareil. Une version saisie sur l'actif est ignorée. *Limite assumée* : un grand
+éditeur représente des milliers de vulnérabilités par an (Microsoft : environ 3 500 en 120 jours
+en octobre 2026) ; l'interface le signale. Éditeur et produit sont affichés à part dans
+l'inventaire, déduits du CPE ou du purl, sans colonne supplémentaire en base.
+
+**A46. Étiquettes libres sur les actifs.** Équipe, environnement, site, application : chaque
+organisation classe son inventaire à sa façon, au-delà du projet (réservé aux SBOM). Les étiquettes
+se saisissent librement dans un champ (séparées par des virgules), sans liste à administrer ; elles
+sont mises en minuscules pour qu'une même étiquette ne se dédouble pas (« Prod », « prod »).
+Stockage comme les étiquettes de la veille (`,prod,web,`, migration 010). Filtres de l'inventaire et
+des vulnérabilités, export et import CSV. Écarté : une table d'étiquettes avec administration
+(complexité sans besoin avéré).
 
 **A43. Triage par lot et journal d'audit consultable.** Le triage par lot applique une même
 décision à des vulnérabilités cochées, avec un événement d'historique pour chacune (pas de
