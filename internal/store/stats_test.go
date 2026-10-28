@@ -30,7 +30,10 @@ func TestDashboardStats(t *testing.T) {
 	st.SetExploitSignals(ctx, "CVE-2", false, "", 0.2)          // likely exploited
 	for i, v := range vulns {
 		seen := now.Add(-time.Duration(i) * 24 * time.Hour)
-		if i == 2 {
+		switch i {
+		case 0:
+			seen = now.Add(-20 * 24 * time.Hour) // exploited: past the 15-day critical deadline
+		case 2:
 			seen = now.Add(-40 * 24 * time.Hour) // waiting for triage for too long
 		}
 		if _, err := st.ObserveFinding(ctx, assetID, v.ID, seen); err != nil {
@@ -54,8 +57,22 @@ func TestDashboardStats(t *testing.T) {
 	if s.Open != 3 || s.OpenBySeverity["CRITICAL"] != 1 || s.OpenBySeverity["UNKNOWN"] != 1 {
 		t.Errorf("open: %d %v", s.Open, s.OpenBySeverity)
 	}
-	if s.Priority != 2 || s.OpenKEV != 1 || s.KEVOverdue != 1 {
-		t.Errorf("priority %d, kev %d, overdue %d", s.Priority, s.OpenKEV, s.KEVOverdue)
+	if s.Priority != 2 || s.OpenKEV != 1 || s.Overdue != 1 || s.OverdueKEV != 1 {
+		t.Errorf("priority %d, kev %d, overdue %d (%d exploited)", s.Priority, s.OpenKEV, s.Overdue, s.OverdueKEV)
+	}
+	late, err := st.ListFindings(ctx, FindingFilter{Overdue: true})
+	if err != nil || len(late) != 1 || late[0].VulnID != "CVE-1" || !late[0].Late {
+		t.Errorf("overdue findings: %+v, %v", late, err)
+	}
+	// A longer critical deadline moves it back within its delay.
+	if err := st.SetSLA(ctx, SLA{Critical: 30, High: 30, Medium: 90, Low: 0}); err != nil {
+		t.Fatal(err)
+	}
+	if late, _ := st.ListFindings(ctx, FindingFilter{Overdue: true}); len(late) != 0 {
+		t.Errorf("still overdue: %+v", late)
+	}
+	if err := st.SetSLA(ctx, SLA{Critical: -1}); err == nil {
+		t.Error("negative deadline accepted")
 	}
 	if s.ToTriage != 2 || s.StaleTriage != 1 {
 		t.Errorf("triage %d, stale %d", s.ToTriage, s.StaleTriage)

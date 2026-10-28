@@ -1,15 +1,19 @@
+{{/* findingTable: a vulnerability list. Data: findingRows list selectable;
+   selectable adds checkboxes bound to the form id="bulk" of the page. */}}
 {{define "findingTable"}}
-{{if .}}
+{{if .List}}
 <table>
-<thead><tr><th>Priorité</th><th>Vulnérabilité</th><th>Actif</th><th>Statut</th><th>Détectée le</th><th>Résumé</th></tr></thead>
+<thead><tr>{{if .Select}}<th class="select"><span class="sr-only">Sélection</span></th>{{end}}<th>Priorité</th><th>Vulnérabilité</th><th>Actif</th><th>Statut</th><th>Détectée le</th><th>Échéance</th><th>Résumé</th></tr></thead>
 <tbody>
-{{range .}}
+{{range .List}}
 <tr>
+  {{if $.Select}}<td class="select"><input type="checkbox" name="id" value="{{.ID}}" form="bulk" aria-label="Sélectionner {{.VulnID}} sur {{.AssetName}}"></td>{{end}}
   <td>{{if .KEV}}<span class="kev">Exploitée</span><br>{{end}}<span class="sev sev-{{.Severity}}">{{sevLabel .Severity}}</span>{{with cvss .CVSS}} <small>CVSS {{.}}</small>{{end}}{{with epss .EPSS}}<br><small>EPSS {{.}}</small>{{end}}</td>
   <td><a href="/findings/{{.ID}}">{{.VulnID}}</a>{{if .Aliases}}<br><small>{{join .Aliases ", "}}</small>{{end}}</td>
   <td><a href="/assets/{{.AssetID}}">{{.AssetName}} {{.AssetVersion}}</a>{{with .AssetProject}}<br><small class="muted">projet {{.}}</small>{{end}}</td>
   <td>{{statusLabel .Status}}</td>
   <td>{{date .FirstSeen}}</td>
+  <td>{{if .Late}}<span class="late">Hors délai</span><br><small>{{.Due.Format "02/01/2006"}}</small>{{else if and (not .Due.IsZero) (or (eq .Status "in_triage") (eq .Status "exploitable"))}}{{.Due.Format "02/01/2006"}}{{else}}<span class="muted">—</span>{{end}}</td>
   <td>{{.Summary}}</td>
 </tr>
 {{end}}

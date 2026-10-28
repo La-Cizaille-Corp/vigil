@@ -3,6 +3,7 @@
 package netsafe
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -35,14 +36,23 @@ func ValidateURL(raw string) error {
 	return nil
 }
 
+// proxyFromEnv is the proxy configuration (HTTPS_PROXY, NO_PROXY), replaced in tests.
+var proxyFromEnv = http.ProxyFromEnvironment
+
 // NewClient returns an HTTP client. Unless allowPrivate is set, connections
 // to loopback, private, link-local and unspecified addresses are refused at
 // dial time, after DNS resolution, which also defeats DNS rebinding.
+//
+// A proxy set in the environment (HTTPS_PROXY, NO_PROXY) is used. The proxy
+// resolves names itself, so the destination is checked before the request
+// is handed to it, and only the proxy's own address may be private.
 func NewClient(timeout time.Duration, allowPrivate bool) *http.Client {
-	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	direct := &net.Dialer{Timeout: 10 * time.Second}
+	dial := direct.DialContext
+	proxy := proxyFromEnv
 	if !allowPrivate {
 		// SECURITY: SSRF guard on the actual IP being connected to.
-		dialer.Control = func(_, address string, _ syscall.RawConn) error {
+		guarded := &net.Dialer{Timeout: 10 * time.Second, Control: func(_, address string, _ syscall.RawConn) error {
 			host, _, err := net.SplitHostPort(address)
 			if err != nil {
 				return err
@@ -52,13 +62,30 @@ func NewClient(timeout time.Duration, allowPrivate bool) *http.Client {
 				return ErrForbiddenAddress
 			}
 			return nil
+		}}
+		proxyAddr := proxyAddress()
+		dial = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			if proxyAddr != "" && addr == proxyAddr {
+				return direct.DialContext(ctx, network, addr) // the operator's proxy
+			}
+			return guarded.DialContext(ctx, network, addr)
+		}
+		proxy = func(req *http.Request) (*url.URL, error) {
+			p, err := proxyFromEnv(req)
+			if err != nil || p == nil {
+				return p, err
+			}
+			// SECURITY: through a proxy, the dial check only sees the proxy:
+			// check where the request goes before handing it over.
+			if err := checkHost(req.Context(), req.URL.Hostname()); err != nil {
+				return nil, err
+			}
+			return p, nil
 		}
 	}
 	transport := &http.Transport{
-		// SECURITY: through a proxy the dial check would only see the proxy
-		// address, so proxies are honoured only when private URLs are allowed.
-		Proxy:                 proxy(allowPrivate),
-		DialContext:           dialer.DialContext,
+		Proxy:                 proxy,
+		DialContext:           dial,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: 30 * time.Second,
 		MaxIdleConns:          10,
@@ -79,9 +106,39 @@ func NewClient(timeout time.Duration, allowPrivate bool) *http.Client {
 	}
 }
 
-func proxy(allowPrivate bool) func(*http.Request) (*url.URL, error) {
-	if allowPrivate {
-		return http.ProxyFromEnvironment
+// proxyAddress returns the host:port of the proxy used for https URLs, as
+// the transport dials it, or "" without a proxy.
+func proxyAddress() string {
+	p, err := proxyFromEnv(&http.Request{URL: &url.URL{Scheme: "https", Host: "vigil.invalid"}})
+	if err != nil || p == nil {
+		return ""
+	}
+	if p.Port() != "" {
+		return p.Host
+	}
+	port := "80"
+	if p.Scheme == "https" {
+		port = "443"
+	}
+	return net.JoinHostPort(p.Hostname(), port)
+}
+
+// checkHost refuses a host name that resolves to a non-public address.
+func checkHost(ctx context.Context, host string) error {
+	if ip := net.ParseIP(host); ip != nil {
+		if !Public(ip) {
+			return ErrForbiddenAddress
+		}
+		return nil
+	}
+	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return err
+	}
+	for _, a := range addrs {
+		if !Public(a.IP) {
+			return ErrForbiddenAddress
+		}
 	}
 	return nil
 }

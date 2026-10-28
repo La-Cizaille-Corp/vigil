@@ -1,7 +1,10 @@
 package web
 
 import (
+	"encoding/csv"
 	"errors"
+	"fmt"
+	"html/template"
 	"net/http"
 	"net/url"
 	"slices"
@@ -82,7 +85,7 @@ func (s *Server) loginForm(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) loginSubmit(w http.ResponseWriter, r *http.Request) {
-	ip := clientIP(r)
+	ip := s.clientIP(r)
 	if !s.limiter.Allowed(ip) {
 		s.render(w, r, http.StatusTooManyRequests, "login", page{Title: "Connexion",
 			Error: "Trop de tentatives. Réessayez dans quelques minutes."})
@@ -203,11 +206,16 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	if len(assets) > 0 {
 		coverage = 100 * tracked / len(assets)
 	}
+	sla, err := s.Store.SLA(ctx)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
 	s.render(w, r, http.StatusOK, "dashboard", page{Title: "Tableau de bord", Data: map[string]any{
 		"Stats": stats, "Counts": counts, "Severe": stats.OpenBySeverity["CRITICAL"] + stats.OpenBySeverity["HIGH"], "Recent": recent, "RecentTotal": recentTotal,
 		"Assets": len(assets), "Tracked": tracked, "Coverage": coverage,
 		"Donut": newDonut(stats.OpenBySeverity), "Weekly": newWeeklyChart(stats.Weeks),
-		"TopAssets": newAssetChart(stats.TopAssets), "OpenQuery": openFindings,
+		"TopAssets": newAssetChart(stats.TopAssets), "OpenQuery": openFindings, "SLA": sla,
 	}})
 }
 
@@ -234,7 +242,7 @@ func assetFromForm(r *http.Request) store.Asset {
 }
 
 func (s *Server) assetList(w http.ResponseWriter, r *http.Request) {
-	s.renderAssets(w, r, http.StatusOK, defaultAssetForm(), "")
+	s.renderAssets(w, r, http.StatusOK, prefilledAssetForm(r.URL.Query()), "")
 }
 
 func (s *Server) renderAssets(w http.ResponseWriter, r *http.Request, status int, form store.Asset, formErr string) {
@@ -388,8 +396,124 @@ func (s *Server) renderFindings(w http.ResponseWriter, r *http.Request, status i
 	}
 	s.render(w, r, status, "findings", page{Title: "Vulnérabilités", Error: formErr, Data: map[string]any{
 		"Findings": findings, "Filter": f, "Projects": projects, "Query": r.URL.RawQuery,
-		"MinEPSSPercent": f.MinEPSS * 100,
+		"MinEPSSPercent": f.MinEPSS * 100, "Next": "/findings?" + r.URL.Query().Encode(),
+		// Re-encoded from the parsed query: a safe relative link with the same filters.
+		"CSVLink": template.URL("/findings.csv?" + r.URL.Query().Encode()), // #nosec G203 -- fixed path, encoded values
 	}})
+}
+
+// findingCSV exports the filtered vulnerability list for spreadsheets.
+func (s *Server) findingCSV(w http.ResponseWriter, r *http.Request) {
+	f := findingFilterFrom(r.URL.Query())
+	findings, err := s.Store.ListFindings(r.Context(), f)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	if f.Sort == "" {
+		digest.SortByPriority(findings)
+	}
+	csvHeaders(w, "vigil-vulnerabilites")
+	cw := csv.NewWriter(w)
+	_ = cw.Write([]string{"id", "vulnerabilite", "alias", "severite", "cvss", "epss", "exploitee_kev", "actif", "version",
+		"projet", "statut", "justification", "commentaire", "detectee_le", "echeance", "hors_delai", "resume", "lien"})
+	base := strings.TrimRight(s.BaseURL, "/")
+	for _, fd := range findings {
+		due, link := "", ""
+		if !fd.Due.IsZero() {
+			due = fd.Due.Format(time.DateOnly)
+		}
+		if base != "" {
+			link = base + "/findings/" + strconv.FormatInt(fd.ID, 10)
+		}
+		row := []string{strconv.FormatInt(fd.ID, 10), fd.VulnID, strings.Join(fd.Aliases, " "),
+			tracking.SeverityLabel(fd.Severity), formatScore(fd.CVSS, 1), formatScore(fd.EPSS*100, 1),
+			yesNo(fd.KEV), fd.AssetName, fd.AssetVersion, fd.AssetProject,
+			inventory.Label(tracking.Statuses, fd.Status), inventory.Label(tracking.Justifications, fd.Justification),
+			fd.Comment, fd.FirstSeen.Format(time.DateOnly), due, yesNo(fd.Late), fd.Summary, link}
+		for i := range row {
+			row[i] = inventory.CSVCell(row[i])
+		}
+		if err := cw.Write(row); err != nil {
+			s.Log.Warn("export CSV", "err", err)
+			return
+		}
+	}
+	cw.Flush()
+}
+
+func formatScore(v float64, decimals int) string {
+	if v < 0 {
+		return ""
+	}
+	return strings.Replace(strconv.FormatFloat(v, 'f', decimals, 64), ".", ",", 1)
+}
+
+func yesNo(b bool) string {
+	if b {
+		return "oui"
+	}
+	return "non"
+}
+
+// maxBulk bounds the findings updated at once.
+const maxBulk = 500
+
+// findingBulk applies one triage decision to the selected findings.
+func (s *Server) findingBulk(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Formulaire invalide.", http.StatusBadRequest)
+		return
+	}
+	next := r.PostFormValue("next")
+	// SECURITY: only a findings list URL, never an external redirect.
+	if !strings.HasPrefix(next, "/findings?") && next != "/findings" {
+		next = "/findings"
+	}
+	status, justif, comment := r.PostFormValue("status"), r.PostFormValue("justification"), r.PostFormValue("comment")
+	if status != "not_affected" {
+		justif = ""
+	}
+	ids := r.PostForm["id"]
+	if len(ids) == 0 || len(ids) > maxBulk {
+		s.renderFindingsAt(w, r, next, fmt.Sprintf("Cochez entre 1 et %d vulnérabilités.", maxBulk))
+		return
+	}
+	if err := tracking.ValidateStatus(status, justif, comment); err != nil {
+		s.renderFindingsAt(w, r, next, err.Error())
+		return
+	}
+	sess, _ := sessionFrom(r.Context())
+	done := 0
+	for _, raw := range ids {
+		id, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			continue
+		}
+		err = s.Store.SetFindingStatus(r.Context(), id, sess.User.ID, status, justif, comment)
+		if errors.Is(err, store.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			s.serverError(w, r, err)
+			return
+		}
+		done++
+	}
+	s.audit(r, sess.User.ID, "finding_bulk", fmt.Sprintf("%d → %s", done, status))
+	sep := "&"
+	if !strings.Contains(next, "?") {
+		sep = "?"
+	}
+	http.Redirect(w, r, next+sep+"msg=bulk-updated", http.StatusSeeOther)
+}
+
+// renderFindingsAt shows the list at next (its filters) with an error.
+func (s *Server) renderFindingsAt(w http.ResponseWriter, r *http.Request, next, formErr string) {
+	if u, err := url.Parse(next); err == nil {
+		r.URL.RawQuery = u.RawQuery
+	}
+	s.renderFindings(w, r, http.StatusBadRequest, formErr)
 }
 
 // findingFilterFrom reads the filter form. Unknown values are dropped, so a
@@ -417,6 +541,7 @@ func findingFilterFrom(q url.Values) store.FindingFilter {
 		Kinds:      keep(q["kind"], inventory.Kinds),
 		KEV:        q.Get("kev") == "1",
 		Priority:   q.Get("priority") == "1",
+		Overdue:    q.Get("overdue") == "1",
 		MinCVSS:    number("cvss", 10),
 		MinEPSS:    number("epss", 100) / 100, // entered as a percentage
 		Project:    q.Get("project"),
@@ -476,8 +601,13 @@ func (s *Server) renderFinding(w http.ResponseWriter, r *http.Request, status in
 		s.serverError(w, r, err)
 		return
 	}
+	mentions, err := s.Store.MentionsOf(r.Context(), append([]string{v.ID}, v.Aliases...), 10)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
 	s.render(w, r, status, "finding", page{Title: f.VulnID, Error: formErr,
-		Data: map[string]any{"Finding": f, "Vuln": v, "Events": events}})
+		Data: map[string]any{"Finding": f, "Vuln": v, "Events": events, "Mentions": mentions}})
 }
 
 func (s *Server) findingUpdate(w http.ResponseWriter, r *http.Request) {

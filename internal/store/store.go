@@ -151,12 +151,14 @@ func (s *Store) migrate(ctx context.Context, path string) error {
 	for rows.Next() {
 		var v int
 		if err := rows.Scan(&v); err != nil {
-			rows.Close()
+			_ = rows.Close() // the scan error is the one to report
 			return fmt.Errorf("read applied migrations: %w", err)
 		}
 		applied[v] = true
 	}
-	rows.Close()
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("read applied migrations: %w", err)
+	}
 
 	for _, m := range list {
 		if applied[m.version] {
@@ -224,7 +226,9 @@ func (s *Store) apply(ctx context.Context, m migration) error {
 
 // afterMigration holds data transformations that SQL alone cannot express,
 // run in the same transaction as the migration of the same version.
-var afterMigration = map[int]func(context.Context, *sql.Conn) error{}
+var afterMigration = map[int]func(context.Context, *sql.Conn) error{
+	9: backfillMentions,
+}
 
 func (s *Store) inTx(ctx context.Context, fn func(*sql.Tx) error) error {
 	tx, err := s.db.BeginTx(ctx, nil)

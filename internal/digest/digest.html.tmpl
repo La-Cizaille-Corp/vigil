@@ -21,6 +21,25 @@
 <p>Aucune nouvelle vulnérabilité sur la période.</p>
 {{end}}
 
+{{if .Overdue}}
+<h2>Hors délai de traitement ({{len .Overdue}})</h2>
+<ul>
+{{range .Overdue}}
+<li><span class="sev sev-{{.Severity}}">{{sev .Severity}}</span>{{if .KEV}} <span class="kev">Exploitée</span>{{end}} <a href="/findings/{{.ID}}">{{.VulnID}}</a> — {{.AssetName}} {{.AssetVersion}} — échéance {{.Due.Format "02/01/2006"}}</li>
+{{end}}
+</ul>
+{{end}}
+
+{{if .Concerning}}
+<h2>Actualités citant vos vulnérabilités ({{len .Concerning}})</h2>
+<ul>
+{{range .Concerning}}
+<li>{{if .Link}}<a href="{{.Link}}" rel="noopener noreferrer" target="_blank">{{.Title}}</a>{{else}}{{.Title}}{{end}}
+<small class="muted">— {{.FeedName}}, {{date .Published}} · {{join .Concerns ", "}}</small></li>
+{{end}}
+</ul>
+{{end}}
+
 <h2>Vulnérabilités ouvertes ({{len .Open}})</h2>
 {{if .Open}}
 <ul>

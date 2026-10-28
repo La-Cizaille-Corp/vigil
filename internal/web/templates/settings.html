@@ -84,17 +84,43 @@ la section correspondante du digest (sans sélection : toutes les réglementatio
 {{end}}
 
 {{if $admin}}
-<h2>Webhooks</h2>
-<p class="muted">Chaque digest généré est envoyé aux webhooks actifs. L'URL est secrète et n'est plus affichée après l'enregistrement.</p>
+<h2>Délais de traitement</h2>
+<p class="muted">Échéance d'une vulnérabilité ouverte, en jours depuis sa détection, selon sa sévérité. Une vulnérabilité
+  exploitée (CISA KEV) reçoit le délai « critique » ; une sévérité inconnue, le délai « moyenne ». 0 = pas d'échéance.
+  Les valeurs par défaut suivent la directive CISA BOD 19-02 (15 jours pour les critiques, 30 pour les hautes).</p>
+<form method="post" action="/settings/sla" class="card">
+  <input type="hidden" name="csrf" value="{{$csrf}}">
+  <div class="grid">
+    <label>Critique (jours) <input type="number" name="critical" min="0" max="1000" value="{{.Data.SLA.Critical}}" required></label>
+    <label>Haute (jours) <input type="number" name="high" min="0" max="1000" value="{{.Data.SLA.High}}" required></label>
+    <label>Moyenne (jours) <input type="number" name="medium" min="0" max="1000" value="{{.Data.SLA.Medium}}" required></label>
+    <label>Basse (jours) <input type="number" name="low" min="0" max="1000" value="{{.Data.SLA.Low}}" required></label>
+  </div>
+  <button type="submit">Enregistrer les délais</button>
+</form>
+
+<h2>Canaux de notification</h2>
+<p class="muted">Chaque canal reçoit les digests et, s'il le souhaite, des <strong>alertes immédiates</strong> envoyées à la fin
+  de chaque synchronisation pour les vulnérabilités ouvertes qui deviennent urgentes (une seule alerte par vulnérabilité,
+  sauf si elle devient plus urgente). L'URL d'un webhook est secrète et n'est plus affichée après l'enregistrement.
+  {{if not .Data.Mail}}<br>E-mail : aucun serveur SMTP configuré (options <code>-smtp-addr</code> et <code>-smtp-from</code>).{{end}}</p>
 {{if .Data.Webhooks}}
 <table>
-<thead><tr><th>Nom</th><th>Type</th><th>Destination</th><th>État du dernier envoi</th><th></th></tr></thead>
+<thead><tr><th>Nom</th><th>Type</th><th>Destination</th><th>Reçoit</th><th>État du dernier envoi</th><th></th></tr></thead>
 <tbody>
 {{range .Data.Webhooks}}
 <tr>
   <td>{{.Name}}{{if not .Enabled}} <span class="muted">(désactivé)</span>{{end}}</td>
   <td>{{webhookKindLabel .Kind}}</td>
-  <td><code class="small">{{maskURL .URL}}</code></td>
+  <td><code class="small">{{target .}}</code></td>
+  <td>
+    <form method="post" action="/settings/webhooks/{{.ID}}" class="delivery">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <label class="check"><input type="checkbox" name="digests" value="1" {{if .Digests}}checked{{end}}> Digests</label>
+      <select name="alerts" aria-label="Alertes immédiates de {{.Name}}">{{$cur := .Alerts}}{{range alertOptions}}<option value="{{.Value}}" {{if eq .Value $cur}}selected{{end}}>{{.Label}}</option>{{end}}</select>
+      <button type="submit" class="link">Enregistrer</button>
+    </form>
+  </td>
   <td>{{if .LastError}}<span class="danger-link small">Échec : {{.LastError}}</span>{{else}}<span class="muted">OK (ou jamais envoyé)</span>{{end}}</td>
   <td>
     <form method="post" action="/settings/webhooks/{{.ID}}/toggle" class="inline">
@@ -106,7 +132,7 @@ la section correspondante du digest (sans sélection : toutes les réglementatio
       <summary>Supprimer…</summary>
       <form method="post" action="/settings/webhooks/{{.ID}}/delete" class="inline">
         <input type="hidden" name="csrf" value="{{$csrf}}">
-        <button type="submit" class="danger">Supprimer le webhook</button>
+        <button type="submit" class="danger">Supprimer le canal</button>
       </form>
     </details>
   </td>
@@ -115,17 +141,20 @@ la section correspondante du digest (sans sélection : toutes les réglementatio
 </tbody>
 </table>
 {{else}}
-<p class="muted">Aucun webhook configuré.</p>
+<p class="muted">Aucun canal configuré.</p>
 {{end}}
-<h3>Ajouter un webhook</h3>
+<h3>Ajouter un canal</h3>
 <form method="post" action="/settings/webhooks" class="card">
   <input type="hidden" name="csrf" value="{{$csrf}}">
   <div class="grid">
     <label>Nom <input name="name" required maxlength="100"></label>
     <label>Type <select name="kind">{{range webhookKinds}}<option value="{{.Value}}">{{.Label}}</option>{{end}}</select></label>
-    <label>URL (https) <input name="url" type="url" required maxlength="2000" autocomplete="off"></label>
+    <label>URL du webhook (https), ou adresses e-mail séparées par des virgules
+      <input name="url" required maxlength="2000" autocomplete="off"></label>
+    <label>Alertes immédiates <select name="alerts">{{range alertOptions}}<option value="{{.Value}}" {{if eq .Value "priority"}}selected{{end}}>{{.Label}}</option>{{end}}</select></label>
   </div>
-  <button type="submit">Ajouter le webhook</button>
+  <label class="check"><input type="checkbox" name="digests" value="1" checked> Recevoir les digests</label>
+  <button type="submit">Ajouter le canal</button>
 </form>
 
 <h2>Jetons d'API (CI/CD)</h2>
@@ -171,5 +200,8 @@ la section correspondante du digest (sans sélection : toutes les réglementatio
   </div>
   <button type="submit">Créer le jeton</button>
 </form>
+
+<h2>Journal d'audit</h2>
+<p><a href="/settings/audit">Consulter les dernières actions sensibles</a> (connexions, comptes, inventaire, paramètres).</p>
 {{end}}
 {{end}}

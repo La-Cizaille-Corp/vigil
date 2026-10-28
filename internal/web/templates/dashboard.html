@@ -6,17 +6,17 @@
   <a class="kpi kpi-hero" href="/findings?{{$open}}&amp;priority=1">
     <span class="kpi-label">À traiter en priorité</span>
     <span class="kpi-value">{{$s.Priority}}</span>
-    <span class="kpi-note">exploitées (CISA KEV) ou probables (EPSS ≥ 10 %)</span>
+    <span class="kpi-note">dont {{$s.OpenKEV}} exploitée(s) (CISA KEV), les autres probables (EPSS ≥ 10 %)</span>
   </a>
   <a class="kpi" href="/findings?{{$open}}">
     <span class="kpi-label">Vulnérabilités ouvertes</span>
     <span class="kpi-value">{{$s.Open}}</span>
     <span class="kpi-note">dont {{.Data.Severe}} critique(s) ou haute(s)</span>
   </a>
-  <a class="kpi" href="/findings?{{$open}}&amp;kev=1">
-    <span class="kpi-label">Exploitées activement</span>
-    <span class="kpi-value">{{$s.OpenKEV}}</span>
-    <span class="kpi-note">{{if $s.KEVOverdue}}<span class="alert">▲ {{$s.KEVOverdue}} échéance(s) CISA dépassée(s)</span>{{else}}aucune échéance CISA dépassée{{end}}</span>
+  <a class="kpi" href="/findings?overdue=1">
+    <span class="kpi-label">Hors délai</span>
+    <span class="kpi-value">{{$s.Overdue}}</span>
+    <span class="kpi-note">{{if $s.OverdueKEV}}<span class="alert">▲ dont {{$s.OverdueKEV}} exploitée(s)</span>{{else}}délais : {{.Data.SLA.Critical}} j (critique), {{.Data.SLA.High}} j (haute){{end}}</span>
   </a>
   <a class="kpi" href="/findings?status=in_triage&amp;sort=recent">
     <span class="kpi-label">À analyser</span>
@@ -110,12 +110,13 @@
     <ul class="stat-list">
       <li><a href="/cti">Actualités des 7 derniers jours</a><strong>{{$s.CTIWeek}}</strong></li>
       <li><a href="/cti?view=regulatory">Actualités réglementaires (30 jours)</a><strong>{{$s.Regulatory30}}</strong></li>
+      <li><a href="/cti?all=1&amp;concerning=1">Citant vos vulnérabilités ouvertes (30 jours)</a><strong>{{$s.Concerning30}}</strong></li>
     </ul>
   </article>
 </section>
 
 <h2>Nouvelles vulnérabilités (7 derniers jours)</h2>
-{{template "findingTable" .Data.Recent}}
+{{template "findingTable" (findingRows .Data.Recent false)}}
 {{if gt .Data.RecentTotal (len .Data.Recent)}}<p><a href="/findings?sort=recent">Voir les {{.Data.RecentTotal}} vulnérabilités de la semaine</a></p>
 {{else}}<p><a href="/findings?sort=recent">Voir toutes les vulnérabilités</a></p>{{end}}
 {{end}}

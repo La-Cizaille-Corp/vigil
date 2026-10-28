@@ -14,7 +14,8 @@ type Stats struct {
 	OpenBySeverity map[string]int // CRITICAL, HIGH, MEDIUM, LOW, UNKNOWN
 	Priority       int            // open and exploited (KEV) or likely to be (EPSS >= 10 %)
 	OpenKEV        int
-	KEVOverdue     int // open, listed in KEV with a CISA due date in the past
+	Overdue        int // open and past the remediation deadline (see SLA)
+	OverdueKEV     int // of which exploited
 	ToTriage       int
 	StaleTriage    int     // to triage for more than StaleAfter
 	Closed90       int     // findings closed (fixed or dismissed) in the last 90 days
@@ -23,6 +24,7 @@ type Stats struct {
 	TopAssets      []AssetLoad
 	CTIWeek        int // news collected in the last 7 days
 	Regulatory30   int // regulatory news of the last 30 days
+	Concerning30   int // news of the last 30 days citing a vulnerability of an open finding
 }
 
 // WeekCount is the activity of one week.
@@ -70,32 +72,40 @@ func (s *Store) DashboardStats(ctx context.Context, now time.Time) (Stats, error
 }
 
 func (s *Store) openStats(ctx context.Context, now time.Time, st *Stats) error {
+	sla, err := s.SLA(ctx)
+	if err != nil {
+		return err
+	}
+	today := now.UTC().Format(time.DateOnly)
+	args := append(append(sla.args(), today), sla.args()...)
+	args = append(args, today, formatTime(now.Add(-StaleAfter)))
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+severityExpr+`, COUNT(*),
 		       SUM(v.kev OR v.epss >= 0.1),
 		       SUM(v.kev),
-		       SUM(v.kev AND v.kev_due <> '' AND v.kev_due < ?),
+		       SUM(COALESCE(`+dueExpr+` < ?, 0)),
+		       SUM(v.kev AND COALESCE(`+dueExpr+` < ?, 0)),
 		       SUM(f.status = 'in_triage'),
 		       SUM(f.status = 'in_triage' AND f.first_seen < ?)
 		FROM findings f JOIN vulnerabilities v ON v.id = f.vuln_id
-		WHERE f.status IN ('in_triage', 'exploitable')
-		GROUP BY 1`,
-		now.UTC().Format("2006-01-02"), formatTime(now.Add(-StaleAfter)))
+		WHERE f.status IN `+openStatuses+`
+		GROUP BY 1`, args...)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var sev string
-		var n, prio, kev, overdue, triage, stale int
-		if err := rows.Scan(&sev, &n, &prio, &kev, &overdue, &triage, &stale); err != nil {
+		var n, prio, kev, overdue, overdueKEV, triage, stale int
+		if err := rows.Scan(&sev, &n, &prio, &kev, &overdue, &overdueKEV, &triage, &stale); err != nil {
 			return err
 		}
 		st.OpenBySeverity[sev] = n
 		st.Open += n
 		st.Priority += prio
 		st.OpenKEV += kev
-		st.KEVOverdue += overdue
+		st.Overdue += overdue
+		st.OverdueKEV += overdueKEV
 		st.ToTriage += triage
 		st.StaleTriage += stale
 	}
@@ -190,8 +200,11 @@ func (s *Store) topAssets(ctx context.Context, _ time.Time, st *Stats) error {
 }
 
 func (s *Store) ctiStats(ctx context.Context, now time.Time, st *Stats) error {
+	month := formatTime(now.Add(-30 * 24 * time.Hour))
 	return s.db.QueryRowContext(ctx, `
-		SELECT COALESCE(SUM(published >= ?), 0), COALESCE(SUM(regulations <> '' AND published >= ?), 0)
-		FROM cti_items`,
-		formatTime(now.Add(-7*24*time.Hour)), formatTime(now.Add(-30*24*time.Hour))).Scan(&st.CTIWeek, &st.Regulatory30)
+		SELECT COALESCE(SUM(published >= ?), 0), COALESCE(SUM(regulations <> '' AND published >= ?), 0),
+		       COALESCE(SUM(published >= ? AND EXISTS (SELECT 1 FROM cti_mentions m
+		                    WHERE m.item_id = i.id AND m.cve IN (`+openCVEs+`))), 0)
+		FROM cti_items i`,
+		formatTime(now.Add(-7*24*time.Hour)), month, month).Scan(&st.CTIWeek, &st.Regulatory30, &st.Concerning30)
 }

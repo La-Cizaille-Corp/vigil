@@ -40,6 +40,7 @@ func (s *Server) ctiList(w http.ResponseWriter, r *http.Request) {
 		}
 		watched = len(filter.Countries) > 0 || len(filter.Sectors) > 0
 	}
+	filter.Concerning = q.Get("concerning") == "1"
 	items, err := s.Store.ListCTIItems(r.Context(), filter)
 	if err != nil {
 		s.serverError(w, r, err)
@@ -51,6 +52,7 @@ func (s *Server) ctiList(w http.ResponseWriter, r *http.Request) {
 	}
 	s.render(w, r, http.StatusOK, "cti", page{Title: title, Data: map[string]any{
 		"Items": items, "Filter": filter, "Watched": watched, "Regulatory": regulatory, "All": q.Get("all") != "",
+		"Concerning": filter.Concerning,
 	}})
 }
 
@@ -111,9 +113,15 @@ func (s *Server) renderSettings(w http.ResponseWriter, r *http.Request, status i
 			return
 		}
 	}
+	sla, err := s.Store.SLA(ctx)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
 	s.render(w, r, status, "settings", page{Title: "Paramètres", Error: formErr, Data: map[string]any{
 		"Watch": watch, "Feeds": feeds, "Webhooks": hooks,
 		"Tokens": tokens, "NewToken": newTokenFrom(ctx), "BaseURL": s.BaseURL,
+		"SLA": sla, "Mail": s.Notifier != nil && s.Notifier.Mail != nil,
 	}})
 }
 
@@ -211,9 +219,16 @@ func (s *Server) webhookCreate(w http.ResponseWriter, r *http.Request) {
 		Kind:    r.PostFormValue("kind"),
 		URL:     strings.TrimSpace(r.PostFormValue("url")),
 		Enabled: true,
+		Digests: r.PostFormValue("digests") == "1",
+		Alerts:  r.PostFormValue("alerts"),
 	}
 	if err := notify.ValidateWebhook(h); err != nil {
 		s.renderSettings(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	if h.Kind == "email" && (s.Notifier == nil || s.Notifier.Mail == nil) {
+		s.renderSettings(w, r, http.StatusBadRequest,
+			"Aucun serveur SMTP n'est configuré : démarrez Vigil avec -smtp-addr et -smtp-from (voir docs/INSTALL.md).")
 		return
 	}
 	if _, err := s.Store.CreateWebhook(r.Context(), h); err != nil {
@@ -221,8 +236,8 @@ func (s *Server) webhookCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess, _ := sessionFrom(r.Context())
-	// SECURITY: the URL is a secret, only its host is audited.
-	s.audit(r, sess.User.ID, "webhook_create", notify.MaskURL(h.URL))
+	// SECURITY: a webhook URL is a secret, only its host is audited.
+	s.audit(r, sess.User.ID, "webhook_create", notify.Target(h))
 	redirect(w, r, "/settings", "hook-created")
 }
 
@@ -233,6 +248,50 @@ func (s *Server) webhookToggle(w http.ResponseWriter, r *http.Request) {
 		msg = "hook-enabled"
 	}
 	s.byID(w, r, func(id int64) error { return s.Store.SetWebhookEnabled(r.Context(), id, enabled) }, "/settings", msg)
+}
+
+// webhookDelivery chooses what a channel receives: digests, alerts or both.
+func (s *Server) webhookDelivery(w http.ResponseWriter, r *http.Request) {
+	alerts := r.PostFormValue("alerts")
+	if inventory.Label(notify.AlertOptions, alerts) == alerts && alerts != "" {
+		http.Error(w, "Niveau d'alerte invalide.", http.StatusBadRequest)
+		return
+	}
+	digests := r.PostFormValue("digests") == "1"
+	s.byID(w, r, func(id int64) error { return s.Store.SetWebhookDelivery(r.Context(), id, digests, alerts) }, "/settings", "hook-updated")
+}
+
+// slaSave sets the remediation deadlines by severity.
+func (s *Server) slaSave(w http.ResponseWriter, r *http.Request) {
+	days := func(key string) int {
+		v, err := strconv.Atoi(strings.TrimSpace(r.PostFormValue(key)))
+		if err != nil {
+			return -1
+		}
+		return v
+	}
+	l := store.SLA{Critical: days("critical"), High: days("high"), Medium: days("medium"), Low: days("low")}
+	if !l.Valid() {
+		s.renderSettings(w, r, http.StatusBadRequest, fmt.Sprintf("Indiquez des délais entre 0 (aucun) et %d jours.", store.MaxSLADays))
+		return
+	}
+	if err := s.Store.SetSLA(r.Context(), l); err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	sess, _ := sessionFrom(r.Context())
+	s.audit(r, sess.User.ID, "sla_update", l.String())
+	redirect(w, r, "/settings", "sla-saved")
+}
+
+// auditList shows the most recent entries of the audit log.
+func (s *Server) auditList(w http.ResponseWriter, r *http.Request) {
+	entries, err := s.Store.ListAudit(r.Context(), 500)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	s.render(w, r, http.StatusOK, "audit", page{Title: "Journal d'audit", Data: entries})
 }
 
 func (s *Server) webhookDelete(w http.ResponseWriter, r *http.Request) {

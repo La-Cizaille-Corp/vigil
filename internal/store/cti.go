@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -34,6 +35,7 @@ type CTIItem struct {
 	Countries   []string
 	Sectors     []string
 	Regulations []string
+	Concerns    []string // cited CVE identifiers that affect the inventory (open findings)
 }
 
 // CTIFilter selects items. An empty list means "any".
@@ -42,6 +44,7 @@ type CTIFilter struct {
 	Sectors       []string
 	Regulations   []string
 	AnyRegulation bool // only items tagged with at least one regulation
+	Concerning    bool // only items citing a vulnerability of an open finding
 	Since         time.Time
 	Limit         int
 }
@@ -103,17 +106,139 @@ func (s *Store) RecordFeedFetch(ctx context.Context, id int64, fetchErr error) e
 // InsertCTIItem stores an item unless the feed already has it; it reports
 // whether the item is new.
 func (s *Store) InsertCTIItem(ctx context.Context, feedID int64, it CTIItem) (bool, error) {
-	res, err := s.db.ExecContext(ctx, `
-		INSERT INTO cti_items (feed_id, guid, title, link, summary, published, countries, sectors, regulations, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT (feed_id, guid) DO NOTHING`,
-		feedID, it.GUID, it.Title, it.Link, it.Summary, formatTime(it.Published),
-		joinTags(it.Countries), joinTags(it.Sectors), joinTags(it.Regulations), now())
+	created := false
+	err := s.inTx(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `
+			INSERT INTO cti_items (feed_id, guid, title, link, summary, published, countries, sectors, regulations, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT (feed_id, guid) DO NOTHING`,
+			feedID, it.GUID, it.Title, it.Link, it.Summary, formatTime(it.Published),
+			joinTags(it.Countries), joinTags(it.Sectors), joinTags(it.Regulations), now())
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return nil
+		}
+		created = true
+		id, err := res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		return insertMentions(ctx, tx, id, it.Title+" "+it.Summary)
+	})
 	if err != nil {
 		return false, fmt.Errorf("insert cti item: %w", err)
 	}
-	n, _ := res.RowsAffected()
-	return n > 0, nil
+	return created, nil
+}
+
+// cveRe matches CVE identifiers in free text.
+var cveRe = regexp.MustCompile(`(?i)\bCVE-\d{4}-\d{4,7}\b`)
+
+// maxMentions bounds the identifiers kept per item (bulletins list dozens).
+const maxMentions = 100
+
+// ExtractCVEs returns the distinct CVE identifiers cited in text, upper case.
+func ExtractCVEs(text string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, m := range cveRe.FindAllString(text, -1) {
+		m = strings.ToUpper(m)
+		if !seen[m] && len(out) < maxMentions {
+			seen[m] = true
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+func insertMentions(ctx context.Context, tx interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}, itemID int64, text string) error {
+	for _, cve := range ExtractCVEs(text) {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT OR IGNORE INTO cti_mentions (item_id, cve) VALUES (?, ?)`, itemID, cve); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// backfillMentions indexes the CVE identifiers of news collected before
+// migration 9.
+func backfillMentions(ctx context.Context, conn *sql.Conn) error {
+	rows, err := conn.QueryContext(ctx, `SELECT id, title || ' ' || summary FROM cti_items`)
+	if err != nil {
+		return err
+	}
+	texts := map[int64]string{}
+	for rows.Next() {
+		var id int64
+		var text string
+		if err := rows.Scan(&id, &text); err != nil {
+			_ = rows.Close() // the scan error is the one to report
+			return err
+		}
+		texts[id] = text
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for id, text := range texts {
+		if err := insertMentions(ctx, conn, id, text); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// openCVEs selects the CVE identifiers (id or alias) of open findings.
+const openCVEs = `
+	SELECT v.id FROM findings f JOIN vulnerabilities v ON v.id = f.vuln_id
+	WHERE f.status IN ` + openStatuses + ` AND v.id LIKE 'CVE-%'
+	UNION
+	SELECT j.value FROM findings f JOIN vulnerabilities v ON v.id = f.vuln_id, json_each(v.aliases) j
+	WHERE f.status IN ` + openStatuses + ` AND j.value LIKE 'CVE-%'`
+
+// MentionsOf returns the most recent news citing any of the identifiers.
+func (s *Store) MentionsOf(ctx context.Context, ids []string, limit int) ([]CTIItem, error) {
+	var cves []string
+	for _, id := range ids {
+		if strings.HasPrefix(strings.ToUpper(id), "CVE-") {
+			cves = append(cves, strings.ToUpper(id))
+		}
+	}
+	if len(cves) == 0 {
+		return nil, nil
+	}
+	where, args := inClause(nil, nil, "m.cve", cves)
+	args = append(args, limit)
+	// #nosec G202 -- where[0] is "m.cve IN (?, ...)": the values are parameters.
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT i.id, fd.name, i.title, i.link, i.published
+		FROM cti_mentions m JOIN cti_items i ON i.id = m.item_id JOIN cti_feeds fd ON fd.id = i.feed_id
+		WHERE `+where[0]+`
+		ORDER BY i.published DESC LIMIT ?`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("mentions: %w", err)
+	}
+	defer rows.Close()
+	var out []CTIItem
+	for rows.Next() {
+		var it CTIItem
+		var published string
+		if err := rows.Scan(&it.ID, &it.FeedName, &it.Title, &it.Link, &published); err != nil {
+			return nil, err
+		}
+		it.Published = parseTime(published)
+		out = append(out, it)
+	}
+	return out, rows.Err()
 }
 
 // ListCTIItems returns items matching f, most recent first.
@@ -142,7 +267,11 @@ func (s *Store) ListCTIItems(ctx context.Context, f CTIFilter) ([]CTIItem, error
 		where = append(where, "i.created_at >= ?")
 		args = append(args, formatTime(f.Since))
 	}
-	q := `SELECT i.id, fd.name, i.guid, i.title, i.link, i.summary, i.published, i.countries, i.sectors, i.regulations
+	if f.Concerning {
+		where = append(where, "EXISTS (SELECT 1 FROM cti_mentions m WHERE m.item_id = i.id AND m.cve IN ("+openCVEs+"))")
+	}
+	q := `SELECT i.id, fd.name, i.guid, i.title, i.link, i.summary, i.published, i.countries, i.sectors, i.regulations,
+		       COALESCE((SELECT group_concat(m.cve) FROM cti_mentions m WHERE m.item_id = i.id AND m.cve IN (` + openCVEs + `)), '')
 		FROM cti_items i JOIN cti_feeds fd ON fd.id = i.feed_id`
 	if len(where) > 0 {
 		// #nosec G202 -- only fixed column expressions are joined; values are parameters.
@@ -163,10 +292,13 @@ func (s *Store) ListCTIItems(ctx context.Context, f CTIFilter) ([]CTIItem, error
 	var out []CTIItem
 	for rows.Next() {
 		var it CTIItem
-		var published, countries, sectors, regulations string
+		var published, countries, sectors, regulations, concerns string
 		if err := rows.Scan(&it.ID, &it.FeedName, &it.GUID, &it.Title, &it.Link, &it.Summary,
-			&published, &countries, &sectors, &regulations); err != nil {
+			&published, &countries, &sectors, &regulations, &concerns); err != nil {
 			return nil, err
+		}
+		if concerns != "" {
+			it.Concerns = strings.Split(concerns, ",")
 		}
 		it.Published = parseTime(published)
 		it.Countries, it.Sectors, it.Regulations = splitTags(countries), splitTags(sectors), splitTags(regulations)

@@ -111,6 +111,10 @@ type Syncer struct {
 	KEVURL    string // defaults to kev.DefaultURL
 	EPSSURL   string // defaults to epss.DefaultURL
 
+	// Alert, if set, is called after each successful run to notify the
+	// findings that became urgent (see notify.Notifier.SendAlerts).
+	Alert func(context.Context) error
+
 	mu       sync.Mutex // held during a run
 	statusMu sync.Mutex
 	status   Status
@@ -165,11 +169,19 @@ func (s *Syncer) run(ctx context.Context, assetID int64) (res Result, err error)
 		})
 	}()
 	res, err = s.scan(ctx, assets)
-	if err == nil {
-		s.Log.Info("sync done", "assets", res.Assets, "created", res.Created,
-			"reopened", res.Reopened, "resolved", res.Resolved, "skipped", res.Skipped)
+	if err != nil {
+		return res, err
 	}
-	return res, err
+	s.Log.Info("sync done", "assets", res.Assets, "created", res.Created,
+		"reopened", res.Reopened, "resolved", res.Resolved, "skipped", res.Skipped)
+	if s.Alert != nil {
+		// A failed notification is logged: the findings are recorded anyway
+		// and the next digest lists them.
+		if alertErr := s.Alert(ctx); alertErr != nil {
+			s.Log.Warn("alertes immédiates", "err", alertErr)
+		}
+	}
+	return res, nil
 }
 
 // observation is what the sources report for one asset.

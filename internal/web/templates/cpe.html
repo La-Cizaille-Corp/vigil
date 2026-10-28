@@ -1,0 +1,28 @@
+{{define "content"}}
+<p><a href="/assets#ajouter">← Inventaire</a></p>
+<form method="get" action="/assets/cpe" class="card inline-search">
+  <label>Produit, éditeur ou version <input type="search" name="q" value="{{.Data.Query}}" maxlength="100" required
+    placeholder="fortios 7.2.4, exchange server 2019, nginx…"></label>
+  <button type="submit">Rechercher</button>
+</form>
+<p class="muted small">Recherche dans le dictionnaire CPE de la NVD : tous les mots doivent apparaître. Sans clé d'API, la NVD
+  limite le débit : une recherche peut prendre quelques secondes.</p>
+{{if .Data.Searched}}
+{{if .Data.Wholes}}
+<h2>Suivre tout le produit</h2>
+<p class="muted small">Toutes les vulnérabilités du produit, quelle que soit la version (à partir de la période de suivi).</p>
+<table>
+<thead><tr><th>Produit</th><th>CPE</th><th></th></tr></thead>
+<tbody>{{range .Data.Wholes}}<tr><td>{{.Title}}</td><td><code class="small">{{.CPE}}</code></td><td><a href="{{.Use}}">Utiliser</a></td></tr>{{end}}</tbody>
+</table>
+{{end}}
+{{if .Data.Products}}
+<h2>Suivre une version précise</h2>
+<table>
+<thead><tr><th>Version</th><th>CPE</th><th></th></tr></thead>
+<tbody>{{range .Data.Products}}<tr><td>{{.Title}}</td><td><code class="small">{{.CPE}}</code></td><td><a href="{{.Use}}">Utiliser</a></td></tr>{{end}}</tbody>
+</table>
+{{end}}
+{{if not (or .Data.Wholes .Data.Products)}}<p class="muted">Aucun résultat : essayez moins de mots, ou le nom de l'éditeur.</p>{{end}}
+{{end}}
+{{end}}

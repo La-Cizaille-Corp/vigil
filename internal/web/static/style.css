@@ -127,6 +127,18 @@ dt { color: var(--muted); } dd { margin: 0; }
 .sev-CRITICAL { color: var(--crit); } .sev-HIGH { color: var(--high); }
 .sev-MEDIUM { color: var(--med); } .sev-LOW { color: var(--low); }
 .kev { color: var(--crit); font-weight: 750; font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; }
+.late { color: var(--danger); font-weight: 700; font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; }
+.concerns { margin: .15rem 0; }
+.concern-badge { display: inline-block; font-size: .72rem; font-weight: 700; padding: .05rem .45rem; margin-right: .35rem;
+  border-radius: 999px; background: var(--danger); color: var(--card); }
+th.select, td.select { width: 2rem; text-align: center; }
+td.select input { width: 1.05rem; height: 1.05rem; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+form.bulk { margin-top: 1rem; }
+form.inline-search { display: flex; flex-wrap: wrap; gap: .75rem; align-items: flex-end; }
+form.inline-search label { flex: 1 1 22rem; }
+form.delivery { display: flex; flex-wrap: wrap; gap: .4rem .6rem; align-items: center; }
+form.delivery select { width: auto; max-width: 18rem; font-size: .85rem; }
 
 /* --- dashboard ----------------------------------------------------------- */
 .kpis { display: grid; grid-template-columns: 1.5fr repeat(5, minmax(0, 1fr)); gap: .85rem; margin-bottom: 1.25rem; }

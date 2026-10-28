@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 )
@@ -48,5 +49,31 @@ func TestPublic(t *testing.T) {
 		if got := Public(net.ParseIP(addr)); got != want {
 			t.Errorf("Public(%s) = %v, want %v", addr, got, want)
 		}
+	}
+}
+
+// TestProxy: behind a corporate proxy (itself on a private address), public
+// destinations go through it and private ones are refused before reaching it.
+func TestProxy(t *testing.T) {
+	var connects []string
+	proxySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		connects = append(connects, r.Method+" "+r.Host)
+		w.WriteHeader(http.StatusForbidden) // the test only checks what reaches the proxy
+	}))
+	defer proxySrv.Close()
+	proxyURL, _ := url.Parse(proxySrv.URL)
+	saved := proxyFromEnv
+	proxyFromEnv = func(*http.Request) (*url.URL, error) { return proxyURL, nil }
+	defer func() { proxyFromEnv = saved }()
+
+	client := NewClient(5*time.Second, false)
+	if _, err := client.Get("https://10.0.0.5/feed"); !errors.Is(err, ErrForbiddenAddress) {
+		t.Errorf("private destination through the proxy: %v", err)
+	}
+	if _, err := client.Get("https://93.184.215.14/feed"); err == nil {
+		t.Error("the fake proxy refuses CONNECT: an error was expected")
+	}
+	if len(connects) != 1 || connects[0] != "CONNECT 93.184.215.14:443" {
+		t.Errorf("requests seen by the proxy: %v", connects)
 	}
 }

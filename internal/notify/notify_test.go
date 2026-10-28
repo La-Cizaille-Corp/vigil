@@ -34,10 +34,10 @@ func TestSendDigest(t *testing.T) {
 	}))
 	defer srv.Close()
 	for _, h := range []store.Webhook{
-		{Name: "chat", Kind: "slack", URL: srv.URL + "/slack-SECRET", Enabled: true},
-		{Name: "siem", Kind: "generic", URL: srv.URL + "/generic-SECRET", Enabled: true},
-		{Name: "down", Kind: "teams", URL: srv.URL + "/broken-SECRET", Enabled: true},
-		{Name: "off", Kind: "slack", URL: srv.URL + "/off-SECRET", Enabled: false},
+		{Digests: true, Name: "chat", Kind: "slack", URL: srv.URL + "/slack-SECRET", Enabled: true},
+		{Digests: true, Name: "siem", Kind: "generic", URL: srv.URL + "/generic-SECRET", Enabled: true},
+		{Digests: true, Name: "down", Kind: "teams", URL: srv.URL + "/broken-SECRET", Enabled: true},
+		{Digests: true, Name: "off", Kind: "slack", URL: srv.URL + "/off-SECRET", Enabled: false},
 	} {
 		if _, err := st.CreateWebhook(ctx, h); err != nil {
 			t.Fatal(err)

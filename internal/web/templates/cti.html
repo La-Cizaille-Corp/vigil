@@ -3,8 +3,10 @@
 <nav class="filters">
   <a href="/cti" {{if not (or .Data.Regulatory .Data.All)}}class="active"{{end}}>Veille menaces</a>
   <a href="/cti?view=regulatory" {{if .Data.Regulatory}}class="active"{{end}}>Veille réglementaire</a>
-  <a href="/cti?all=1" {{if .Data.All}}class="active"{{end}}>Toutes les actualités</a>
+  <a href="/cti?all=1" {{if and .Data.All (not .Data.Concerning)}}class="active"{{end}}>Toutes les actualités</a>
+  <a href="/cti?all=1&amp;concerning=1" {{if .Data.Concerning}}class="active"{{end}}>Qui concernent mon inventaire</a>
 </nav>
+{{if .Data.Concerning}}<p class="muted small">Actualités qui citent une vulnérabilité ouverte de votre inventaire (identifiant CVE dans le titre ou le résumé).</p>{{end}}
 {{if .Data.Watched}}<p class="muted small">Filtre de veille enregistré appliqué{{if $analyst}} (<a href="/settings">modifier</a>){{end}}.</p>{{end}}
 {{if .Data.Regulatory}}<p class="muted small">Actualités liées {{if $f.Regulations}}aux réglementations suivies{{else}}à une réglementation ou une norme{{end}}{{if $analyst}} (<a href="/settings">modifier</a>){{end}}.</p>{{end}}
 
@@ -32,6 +34,8 @@
 {{range .Data.Items}}
 <li>
   {{if .Link}}<a href="{{.Link}}" rel="noopener noreferrer" target="_blank">{{.Title}}</a>{{else}}{{.Title}}{{end}}
+  {{if .Concerns}}<div class="concerns small"><span class="concern-badge">Vous concerne</span>
+    {{range .Concerns}}<a href="/findings?q={{.}}&amp;status=in_triage&amp;status=exploitable">{{.}}</a> {{end}}</div>{{end}}
   <div class="muted small">{{.FeedName}} · {{date .Published}}
     {{range .Countries}}<span class="tag">{{countryLabel .}}</span>{{end}}
     {{range .Sectors}}<span class="tag tag-sector">{{sectorLabel .}}</span>{{end}}

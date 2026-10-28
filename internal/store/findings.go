@@ -49,6 +49,8 @@ type Finding struct {
 	Comment       string
 	FirstSeen     time.Time
 	UpdatedAt     time.Time
+	Due           time.Time // remediation deadline (see SLA), zero without one
+	Late          bool      // open and past its deadline
 }
 
 // FindingEvent is one entry of a finding's status history.
@@ -75,6 +77,7 @@ type FindingFilter struct {
 	Kinds      []string // any of these asset kinds
 	MinCVSS    float64  // 0 = any
 	MinEPSS    float64  // 0 = any
+	Overdue    bool     // open and past the remediation deadline
 	Search     string   // substring of the vulnerability id, aliases, summary or asset name
 	Sort       string   // "cvss", "epss", "recent" (default) or "" handled by the caller
 }
@@ -272,8 +275,12 @@ func (s *Store) AutoResolveStale(ctx context.Context, assetID int64, reported []
 
 // ListFindings returns findings with their asset and vulnerability, most recent first.
 func (s *Store) ListFindings(ctx context.Context, f FindingFilter) ([]Finding, error) {
+	sla, err := s.SLA(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var where []string
-	var args []any
+	args := sla.args() // for the deadline column of findingSelect
 	if f.Status != "" {
 		where = append(where, "f.status = ?")
 		args = append(args, f.Status)
@@ -310,6 +317,10 @@ func (s *Store) ListFindings(ctx context.Context, f FindingFilter) ([]Finding, e
 	if f.MinEPSS > 0 {
 		where = append(where, "v.epss >= ?")
 		args = append(args, f.MinEPSS)
+	}
+	if f.Overdue {
+		where = append(where, "f.status IN "+openStatuses+" AND "+dueExpr+" < date('now')")
+		args = append(args, sla.args()...)
 	}
 	if f.Search != "" {
 		where = append(where, `(f.vuln_id LIKE ? ESCAPE '\' OR v.aliases LIKE ? ESCAPE '\'
@@ -349,33 +360,53 @@ func (s *Store) ListFindings(ctx context.Context, f FindingFilter) ([]Finding, e
 
 // Finding returns one finding.
 func (s *Store) Finding(ctx context.Context, id int64) (Finding, error) {
-	fd, err := scanFinding(s.db.QueryRowContext(ctx, findingSelect+" WHERE f.id = ?", id))
+	sla, err := s.SLA(ctx)
+	if err != nil {
+		return Finding{}, err
+	}
+	fd, err := scanFinding(s.db.QueryRowContext(ctx, findingSelect+" WHERE f.id = ?", append(sla.args(), id)...))
 	if errors.Is(err, sql.ErrNoRows) {
 		return fd, ErrNotFound
 	}
 	return fd, err
 }
 
-const findingSelect = `
-	SELECT f.id, f.asset_id, a.name, a.version, a.purl, a.cpe, a.project, f.vuln_id, v.aliases, v.summary, v.severity,
-	       v.cvss, v.kev, v.epss, f.status, f.justification, f.comment, f.first_seen, f.updated_at
+// openStatuses are the statuses of findings still to triage or to fix.
+const openStatuses = `('in_triage', 'exploitable')`
+
+// findingColumns and findingFrom select findings with their asset and
+// vulnerability; the deadline column takes the SLA arguments first.
+const (
+	findingColumns = `f.id, f.asset_id, a.name, a.version, a.purl, a.cpe, a.project, f.vuln_id, v.aliases, v.summary, v.severity,
+	       v.cvss, v.kev, v.epss, f.status, f.justification, f.comment, f.first_seen, f.updated_at, ` + dueExpr
+	findingFrom = `
 	FROM findings f
 	JOIN assets a ON a.id = f.asset_id
 	JOIN vulnerabilities v ON v.id = f.vuln_id`
+	findingSelect = "SELECT " + findingColumns + findingFrom
+)
 
-func scanFinding(row interface{ Scan(...any) error }) (Finding, error) {
+// scanFinding reads the columns of findingSelect, then extra ones if given.
+func scanFinding(row interface{ Scan(...any) error }, extra ...any) (Finding, error) {
 	var fd Finding
 	var aliases, first, updated string
-	err := row.Scan(&fd.ID, &fd.AssetID, &fd.AssetName, &fd.AssetVersion,
+	var due sql.NullString
+	dest := append([]any{&fd.ID, &fd.AssetID, &fd.AssetName, &fd.AssetVersion,
 		&fd.AssetPURL, &fd.AssetCPE, &fd.AssetProject, &fd.VulnID, &aliases,
-		&fd.Summary, &fd.Severity, &fd.CVSS, &fd.KEV, &fd.EPSS, &fd.Status, &fd.Justification, &fd.Comment, &first, &updated)
-	if err != nil {
+		&fd.Summary, &fd.Severity, &fd.CVSS, &fd.KEV, &fd.EPSS, &fd.Status, &fd.Justification, &fd.Comment, &first, &updated,
+		&due}, extra...)
+	if err := row.Scan(dest...); err != nil {
 		return fd, err
 	}
 	if err := json.Unmarshal([]byte(aliases), &fd.Aliases); err != nil {
 		return fd, fmt.Errorf("decode aliases of %s: %w", fd.VulnID, err)
 	}
 	fd.FirstSeen, fd.UpdatedAt = parseTime(first), parseTime(updated)
+	if due.Valid {
+		fd.Due, _ = time.Parse(time.DateOnly, due.String)
+		today := time.Now().UTC().Format(time.DateOnly)
+		fd.Late = (fd.Status == "in_triage" || fd.Status == "exploitable") && due.String < today
+	}
 	return fd, nil
 }
 

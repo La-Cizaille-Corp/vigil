@@ -15,7 +15,7 @@
 <p class="muted small">{{if $a.TrackSince}}Période de suivi : vulnérabilités publiées depuis le {{isoDate $a.TrackSince}}, plus les plus anciennes
   activement exploitées (CISA KEV).{{if can .User.Role "analyst"}} Pour voir tout l'historique, videz la date de début ci-dessous.{{end}}{{else}}Période de suivi : tout l'historique.{{end}}
   {{if not (tracking $a)}}<strong>Aucune détection automatique</strong> : renseignez un purl, un écosystème avec une version, ou un CPE.{{end}}</p>
-{{template "findingTable" .Data.Findings}}
+{{template "findingTable" (findingRows .Data.Findings false)}}
 
 {{if can .User.Role "analyst"}}
 <h2>Modifier l'actif</h2>

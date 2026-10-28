@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
@@ -39,7 +40,9 @@ type Client struct {
 	HTTP      *http.Client
 	UserAgent string
 	APIKey    string // optional
+	CPEURL    string // CPE dictionary API, defaults to DefaultCPEURL
 
+	mu   sync.Mutex // spaces requests made by syncs and CPE searches alike
 	last time.Time
 }
 
@@ -221,11 +224,13 @@ func (c *Client) get(ctx context.Context, q url.Values) ([]CVE, int, error) {
 
 // wait spaces requests to respect the NVD rate limit.
 func (c *Client) wait(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	gap := 6500 * time.Millisecond
 	if c.APIKey != "" {
 		gap = 700 * time.Millisecond
 	}
-	if c.URL != DefaultURL {
+	if c.URL != DefaultURL && c.URL != "" {
 		gap = 0 // tests and mirrors
 	}
 	if d := time.Until(c.last.Add(gap)); d > 0 {
