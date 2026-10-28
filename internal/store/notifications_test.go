@@ -54,8 +54,15 @@ func TestPendingAlerts(t *testing.T) {
 func TestCTIMentions(t *testing.T) {
 	ctx := context.Background()
 	st := openTest(t)
-	if got := ExtractCVEs("Avis cve-2024-3400 et CVE-2024-3400, CVE-2021-44228 ; pas CVE-21-1"); !reflect.DeepEqual(got, []string{"CVE-2024-3400", "CVE-2021-44228"}) {
-		t.Errorf("extract: %v", got)
+	for text, want := range map[string][]string{
+		"Avis cve-2024-3400 et CVE-2024-3400, CVE-2021-44228 ; pas CVE-21-1": {"CVE-2024-3400", "CVE-2021-44228"},
+		"(CVE-2024-1234567)CVE-2023-0001.":                                   {"CVE-2024-1234567", "CVE-2023-0001"},
+		"XCVE-2024-1234 CVE-2024-12345678 CVE-2024-123 CVE-2024-1234a CVE-":  nil,
+		"fin CVE-2026-42897": {"CVE-2026-42897"},
+	} {
+		if got := ExtractCVEs(text); !reflect.DeepEqual(got, want) {
+			t.Errorf("ExtractCVEs(%q) = %v, want %v", text, got, want)
+		}
 	}
 	feeds, _ := st.ListFeeds(ctx)
 	assetID, _ := st.CreateAsset(ctx, Asset{Name: "log4j", Kind: "package", Criticality: "high", Source: "manual"})

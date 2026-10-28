@@ -1,8 +1,12 @@
 package web
 
 import (
+	"bytes"
 	"context"
+	"encoding/csv"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -122,7 +126,13 @@ func (s *Server) assetCSV(w http.ResponseWriter, r *http.Request) {
 		assets = kept
 	}
 	csvHeaders(w, "vigil-inventaire")
-	if err := inventory.WriteCSV(w, assets); err != nil {
+	cw := csv.NewWriter(w)
+	_ = cw.Write(inventory.CSVColumns)
+	for _, a := range assets {
+		_ = cw.Write(inventory.CSVRow(a))
+	}
+	cw.Flush()
+	if err := cw.Error(); err != nil {
 		s.Log.Warn("export CSV", "err", err)
 	}
 }
@@ -138,7 +148,11 @@ func (s *Server) assetCSVImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
-	assets, err := inventory.ReadCSV(file, time.Now())
+	records, err := readCSV(file)
+	var assets []store.Asset
+	if err == nil {
+		assets, err = inventory.AssetsFromCSV(records, time.Now())
+	}
 	if err != nil {
 		s.renderAssets(w, r, http.StatusBadRequest, defaultAssetForm(), "Import CSV refusé, aucun actif ajouté : "+err.Error())
 		return
@@ -174,6 +188,34 @@ func (s *Server) assetCSVImport(w http.ResponseWriter, r *http.Request) {
 		go s.runSync()
 	}
 	redirect(w, r, "/assets", "csv-imported")
+}
+
+// readCSV reads a CSV file as written by spreadsheet software: optional
+// UTF-8 BOM, comma, semicolon (Excel in French) or tab separated.
+func readCSV(r io.Reader) ([][]string, error) {
+	data, err := io.ReadAll(io.LimitReader(r, maxCSVBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxCSVBytes {
+		return nil, errors.New("fichier supérieur à 2 Mo")
+	}
+	data = bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF})
+	header, _, _ := bytes.Cut(data, []byte("\n"))
+	cr := csv.NewReader(bytes.NewReader(data))
+	commas := bytes.Count(header, []byte(","))
+	switch {
+	case bytes.Count(header, []byte(";")) > commas:
+		cr.Comma = ';'
+	case bytes.Count(header, []byte("\t")) > commas:
+		cr.Comma = '\t'
+	}
+	cr.FieldsPerRecord = -1 // short rows are allowed, missing cells are empty
+	records, err := cr.ReadAll()
+	if err != nil {
+		return nil, fmt.Errorf("fichier CSV illisible : %w", err)
+	}
+	return records, nil
 }
 
 // csvHeaders starts a CSV download named after base and today's date.

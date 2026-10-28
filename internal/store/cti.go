@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 )
@@ -133,24 +132,54 @@ func (s *Store) InsertCTIItem(ctx context.Context, feedID int64, it CTIItem) (bo
 	return created, nil
 }
 
-// cveRe matches CVE identifiers in free text.
-var cveRe = regexp.MustCompile(`(?i)\bCVE-\d{4}-\d{4,7}\b`)
-
 // maxMentions bounds the identifiers kept per item (bulletins list dozens).
 const maxMentions = 100
 
-// ExtractCVEs returns the distinct CVE identifiers cited in text, upper case.
+// ExtractCVEs returns the distinct CVE identifiers cited in text (CVE-YYYY-N
+// with 4 to 7 digits, any case), upper case, in order of appearance.
 func ExtractCVEs(text string) []string {
 	var out []string
 	seen := map[string]bool{}
-	for _, m := range cveRe.FindAllString(text, -1) {
-		m = strings.ToUpper(m)
-		if !seen[m] && len(out) < maxMentions {
-			seen[m] = true
-			out = append(out, m)
+	upper := strings.ToUpper(text)
+	for i := 0; len(out) < maxMentions; {
+		j := strings.Index(upper[i:], "CVE-")
+		if j < 0 {
+			break
 		}
+		start := i + j
+		i = start + 4
+		if start > 0 && isWordByte(upper[start-1]) {
+			continue
+		}
+		year := digits(upper[i:])
+		if year != 4 || i+year >= len(upper) || upper[i+year] != '-' {
+			continue
+		}
+		seq := digits(upper[i+year+1:])
+		end := i + year + 1 + seq
+		if seq < 4 || seq > 7 || (end < len(upper) && isWordByte(upper[end])) {
+			continue
+		}
+		if id := upper[start:end]; !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+		i = end
 	}
 	return out
+}
+
+// digits counts the ASCII digits at the start of s.
+func digits(s string) int {
+	n := 0
+	for n < len(s) && s[n] >= '0' && s[n] <= '9' {
+		n++
+	}
+	return n
+}
+
+func isWordByte(b byte) bool {
+	return b == '_' || (b >= '0' && b <= '9') || (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z')
 }
 
 func insertMentions(ctx context.Context, tx interface {
