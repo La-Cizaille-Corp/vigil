@@ -336,8 +336,11 @@ vulnérabilités ouvertes (identifiant ou alias). Écartés : rapprochement par 
 dans un tableur. Export des vulnérabilités (avec les filtres affichés) et de l'inventaire ; import
 de l'inventaire en virgules ou points-virgules (Excel en français), en-têtes et libellés français
 acceptés. Import tout ou rien : la moindre ligne invalide refuse le fichier, avec les numéros de
-ligne. *Sécurité* : toute cellule commençant par `=`, `+`, `-`, `@` est préfixée d'une apostrophe
-(injection de formules à l'ouverture dans un tableur).
+ligne. Les exports utilisent le point-virgule et la virgule décimale, comme Excel en français.
+*Sécurité* : toute cellule commençant par `=`, `+`, `-`, `@` est préfixée d'une apostrophe
+(injection de formules à l'ouverture dans un tableur), de même qu'un tel caractère placé juste
+après un séparateur dans une valeur : un tableur qui découpe sur un autre séparateur que celui du
+fichier y commencerait une cellule.
 
 **A42. Recherche de CPE dans le dictionnaire de la NVD, à la demande.** Écrire un CPE à la main
 était le principal frein au suivi des produits. La page de recherche interroge l'API CPE de la NVD
@@ -393,9 +396,13 @@ code actuel. À chaque release, on ajoute le dump de la version publiée.
 **A44. Proxy d'entreprise et adresse réelle du client.** Sortant : `HTTPS_PROXY` / `NO_PROXY`
 sont honorés partout, y compris pour les URL saisies (flux, webhooks), auparavant privées de proxy
 pour préserver le contrôle anti-SSRF. Le nom de destination est désormais résolu et vérifié avant
-de confier la requête au proxy, qui seul peut avoir une adresse privée. *Risque résiduel* : le proxy
-résout le nom à nouveau (rebinding DNS possible entre les deux) ; le proxy doit lui aussi refuser
-les destinations internes. Entrant : derrière un reverse proxy, toutes les connexions venaient de
+de confier la requête au proxy, qui seul peut avoir une adresse privée ; une URL qui vise le proxy
+lui-même est refusée. *Risque résiduel* : le proxy résout le nom à nouveau, un rebinding DNS entre
+les deux résolutions reste possible. Écarté : demander au proxy l'adresse vérifiée plutôt que le
+nom, ce qui casserait les proxys d'entreprise qui filtrent par domaine. Le risque est borné : seul
+HTTPS est permis et le certificat est vérifié contre le nom demandé, qu'un service interne ne peut
+pas présenter ; la requête n'atteint donc jamais le service, au plus une connexion est tentée. Le
+proxy devrait lui aussi refuser les destinations internes. Entrant : derrière un reverse proxy, toutes les connexions venaient de
 son adresse, si bien que cinq échecs de connexion bloquaient tous les utilisateurs. Avec
 `-behind-proxy`, la limitation et le journal d'audit utilisent la dernière adresse de
 `X-Forwarded-For`, celle qu'ajoute le proxy (les précédentes peuvent être forgées par le client).

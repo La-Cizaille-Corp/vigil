@@ -38,10 +38,29 @@ func CSVRow(a store.Asset) []string {
 	return row
 }
 
+// formulaTriggers start a formula in spreadsheet software.
+const formulaTriggers = "=+-@\t\r"
+
+// midFieldFormulas neutralises a formula that would start in the middle of a
+// field: a spreadsheet that splits lines on another separator than the file's
+// (Excel in French splits on ";") starts a new cell after it.
+var midFieldFormulas = func() *strings.Replacer {
+	var pairs []string
+	for _, sep := range []string{",", ";", "\t"} {
+		for _, t := range formulaTriggers {
+			pairs = append(pairs, sep+string(t), sep+"'"+string(t))
+		}
+	}
+	return strings.NewReplacer(pairs...)
+}()
+
 // CSVCell protects a value against formula injection: a cell starting with
-// =, +, -, @, tab or carriage return is run by spreadsheet software.
+// =, +, -, @, tab or carriage return is run by spreadsheet software, so it
+// gets a leading apostrophe; so does such a character right after a
+// separator inside the value.
 func CSVCell(v string) string {
-	if v != "" && strings.ContainsRune("=+-@\t\r", rune(v[0])) {
+	v = midFieldFormulas.Replace(v)
+	if v != "" && strings.ContainsRune(formulaTriggers, rune(v[0])) {
 		return "'" + v
 	}
 	return v

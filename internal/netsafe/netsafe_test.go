@@ -76,4 +76,8 @@ func TestProxy(t *testing.T) {
 	if len(connects) != 1 || connects[0] != "CONNECT 93.184.215.14:443" {
 		t.Errorf("requests seen by the proxy: %v", connects)
 	}
+	// The proxy is dialed without the guard: a URL naming it is refused.
+	if _, err := client.Get("https://" + proxyURL.Host + "/"); !errors.Is(err, ErrForbiddenAddress) {
+		t.Errorf("request to the proxy itself: %v", err)
+	}
 }

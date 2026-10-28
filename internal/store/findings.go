@@ -431,6 +431,42 @@ func (s *Store) SetFindingStatus(ctx context.Context, id, userID int64, status, 
 	})
 }
 
+// SetFindingsStatus applies one triage decision to several findings in a
+// single transaction, with an event in the history of each. An empty comment
+// keeps each finding's own comment instead of erasing it. Unknown ids are
+// skipped; it returns how many findings were updated.
+func (s *Store) SetFindingsStatus(ctx context.Context, ids []int64, userID int64, status, justification, comment string) (int, error) {
+	ts := now()
+	done := 0
+	err := s.inTx(ctx, func(tx *sql.Tx) error {
+		for _, id := range ids {
+			var old string
+			err := tx.QueryRowContext(ctx, `SELECT status FROM findings WHERE id = ?`, id).Scan(&old)
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE findings SET status = ?, justification = ?, auto_resolved = 0, updated_at = ?,
+				       comment = CASE WHEN ? = '' THEN comment ELSE ? END
+				WHERE id = ?`, status, justification, ts, comment, comment, id); err != nil {
+				return err
+			}
+			if err := insertEvent(ctx, tx, id, userID, old, status, comment, ts); err != nil {
+				return err
+			}
+			done++
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, fmt.Errorf("bulk status: %w", err)
+	}
+	return done, nil
+}
+
 // FindingEvents returns the history of a finding, oldest first.
 func (s *Store) FindingEvents(ctx context.Context, findingID int64) ([]FindingEvent, error) {
 	rows, err := s.db.QueryContext(ctx, `

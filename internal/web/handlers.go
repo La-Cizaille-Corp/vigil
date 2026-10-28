@@ -1,7 +1,6 @@
 package web
 
 import (
-	"encoding/csv"
 	"errors"
 	"fmt"
 	"html/template"
@@ -413,8 +412,7 @@ func (s *Server) findingCSV(w http.ResponseWriter, r *http.Request) {
 	if f.Sort == "" {
 		digest.SortByPriority(findings)
 	}
-	csvHeaders(w, "vigil-vulnerabilites")
-	cw := csv.NewWriter(w)
+	cw := csvDownload(w, "vigil-vulnerabilites")
 	_ = cw.Write([]string{"id", "vulnerabilite", "alias", "severite", "cvss", "epss", "exploitee_kev", "actif", "version",
 		"projet", "statut", "justification", "commentaire", "detectee_le", "echeance", "hors_delai", "resume", "lien"})
 	base := strings.TrimRight(s.BaseURL, "/")
@@ -483,22 +481,17 @@ func (s *Server) findingBulk(w http.ResponseWriter, r *http.Request) {
 		s.renderFindingsAt(w, r, next, err.Error())
 		return
 	}
-	sess, _ := sessionFrom(r.Context())
-	done := 0
+	var list []int64
 	for _, raw := range ids {
-		id, err := strconv.ParseInt(raw, 10, 64)
-		if err != nil {
-			continue
+		if id, err := strconv.ParseInt(raw, 10, 64); err == nil {
+			list = append(list, id)
 		}
-		err = s.Store.SetFindingStatus(r.Context(), id, sess.User.ID, status, justif, comment)
-		if errors.Is(err, store.ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			s.serverError(w, r, err)
-			return
-		}
-		done++
+	}
+	sess, _ := sessionFrom(r.Context())
+	done, err := s.Store.SetFindingsStatus(r.Context(), list, sess.User.ID, status, justif, comment)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
 	}
 	s.audit(r, sess.User.ID, "finding_bulk", fmt.Sprintf("%d → %s", done, status))
 	sep := "&"

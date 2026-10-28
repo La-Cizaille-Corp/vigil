@@ -60,7 +60,7 @@
     <label>Justification (si « Non affecté »)
       <select name="justification"><option value="">—</option>{{range justifs}}<option value="{{.Value}}">{{.Label}}</option>{{end}}</select>
     </label>
-    <label>Commentaire <input name="comment" maxlength="4000"></label>
+    <label>Commentaire (vide : chaque vulnérabilité garde le sien) <input name="comment" maxlength="4000"></label>
   </div>
   <button type="submit">Appliquer à la sélection</button>
 </form>

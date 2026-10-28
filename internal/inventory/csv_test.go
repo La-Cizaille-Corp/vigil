@@ -67,3 +67,19 @@ func TestCSVErrors(t *testing.T) {
 		t.Errorf("line number missing: %v", err)
 	}
 }
+
+func TestCSVCell(t *testing.T) {
+	for in, want := range map[string]string{
+		"lodash":               "lodash",
+		"=1+2":                 "'=1+2",
+		"-2 versions":          "'-2 versions",
+		"Overflow;=1+cmd|' /C": "Overflow;'=1+cmd|' /C",
+		"a,@SUM(A1)":           "a,'@SUM(A1)",
+		"x\t+1":                "x\t'+1",
+		"a, -b":                "a, -b", // a space before the sign: text for spreadsheets
+	} {
+		if got := CSVCell(in); got != want {
+			t.Errorf("CSVCell(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

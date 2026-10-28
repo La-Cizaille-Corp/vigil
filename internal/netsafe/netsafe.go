@@ -43,9 +43,14 @@ var proxyFromEnv = http.ProxyFromEnvironment
 // to loopback, private, link-local and unspecified addresses are refused at
 // dial time, after DNS resolution, which also defeats DNS rebinding.
 //
-// A proxy set in the environment (HTTPS_PROXY, NO_PROXY) is used. The proxy
-// resolves names itself, so the destination is checked before the request
-// is handed to it, and only the proxy's own address may be private.
+// A proxy set in the environment (HTTPS_PROXY, NO_PROXY) is used, and only
+// the proxy's own address may be private. The proxy resolves names itself:
+// the destination is checked here first, but a name could resolve to another
+// address for the proxy (DNS rebinding). The proxy is still asked for the
+// name, not the checked address, because company proxies filter by domain.
+// The residual risk is small: only https is allowed, and the certificate is
+// checked against the name, which an internal service cannot present, so no
+// request reaches it; at most a connection is attempted.
 func NewClient(timeout time.Duration, allowPrivate bool) *http.Client {
 	direct := &net.Dialer{Timeout: 10 * time.Second}
 	dial := direct.DialContext
@@ -71,6 +76,11 @@ func NewClient(timeout time.Duration, allowPrivate bool) *http.Client {
 			return guarded.DialContext(ctx, network, addr)
 		}
 		proxy = func(req *http.Request) (*url.URL, error) {
+			// SECURITY: the proxy is dialed without the guard: a URL naming
+			// the proxy itself (direct when NO_PROXY covers it) is refused.
+			if proxyAddr != "" && canonicalAddr(req.URL) == proxyAddr {
+				return nil, ErrForbiddenAddress
+			}
 			p, err := proxyFromEnv(req)
 			if err != nil || p == nil {
 				return p, err
@@ -113,14 +123,19 @@ func proxyAddress() string {
 	if err != nil || p == nil {
 		return ""
 	}
-	if p.Port() != "" {
-		return p.Host
+	return canonicalAddr(p)
+}
+
+// canonicalAddr is the host:port a URL is dialed at.
+func canonicalAddr(u *url.URL) string {
+	port := u.Port()
+	if port == "" {
+		port = "80"
+		if u.Scheme == "https" {
+			port = "443"
+		}
 	}
-	port := "80"
-	if p.Scheme == "https" {
-		port = "443"
-	}
-	return net.JoinHostPort(p.Hostname(), port)
+	return net.JoinHostPort(u.Hostname(), port)
 }
 
 // checkHost refuses a host name that resolves to a non-public address.

@@ -52,5 +52,7 @@ API externes (OSV, NVD, KEV, EPSS), requêtes de l'API CI.
 - **Pas de SSO** : hors périmètre pour l'instant.
 - **Jetons d'API sans expiration** : à révoquer à la main (Paramètres) quand un pipeline disparaît.
 - **Proxy HTTP sortant** : le proxy résout les noms à nouveau ; entre la vérification de Vigil et
-  sa résolution, un nom pourrait changer d'adresse (rebinding DNS). Le proxy doit lui-même refuser
-  les destinations internes.
+  sa résolution, un nom pourrait changer d'adresse (rebinding DNS). Comme seul HTTPS est permis et
+  que le certificat est vérifié contre le nom, aucune requête n'atteint un service interne : au plus
+  une tentative de connexion (sondage de ports). Le proxy devrait lui-même refuser les destinations
+  internes.

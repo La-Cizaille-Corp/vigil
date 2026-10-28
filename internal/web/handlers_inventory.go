@@ -125,8 +125,7 @@ func (s *Server) assetCSV(w http.ResponseWriter, r *http.Request) {
 		}
 		assets = kept
 	}
-	csvHeaders(w, "vigil-inventaire")
-	cw := csv.NewWriter(w)
+	cw := csvDownload(w, "vigil-inventaire")
 	_ = cw.Write(inventory.CSVColumns)
 	for _, a := range assets {
 		_ = cw.Write(inventory.CSVRow(a))
@@ -141,8 +140,7 @@ func (s *Server) assetCSV(w http.ResponseWriter, r *http.Request) {
 // asset (same name, version, purl, CPE and project) are skipped, so that the
 // same file can be imported again after adding lines to it.
 func (s *Server) assetCSVImport(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxCSVBytes+64<<10)
-	file, _, err := r.FormFile("csv")
+	file, _, err := r.FormFile("csv") // body bounded by limitBody
 	if err != nil {
 		s.renderAssets(w, r, http.StatusBadRequest, defaultAssetForm(), "Fichier CSV manquant ou trop volumineux (2 Mo max).")
 		return
@@ -218,10 +216,15 @@ func readCSV(r io.Reader) ([][]string, error) {
 	return records, nil
 }
 
-// csvHeaders starts a CSV download named after base and today's date.
-func csvHeaders(w http.ResponseWriter, base string) {
+// csvDownload starts a CSV download named after base and today's date. The
+// separator is a semicolon, with decimal commas: what Excel expects in French,
+// and what the import reads back.
+func csvDownload(w http.ResponseWriter, base string) *csv.Writer {
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s-%s.csv"`, base, time.Now().Format("20060102")))
 	// A BOM lets spreadsheet software detect UTF-8 (accents in French labels).
 	_, _ = w.Write([]byte{0xEF, 0xBB, 0xBF})
+	cw := csv.NewWriter(w)
+	cw.Comma = ';'
+	return cw
 }

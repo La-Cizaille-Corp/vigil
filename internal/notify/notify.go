@@ -101,13 +101,17 @@ type message struct {
 
 // SendDigest delivers a digest; failures are recorded per channel and joined.
 func (n *Notifier) SendDigest(ctx context.Context, d store.Digest, link string) error {
-	text := d.Markdown
-	if len(text) > maxText {
-		text = text[:maxText] + "\n\n… (tronqué, voir le digest complet dans Vigil)"
-	}
+	// Cut once, below the chat limit, so that the note and the link survive.
+	tail := ""
 	if link != "" {
-		text += "\n\n" + link
+		tail = "\n\n" + link
 	}
+	text := d.Markdown
+	if len(text)+len(tail) > maxText {
+		note := "\n\n… (tronqué, voir le digest complet dans Vigil)"
+		text = truncate(text, maxText-len(tail)-len(note)-len("…")) + note
+	}
+	text += tail
 	day := d.CreatedAt
 	if day.IsZero() {
 		day = time.Now()

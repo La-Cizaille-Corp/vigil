@@ -106,6 +106,12 @@ func TestBulkTriage(t *testing.T) {
 	if len(list) != 2 || list[0].Comment != "Module désactivé" {
 		t.Errorf("updated: %+v", list)
 	}
+	// Without a comment, a bulk decision keeps each finding's own comment.
+	code, _ = c.postLocation("/findings/bulk", url.Values{"csrf": {c.csrf()}, "status": {"exploitable"},
+		"id": {strconv.FormatInt(ids[0], 10)}, "next": {"/findings"}})
+	if f, _ := st.Finding(context.Background(), ids[0]); code != http.StatusSeeOther || f.Status != "exploitable" || f.Comment != "Module désactivé" {
+		t.Errorf("comment lost by a bulk decision: %d %+v", code, f)
+	}
 	// SECURITY: the return address cannot leave the findings list.
 	form.Set("next", "https://evil.example/")
 	if _, loc := c.postLocation("/findings/bulk", form); !strings.HasPrefix(loc, "/findings?msg=") {
@@ -129,7 +135,7 @@ func TestCSVExportsAndImport(t *testing.T) {
 	c := loginAs(t, base, "analyst", "a-strong-password")
 
 	code, body := c.get("/findings.csv?severity=CRITICAL")
-	if code != http.StatusOK || !strings.HasPrefix(body, "\xef\xbb\xbfid,vulnerabilite") || strings.Count(body, "\n") != 2 {
+	if code != http.StatusOK || !strings.HasPrefix(body, "\xef\xbb\xbfid;vulnerabilite") || strings.Count(body, "\n") != 2 {
 		t.Fatalf("findings CSV: %d\n%s", code, body)
 	}
 	if !strings.Contains(body, `'=cmd|`) {
@@ -148,11 +154,16 @@ func TestCSVExportsAndImport(t *testing.T) {
 	if len(assets) != 2 { // fortios 7.2.4 already existed
 		t.Errorf("assets after import: %+v", assets)
 	}
+	// Files up to 2 MB go through (the form limit elsewhere is 64 KiB).
+	big := "name;notes\n" + strings.Repeat("svc;"+strings.Repeat("x", 990)+"\n", 120)
+	if code, loc := c.upload("/assets/import-csv", "csv", "big.csv", big, url.Values{"csrf": {c.csrf()}}); code != http.StatusSeeOther {
+		t.Errorf("120 KB CSV: %d %s", code, loc)
+	}
 	code, page := c.upload("/assets/import-csv", "csv", "x.csv", "nom;type\nx;librairie\n", url.Values{"csrf": {c.csrf()}})
 	if code != http.StatusBadRequest || !strings.Contains(page, "ligne 2") {
 		t.Errorf("invalid CSV: %d", code)
 	}
-	if code, body := c.get("/assets.csv"); code != http.StatusOK || !strings.Contains(body, "Exchange,2019,product,high") {
+	if code, body := c.get("/assets.csv"); code != http.StatusOK || !strings.Contains(body, "Exchange;2019;product;high") {
 		t.Errorf("assets CSV: %d\n%s", code, body)
 	}
 }

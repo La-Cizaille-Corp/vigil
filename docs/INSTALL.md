@@ -330,8 +330,9 @@ reste utilisable pour l'inventaire et le triage, mais ne synchronise plus rien.
 exceptions) pour **toutes** ses requêtes sortantes, y compris les flux CTI et webhooks saisis par
 les utilisateurs. Pour ces derniers, la protection anti-SSRF résout elle-même le nom de
 destination et refuse les adresses privées avant de confier la requête au proxy (le proxy, lui,
-peut avoir une adresse privée). Configurez aussi le proxy pour interdire les destinations
-internes. Seuls les proxys HTTP sans authentification ou en authentification Basic
+peut avoir une adresse privée). Vigil demande au proxy le nom de destination, pas son adresse : les
+listes d'autorisation par domaine du proxy s'appliquent. Configurez aussi le proxy pour interdire
+les destinations internes. Seuls les proxys HTTP sans authentification ou en authentification Basic
 (`http://utilisateur:motdepasse@proxy:3128`) sont pris en charge ; pour NTLM ou Kerberos, passez
 par un relais local ([Px](https://github.com/genotrance/px), cntlm).
 
