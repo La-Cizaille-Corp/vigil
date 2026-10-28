@@ -27,6 +27,7 @@ var htmlSource string
 var funcs = map[string]any{
 	"date":      func(t time.Time) string { return t.Local().Format("02/01/2006 15:04") },
 	"status":    func(s string) string { return inventory.Label(tracking.Statuses, s) },
+	"sev":       tracking.SeverityLabel,
 	"join":      strings.Join,
 	"epss":      FormatEPSS,
 	"countries": func(v []string) string { return labels(cti.Countries, v) },

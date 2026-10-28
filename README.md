@@ -116,11 +116,18 @@ téléphone perdu : `vigil user reset-totp -username NOM`.
   Les SBOM en fournissent un par composant.
 - Un **CPE** (`cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*`, à chercher sur
   <https://nvd.nist.gov/products/cpe/search>) est interrogé dans la NVD quand l'actif n'a pas de purl.
-  Le champ **Suivi NVD** de l'actif choisit ce qui est remonté :
-  - *version exacte* (défaut) : CVE affectant la version du CPE ou du champ Version ;
-  - *nouvelles CVE du produit* : CVE publiées dans les 120 derniers jours, toutes versions ;
-  - *toutes les CVE du produit* : tout l'historique (plusieurs centaines pour un produit répandu) ;
+  Le champ **Versions suivies dans la NVD** de l'actif choisit les versions concernées :
+  - *version de l'actif* (défaut) : CVE affectant la version du CPE ou du champ Version ; un CPE
+    sans version (`*`) suit toutes les versions ;
+  - *toutes les versions du produit* ;
   - *à partir de la version X* : CVE affectant les versions ≥ X.
+- **Période de suivi** : un nouvel actif (ajout manuel ou SBOM) remonte les vulnérabilités publiées
+  dans les 120 jours précédant son ajout, puis toutes les nouvelles. Les plus anciennes ne sont
+  signalées que si elles sont activement exploitées (CISA KEV). Videz la date de début de l'actif
+  pour suivre tout l'historique.
+- L'ajout ou la modification d'un actif lance aussitôt son analyse ; « Analyser cet actif » la
+  relance, « Synchroniser l'inventaire » relance tout. L'état de la dernière synchronisation est
+  affiché à côté.
 - Un actif qui a un purl est interrogé dans OSV uniquement : son CPE est alors ignoré, il n'y a donc
   pas de doublon. Évitez en revanche de déclarer le même produit en deux actifs (un purl, un CPE).
 - Sans clé, la NVD limite à 5 requêtes par 30 secondes : une clé gratuite

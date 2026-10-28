@@ -42,7 +42,7 @@ func Fetch(ctx context.Context, client *http.Client, url, userAgent string) ([]I
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("status %d", resp.StatusCode)
+		return nil, fmt.Errorf("réponse HTTP %d", resp.StatusCode)
 	}
 	body, err := netsafe.ReadLimited(resp.Body, maxFeedBytes)
 	if err != nil {
@@ -83,7 +83,7 @@ func Parse(data []byte) ([]Item, error) {
 	dec.Strict = false
 	dec.CharsetReader = charsetReader
 	if err := dec.Decode(&doc); err != nil {
-		return nil, fmt.Errorf("parse feed: %w", err)
+		return nil, fmt.Errorf("flux illisible : %w", err)
 	}
 
 	var items []Item
@@ -141,9 +141,17 @@ var tagRe = regexp.MustCompile(`<[^>]*>`)
 
 // cleanText removes markup and collapses whitespace; the result is plain text
 // that templates escape again on output.
+// cleanText turns HTML content into plain text. Some feeds escape their HTML
+// twice ("&amp;nbsp;"), so entities are decoded until stable.
 func cleanText(s string) string {
-	s = tagRe.ReplaceAllString(s, " ")
-	s = html.UnescapeString(s)
+	for range 3 {
+		s = tagRe.ReplaceAllString(s, " ")
+		u := html.UnescapeString(s)
+		if u == s {
+			break
+		}
+		s = u
+	}
 	return strings.Join(strings.Fields(s), " ")
 }
 

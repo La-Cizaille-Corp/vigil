@@ -1,10 +1,10 @@
 package web
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -207,6 +207,7 @@ func assetFromForm(r *http.Request) store.Asset {
 		CPE:         r.PostFormValue("cpe"),
 		CPEMode:     r.PostFormValue("cpe_mode"),
 		CPEFrom:     r.PostFormValue("cpe_from"),
+		TrackSince:  r.PostFormValue("track_since"),
 		Criticality: r.PostFormValue("criticality"),
 		Owner:       r.PostFormValue("owner"),
 		Notes:       r.PostFormValue("notes"),
@@ -258,7 +259,8 @@ func (s *Server) assetCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	sess, _ := sessionFrom(r.Context())
 	s.audit(r, sess.User.ID, "asset_create", strconv.FormatInt(id, 10))
-	redirect(w, r, "/assets", "asset-created")
+	go s.runAssetSync(id)
+	redirect(w, r, "/assets/"+strconv.FormatInt(id, 10), "asset-created")
 }
 
 func (s *Server) loadAsset(w http.ResponseWriter, r *http.Request) (store.Asset, bool) {
@@ -301,8 +303,13 @@ func (s *Server) assetUpdate(w http.ResponseWriter, r *http.Request) {
 	a := assetFromForm(r)
 	a.ID = old.ID
 	if err := inventory.Validate(a); err != nil {
+		findings, ferr := s.Store.ListFindings(r.Context(), store.FindingFilter{AssetID: a.ID})
+		if ferr != nil {
+			s.serverError(w, r, ferr)
+			return
+		}
 		s.render(w, r, http.StatusBadRequest, "asset", page{Title: inventory.Describe(old), Error: err.Error(),
-			Data: map[string]any{"Form": a}})
+			Data: map[string]any{"Form": a, "Findings": findings}})
 		return
 	}
 	if err := s.Store.UpdateAsset(r.Context(), a); err != nil {
@@ -311,7 +318,19 @@ func (s *Server) assetUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	sess, _ := sessionFrom(r.Context())
 	s.audit(r, sess.User.ID, "asset_update", strconv.FormatInt(a.ID, 10))
-	redirect(w, r, "/assets", "asset-updated")
+	go s.runAssetSync(a.ID)
+	redirect(w, r, "/assets/"+strconv.FormatInt(a.ID, 10), "asset-updated")
+}
+
+func (s *Server) assetScan(w http.ResponseWriter, r *http.Request) {
+	a, ok := s.loadAsset(w, r)
+	if !ok {
+		return
+	}
+	sess, _ := sessionFrom(r.Context())
+	s.audit(r, sess.User.ID, "asset_scan", strconv.FormatInt(a.ID, 10))
+	go s.runAssetSync(a.ID)
+	redirect(w, r, "/assets/"+strconv.FormatInt(a.ID, 10), "scan-started")
 }
 
 func (s *Server) assetDelete(w http.ResponseWriter, r *http.Request) {
@@ -331,6 +350,12 @@ func (s *Server) assetDelete(w http.ResponseWriter, r *http.Request) {
 // --- findings -------------------------------------------------------------
 
 func (s *Server) findingList(w http.ResponseWriter, r *http.Request) {
+	s.renderFindings(w, r, http.StatusOK, "")
+}
+
+// renderFindings shows the vulnerability list filtered by the query string,
+// with formErr when a form of the page (VEX import) was rejected.
+func (s *Server) renderFindings(w http.ResponseWriter, r *http.Request, status int, formErr string) {
 	f := findingFilterFrom(r.URL.Query())
 	findings, err := s.Store.ListFindings(r.Context(), f)
 	if err != nil {
@@ -345,7 +370,7 @@ func (s *Server) findingList(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	s.render(w, r, http.StatusOK, "findings", page{Title: "Vulnérabilités", Data: map[string]any{
+	s.render(w, r, status, "findings", page{Title: "Vulnérabilités", Error: formErr, Data: map[string]any{
 		"Findings": findings, "Filter": f, "Projects": projects, "Query": r.URL.RawQuery,
 		"MinEPSSPercent": f.MinEPSS * 100,
 	}})
@@ -390,10 +415,7 @@ func findingFilterFrom(q url.Values) store.FindingFilter {
 	return f
 }
 
-var severities = []inventory.Option{
-	{Value: "CRITICAL", Label: "Critique"}, {Value: "HIGH", Label: "Haute"},
-	{Value: "MEDIUM", Label: "Moyenne"}, {Value: "LOW", Label: "Basse"}, {Value: "UNKNOWN", Label: "Inconnue"},
-}
+var severities = tracking.Severities
 
 var sortOrders = []inventory.Option{
 	{Value: "", Label: "Priorité (KEV, EPSS, sévérité)"}, {Value: "cvss", Label: "Score CVSS"},
@@ -465,20 +487,18 @@ func (s *Server) findingUpdate(w http.ResponseWriter, r *http.Request) {
 // --- sync and digests -----------------------------------------------------
 
 func (s *Server) syncNow(w http.ResponseWriter, r *http.Request) {
+	back := r.PostFormValue("next")
+	if !syncTargets[back] {
+		back = "/"
+	}
+	if s.syncStatus().Running {
+		redirect(w, r, back, "sync-running")
+		return
+	}
 	sess, _ := sessionFrom(r.Context())
 	s.audit(r, sess.User.ID, "sync", "manuel")
 	go s.runSync()
-	redirect(w, r, "/", "sync-started")
-}
-
-// runSync matches the inventory against vulnerability sources in the
-// background; it is a no-op when a sync is already running.
-func (s *Server) runSync() {
-	ctx, cancel := context.WithTimeout(s.background(), 15*time.Minute)
-	defer cancel()
-	if _, err := s.Syncer.Run(ctx); err != nil && !errors.Is(err, tracking.ErrRunning) {
-		s.Log.Error("sync failed", "err", err)
-	}
+	redirect(w, r, back, "sync-started")
 }
 
 func (s *Server) digestList(w http.ResponseWriter, r *http.Request) {
@@ -497,7 +517,7 @@ func (s *Server) digestCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	msg := "digest-created"
-	if hooks, err := s.Store.ListWebhooks(r.Context()); err == nil && len(hooks) > 0 {
+	if hooks, err := s.Store.ListWebhooks(r.Context()); err == nil && slices.ContainsFunc(hooks, func(h store.Webhook) bool { return h.Enabled }) {
 		msg = "digest-sent"
 		if err := s.Notifier.SendDigest(r.Context(), d, s.digestLink(d)); err != nil {
 			msg = "digest-webhook"
@@ -529,7 +549,7 @@ func (s *Server) digestShow(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.render(w, r, http.StatusOK, "digest", page{Title: "Digest du " + d.CreatedAt.Local().Format("02/01/2006"), Data: d})
+	s.render(w, r, http.StatusOK, "digest", page{Title: "Digest du " + d.CreatedAt.Local().Format("02/01/2006 15:04"), Data: d})
 }
 
 func (s *Server) digestMarkdown(w http.ResponseWriter, r *http.Request) {

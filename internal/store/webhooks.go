@@ -63,3 +63,8 @@ func (s *Store) RecordWebhookResult(ctx context.Context, id int64, deliveryErr e
 	_, err := s.db.ExecContext(ctx, `UPDATE webhooks SET last_error = ? WHERE id = ?`, msg, id)
 	return err
 }
+
+// SetWebhookEnabled turns a webhook on or off.
+func (s *Store) SetWebhookEnabled(ctx context.Context, id int64, enabled bool) error {
+	return expectRow(s.db.ExecContext(ctx, `UPDATE webhooks SET enabled = ? WHERE id = ?`, enabled, id))
+}

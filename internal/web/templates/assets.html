@@ -1,30 +1,33 @@
 {{define "content"}}
+{{template "syncBar" .}}
 {{if .Data.Projects}}
 <nav class="filters">
   <a href="/assets" {{if not .Data.Project}}class="active"{{end}}>Tous les actifs</a>
   {{range .Data.Projects}}<a href="/assets?project={{.}}" {{if eq . $.Data.Project}}class="active"{{end}}>{{.}}</a>{{end}}
+  {{with .Data.Project}}<span class="muted">— <a href="/findings?project={{.}}">vulnérabilités de ce projet</a></span>{{end}}
 </nav>
 {{end}}
 {{if .Data.Assets}}
 <table>
-<thead><tr><th>Projet</th><th>Nom</th><th>Version</th><th>Type</th><th>Écosystème / purl</th><th>Criticité</th><th>Responsable</th><th>Suivi auto</th></tr></thead>
+<thead><tr><th>Nom</th><th>Version</th><th>Type</th><th>Identifiant (purl, CPE ou écosystème)</th><th>Projet</th><th>Criticité</th><th>Responsable</th><th>Détection</th></tr></thead>
 <tbody>
 {{range .Data.Assets}}
 <tr>
-  <td>{{.Project}}</td>
   <td><a href="/assets/{{.ID}}">{{.Name}}</a></td>
   <td>{{.Version}}</td>
   <td>{{kindLabel .Kind}}</td>
-  <td>{{if .PURL}}<code>{{.PURL}}</code>{{else}}{{.Ecosystem}}{{end}}</td>
+  <td>{{if .PURL}}<code>{{.PURL}}</code>{{else if .CPE}}<code>{{.CPE}}</code>{{else}}{{.Ecosystem}}{{end}}</td>
+  <td>{{.Project}}</td>
   <td>{{critLabel .Criticality}}</td>
   <td>{{.Owner}}</td>
-  <td>{{if queryable .}}oui{{else}}<span class="muted">non</span>{{end}}</td>
+  <td>{{with tracking .}}{{.}}{{else}}<span class="muted">aucune</span>{{end}}
+    <br><small class="muted">{{if .TrackSince}}depuis le {{isoDate .TrackSince}}{{else}}tout l'historique{{end}}</small></td>
 </tr>
 {{end}}
 </tbody>
 </table>
 {{else}}
-<p class="muted">Aucun actif suivi pour le moment.</p>
+<p class="muted">Aucun actif pour le moment.</p>
 {{end}}
 
 {{if can .User.Role "analyst"}}
@@ -32,7 +35,7 @@
 <form method="post" action="/assets" class="card">
   <input type="hidden" name="csrf" value="{{.CSRF}}">
   {{template "assetFields" .Data.Form}}
-  <button type="submit">Ajouter</button>
+  <button type="submit">Ajouter l'actif</button>
 </form>
 
 <h2>Importer un SBOM</h2>
@@ -42,8 +45,9 @@
     <label>Fichier CycloneDX ou SPDX (JSON, 20 Mo max) <input type="file" name="sbom" accept=".json,application/json" required></label>
     <label>Projet (par défaut : nom indiqué dans le SBOM) <input name="project" maxlength="200"></label>
   </div>
-  <p class="muted">Un nouvel import du même projet remplace ses composants : les composants inchangés gardent leur historique de suivi.</p>
-  <button type="submit">Importer</button>
+  <p class="muted small">Un nouvel import du même projet remplace ses actifs : les actifs inchangés gardent leur historique de suivi.
+    Les nouveaux actifs sont suivis sur les 120 derniers jours, comme un ajout manuel.</p>
+  <button type="submit">Importer le SBOM</button>
 </form>
 {{end}}
 {{end}}

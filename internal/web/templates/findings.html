@@ -1,5 +1,6 @@
 {{define "content"}}
 {{$f := .Data.Filter}}
+{{template "syncBar" .}}
 <form method="get" action="/findings" class="card filters-form">
   <div class="grid">
     <label>Recherche <input type="search" name="q" value="{{$f.Search}}" maxlength="200" placeholder="CVE-2021-44228, log4j, injection…"></label>
@@ -33,7 +34,7 @@
   <a href="/findings?status=in_triage&amp;status=exploitable">Non traitées</a>
   <a href="/findings?status=in_triage&amp;status=exploitable&amp;severity=CRITICAL&amp;severity=HIGH">Critiques et hautes à traiter</a>
 </form>
-<p class="muted">{{len .Data.Findings}} vulnérabilité(s)</p>
+<p class="muted">{{len .Data.Findings}} vulnérabilité(s){{with $f.Project}} — <a href="/assets?project={{.}}">actifs du projet {{.}}</a>{{end}}</p>
 {{template "findingTable" .Data.Findings}}
 
 <h2>Échange VEX (CycloneDX)</h2>
@@ -43,7 +44,7 @@
   <input type="hidden" name="csrf" value="{{.CSRF}}">
   <label>Importer un VEX CycloneDX (JSON) : les analyses s'appliquent aux vulnérabilités correspondantes
     (même purl ou CPE, même identifiant ou alias) <input type="file" name="vex" accept=".json,application/json" required></label>
-  <button type="submit">Importer</button>
+  <button type="submit">Importer le VEX</button>
 </form>
 {{end}}
 {{end}}

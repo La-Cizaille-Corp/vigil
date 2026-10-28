@@ -134,3 +134,48 @@ func (s *Server) totpDisable(w http.ResponseWriter, r *http.Request) {
 	s.audit(r, sess.User.ID, "totp_disable", "")
 	redirect(w, r, "/account", "totp-disabled")
 }
+
+// passwordChange replaces the password of the signed-in user, who must give
+// the current one, and closes the user's other sessions.
+func (s *Server) passwordChange(w http.ResponseWriter, r *http.Request) {
+	sess, _ := sessionFrom(r.Context())
+	key := fmt.Sprintf("password:%d", sess.User.ID)
+	if !s.limiter.Allowed(key) {
+		s.renderAccount(w, r, http.StatusTooManyRequests, "Trop de tentatives. Réessayez dans quelques minutes.")
+		return
+	}
+	current, next := r.PostFormValue("current"), r.PostFormValue("new")
+	if len(current) > maxPasswordBytes || len(next) > maxPasswordBytes {
+		s.renderAccount(w, r, http.StatusBadRequest, "Mot de passe trop long.")
+		return
+	}
+	user, err := s.Store.UserByName(r.Context(), sess.User.Username)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	if ok, err := auth.VerifyPassword(current, user.PasswordHash); err != nil || !ok {
+		s.limiter.Fail(key)
+		s.renderAccount(w, r, http.StatusBadRequest, "Mot de passe actuel incorrect.")
+		return
+	}
+	if next != r.PostFormValue("confirm") {
+		s.renderAccount(w, r, http.StatusBadRequest, "Les deux nouveaux mots de passe ne correspondent pas.")
+		return
+	}
+	hash, err := auth.HashPassword(next)
+	if err != nil {
+		s.renderAccount(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.Store.SetPassword(r.Context(), user.ID, hash); err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	s.limiter.Reset(key)
+	if err := s.endOtherSessions(r, user.ID); err != nil {
+		s.Log.Warn("end other sessions", "err", err)
+	}
+	s.audit(r, user.ID, "password_change", "")
+	redirect(w, r, "/account", "password-changed")
+}

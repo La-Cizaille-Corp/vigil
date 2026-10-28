@@ -60,5 +60,18 @@ ul.news p { margin: .3rem 0 0; }
 fieldset { border: 1px solid var(--border); border-radius: 4px; max-height: 260px; overflow-y: auto; }
 label.check { display: flex; gap: .4rem; align-items: center; margin: 0; }
 label.check input { width: auto; }
-.danger-link { color: var(--danger); }
+.danger-link, button.link.danger-link { color: var(--danger); }
+.error { white-space: pre-line; }
+header nav a[aria-current="page"] { font-weight: 700; text-decoration: underline; }
+.toolbar { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; margin: .25rem 0 1rem; }
+.toolbar form.inline { margin: 0; }
+button:disabled { opacity: .55; cursor: default; }
+details.confirm { display: inline-block; margin: .25rem 0; }
+details.confirm > summary { cursor: pointer; color: var(--danger); }
+details.confirm[open] { display: block; }
+details > summary { cursor: pointer; }
+details.card > summary { color: var(--accent); }
+fieldset.plain { margin: .5rem 0 1rem; }
+fieldset.plain, fieldset.plain fieldset { max-height: none; overflow: visible; }
+h3 { margin-bottom: .25rem; }
 @media (max-width: 700px) { table { display: block; overflow-x: auto; } }

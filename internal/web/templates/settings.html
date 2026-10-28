@@ -8,86 +8,116 @@ la section correspondante du digest (sans sélection : toutes les réglementatio
 {{if can .User.Role "analyst"}}
 <form method="post" action="/settings/watch" class="card">
   <input type="hidden" name="csrf" value="{{$csrf}}">
-  <div class="grid">
-    <fieldset><legend>Pays</legend>
-      {{range countries}}<label class="check"><input type="checkbox" name="country" value="{{.Value}}" {{if has $w.Countries .Value}}checked{{end}}> {{.Label}}</label>{{end}}
-    </fieldset>
-    <fieldset><legend>Secteurs</legend>
-      {{range sectors}}<label class="check"><input type="checkbox" name="sector" value="{{.Value}}" {{if has $w.Sectors .Value}}checked{{end}}> {{.Label}}</label>{{end}}
-    </fieldset>
-    <fieldset><legend>Réglementations et normes</legend>
-      {{range regulations}}<label class="check"><input type="checkbox" name="regulation" value="{{.Value}}" {{if has $w.Regulations .Value}}checked{{end}}> {{.Label}}</label>{{end}}
-    </fieldset>
-  </div>
-  <button type="submit">Enregistrer</button>
+  {{template "tagFields" (dict3 $w.Countries $w.Sectors $w.Regulations)}}
+  <button type="submit">Enregistrer les filtres</button>
 </form>
+{{else}}
+<p class="card">
+  {{range $w.Countries}}<span class="tag">{{countryLabel .}}</span>{{end}}
+  {{range $w.Sectors}}<span class="tag tag-sector">{{sectorLabel .}}</span>{{end}}
+  {{range $w.Regulations}}<span class="tag tag-regulation">{{regulationLabel .}}</span>{{end}}
+  {{if not (or $w.Countries $w.Sectors $w.Regulations)}}<span class="muted">Aucun filtre : tout est inclus.</span>{{end}}
+</p>
 {{end}}
 
-<h2>Flux CTI</h2>
+<h2>Flux de veille</h2>
+<p class="muted">Les étiquettes d'un flux s'appliquent à toutes ses actualités, en plus de celles détectées dans leur texte.</p>
+{{if .Data.Feeds}}
 <table>
-<thead><tr><th>Nom</th><th>URL</th><th>Étiquettes par défaut</th><th>Dernière collecte</th><th></th></tr></thead>
+<thead><tr><th>Nom</th><th>URL</th><th>Étiquettes du flux</th><th>Dernière collecte</th>{{if $admin}}<th></th>{{end}}</tr></thead>
 <tbody>
 {{range .Data.Feeds}}
 <tr>
   <td>{{.Name}}{{if not .Enabled}} <span class="muted">(désactivé)</span>{{end}}</td>
   <td><code class="small">{{.URL}}</code></td>
-  <td>{{if .Country}}{{countryLabel .Country}}{{end}} {{.Sectors}} {{.Regulations}}</td>
+  <td>
+    {{range tags .Country}}<span class="tag">{{countryLabel .}}</span>{{end}}
+    {{range tags .Sectors}}<span class="tag tag-sector">{{sectorLabel .}}</span>{{end}}
+    {{range tags .Regulations}}<span class="tag tag-regulation">{{regulationLabel .}}</span>{{end}}
+    {{if $admin}}
+    <details>
+      <summary class="small">Modifier les étiquettes</summary>
+      <form method="post" action="/settings/feeds/{{.ID}}">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        {{template "tagFields" (dict3 (tags .Country) (tags .Sectors) (tags .Regulations))}}
+        <button type="submit">Enregistrer les étiquettes</button>
+      </form>
+    </details>
+    {{end}}
+  </td>
   <td>{{if .LastFetched.IsZero}}<span class="muted">jamais</span>{{else}}{{date .LastFetched}}{{end}}
-      {{if .LastError}}<br><span class="error small">{{.LastError}}</span>{{end}}</td>
-  <td>{{if $admin}}
+      {{if .LastError}}<br><span class="danger-link small">Échec : {{.LastError}}</span>{{end}}</td>
+  {{if $admin}}<td>
     <form method="post" action="/settings/feeds/{{.ID}}/toggle" class="inline">
       <input type="hidden" name="csrf" value="{{$csrf}}">
       <input type="hidden" name="enabled" value="{{if .Enabled}}0{{else}}1{{end}}">
       <button type="submit" class="link">{{if .Enabled}}Désactiver{{else}}Activer{{end}}</button>
     </form>
-    <form method="post" action="/settings/feeds/{{.ID}}/delete" class="inline">
+    <details class="confirm">
+      <summary>Supprimer…</summary>
+      <form method="post" action="/settings/feeds/{{.ID}}/delete" class="inline">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        <button type="submit" class="danger">Supprimer le flux et ses actualités</button>
+      </form>
+    </details>
+  </td>{{end}}
+</tr>
+{{end}}
+</tbody>
+</table>
+{{else}}
+<p class="muted">Aucun flux configuré.</p>
+{{end}}
+
+{{if $admin}}
+<h3>Ajouter un flux</h3>
+<form method="post" action="/settings/feeds" class="card">
+  <input type="hidden" name="csrf" value="{{$csrf}}">
+  <div class="grid">
+    <label>Nom <input name="name" required maxlength="100"></label>
+    <label>URL du flux RSS ou Atom (https) <input name="url" type="url" required maxlength="2000"></label>
+  </div>
+  <p class="muted small">Étiquettes appliquées à toutes les actualités du flux (plusieurs choix possibles) :</p>
+  {{template "tagFields" (dict3 nil nil nil)}}
+  <button type="submit">Ajouter le flux</button>
+</form>
+{{end}}
+
+{{if $admin}}
+<h2>Webhooks</h2>
+<p class="muted">Chaque digest généré est envoyé aux webhooks actifs. L'URL est secrète et n'est plus affichée après l'enregistrement.</p>
+{{if .Data.Webhooks}}
+<table>
+<thead><tr><th>Nom</th><th>Type</th><th>Destination</th><th>État du dernier envoi</th><th></th></tr></thead>
+<tbody>
+{{range .Data.Webhooks}}
+<tr>
+  <td>{{.Name}}{{if not .Enabled}} <span class="muted">(désactivé)</span>{{end}}</td>
+  <td>{{webhookKindLabel .Kind}}</td>
+  <td><code class="small">{{maskURL .URL}}</code></td>
+  <td>{{if .LastError}}<span class="danger-link small">Échec : {{.LastError}}</span>{{else}}<span class="muted">OK (ou jamais envoyé)</span>{{end}}</td>
+  <td>
+    <form method="post" action="/settings/webhooks/{{.ID}}/toggle" class="inline">
       <input type="hidden" name="csrf" value="{{$csrf}}">
-      <button type="submit" class="link danger-link">Supprimer</button>
-    </form>{{end}}
+      <input type="hidden" name="enabled" value="{{if .Enabled}}0{{else}}1{{end}}">
+      <button type="submit" class="link">{{if .Enabled}}Désactiver{{else}}Activer{{end}}</button>
+    </form>
+    <details class="confirm">
+      <summary>Supprimer…</summary>
+      <form method="post" action="/settings/webhooks/{{.ID}}/delete" class="inline">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        <button type="submit" class="danger">Supprimer le webhook</button>
+      </form>
+    </details>
   </td>
 </tr>
 {{end}}
 </tbody>
 </table>
-
-{{if $admin}}
-<form method="post" action="/settings/feeds" class="card">
-  <input type="hidden" name="csrf" value="{{$csrf}}">
-  <div class="grid">
-    <label>Nom <input name="name" required maxlength="100"></label>
-    <label>URL du flux RSS/Atom (https) <input name="url" type="url" required maxlength="2000"></label>
-    <label>Pays de la source
-      <select name="country"><option value="">—</option>{{range countries}}<option value="{{.Value}}">{{.Label}}</option>{{end}}</select>
-    </label>
-    <label>Secteurs de la source
-      <select name="sector" multiple size="4">{{range sectors}}<option value="{{.Value}}">{{.Label}}</option>{{end}}</select>
-    </label>
-    <label>Réglementations couvertes par la source
-      <select name="regulation" multiple size="4">{{range regulations}}<option value="{{.Value}}">{{.Label}}</option>{{end}}</select>
-    </label>
-  </div>
-  <button type="submit">Ajouter le flux</button>
-</form>
-
-<h2>Webhooks</h2>
-<p class="muted">Chaque digest généré est envoyé aux webhooks actifs. L'URL est secrète et n'est plus affichée après l'enregistrement.</p>
-{{if .Data.Webhooks}}
-<table>
-<thead><tr><th>Nom</th><th>Type</th><th>Destination</th><th>Dernier envoi</th><th></th></tr></thead>
-<tbody>
-{{range .Data.Webhooks}}
-<tr>
-  <td>{{.Name}}</td><td>{{.Kind}}</td><td><code class="small">{{maskURL .URL}}</code></td>
-  <td>{{if .LastError}}<span class="error small">{{.LastError}}</span>{{else}}<span class="muted">OK ou jamais</span>{{end}}</td>
-  <td><form method="post" action="/settings/webhooks/{{.ID}}/delete" class="inline">
-    <input type="hidden" name="csrf" value="{{$csrf}}">
-    <button type="submit" class="link danger-link">Supprimer</button>
-  </form></td>
-</tr>
+{{else}}
+<p class="muted">Aucun webhook configuré.</p>
 {{end}}
-</tbody>
-</table>
-{{end}}
+<h3>Ajouter un webhook</h3>
 <form method="post" action="/settings/webhooks" class="card">
   <input type="hidden" name="csrf" value="{{$csrf}}">
   <div class="grid">
@@ -110,28 +140,36 @@ la section correspondante du digest (sans sélection : toutes les réglementatio
 {{end}}
 {{if .Data.Tokens}}
 <table>
-<thead><tr><th>Nom</th><th>Projet</th><th>Créé</th><th>Dernière utilisation</th><th></th></tr></thead>
+<thead><tr><th>Nom</th><th>Projet</th><th>Créé le</th><th>Dernière utilisation</th><th></th></tr></thead>
 <tbody>
 {{range .Data.Tokens}}
 <tr>
   <td>{{.Name}}</td><td>{{.Project}}</td><td>{{date .CreatedAt}}</td>
   <td>{{if .LastUsedAt.IsZero}}<span class="muted">jamais</span>{{else}}{{date .LastUsedAt}}{{end}}</td>
-  <td><form method="post" action="/settings/tokens/{{.ID}}/delete" class="inline">
-    <input type="hidden" name="csrf" value="{{$csrf}}">
-    <button type="submit" class="link danger-link">Révoquer</button>
-  </form></td>
+  <td>
+    <details class="confirm">
+      <summary>Révoquer…</summary>
+      <form method="post" action="/settings/tokens/{{.ID}}/delete" class="inline">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        <button type="submit" class="danger">Révoquer le jeton</button>
+      </form>
+    </details>
+  </td>
 </tr>
 {{end}}
 </tbody>
 </table>
+{{else}}
+<p class="muted">Aucun jeton créé.</p>
 {{end}}
+<h3>Créer un jeton</h3>
 <form method="post" action="/settings/tokens" class="card">
   <input type="hidden" name="csrf" value="{{$csrf}}">
   <div class="grid">
     <label>Nom <input name="name" required maxlength="100" placeholder="gitlab-ci mon-app"></label>
     <label>Projet <input name="project" required maxlength="200"></label>
   </div>
-  <button type="submit">Créer un jeton</button>
+  <button type="submit">Créer le jeton</button>
 </form>
 {{end}}
 {{end}}

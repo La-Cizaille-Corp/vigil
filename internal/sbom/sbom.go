@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
 	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
@@ -125,7 +126,8 @@ func (d *Document) add(name, version, purl, cpe string, isOS bool) {
 	if isOS {
 		kind = "os"
 	}
-	a := store.Asset{Name: name, Kind: kind, Version: version, PURL: purl, CPE: cpe, Source: "sbom"}
+	a := store.Asset{Name: name, Kind: kind, Version: version, PURL: purl, CPE: cpe, Source: "sbom",
+		TrackSince: inventory.DefaultSince(time.Now())}
 	inventory.Normalize(&a)
 	if !strings.HasPrefix(a.CPE, "cpe:2.3:") {
 		a.CPE = ""

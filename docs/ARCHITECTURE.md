@@ -59,14 +59,19 @@ implémentations réelles.
 
 ### Synchronisation des vulnérabilités
 
+Lancée périodiquement, depuis l'interface (tout l'inventaire, ou un seul actif : à l'ajout, à la
+modification, ou sur demande), par l'API après un import SBOM, ou par `vigil sync`.
+
 1. `tracking.Syncer` liste les actifs : ceux qui ont un purl (ou écosystème + nom + version) vont
    vers OSV ; ceux qui n'ont qu'un CPE vont vers la NVD.
 2. OSV : une requête `querybatch` pour tout l'inventaire, puis téléchargement des seuls avis
-   nouveaux ou modifiés. NVD : une requête par CPE, espacée selon la limite de débit.
-3. `findings` : création si nouveau, réouverture si résolu automatiquement puis signalé à nouveau,
-   résolution automatique si la source ne le signale plus (version mise à jour).
-4. Enrichissement : CVE croisées avec CISA KEV et EPSS. Une panne de ces sources est journalisée
-   sans faire échouer la synchronisation.
+   nouveaux ou modifiés. NVD : requêtes par CPE limitées à la période de suivi, espacées selon la
+   limite de débit.
+3. Enrichissement : CVE croisées avec CISA KEV et EPSS, avant les findings (voir A31). Une panne
+   de ces sources est journalisée sans faire échouer la synchronisation.
+4. `findings` : création si nouveau et dans la période de suivi de l'actif, réouverture si résolu
+   automatiquement puis signalé à nouveau, résolution automatique si la source ne le signale plus
+   (version mise à jour).
 5. `cti.Collector` récupère les flux ; les items reçoivent pays, secteurs et réglementations.
    Purge après 180 jours.
 
@@ -101,6 +106,21 @@ suffisent. *Conséquence* : interface sobre, rechargements de page complets.
 
 **A4. Interface et documentation en français, code et commentaires en anglais.** La cible
 première est francophone (CERT-FR, ANSSI, NIS2) ; le code reste accessible à tout contributeur.
+Les codes techniques (sévérités, rôles, types de webhook, étiquettes) sont affichés par leur
+libellé français ; les messages d'erreur Go restent en minuscules (convention Go) et sont mis en
+forme de phrase à l'affichage.
+
+**A33. Conventions d'interface communes.** Relevées lors d'une passe de cohérence :
+- une action destructive (actif, flux, webhook, jeton) passe par une confirmation (`<details>`,
+  sans JavaScript) et un bouton rouge explicite (« Confirmer la suppression ») ;
+- après une modification, on revient sur l'objet modifié ; chaque page de détail a un lien de
+  retour vers sa liste ; le menu indique la page courante ;
+- les listes vides ont un message ; les choix multiples sont des cases à cocher, jamais des
+  `<select multiple>` (Ctrl+clic méconnu, inutilisable au tactile) ;
+- les boutons nomment l'action et l'objet (« Ajouter le flux », « Importer le SBOM ») ;
+- un lecteur voit les valeurs en lecture seule, pas les liens vers des actions refusées ;
+- chaque compte peut changer son mot de passe (mot de passe actuel exigé, tentatives limitées,
+  autres sessions fermées).
 
 ### Données
 
@@ -141,13 +161,15 @@ distributions Linux, avec des plages de versions exploitables par machine : corr
 version fiable. La NVD est en retard d'analyse depuis 2024 et ses CPE sont incohérents.
 *Conséquence* : la qualité dépend de l'identifiant ; un SBOM donne les meilleurs résultats.
 
-**A11. NVD pour les produits sans purl, par CPE, avec quatre modes.** Matériels, OS, logiciels
-d'éditeur n'ont pas de purl. Le CPE est interrogé dans la NVD selon un mode choisi par actif :
-version exacte (correspondance faite par la NVD), nouvelles CVE du produit (fenêtre de 120 jours,
-maximum de l'API), toutes les CVE du produit, ou à partir d'une version. Le mode « abonnement »
-reprend l'idée d'OpenCVE : quand la version exacte n'est pas fiable, mieux vaut tout voir et
-trier. Débit adapté à la limite NVD (5 requêtes / 30 s sans clé). *Conséquence* : plus de bruit
-qu'OSV, triage humain attendu (principe 4).
+**A11. NVD pour les produits sans purl, par CPE, avec trois modes.** Matériels, OS, logiciels
+d'éditeur n'ont pas de purl. Le CPE est interrogé dans la NVD selon les versions choisies par
+actif : la version de l'actif (correspondance faite par la NVD), toutes les versions du produit
+(idée « abonnement » d'OpenCVE : quand la version exacte n'est pas fiable, mieux vaut tout voir et
+trier), ou à partir d'une version. La période de suivi (A31) s'applique en plus. Débit adapté à
+la limite NVD (5 requêtes / 30 s sans clé). *Conséquence* : plus de bruit qu'OSV, triage humain
+attendu (principe 4). Un ancien mode « nouvelles CVE des 120 derniers jours » glissait avec le
+temps : une CVE sortie de la fenêtre était résolue automatiquement à tort. Il a été remplacé par
+la période de suivi, à date de début fixe.
 
 **A12. Un actif avec purl et CPE n'est interrogé que par son purl.** Interroger les deux
 doublerait les alertes (GHSA et CVE pour la même faille) et le CPE est moins précis. Il n'y a pas
@@ -166,6 +188,30 @@ analyse humaine `not_affected` ou `false_positive` n'est jamais écrasée. Chaqu
 historisé. La comparaison se fait sur la liste des identifiants signalés, pas sur des
 horodatages (une première version horodatée échouait quand deux synchronisations tombaient dans
 la même seconde).
+
+**A31. Période de suivi par actif : 120 jours avant l'ajout par défaut, KEV toujours signalées.**
+Ajouter FortiOS 7.2.4 avec tout l'historique remontait 117 CVE d'un coup : un arriéré que personne
+ne trie, qui noie les nouveautés. Vigil est un outil de veille : chaque actif ajouté (à la main
+ou par SBOM) suit par défaut les vulnérabilités publiées depuis 120 jours avant son ajout, puis
+toutes les nouvelles. La date de début est fixe (pas une fenêtre glissante, voir A11) et
+modifiable ; vide = tout l'historique. Garde-fou : une vulnérabilité plus ancienne est quand même
+signalée si elle est activement exploitée (CISA KEV), d'où l'enrichissement KEV avant la
+création des findings, et la requête NVD `hasKev`. Un finding déjà créé n'est jamais retiré
+parce qu'on raccourcit la période, ni résolu automatiquement pour une vulnérabilité antérieure à
+la période (la source n'a pas forcément été interrogée dessus). La NVD n'acceptant que des
+plages de 120 jours, une période de plus de deux ans est interrogée sans date puis filtrée. Les
+actifs existants gardent tout leur historique (pas de changement silencieux). *Conséquence* :
+un audit complet demande de vider la date ; l'état de la synchronisation indique combien de
+vulnérabilités ont été ignorées.
+
+**A32. État de la synchronisation visible, analyse d'un seul actif.** Sans JavaScript, une
+synchronisation en arrière-plan ne donnait aucun retour. Le bouton « Synchroniser l'inventaire »
+est présent sur le tableau de bord, l'inventaire et les vulnérabilités, et ramène à la page
+d'origine (liste blanche de chemins, pas de redirection ouverte). L'état courant ou le dernier
+résultat (nouvelles, rouvertes, corrigées, ignorées, erreur) est affiché à côté ; il est gardé
+en mémoire, car il ne concerne que le processus en cours. Ajouter, modifier ou « Analyser » un
+actif lance son analyse seule ; si une synchronisation est en cours, l'analyse attend qu'elle
+finisse au lieu d'être perdue.
 
 **A15. Priorisation KEV > EPSS > sévérité, plutôt que CVSS seul.** Le CVSS mesure la gravité
 théorique, pas la probabilité d'exploitation. Exploitation avérée (KEV) d'abord, puis probabilité
@@ -190,6 +236,11 @@ oublis possibles ; les filtres servent à trier, pas à garantir.
 officielles par défaut (Commission européenne, CNIL, EDPB, EBA). Les flux ISO et EUR-Lex ont été
 écartés : trop volumineux et majoritairement hors sujet. La veille réglementaire ignore les
 filtres pays / secteur : une réglementation concerne tous ceux qu'elle couvre.
+
+**A34. Plusieurs pays, secteurs et réglementations par flux, modifiables.** Un flux européen ou
+un site de normalisation couvre souvent plusieurs pays ou textes : un sélecteur unique obligeait
+à choisir. Les étiquettes d'un flux se modifient après coup (y compris celles des flux par
+défaut) et sont réappliquées aux actualités déjà collectées.
 
 **A19. Digest « depuis le précédent ».** Une fenêtre fixe (7 jours) ferait manquer ou répéter
 des éléments selon la fréquence de génération. Formats : Markdown (webhooks, export) et HTML

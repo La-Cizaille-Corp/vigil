@@ -1,21 +1,16 @@
 {{define "content"}}
 {{$counts := .Data.Counts}}
 <section class="tiles">
-  <div class="tile"><span class="num">{{.Data.AssetCount}}</span> actifs suivis</div>
+  <a class="tile" href="/assets"><span class="num">{{.Data.AssetCount}}</span> actifs</a>
   <a class="tile" href="/findings?kev=1"><span class="num kev">{{.Data.KEVCount}}</span> exploitées (KEV)</a>
   {{range statuses}}
   <a class="tile" href="/findings?status={{.Value}}"><span class="num">{{index $counts .Value}}</span> {{.Label}}</a>
   {{end}}
 </section>
 
-{{if can .User.Role "analyst"}}
-<form method="post" action="/sync" class="inline">
-  <input type="hidden" name="csrf" value="{{.CSRF}}">
-  <button type="submit">Synchroniser maintenant</button>
-</form>
-{{end}}
+{{template "syncBar" .}}
 
 <h2>Nouvelles vulnérabilités (7 derniers jours)</h2>
 {{template "findingTable" .Data.Recent}}
+<p><a href="/findings?sort=recent">Voir toutes les vulnérabilités</a></p>
 {{end}}
-

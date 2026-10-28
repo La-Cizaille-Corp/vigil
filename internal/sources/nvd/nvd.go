@@ -24,9 +24,12 @@ const DefaultURL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 const (
 	maxBody  = 64 << 20
 	pageSize = 2000
-	// SubscriptionWindow bounds product-wide queries (CPE without version):
-	// only CVEs published recently are reported. 120 days is the NVD maximum.
-	SubscriptionWindow = 120 * 24 * time.Hour
+	// maxDateRange is the longest publication date range the NVD accepts.
+	maxDateRange = 120 * 24 * time.Hour
+	// maxDateRanges bounds the requests made for a tracked period; a longer
+	// period is fetched whole (Since is then applied by the caller).
+	maxDateRanges = 6
+	dateFormat    = "2006-01-02T15:04:05.000Z"
 )
 
 // Client queries the NVD. Without an API key the NVD allows 5 requests per
@@ -66,11 +69,13 @@ func ProductCPE(cpe string) (fields []string, wholeProduct bool, err error) {
 type Query struct {
 	CPE     string
 	Version string // asset version, used when the CPE version is a wildcard
-	// Mode: "" exact version (falls back to "recent" without any version),
-	// "recent" CVEs published within SubscriptionWindow, "all" every CVE of
-	// the product, "from" CVEs affecting versions >= From.
+	// Mode: "" the asset version (every version without any), "all" every
+	// version of the product, "from" versions >= From.
 	Mode string
 	From string
+	// Since, when set, limits the CVEs to those published since then, plus
+	// those listed in CISA KEV whatever their date.
+	Since time.Time
 }
 
 // WithVersion fills the version of a CPE when it is a wildcard.
@@ -100,17 +105,12 @@ func (c *Client) ForCPE(ctx context.Context, query Query) ([]CVE, error) {
 	}
 	mode := query.Mode
 	if mode == "" && whole {
-		mode = "recent"
+		mode = "all"
 	}
 	q := url.Values{}
 	switch mode {
 	case "":
 		q.Set("cpeName", cpe)
-	case "recent":
-		end := time.Now().UTC()
-		q.Set("virtualMatchString", productWide(fields))
-		q.Set("pubStartDate", end.Add(-SubscriptionWindow).Format("2006-01-02T15:04:05.000Z"))
-		q.Set("pubEndDate", end.Format("2006-01-02T15:04:05.000Z"))
 	case "all":
 		q.Set("virtualMatchString", productWide(fields))
 	case "from":
@@ -125,6 +125,56 @@ func (c *Client) ForCPE(ctx context.Context, query Query) ([]CVE, error) {
 	}
 	q.Set("resultsPerPage", fmt.Sprint(pageSize))
 
+	end := time.Now().UTC()
+	if query.Since.IsZero() || end.Sub(query.Since) > maxDateRanges*maxDateRange {
+		return c.pages(ctx, q)
+	}
+	// The NVD only accepts 120-day ranges: one request per range, plus one
+	// for the exploited CVEs published before the period.
+	var out []CVE
+	seen := map[string]bool{}
+	add := func(list []CVE) {
+		for _, cve := range list {
+			if !seen[cve.ID] {
+				seen[cve.ID] = true
+				out = append(out, cve)
+			}
+		}
+	}
+	for from := query.Since.UTC(); from.Before(end); from = from.Add(maxDateRange) {
+		to := from.Add(maxDateRange)
+		if to.After(end) {
+			to = end
+		}
+		r := cloneValues(q)
+		r.Set("pubStartDate", from.Format(dateFormat))
+		r.Set("pubEndDate", to.Format(dateFormat))
+		list, err := c.pages(ctx, r)
+		if err != nil {
+			return nil, err
+		}
+		add(list)
+	}
+	r := cloneValues(q)
+	r.Set("hasKev", "")
+	list, err := c.pages(ctx, r)
+	if err != nil {
+		return nil, err
+	}
+	add(list)
+	return out, nil
+}
+
+func cloneValues(v url.Values) url.Values {
+	out := make(url.Values, len(v)+2)
+	for k, list := range v {
+		out[k] = slices.Clone(list)
+	}
+	return out
+}
+
+// pages fetches every page of results of q.
+func (c *Client) pages(ctx context.Context, q url.Values) ([]CVE, error) {
 	var out []CVE
 	for start := 0; ; start += pageSize {
 		q.Set("startIndex", fmt.Sprint(start))

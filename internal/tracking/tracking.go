@@ -30,6 +30,20 @@ var Statuses = []inventory.Option{
 	{Value: "false_positive", Label: "Faux positif"},
 }
 
+// Severities are the severity levels of vulnerabilities, labelled in French.
+var Severities = []inventory.Option{
+	{Value: "CRITICAL", Label: "Critique"}, {Value: "HIGH", Label: "Haute"},
+	{Value: "MEDIUM", Label: "Moyenne"}, {Value: "LOW", Label: "Basse"}, {Value: "UNKNOWN", Label: "Inconnue"},
+}
+
+// SeverityLabel returns the French label of a severity, "Inconnue" when empty.
+func SeverityLabel(v string) string {
+	if v == "" {
+		v = "UNKNOWN"
+	}
+	return inventory.Label(Severities, v)
+}
+
 // Justifications explain a "not_affected" status (CycloneDX vocabulary).
 var Justifications = []inventory.Option{
 	{Value: "code_not_present", Label: "Code vulnérable absent"},
@@ -69,10 +83,21 @@ type Result struct {
 	Created  int // new findings
 	Reopened int
 	Resolved int // auto-resolved findings
+	Skipped  int // vulnerabilities published before the tracked period of their asset
 }
 
-// Syncer queries sources for the whole inventory. It is safe for concurrent
-// use; only one run happens at a time.
+// Status describes the running or last synchronisation, for the UI.
+type Status struct {
+	Running  bool
+	Asset    string // name of the asset for a single-asset scan, "" for the inventory
+	Started  time.Time
+	Finished time.Time
+	Result   Result
+	Err      string
+}
+
+// Syncer queries sources for the inventory. It is safe for concurrent use;
+// only one run happens at a time.
 type Syncer struct {
 	Store *store.Store
 	OSV   *osv.Client
@@ -86,23 +111,77 @@ type Syncer struct {
 	KEVURL    string // defaults to kev.DefaultURL
 	EPSSURL   string // defaults to epss.DefaultURL
 
-	mu sync.Mutex
+	mu       sync.Mutex // held during a run
+	statusMu sync.Mutex
+	status   Status
 }
 
-// Run performs one synchronisation.
-func (s *Syncer) Run(ctx context.Context) (Result, error) {
+// Run synchronises the whole inventory.
+func (s *Syncer) Run(ctx context.Context) (Result, error) { return s.run(ctx, 0) }
+
+// RunAsset synchronises a single asset, e.g. right after it was added.
+func (s *Syncer) RunAsset(ctx context.Context, id int64) (Result, error) { return s.run(ctx, id) }
+
+// Status returns the state of the running or last synchronisation.
+func (s *Syncer) Status() Status {
+	s.statusMu.Lock()
+	defer s.statusMu.Unlock()
+	return s.status
+}
+
+func (s *Syncer) setStatus(update func(*Status)) {
+	s.statusMu.Lock()
+	defer s.statusMu.Unlock()
+	update(&s.status)
+}
+
+func (s *Syncer) run(ctx context.Context, assetID int64) (res Result, err error) {
 	if !s.mu.TryLock() {
 		return Result{}, ErrRunning
 	}
 	defer s.mu.Unlock()
 
-	var res Result
-	start := time.Now().UTC().Truncate(time.Second)
-
-	assets, err := s.Store.ListAssets(ctx)
+	var assets []store.Asset
+	name := ""
+	if assetID == 0 {
+		assets, err = s.Store.ListAssets(ctx)
+	} else {
+		var a store.Asset
+		a, err = s.Store.Asset(ctx, assetID)
+		assets, name = []store.Asset{a}, a.Name
+	}
 	if err != nil {
 		return res, err
 	}
+	s.setStatus(func(st *Status) {
+		*st = Status{Running: true, Asset: name, Started: time.Now()}
+	})
+	defer func() {
+		s.setStatus(func(st *Status) {
+			st.Running, st.Finished, st.Result = false, time.Now(), res
+			if err != nil {
+				st.Err = err.Error()
+			}
+		})
+	}()
+	res, err = s.scan(ctx, assets)
+	if err == nil {
+		s.Log.Info("sync done", "assets", res.Assets, "created", res.Created,
+			"reopened", res.Reopened, "resolved", res.Resolved, "skipped", res.Skipped)
+	}
+	return res, err
+}
+
+// observation is what the sources report for one asset.
+type observation struct {
+	asset    store.Asset
+	reported []string
+}
+
+func (s *Syncer) scan(ctx context.Context, assets []store.Asset) (Result, error) {
+	var res Result
+	start := time.Now().UTC().Truncate(time.Second)
+
 	var targets, cpeTargets []store.Asset
 	var queries []osv.Query
 	for _, a := range assets {
@@ -119,6 +198,8 @@ func (s *Syncer) Run(ctx context.Context) (Result, error) {
 		return res, nil
 	}
 
+	// 1. Ask the sources and store the advisories.
+	var seen []observation
 	if len(targets) > 0 {
 		results, err := s.OSV.QueryBatch(ctx, queries)
 		if err != nil {
@@ -132,14 +213,12 @@ func (s *Syncer) Run(ctx context.Context) (Result, error) {
 					return res, err
 				}
 			}
-			if err := s.record(ctx, &res, a, reported, start); err != nil {
-				return res, err
-			}
+			seen = append(seen, observation{a, reported})
 		}
 	}
-
 	for _, a := range cpeTargets {
-		cves, err := s.NVD.ForCPE(ctx, nvd.Query{CPE: a.CPE, Version: a.Version, Mode: a.CPEMode, From: a.CPEFrom})
+		q := nvd.Query{CPE: a.CPE, Version: a.Version, Mode: a.CPEMode, From: a.CPEFrom, Since: inventory.SinceTime(a)}
+		cves, err := s.NVD.ForCPE(ctx, q)
 		if err != nil {
 			// One unreachable or invalid CPE must not block the others.
 			s.Log.Warn("NVD", "asset", a.Name, "err", err)
@@ -152,25 +231,41 @@ func (s *Syncer) Run(ctx context.Context) (Result, error) {
 				return res, err
 			}
 		}
-		if err := s.record(ctx, &res, a, reported, start); err != nil {
-			return res, err
-		}
+		seen = append(seen, observation{a, reported})
 	}
+
+	// 2. Exploitation signals before the findings: an old vulnerability is
+	// kept outside the tracked period unless it is known to be exploited.
 	if s.HTTP != nil {
 		// Enrichment failures are logged but do not fail the sync.
 		if err := s.enrich(ctx); err != nil {
 			s.Log.Warn("enrichissement KEV/EPSS", "err", err)
 		}
 	}
-	s.Log.Info("sync done", "assets", res.Assets, "created", res.Created,
-		"reopened", res.Reopened, "resolved", res.Resolved)
+
+	// 3. Findings.
+	for _, o := range seen {
+		if err := s.record(ctx, &res, o.asset, o.reported, start); err != nil {
+			return res, err
+		}
+	}
 	return res, nil
 }
 
 // record creates or reopens the findings of an asset and auto-resolves the
-// ones its source no longer reports.
+// ones its source no longer reports. Vulnerabilities published before the
+// tracked period of the asset are skipped, unless they are listed in KEV or
+// already have a finding.
 func (s *Syncer) record(ctx context.Context, res *Result, a store.Asset, reported []string, seen time.Time) error {
 	for _, id := range reported {
+		in, err := s.Store.InTrackedPeriod(ctx, a.ID, id, a.TrackSince)
+		if err != nil {
+			return err
+		}
+		if !in {
+			res.Skipped++
+			continue
+		}
 		touch, err := s.Store.ObserveFinding(ctx, a.ID, id, seen)
 		if err != nil {
 			return err
@@ -182,7 +277,7 @@ func (s *Syncer) record(ctx context.Context, res *Result, a store.Asset, reporte
 			res.Reopened++
 		}
 	}
-	n, err := s.Store.AutoResolveStale(ctx, a.ID, reported)
+	n, err := s.Store.AutoResolveStale(ctx, a.ID, reported, a.TrackSince)
 	if err != nil {
 		return fmt.Errorf("auto-resolve asset %d: %w", a.ID, err)
 	}

@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/cti"
+	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
 	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
 	"github.com/La-Cizaille-Corp/vigil/internal/notify"
 	"github.com/La-Cizaille-Corp/vigil/internal/sbom"
@@ -43,8 +45,12 @@ func (s *Server) ctiList(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	s.render(w, r, http.StatusOK, "cti", page{Title: "Veille menaces", Data: map[string]any{
-		"Items": items, "Filter": filter, "Watched": watched, "Regulatory": regulatory,
+	title := "Veille menaces"
+	if regulatory {
+		title = "Veille réglementaire"
+	}
+	s.render(w, r, http.StatusOK, "cti", page{Title: title, Data: map[string]any{
+		"Items": items, "Filter": filter, "Watched": watched, "Regulatory": regulatory, "All": q.Get("all") != "",
 	}})
 }
 
@@ -123,22 +129,25 @@ func (s *Server) saveWatch(w http.ResponseWriter, r *http.Request) {
 	redirect(w, r, "/settings", "watch-saved")
 }
 
+// feedTagsFromForm reads the tags a feed applies to its items: several
+// countries, sectors and regulations each.
+func feedTagsFromForm(r *http.Request) (country, sectors, regulations string) {
+	return strings.Join(knownOnly(cti.Countries, r.PostForm["country"]), ","),
+		strings.Join(knownOnly(cti.Sectors, r.PostForm["sector"]), ","),
+		strings.Join(knownOnly(cti.Regulations, r.PostForm["regulation"]), ",")
+}
+
 func (s *Server) feedCreate(w http.ResponseWriter, r *http.Request) {
-	f := store.Feed{
-		Name:    strings.TrimSpace(r.PostFormValue("name")),
-		URL:     strings.TrimSpace(r.PostFormValue("url")),
-		Country: r.PostFormValue("country"),
-		Enabled: true,
-	}
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Formulaire invalide.", http.StatusBadRequest)
 		return
 	}
-	f.Sectors = strings.Join(knownOnly(cti.Sectors, r.PostForm["sector"]), ",")
-	f.Regulations = strings.Join(knownOnly(cti.Regulations, r.PostForm["regulation"]), ",")
-	if f.Country != "" && !cti.Known(cti.Countries, f.Country) {
-		f.Country = ""
+	f := store.Feed{
+		Name:    strings.TrimSpace(r.PostFormValue("name")),
+		URL:     strings.TrimSpace(r.PostFormValue("url")),
+		Enabled: true,
 	}
+	f.Country, f.Sectors, f.Regulations = feedTagsFromForm(r)
 	if f.Name == "" || len(f.Name) > 100 {
 		s.renderSettings(w, r, http.StatusBadRequest, "Nom de flux invalide.")
 		return
@@ -156,10 +165,40 @@ func (s *Server) feedCreate(w http.ResponseWriter, r *http.Request) {
 	redirect(w, r, "/settings", "feed-created")
 }
 
-func (s *Server) feedToggle(w http.ResponseWriter, r *http.Request) {
+// feedUpdate changes the tags of a feed and applies them to the items
+// already collected.
+func (s *Server) feedUpdate(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Formulaire invalide.", http.StatusBadRequest)
+		return
+	}
 	s.byID(w, r, func(id int64) error {
-		return s.Store.SetFeedEnabled(r.Context(), id, r.PostFormValue("enabled") == "1")
+		country, sectors, regulations := feedTagsFromForm(r)
+		if err := s.Store.UpdateFeedTags(r.Context(), id, country, sectors, regulations); err != nil {
+			return err
+		}
+		feeds, err := s.Store.ListFeeds(r.Context())
+		if err != nil {
+			return err
+		}
+		for _, f := range feeds {
+			if f.ID == id {
+				sess, _ := sessionFrom(r.Context())
+				s.audit(r, sess.User.ID, "feed_update", f.URL)
+				return cti.Retag(r.Context(), s.Store, f)
+			}
+		}
+		return nil
 	}, "/settings", "feed-updated")
+}
+
+func (s *Server) feedToggle(w http.ResponseWriter, r *http.Request) {
+	enabled := r.PostFormValue("enabled") == "1"
+	msg := "feed-disabled"
+	if enabled {
+		msg = "feed-enabled"
+	}
+	s.byID(w, r, func(id int64) error { return s.Store.SetFeedEnabled(r.Context(), id, enabled) }, "/settings", msg)
 }
 
 func (s *Server) feedDelete(w http.ResponseWriter, r *http.Request) {
@@ -185,6 +224,15 @@ func (s *Server) webhookCreate(w http.ResponseWriter, r *http.Request) {
 	// SECURITY: the URL is a secret, only its host is audited.
 	s.audit(r, sess.User.ID, "webhook_create", notify.MaskURL(h.URL))
 	redirect(w, r, "/settings", "hook-created")
+}
+
+func (s *Server) webhookToggle(w http.ResponseWriter, r *http.Request) {
+	enabled := r.PostFormValue("enabled") == "1"
+	msg := "hook-disabled"
+	if enabled {
+		msg = "hook-enabled"
+	}
+	s.byID(w, r, func(id int64) error { return s.Store.SetWebhookEnabled(r.Context(), id, enabled) }, "/settings", msg)
 }
 
 func (s *Server) webhookDelete(w http.ResponseWriter, r *http.Request) {
@@ -240,7 +288,12 @@ func (s *Server) sbomImport(w http.ResponseWriter, r *http.Request) {
 	sess, _ := sessionFrom(r.Context())
 	s.audit(r, sess.User.ID, "sbom_import", fmt.Sprintf("%s: %s +%d =%d -%d (%d ignorés)",
 		project, doc.Format, res.Added, res.Kept, res.Removed, doc.Skipped))
-	redirect(w, r, "/assets", "sbom-imported")
+	go s.runSync()
+	redirect(w, r, "/assets?project="+url.QueryEscape(project), "sbom-imported")
 }
 
-func defaultAssetForm() store.Asset { return store.Asset{Kind: "package", Criticality: "medium"} }
+// defaultAssetForm prefills the form of a new asset: it is checked for the
+// vulnerabilities of the last 120 days (see inventory.DefaultWindow).
+func defaultAssetForm() store.Asset {
+	return store.Asset{Kind: "package", Criticality: "medium", TrackSince: inventory.DefaultSince(time.Now())}
+}

@@ -11,17 +11,17 @@
   <a class="brand" href="/">Vigil</a>
   {{if .User}}
   <nav>
-    <a href="/">Tableau de bord</a>
-    <a href="/assets">Inventaire</a>
-    <a href="/findings">Vulnérabilités</a>
-    <a href="/cti">Veille</a>
-    <a href="/digests">Digests</a>
-    <a href="/settings">Paramètres</a>
-    <a href="/account">Mon compte</a>
+    <a href="/" {{if eq .Path "/"}}aria-current="page"{{end}}>Tableau de bord</a>
+    <a href="/assets" {{if hasPrefix .Path "/assets"}}aria-current="page"{{end}}>Inventaire</a>
+    <a href="/findings" {{if hasPrefix .Path "/findings"}}aria-current="page"{{end}}>Vulnérabilités</a>
+    <a href="/cti" {{if hasPrefix .Path "/cti"}}aria-current="page"{{end}}>Veille</a>
+    <a href="/digests" {{if hasPrefix .Path "/digests"}}aria-current="page"{{end}}>Digests</a>
+    <a href="/settings" {{if hasPrefix .Path "/settings"}}aria-current="page"{{end}}>Paramètres</a>
+    <a href="/account" {{if hasPrefix .Path "/account"}}aria-current="page"{{end}}>Mon compte</a>
   </nav>
   <form method="post" action="/logout" class="inline">
     <input type="hidden" name="csrf" value="{{.CSRF}}">
-    <span class="muted">{{.User.Username}} ({{.User.Role}})</span>
+    <span class="muted">{{.User.Username}} ({{roleLabel .User.Role}})</span>
     <button type="submit" class="link">Déconnexion</button>
   </form>
   {{end}}

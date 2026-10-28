@@ -232,3 +232,34 @@ func truncateString(s string, n int) string {
 	}
 	return s[:n]
 }
+
+// UpdateFeedTags replaces the tags a feed applies to its items.
+func (s *Store) UpdateFeedTags(ctx context.Context, id int64, country, sectors, regulations string) error {
+	return expectRow(s.db.ExecContext(ctx,
+		`UPDATE cti_feeds SET country = ?, sectors = ?, regulations = ? WHERE id = ?`, country, sectors, regulations, id))
+}
+
+// FeedItems returns the items of a feed, with their tags.
+func (s *Store) FeedItems(ctx context.Context, feedID int64) ([]CTIItem, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, title, summary FROM cti_items WHERE feed_id = ?`, feedID)
+	if err != nil {
+		return nil, fmt.Errorf("feed items: %w", err)
+	}
+	defer rows.Close()
+	var out []CTIItem
+	for rows.Next() {
+		var it CTIItem
+		if err := rows.Scan(&it.ID, &it.Title, &it.Summary); err != nil {
+			return nil, err
+		}
+		out = append(out, it)
+	}
+	return out, rows.Err()
+}
+
+// SetCTIItemTags replaces the tags of an item.
+func (s *Store) SetCTIItemTags(ctx context.Context, id int64, countries, sectors, regulations []string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE cti_items SET countries = ?, sectors = ?, regulations = ? WHERE id = ?`,
+		joinTags(countries), joinTags(sectors), joinTags(regulations), id)
+	return err
+}

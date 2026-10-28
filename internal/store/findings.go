@@ -192,9 +192,32 @@ func (s *Store) ObserveFinding(ctx context.Context, assetID int64, vulnID string
 	return result, nil
 }
 
+// inPeriod is the SQL condition, on vulnerabilities aliased v, for a
+// vulnerability inside a tracked period starting at the date given as two
+// parameters ("" = no limit). Exploited (KEV) and undated vulnerabilities are
+// always inside.
+const inPeriod = `(? = '' OR v.kev OR v.published = '' OR substr(v.published, 1, 10) >= ?)`
+
+// InTrackedPeriod reports whether vulnID should be tracked for assetID given
+// the asset's period start (see Asset.TrackSince): the vulnerability is in the
+// period, or the asset already has a finding for it.
+func (s *Store) InTrackedPeriod(ctx context.Context, assetID int64, vulnID, since string) (bool, error) {
+	var in bool
+	err := s.db.QueryRowContext(ctx, `
+		SELECT EXISTS (SELECT 1 FROM findings WHERE asset_id = ? AND vuln_id = ?)
+		    OR EXISTS (SELECT 1 FROM vulnerabilities v WHERE v.id = ? AND `+inPeriod+`)`,
+		assetID, vulnID, vulnID, since, since).Scan(&in)
+	if err != nil {
+		return false, fmt.Errorf("tracked period %d/%s: %w", assetID, vulnID, err)
+	}
+	return in, nil
+}
+
 // AutoResolveStale closes open findings of assetID whose vulnerability is not
-// in reported, i.e. the source no longer lists it. It returns how many were closed.
-func (s *Store) AutoResolveStale(ctx context.Context, assetID int64, reported []string) (int, error) {
+// in reported, i.e. the source no longer lists it. Findings of vulnerabilities
+// published before since are left alone: sources may not be asked about that
+// period. It returns how many were closed.
+func (s *Store) AutoResolveStale(ctx context.Context, assetID int64, reported []string, since string) (int, error) {
 	still := make(map[string]bool, len(reported))
 	for _, id := range reported {
 		still[id] = true
@@ -203,8 +226,9 @@ func (s *Store) AutoResolveStale(ctx context.Context, assetID int64, reported []
 	closed := 0
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
 		rows, err := tx.QueryContext(ctx, `
-			SELECT id, vuln_id, status FROM findings
-			WHERE asset_id = ? AND status IN ('in_triage', 'exploitable')`, assetID)
+			SELECT f.id, f.vuln_id, f.status FROM findings f JOIN vulnerabilities v ON v.id = f.vuln_id
+			WHERE f.asset_id = ? AND f.status IN ('in_triage', 'exploitable') AND `+inPeriod,
+			assetID, since, since)
 		if err != nil {
 			return err
 		}

@@ -1,36 +1,31 @@
 {{define "content"}}
-{{$f := .Data.Filter}}
-<form method="get" action="/cti" class="card">
-  <div class="grid">
-    <label>Pays
-      <select name="country" multiple size="6">
-        {{range countries}}<option value="{{.Value}}" {{if has $f.Countries .Value}}selected{{end}}>{{.Label}}</option>{{end}}
-      </select>
-    </label>
-    <label>Secteurs
-      <select name="sector" multiple size="6">
-        {{range sectors}}<option value="{{.Value}}" {{if has $f.Sectors .Value}}selected{{end}}>{{.Label}}</option>{{end}}
-      </select>
-    </label>
-    <label>Réglementations et normes
-      <select name="regulation" multiple size="6">
-        {{range regulations}}<option value="{{.Value}}" {{if has $f.Regulations .Value}}selected{{end}}>{{.Label}}</option>{{end}}
-      </select>
-    </label>
-  </div>
-  <button type="submit">Filtrer</button>
-  <a href="/cti?all=1">Tout afficher</a>
+{{$f := .Data.Filter}}{{$analyst := can .User.Role "analyst"}}
+<nav class="filters">
+  <a href="/cti" {{if not (or .Data.Regulatory .Data.All)}}class="active"{{end}}>Veille menaces</a>
   <a href="/cti?view=regulatory" {{if .Data.Regulatory}}class="active"{{end}}>Veille réglementaire</a>
-  {{if .Data.Watched}}<span class="muted">— filtre de veille enregistré appliqué (<a href="/settings">modifier</a>)</span>{{end}}
-  {{if .Data.Regulatory}}<span class="muted">— actualités liées {{if $f.Regulations}}aux réglementations suivies{{else}}à une réglementation ou une norme{{end}} (<a href="/settings">modifier</a>)</span>{{end}}
-</form>
+  <a href="/cti?all=1" {{if .Data.All}}class="active"{{end}}>Toutes les actualités</a>
+</nav>
+{{if .Data.Watched}}<p class="muted small">Filtre de veille enregistré appliqué{{if $analyst}} (<a href="/settings">modifier</a>){{end}}.</p>{{end}}
+{{if .Data.Regulatory}}<p class="muted small">Actualités liées {{if $f.Regulations}}aux réglementations suivies{{else}}à une réglementation ou une norme{{end}}{{if $analyst}} (<a href="/settings">modifier</a>){{end}}.</p>{{end}}
 
-{{if can .User.Role "analyst"}}
-<form method="post" action="/cti/refresh" class="inline">
-  <input type="hidden" name="csrf" value="{{.CSRF}}">
-  <button type="submit">Collecter les flux maintenant</button>
-</form>
-{{end}}
+<details class="card" {{if and .Data.All (or $f.Countries $f.Sectors $f.Regulations)}}open{{end}}>
+  <summary>Filtrer par pays, secteur ou réglementation</summary>
+  <form method="get" action="/cti">
+    <input type="hidden" name="all" value="1">
+    {{template "tagFields" (dict3 $f.Countries $f.Sectors $f.Regulations)}}
+    <button type="submit">Filtrer</button>
+    <a href="/cti?all=1">Réinitialiser</a>
+  </form>
+</details>
+
+<div class="toolbar">
+  {{if $analyst}}
+  <form method="post" action="/cti/refresh" class="inline">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <button type="submit">Collecter les flux</button>
+  </form>
+  {{end}}
+</div>
 
 {{if .Data.Items}}
 <ul class="news">
@@ -47,6 +42,6 @@
 {{end}}
 </ul>
 {{else}}
-<p class="muted">Aucune actualité. Lancez une collecte ou élargissez les filtres.</p>
+<p class="muted">Aucune actualité.{{if $analyst}} Lancez une collecte ou élargissez les filtres.{{else}} Élargissez les filtres.{{end}}</p>
 {{end}}
 {{end}}

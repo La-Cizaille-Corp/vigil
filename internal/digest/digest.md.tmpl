@@ -7,7 +7,7 @@ Généré le {{date .GeneratedAt}} — période depuis le {{date .Since}}.
 | Priorité | Vulnérabilité | Actif | Statut | Résumé |
 |---|---|---|---|---|
 {{- range .New}}
-| {{if .KEV}}**EXPLOITÉE (KEV)** {{end}}{{cell (or .Severity "?")}}{{with epss .EPSS}} · EPSS {{.}}{{end}} | {{.VulnID}}{{if .Aliases}} ({{join .Aliases ", "}}){{end}} | {{cell .AssetName}} {{cell .AssetVersion}} | {{status .Status}} | {{cell .Summary}} |
+| {{if .KEV}}**EXPLOITÉE (KEV)** {{end}}{{cell (sev .Severity)}}{{with epss .EPSS}} · EPSS {{.}}{{end}} | {{.VulnID}}{{if .Aliases}} ({{join .Aliases ", "}}){{end}} | {{cell .AssetName}} {{cell .AssetVersion}} | {{status .Status}} | {{cell .Summary}} |
 {{- end}}
 {{else}}
 Aucune nouvelle vulnérabilité sur la période.
@@ -15,7 +15,7 @@ Aucune nouvelle vulnérabilité sur la période.
 ## Vulnérabilités ouvertes ({{len .Open}})
 {{if .Open}}
 {{- range .Open}}
-- {{if .KEV}}**EXPLOITÉE (KEV)** {{end}}**{{or .Severity "?"}}**{{with epss .EPSS}} (EPSS {{.}}){{end}} {{.VulnID}} — {{.AssetName}} {{.AssetVersion}} — {{status .Status}}
+- {{if .KEV}}**EXPLOITÉE (KEV)** {{end}}**{{sev .Severity}}**{{with epss .EPSS}} (EPSS {{.}}){{end}} {{.VulnID}} — {{.AssetName}} {{.AssetVersion}} — {{status .Status}}
 {{- end}}
 {{else}}
 Aucune vulnérabilité ouverte.

@@ -1,6 +1,7 @@
 package cti
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"regexp"
@@ -190,4 +191,19 @@ func (l latin1Reader) Read(p []byte) (int, error) {
 		out = utf8.AppendRune(out, rune(b))
 	}
 	return len(out), err
+}
+
+// Retag recomputes the tags of the items of feed f, after its own tags changed.
+func Retag(ctx context.Context, st *store.Store, f store.Feed) error {
+	items, err := st.FeedItems(ctx, f.ID)
+	if err != nil {
+		return err
+	}
+	for _, it := range items {
+		tags := Classify(Item{Title: it.Title, Summary: it.Summary}, f)
+		if err := st.SetCTIItemTags(ctx, it.ID, tags.Countries, tags.Sectors, tags.Regulations); err != nil {
+			return err
+		}
+	}
+	return nil
 }

@@ -106,3 +106,8 @@ func (s *Store) Audit(ctx context.Context, userID int64, action, detail string) 
 		uid, action, detail, now())
 	return err
 }
+
+// SetPassword replaces the password hash of a user.
+func (s *Store) SetPassword(ctx context.Context, userID int64, passwordHash string) error {
+	return expectRow(s.db.ExecContext(ctx, `UPDATE users SET password_hash = ? WHERE id = ?`, passwordHash, userID))
+}
