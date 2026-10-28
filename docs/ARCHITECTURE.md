@@ -237,6 +237,19 @@ officielles par défaut (Commission européenne, CNIL, EDPB, EBA). Les flux ISO 
 écartés : trop volumineux et majoritairement hors sujet. La veille réglementaire ignore les
 filtres pays / secteur : une réglementation concerne tous ceux qu'elle couvre.
 
+**A35. Tableau de bord : indicateurs d'action et graphiques SVG rendus par le serveur.** Les
+indicateurs retenus répondent à « que faire maintenant ? » plutôt qu'à « combien ? » : à traiter en
+priorité (KEV ou EPSS >= 10 %, cliquable vers la liste exacte), vulnérabilités ouvertes, exploitées
+avec échéance CISA dépassée, en attente d'analyse depuis plus de 30 jours, délai moyen de traitement
+sur 90 jours (de la détection à la clôture : corrigée, non affectée ou faux positif) et couverture de
+détection (actifs vérifiés automatiquement). Graphiques : répartition par sévérité (anneau),
+activité hebdomadaire nouvelles / traitées sur 12 semaines, actifs les plus exposés. Une
+bibliothèque de graphiques en JavaScript aurait cassé la CSP et ajouté une dépendance npm : le
+serveur calcule la géométrie et produit du SVG ; couleurs par classes CSS (thèmes clair et sombre),
+info-bulle native (`<title>`) sur chaque marque, tableau des données sous chaque graphique, aucun
+attribut `style`. Palettes vérifiées avec un validateur (daltonisme, contraste) : la sévérité est
+une rampe ordinale d'une seule teinte (rouge), l'activité un couple bleu / vert d'eau.
+
 **A34. Plusieurs pays, secteurs et réglementations par flux, modifiables.** Un flux européen ou
 un site de normalisation couvre souvent plusieurs pays ou textes : un sélecteur unique obligeait
 à choisir. Les étiquettes d'un flux se modifient après coup (y compris celles des flux par

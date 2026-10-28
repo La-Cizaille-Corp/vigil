@@ -27,12 +27,19 @@
     </fieldset>
     <fieldset><legend>Exploitation</legend>
       <label class="check"><input type="checkbox" name="kev" value="1" {{if $f.KEV}}checked{{end}}> Exploitée (CISA KEV)</label>
+      <label class="check"><input type="checkbox" name="priority" value="1" {{if $f.Priority}}checked{{end}}> Prioritaire (KEV ou EPSS ≥ 10 %)</label>
     </fieldset>
   </div>
-  <button type="submit">Filtrer</button>
-  <a href="/findings">Réinitialiser</a>
-  <a href="/findings?status=in_triage&amp;status=exploitable">Non traitées</a>
-  <a href="/findings?status=in_triage&amp;status=exploitable&amp;severity=CRITICAL&amp;severity=HIGH">Critiques et hautes à traiter</a>
+  <div class="toolbar form-actions">
+    <button type="submit">Filtrer</button>
+    <a href="/findings">Réinitialiser</a>
+    <span class="filters">
+      <span class="muted small">Raccourcis :</span>
+      <a href="/findings?status=in_triage&amp;status=exploitable">Non traitées</a>
+      <a href="/findings?status=in_triage&amp;status=exploitable&amp;priority=1">Prioritaires</a>
+      <a href="/findings?status=in_triage&amp;status=exploitable&amp;severity=CRITICAL&amp;severity=HIGH">Critiques et hautes à traiter</a>
+    </span>
+  </div>
 </form>
 <p class="muted">{{len .Data.Findings}} vulnérabilité(s){{with $f.Project}} — <a href="/assets?project={{.}}">actifs du projet {{.}}</a>{{end}}</p>
 {{template "findingTable" .Data.Findings}}

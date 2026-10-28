@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -127,4 +128,15 @@ func sentences(msg string) string {
 		lines[i] = l
 	}
 	return strings.Join(lines, "\n")
+}
+
+// formatDays formats a duration in days: "< 1 j", "3,5 j", "12 j".
+func formatDays(d float64) string {
+	switch {
+	case d < 1:
+		return "< 1 j"
+	case d < 10:
+		return strings.Replace(strconv.FormatFloat(d, 'f', 1, 64), ".", ",", 1) + " j"
+	}
+	return strconv.FormatFloat(d, 'f', 0, 64) + " j"
 }

@@ -8,7 +8,7 @@
 </head>
 <body>
 <header>
-  <a class="brand" href="/">Vigil</a>
+  <a class="brand" href="/"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="logo-shield" d="M12 2 4 5v6c0 5 3.4 9.3 8 11 4.6-1.7 8-6 8-11V5l-8-3Z"/><path class="logo-eye" d="M12 8.5c-2.6 0-4.7 1.6-5.5 3.5.8 1.9 2.9 3.5 5.5 3.5s4.7-1.6 5.5-3.5c-.8-1.9-2.9-3.5-5.5-3.5Zm0 5.5a2 2 0 1 1 0-4 2 2 0 0 1 0 4Z"/></svg>Vigil</a>
   {{if .User}}
   <nav>
     <a href="/" {{if eq .Path "/"}}aria-current="page"{{end}}>Tableau de bord</a>
@@ -17,11 +17,11 @@
     <a href="/cti" {{if hasPrefix .Path "/cti"}}aria-current="page"{{end}}>Veille</a>
     <a href="/digests" {{if hasPrefix .Path "/digests"}}aria-current="page"{{end}}>Digests</a>
     <a href="/settings" {{if hasPrefix .Path "/settings"}}aria-current="page"{{end}}>Paramètres</a>
-    <a href="/account" {{if hasPrefix .Path "/account"}}aria-current="page"{{end}}>Mon compte</a>
   </nav>
   <form method="post" action="/logout" class="inline">
     <input type="hidden" name="csrf" value="{{.CSRF}}">
-    <span class="muted">{{.User.Username}} ({{roleLabel .User.Role}})</span>
+    <a class="account-link" href="/account" title="Mon compte" {{if hasPrefix .Path "/account"}}aria-current="page"{{end}}>{{.User.Username}}</a>
+    <span class="muted small">{{roleLabel .User.Role}}</span>
     <button type="submit" class="link">Déconnexion</button>
   </form>
   {{end}}

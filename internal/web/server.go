@@ -144,6 +144,8 @@ func (s *Server) parseTemplates() error {
 		"can":           auth.RoleAtLeast,
 		"join":          strings.Join,
 		"hasPrefix":     strings.HasPrefix,
+		"lower":         strings.ToLower,
+		"days":          formatDays,
 		"kinds":         func() []inventory.Option { return inventory.Kinds },
 		"criticalities": func() []inventory.Option { return inventory.Criticalities },
 		"cpeModes":      func() []inventory.Option { return inventory.CPEModes },

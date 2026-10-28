@@ -66,7 +66,9 @@ type FindingFilter struct {
 	AssetID int64
 	Since   time.Time // first_seen >= Since
 	KEV     bool      // only known exploited vulnerabilities
-	Project string
+	// Priority keeps vulnerabilities exploited (KEV) or likely to be (EPSS >= 10 %).
+	Priority bool
+	Project  string
 
 	Statuses   []string // any of these statuses
 	Severities []string // any of these ratings; "UNKNOWN" matches findings without one
@@ -286,6 +288,9 @@ func (s *Store) ListFindings(ctx context.Context, f FindingFilter) ([]Finding, e
 	}
 	if f.KEV {
 		where = append(where, "v.kev = 1")
+	}
+	if f.Priority {
+		where = append(where, "(v.kev = 1 OR v.epss >= 0.1)")
 	}
 	if !f.Since.IsZero() {
 		where = append(where, "f.first_seen >= ?")

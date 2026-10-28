@@ -169,29 +169,45 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	now := time.Now()
+	stats, err := s.Store.DashboardStats(ctx, now)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
 	counts, err := s.Store.CountFindingsByStatus(ctx)
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
-	recent, err := s.Store.ListFindings(ctx, store.FindingFilter{Since: time.Now().Add(-7 * 24 * time.Hour)})
+	recent, err := s.Store.ListFindings(ctx, store.FindingFilter{Since: now.Add(-7 * 24 * time.Hour)})
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
 	digest.SortByPriority(recent)
+	recentTotal := len(recent)
+	recent = recent[:min(len(recent), 10)]
 	assets, err := s.Store.ListAssets(ctx)
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
-	exploited, err := s.Store.ListFindings(ctx, store.FindingFilter{KEV: true})
-	if err != nil {
-		s.serverError(w, r, err)
-		return
+	tracked := 0
+	for _, a := range assets {
+		if trackingSource(a) != "" {
+			tracked++
+		}
+	}
+	coverage := -1
+	if len(assets) > 0 {
+		coverage = 100 * tracked / len(assets)
 	}
 	s.render(w, r, http.StatusOK, "dashboard", page{Title: "Tableau de bord", Data: map[string]any{
-		"Counts": counts, "Recent": recent, "AssetCount": len(assets), "KEVCount": len(exploited),
+		"Stats": stats, "Counts": counts, "Severe": stats.OpenBySeverity["CRITICAL"] + stats.OpenBySeverity["HIGH"], "Recent": recent, "RecentTotal": recentTotal,
+		"Assets": len(assets), "Tracked": tracked, "Coverage": coverage,
+		"Donut": newDonut(stats.OpenBySeverity), "Weekly": newWeeklyChart(stats.Weeks),
+		"TopAssets": newAssetChart(stats.TopAssets), "OpenQuery": openFindings,
 	}})
 }
 
@@ -400,6 +416,7 @@ func findingFilterFrom(q url.Values) store.FindingFilter {
 		Severities: keep(q["severity"], severities),
 		Kinds:      keep(q["kind"], inventory.Kinds),
 		KEV:        q.Get("kev") == "1",
+		Priority:   q.Get("priority") == "1",
 		MinCVSS:    number("cvss", 10),
 		MinEPSS:    number("epss", 100) / 100, // entered as a percentage
 		Project:    q.Get("project"),
