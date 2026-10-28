@@ -92,6 +92,10 @@ var states = map[string]string{
 }
 
 // Parse reads the analyses of a CycloneDX VEX (or BOM with vulnerabilities).
+// maxStatements bounds the analyses of one document, each matched against
+// the inventory on import.
+const maxStatements = 20000
+
 func Parse(r io.Reader) ([]Statement, error) {
 	data, err := netsafe.ReadLimited(r, MaxSize)
 	if err != nil {
@@ -113,6 +117,9 @@ func Parse(r io.Reader) ([]Statement, error) {
 		for _, a := range v.Affects {
 			if a.Ref == "" {
 				continue
+			}
+			if len(out) == maxStatements {
+				return nil, fmt.Errorf("fichier VEX trop volumineux (plus de %d analyses)", maxStatements)
 			}
 			out = append(out, Statement{VulnID: v.ID, Ref: a.Ref, State: state,
 				Justification: v.Analysis.Justification, Detail: truncate(v.Analysis.Detail, 4000)})

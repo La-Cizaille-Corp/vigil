@@ -58,3 +58,16 @@ func TestParseRejectsUnknown(t *testing.T) {
 		t.Fatal("unknown format accepted")
 	}
 }
+
+// An empty or unusable SBOM would remove every asset of the project, and
+// their triage history with them: it is refused.
+func TestParseRefusesEmpty(t *testing.T) {
+	for _, doc := range []string{
+		`{"bomFormat":"CycloneDX","components":[]}`,
+		`{"bomFormat":"CycloneDX","components":[{"type":"library","name":""}]}`,
+	} {
+		if _, err := Parse(strings.NewReader(doc)); err == nil {
+			t.Errorf("accepted: %s", doc)
+		}
+	}
+}

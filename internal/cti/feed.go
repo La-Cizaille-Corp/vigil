@@ -11,6 +11,7 @@ import (
 	"html"
 	"net/http"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -119,6 +120,7 @@ func Parse(data []byte) ([]Item, error) {
 		return nil, errors.New("format de flux inconnu (RSS ou Atom attendu)")
 	}
 
+	now := time.Now().UTC()
 	for i := range items {
 		it := &items[i]
 		it.Title = truncate(cleanText(it.Title), 500)
@@ -127,22 +129,34 @@ func Parse(data []byte) ([]Item, error) {
 		it.Link = strings.TrimSpace(it.Link)
 		// SECURITY: only keep http(s) links; a javascript: URL would be
 		// neutralised by html/template anyway, but we do not store it.
-		if !strings.HasPrefix(it.Link, "https://") && !strings.HasPrefix(it.Link, "http://") {
+		if !strings.HasPrefix(it.Link, "https://") && !strings.HasPrefix(it.Link, "http://") || len(it.Link) > maxLinkLen {
 			it.Link = ""
 		}
-		if it.Published.IsZero() {
-			it.Published = time.Now().UTC()
+		// A date in the future would keep an item at the top of every list
+		// and out of the retention purge.
+		if it.Published.IsZero() || it.Published.After(now.Add(24*time.Hour)) {
+			it.Published = now
 		}
+	}
+	// SECURITY: a hostile or broken feed cannot flood the database.
+	if len(items) > maxFeedItems {
+		sort.SliceStable(items, func(i, j int) bool { return items[i].Published.After(items[j].Published) })
+		items = items[:maxFeedItems]
 	}
 	return items, nil
 }
 
+// Limits on what one fetch of a feed may store.
+const (
+	maxFeedItems = 500
+	maxLinkLen   = 2000
+)
+
 var tagRe = regexp.MustCompile(`<[^>]*>`)
 
-// cleanText removes markup and collapses whitespace; the result is plain text
-// that templates escape again on output.
-// cleanText turns HTML content into plain text. Some feeds escape their HTML
-// twice ("&amp;nbsp;"), so entities are decoded until stable.
+// cleanText turns HTML content into plain text that templates escape again
+// on output. Some feeds escape their HTML twice ("&amp;nbsp;"), so entities
+// are decoded until stable, and tags removed once more after the last pass.
 func cleanText(s string) string {
 	for range 3 {
 		s = tagRe.ReplaceAllString(s, " ")
@@ -152,6 +166,7 @@ func cleanText(s string) string {
 		}
 		s = u
 	}
+	s = tagRe.ReplaceAllString(s, " ")
 	return strings.Join(strings.Fields(s), " ")
 }
 

@@ -28,6 +28,8 @@ func TestGenerate(t *testing.T) {
 		Published: time.Now(), Countries: []string{"FR"}, Sectors: []string{"health"}})
 	st.InsertCTIItem(ctx, feed, store.CTIItem{GUID: "2", Title: "Log4Shell : correctifs urgents (CVE-2021-44228)", Link: "https://example.org/2",
 		Published: time.Now()})
+	st.InsertCTIItem(ctx, feed, store.CTIItem{GUID: "3", Title: "<!channel> [Correctif](https://evil.example) hôpitaux", Link: "https://example.org/3",
+		Published: time.Now(), Countries: []string{"FR"}})
 
 	d, err := Generate(ctx, st)
 	if err != nil {
@@ -42,6 +44,12 @@ func TestGenerate(t *testing.T) {
 	}
 	if !strings.Contains(d.Markdown, "| org.apache.logging.log4j | 1 | 0 | 0 | 0 | 0 | 1 | 0 |") {
 		t.Errorf("vendor breakdown missing:\n%s", d.Markdown)
+	}
+	// SECURITY: untrusted text reaches chat tools through the Markdown digest.
+	for _, bad := range []string{"<!channel>", "](https://evil"} {
+		if strings.Contains(d.Markdown, bad) {
+			t.Errorf("%q survives in the Markdown digest", bad)
+		}
 	}
 	// SECURITY: the HTML digest is rendered by html/template and later
 	// trusted by the UI, so stored text must arrive escaped.

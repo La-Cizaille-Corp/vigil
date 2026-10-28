@@ -71,3 +71,23 @@ func TestRotateBackups(t *testing.T) {
 		}
 	}
 }
+
+// A copy made by hand next to the scheduled backups is neither counted nor
+// deleted by the rotation.
+func TestRotateKeepsManualCopies(t *testing.T) {
+	dir := t.TempDir()
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for _, n := range []string{"vigil-avant-maj.db", "vigil-2026-01-01.db", BackupName(base), BackupName(base.Add(time.Hour))} {
+		os.WriteFile(filepath.Join(dir, n), nil, 0o600)
+	}
+	if err := RotateBackups(dir, 1); err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := os.ReadDir(dir)
+	if len(entries) != 3 {
+		t.Errorf("after rotation: %d files, want the 2 manual copies and the newest backup", len(entries))
+	}
+	if _, err := os.Stat(filepath.Join(dir, BackupName(base))); !os.IsNotExist(err) {
+		t.Error("oldest scheduled backup kept")
+	}
+}

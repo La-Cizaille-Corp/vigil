@@ -17,6 +17,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/La-Cizaille-Corp/vigil/internal/chattext"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
 	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
@@ -176,9 +177,12 @@ func (n *Notifier) alertMessage(alerts []store.Alert) message {
 		}
 		reason := alertReason(a)
 		if i < maxAlertLines {
-			fmt.Fprintf(&b, "- **%s** (%s) — %s", a.VulnID, reason, strings.TrimSpace(a.AssetName+" "+a.AssetVersion))
+			// SECURITY: identifiers, names and summaries come from sources and
+			// SBOMs; chattext keeps them from pinging a channel or hiding a link.
+			fmt.Fprintf(&b, "- **%s** (%s) — %s", chattext.Text(a.VulnID), reason,
+				chattext.Text(strings.TrimSpace(a.AssetName+" "+a.AssetVersion)))
 			if a.Summary != "" {
-				fmt.Fprintf(&b, " : %s", truncate(a.Summary, 140))
+				fmt.Fprintf(&b, " : %s", chattext.Text(truncate(a.Summary, 140)))
 			}
 			if link != "" {
 				fmt.Fprintf(&b, " — %s", link)

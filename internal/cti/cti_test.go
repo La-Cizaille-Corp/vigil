@@ -1,8 +1,11 @@
 package cti
 
 import (
+	"fmt"
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
@@ -86,6 +89,34 @@ func TestClassifyRegulations(t *testing.T) {
 		tags := Classify(Item{Title: title}, store.Feed{Regulations: "gdpr"})
 		if !reflect.DeepEqual(tags.Regulations, want) {
 			t.Errorf("%q: %v, want %v", title, tags.Regulations, want)
+		}
+	}
+}
+
+// A feed cannot flood the database nor pin an item at the top with a date in
+// the future.
+func TestParseLimits(t *testing.T) {
+	var b strings.Builder
+	b.WriteString(`<rss><channel>`)
+	for i := range maxFeedItems + 10 {
+		fmt.Fprintf(&b, `<item><guid>%d</guid><title>t</title><pubDate>Mon, 26 Oct 2026 10:00:00 +0000</pubDate></item>`, i)
+	}
+	fmt.Fprintf(&b, `<item><guid>future</guid><title>f</title><link>https://example.org/%s</link><pubDate>Fri, 01 Jan 2100 00:00:00 +0000</pubDate></item>`,
+		strings.Repeat("a", maxLinkLen))
+	b.WriteString(`</channel></rss>`)
+	items, err := Parse([]byte(b.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != maxFeedItems {
+		t.Errorf("%d items kept, want %d", len(items), maxFeedItems)
+	}
+	for _, it := range items {
+		if it.Published.After(time.Now().Add(25 * time.Hour)) {
+			t.Errorf("future date kept: %v", it.Published)
+		}
+		if it.GUID == "future" && it.Link != "" {
+			t.Error("oversized link kept")
 		}
 	}
 }

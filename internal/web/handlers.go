@@ -25,7 +25,10 @@ import (
 // SECURITY: behind a reverse proxy every request comes from the proxy, often
 // on the same host, so loopback proves nothing: the CLI must be used instead.
 func (s *Server) setupAllowed(r *http.Request) (bool, error) {
-	if s.BehindProxy {
+	// A proxy forwarding headers while -behind-proxy is missing would make
+	// every request look local.
+	if s.BehindProxy || r.Header.Get("X-Forwarded-For") != "" || r.Header.Get("Forwarded") != "" ||
+		r.Header.Get("X-Real-Ip") != "" {
 		return false, nil
 	}
 	n, err := s.Store.CountUsers(r.Context())
@@ -66,7 +69,11 @@ func (s *Server) setupSubmit(w http.ResponseWriter, r *http.Request) {
 		s.render(w, r, http.StatusBadRequest, "setup", page{Title: "Première configuration", Error: err.Error()})
 		return
 	}
-	id, err := s.Store.CreateUser(r.Context(), username, hash, auth.RoleAdmin)
+	id, err := s.Store.CreateFirstAdmin(r.Context(), username, hash)
+	if errors.Is(err, store.ErrNotFound) { // another request created it meanwhile
+		http.Error(w, "Configuration déjà effectuée.", http.StatusForbidden)
+		return
+	}
 	if err != nil {
 		s.serverError(w, r, err)
 		return
@@ -85,13 +92,26 @@ func (s *Server) loginForm(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	ip := s.clientIP(r)
-	if !s.limiter.Allowed(ip) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxFormBytes)
+	username, password := r.PostFormValue("username"), r.PostFormValue("password")
+	// SECURITY: the attempt is counted before the slow password check, so
+	// that parallel requests cannot all get through, per address and per
+	// account name (existing or not), so that spreading guesses over many
+	// addresses does not help. A success only cancels its own attempt.
+	// The name is cut to the longest valid username, so that the limiter's
+	// memory stays bounded whatever is posted.
+	ipKey, userKey := limitKey(ip), "user:"+strings.ToLower(truncate(username, 64))
+	if !s.limiter.Take(ipKey) {
 		s.render(w, r, http.StatusTooManyRequests, "login", page{Title: "Connexion",
 			Error: "Trop de tentatives. Réessayez dans quelques minutes."})
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxFormBytes)
-	username, password := r.PostFormValue("username"), r.PostFormValue("password")
+	if !s.accounts.Take(userKey) {
+		s.limiter.Forgive(ipKey)
+		s.render(w, r, http.StatusTooManyRequests, "login", page{Title: "Connexion",
+			Error: "Trop de tentatives. Réessayez dans quelques minutes."})
+		return
+	}
 
 	user, err := s.Store.UserByName(r.Context(), username)
 	valid := false
@@ -115,13 +135,13 @@ func (s *Server) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !valid {
-		s.limiter.Fail(ip)
-		s.audit(r, 0, "login_failed", "ip="+ip)
+		s.audit(r, 0, "login_failed", "ip="+ip+" user="+truncate(username, 64))
 		// SECURITY: same message whether the user exists or not.
 		s.render(w, r, http.StatusUnauthorized, "login", page{Title: "Connexion", Error: "Identifiants invalides."})
 		return
 	}
-	s.limiter.Reset(ip)
+	s.limiter.Forgive(ipKey)
+	s.accounts.Reset(userKey)
 	s.audit(r, user.ID, "login", "ip="+ip)
 	s.startSession(w, r, user.ID)
 }
@@ -145,7 +165,7 @@ func (s *Server) startSession(w http.ResponseWriter, r *http.Request, userID int
 	// #nosec G124 -- Secure is set whenever the UI is served over HTTPS; a
 	// local instance on http://127.0.0.1 cannot use Secure cookies.
 	http.SetCookie(w, &http.Cookie{
-		Name:     sessionCookie,
+		Name:     s.cookieName(),
 		Value:    token,
 		Path:     "/",
 		Expires:  expires,
@@ -157,12 +177,12 @@ func (s *Server) startSession(w http.ResponseWriter, r *http.Request, userID int
 }
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
-	if c, err := r.Cookie(sessionCookie); err == nil {
+	if c, err := r.Cookie(s.cookieName()); err == nil {
 		if err := s.Store.DeleteSession(r.Context(), auth.HashToken(c.Value)); err != nil {
 			s.Log.Error("delete session", "err", err)
 		}
 	}
-	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1, // #nosec G124 -- see startSession
+	http.SetCookie(w, &http.Cookie{Name: s.cookieName(), Value: "", Path: "/", MaxAge: -1, // #nosec G124 -- see startSession
 		HttpOnly: true, Secure: s.SecureCookies, SameSite: http.SameSiteStrictMode})
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
@@ -614,7 +634,7 @@ func (s *Server) renderFinding(w http.ResponseWriter, r *http.Request, status in
 		s.serverError(w, r, err)
 		return
 	}
-	s.render(w, r, status, "finding", page{Title: f.VulnID, Error: formErr,
+	s.render(w, r, status, "finding", page{Title: findingTitle(f), Error: formErr,
 		Data: map[string]any{"Finding": f, "Vuln": v, "Events": events, "Mentions": mentions}})
 }
 

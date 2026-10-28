@@ -134,6 +134,8 @@ func (s *Server) saveWatch(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
+	sess, _ := sessionFrom(r.Context())
+	s.audit(r, sess.User.ID, "watch_update", strings.Join(append(append(r.PostForm["country"], r.PostForm["sector"]...), r.PostForm["regulation"]...), ","))
 	redirect(w, r, "/settings", "watch-saved")
 }
 
@@ -169,7 +171,7 @@ func (s *Server) feedCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess, _ := sessionFrom(r.Context())
-	s.audit(r, sess.User.ID, "feed_create", f.URL)
+	s.audit(r, sess.User.ID, "feed_create", f.Name+" "+maskURL(f.URL))
 	redirect(w, r, "/settings", "feed-created")
 }
 
@@ -192,7 +194,7 @@ func (s *Server) feedUpdate(w http.ResponseWriter, r *http.Request) {
 		for _, f := range feeds {
 			if f.ID == id {
 				sess, _ := sessionFrom(r.Context())
-				s.audit(r, sess.User.ID, "feed_update", f.URL)
+				s.audit(r, sess.User.ID, "feed_update", f.Name+" "+maskURL(f.URL))
 				return cti.Retag(r.Context(), s.Store, f)
 			}
 		}
@@ -206,11 +208,14 @@ func (s *Server) feedToggle(w http.ResponseWriter, r *http.Request) {
 	if enabled {
 		msg = "feed-enabled"
 	}
-	s.byID(w, r, func(id int64) error { return s.Store.SetFeedEnabled(r.Context(), id, enabled) }, "/settings", msg)
+	s.byID(w, r, s.audited(r, "feed_toggle", fmt.Sprintf("enabled=%t", enabled), func(id int64) error {
+		return s.Store.SetFeedEnabled(r.Context(), id, enabled)
+	}), "/settings", msg)
 }
 
 func (s *Server) feedDelete(w http.ResponseWriter, r *http.Request) {
-	s.byID(w, r, func(id int64) error { return s.Store.DeleteFeed(r.Context(), id) }, "/settings", "feed-deleted")
+	s.byID(w, r, s.audited(r, "feed_delete", "", func(id int64) error { return s.Store.DeleteFeed(r.Context(), id) }),
+		"/settings", "feed-deleted")
 }
 
 func (s *Server) webhookCreate(w http.ResponseWriter, r *http.Request) {
@@ -247,7 +252,9 @@ func (s *Server) webhookToggle(w http.ResponseWriter, r *http.Request) {
 	if enabled {
 		msg = "hook-enabled"
 	}
-	s.byID(w, r, func(id int64) error { return s.Store.SetWebhookEnabled(r.Context(), id, enabled) }, "/settings", msg)
+	s.byID(w, r, s.audited(r, "webhook_toggle", fmt.Sprintf("enabled=%t", enabled), func(id int64) error {
+		return s.Store.SetWebhookEnabled(r.Context(), id, enabled)
+	}), "/settings", msg)
 }
 
 // webhookDelivery chooses what a channel receives: digests, alerts or both.
@@ -258,7 +265,9 @@ func (s *Server) webhookDelivery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	digests := r.PostFormValue("digests") == "1"
-	s.byID(w, r, func(id int64) error { return s.Store.SetWebhookDelivery(r.Context(), id, digests, alerts) }, "/settings", "hook-updated")
+	s.byID(w, r, s.audited(r, "webhook_delivery", fmt.Sprintf("digests=%t alerts=%s", digests, alerts), func(id int64) error {
+		return s.Store.SetWebhookDelivery(r.Context(), id, digests, alerts)
+	}), "/settings", "hook-updated")
 }
 
 // slaSave sets the remediation deadlines by severity.
@@ -295,7 +304,31 @@ func (s *Server) auditList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) webhookDelete(w http.ResponseWriter, r *http.Request) {
-	s.byID(w, r, func(id int64) error { return s.Store.DeleteWebhook(r.Context(), id) }, "/settings", "hook-deleted")
+	s.byID(w, r, s.audited(r, "webhook_delete", "", func(id int64) error { return s.Store.DeleteWebhook(r.Context(), id) }),
+		"/settings", "hook-deleted")
+}
+
+// audited wraps a change by id so that it is written to the audit log once
+// it succeeds.
+func (s *Server) audited(r *http.Request, action, detail string, change func(int64) error) func(int64) error {
+	return func(id int64) error {
+		if err := change(id); err != nil {
+			return err
+		}
+		sess, _ := sessionFrom(r.Context())
+		s.audit(r, sess.User.ID, action, strings.TrimSpace(fmt.Sprintf("id=%d %s", id, detail)))
+		return nil
+	}
+}
+
+// maskURL keeps the scheme and host of a URL: feed URLs may carry an access
+// key in their path or query.
+func maskURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return "(URL)"
+	}
+	return u.Scheme + "://" + u.Host + "/…"
 }
 
 // byID runs action on the {id} path value and redirects with msg.

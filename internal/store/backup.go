@@ -114,6 +114,19 @@ func BackupName(t time.Time) string {
 	return backupPrefix + t.UTC().Format("20060102-150405") + backupSuffix
 }
 
+// isBackupName reports whether name is exactly a BackupName.
+func isBackupName(name string) bool {
+	stamp, ok := strings.CutPrefix(name, backupPrefix)
+	if !ok {
+		return false
+	}
+	if stamp, ok = strings.CutSuffix(stamp, backupSuffix); !ok {
+		return false
+	}
+	_, err := time.Parse("20060102-150405", stamp)
+	return err == nil
+}
+
 // BackupTo writes a timestamped backup in dir and keeps only the newest keep
 // scheduled backups (keep <= 0 keeps everything).
 func (s *Store) BackupTo(ctx context.Context, dir string, keep int) (string, error) {
@@ -135,8 +148,9 @@ func RotateBackups(dir string, keep int) error {
 	}
 	var names []string
 	for _, e := range entries {
-		n := e.Name()
-		if e.Type().IsRegular() && strings.HasPrefix(n, backupPrefix) && strings.HasSuffix(n, backupSuffix) {
+		// Only names written by BackupName: a copy made by hand
+		// ("vigil-avant-maj.db") is neither counted nor deleted.
+		if n := e.Name(); e.Type().IsRegular() && isBackupName(n) {
 			names = append(names, n)
 		}
 	}

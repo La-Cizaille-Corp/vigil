@@ -35,10 +35,14 @@ func (s *Store) DisableTOTP(ctx context.Context, userID int64) error {
 		`UPDATE users SET totp_secret = '', totp_pending = '', totp_last_step = 0 WHERE id = ?`, userID))
 }
 
-// DisableTOTPByName is the CLI recovery path for a lost authenticator.
+// DisableTOTPByName is the CLI recovery path for a lost authenticator; it
+// also ends the user's sessions.
 func (s *Store) DisableTOTPByName(ctx context.Context, username string) error {
-	return expectRow(s.db.ExecContext(ctx,
-		`UPDATE users SET totp_secret = '', totp_pending = '', totp_last_step = 0 WHERE username = ?`, username))
+	a, err := s.AccountByName(ctx, username)
+	if err != nil {
+		return err
+	}
+	return s.ResetTOTP(ctx, a.ID)
 }
 
 // UseTOTPStep consumes a time step; it reports false when that step (or a

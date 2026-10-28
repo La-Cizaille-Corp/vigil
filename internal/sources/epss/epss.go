@@ -54,7 +54,9 @@ func Scores(ctx context.Context, client *http.Client, endpoint, userAgent string
 			return nil, fmt.Errorf("epss: decode: %w", err)
 		}
 		for _, d := range doc.Data {
-			if p, err := strconv.ParseFloat(d.EPSS, 64); err == nil {
+			// A probability: anything else (NaN, out of range) is ignored
+			// rather than stored.
+			if p, err := strconv.ParseFloat(d.EPSS, 64); err == nil && p >= 0 && p <= 1 {
 				out[d.CVE] = p
 			}
 		}

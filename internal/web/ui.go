@@ -67,6 +67,28 @@ func splitTags(v string) []string {
 	return out
 }
 
+// findingTitle names a finding by its CVE when it has one: teams and news
+// speak of CVE-2021-44228, not GHSA-jfh8-c2jp-5v3q.
+func findingTitle(f store.Finding) string {
+	if strings.HasPrefix(f.VulnID, "CVE-") {
+		return f.VulnID
+	}
+	for _, a := range f.Aliases {
+		if strings.HasPrefix(a, "CVE-") {
+			return a + " (" + f.VulnID + ")"
+		}
+	}
+	return f.VulnID
+}
+
+// truncate shortens s to at most n characters.
+func truncate(s string, n int) string {
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	return string([]rune(s)[:n]) + "…"
+}
+
 // syncStatus is the state of the running or last synchronisation.
 func (s *Server) syncStatus() tracking.Status {
 	if s.Syncer == nil {

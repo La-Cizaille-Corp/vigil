@@ -16,6 +16,7 @@
   <form method="post" action="/account/totp/confirm">
     <input type="hidden" name="csrf" value="{{.CSRF}}">
     <label>Code affiché par l'application <input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" required autofocus></label>
+    <label>Votre mot de passe <input type="password" name="password" autocomplete="current-password" required maxlength="1024"></label>
     <button type="submit">Activer</button>
   </form>
 </div>
@@ -26,8 +27,8 @@
   <button type="submit">Configurer la double authentification</button>
 </form>
 {{end}}
-<p class="small muted">Application perdue : un administrateur peut désactiver la double authentification sur le serveur avec
-<code>vigil user reset-totp -username NOM</code>.</p>
+<p class="small muted">Application perdue : un administrateur peut retirer la double authentification dans
+Paramètres → Utilisateurs, ou sur le serveur avec <code>vigil user reset-totp -username NOM</code>.</p>
 
 <h2>Mot de passe</h2>
 <form method="post" action="/account/password" class="card narrow">

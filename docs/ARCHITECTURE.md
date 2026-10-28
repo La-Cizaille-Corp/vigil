@@ -385,6 +385,27 @@ vulnérabilités ouvertes sont limitées à 25 par éditeur dans la liste, les c
 complets : un abonnement à un grand éditeur en compte des milliers. Le tableau vient en tête pour
 survivre à la troncature des messages de discussion.
 
+**A48. Audit de sécurité et d'ergonomie (octobre 2026).** Revue de l'architecture, du réseau et du
+code au regard de l'OWASP ASVS, puis de chaque écran. Décisions :
+- *Comptes* : désactivés plutôt que supprimés (migration 011), pour que l'historique et le journal
+  d'audit gardent le nom de qui a agi ; le dernier administrateur actif est protégé dans la
+  requête elle-même (pas de course) ; un mot de passe provisoire est généré plutôt que choisi par
+  l'administrateur. Écarté : la suppression définitive, qui effacerait la traçabilité.
+- *Connexion* : essais comptés avant la vérification, par adresse et par compte ; argon2 limité à
+  4 calculs simultanés. Le verrouillage d'un compte par un tiers est le prix assumé.
+- *Instance locale* : seuls `localhost`, `127.0.0.1` et `::1` (et l'hôte de `-base-url`) sont
+  acceptés dans l'en-tête `Host`, contre le *DNS rebinding*. Pas de liste d'hôtes en mode serveur :
+  HTTPS y empêche déjà l'attaque (le certificat ne correspond pas au domaine de l'attaquant).
+- *Messageries* : le texte tiers passe par `chattext` (mentions et liens neutralisés par un espace
+  invisible, chevrons remplacés). Écarté : un échappement différent par messagerie, qui obligerait à
+  produire un digest par canal.
+- *Traçabilité* : le journal d'audit est dupliqué dans le journal du service, pour une copie hors
+  de la base ; les suppressions et désactivations de flux, canaux et jetons y entrent.
+- *Différé* : retrait « doux » des actifs absents d'un nouveau SBOM (aujourd'hui supprimés avec leur
+  historique ; seul un SBOM vide est refusé), rétention configurable des journaux, double
+  authentification obligatoire pour les administrateurs, épinglage par digest des images d'outils de
+  CI.
+
 **A43. Triage par lot et journal d'audit consultable.** Le triage par lot applique une même
 décision à des vulnérabilités cochées, avec un événement d'historique pour chacune (pas de
 raccourci qui perdrait la traçabilité). Le journal d'audit, déjà écrit, devient lisible par les

@@ -47,6 +47,14 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	if err := f.Close(); err != nil {
 		return nil, fmt.Errorf("create database file: %w", err)
 	}
+	// A file created by an older version or copied by hand may be readable by
+	// others; WAL and SHM files inherit its mode. No effect on Windows, where
+	// the folder's access rights apply.
+	if info, err := os.Stat(path); err == nil && info.Mode().Perm()&0o077 != 0 {
+		if err := os.Chmod(path, 0o600); err != nil {
+			return nil, fmt.Errorf("restrict database file: %w", err)
+		}
+	}
 
 	dsn := path + "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
 	db, err := sql.Open("sqlite", dsn)

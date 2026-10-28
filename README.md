@@ -83,6 +83,7 @@ tourne au démarrage puis toutes les 6 heures.
 | `vigil digest` | Génère un digest, l'affiche en Markdown et l'envoie aux webhooks (`-no-webhooks` pour ne pas l'envoyer) |
 | `vigil import-sbom -project app sbom.json` | Importe ou met à jour les composants d'un projet |
 | `vigil user add -username bob -role analyst` | Crée un compte (mot de passe lu sans écho) |
+| `vigil user list` / `disable` / `enable` / `set-role` / `reset-password` | Gère les comptes en ligne de commande (aussi dans Paramètres → Utilisateurs) |
 
 La base SQLite est stockée dans le dossier de configuration de l'utilisateur ; `-db` ou la
 variable `VIGIL_DB` permettent de la déplacer.
@@ -136,9 +137,12 @@ Vigil refuse d'écouter sur une interface non locale sans TLS. Les flux et webho
 pas viser d'adresses privées ou locales, sauf avec `-allow-private-urls`.
 
 Rôles : `viewer` (lecture), `analyst` (inventaire, triage, synchronisation, digests, filtres de
-veille), `admin` (flux CTI, webhooks et jetons d'API en plus). Chaque utilisateur peut activer la
-**double authentification TOTP** dans « Mon compte » (recommandé en mode serveur) ; en cas de
-téléphone perdu : `vigil user reset-totp -username NOM`.
+veille), `admin` (flux CTI, webhooks, jetons d'API et comptes en plus). Les administrateurs gèrent
+les comptes dans **Paramètres → Utilisateurs** : création avec mot de passe provisoire, rôle,
+désactivation d'un départ (sessions fermées aussitôt, historique conservé). Chaque utilisateur
+peut activer la **double authentification TOTP** dans « Mon compte » (recommandé en mode serveur) ;
+en cas de téléphone perdu, un administrateur la retire dans Paramètres → Utilisateurs ou avec
+`vigil user reset-totp -username NOM`.
 
 ### Paquets et produits : purl ou CPE
 

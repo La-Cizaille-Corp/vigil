@@ -110,3 +110,16 @@ func TestLongDigestKeepsLink(t *testing.T) {
 		t.Errorf("digest message: %d bytes, ends with %q", len(text), text[max(0, len(text)-60):])
 	}
 }
+
+// Text from sources and SBOMs cannot ping a channel nor hide a link in an
+// alert.
+func TestAlertNeutralisesMarkup(t *testing.T) {
+	n := &Notifier{BaseURL: "https://vigil.example"}
+	m := n.alertMessage([]store.Alert{{Finding: store.Finding{ID: 1, VulnID: "CVE-2026-1", Severity: "CRITICAL",
+		AssetName: "app <!channel>", Summary: "@here [Correctif](https://evil.example)"}}})
+	for _, bad := range []string{"<!channel>", "@here", "](https://evil"} {
+		if strings.Contains(m.Text, bad) {
+			t.Errorf("%q survives in %q", bad, m.Text)
+		}
+	}
+}
