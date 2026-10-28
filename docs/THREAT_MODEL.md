@@ -55,10 +55,12 @@ API externes (OSV, NVD, KEV, EPSS), requêtes de l'API CI.
 - **Pas de SSO** : hors périmètre pour l'instant.
 - **Verrouillage d'un compte par un tiers** : dix échecs en 15 minutes bloquent le compte pendant
   ce délai, même pour son titulaire. C'est le prix de la limite par compte.
-- **Journaux conservés sans limite** : journal d'audit et historique de triage ne sont jamais
-  purgés, pour la traçabilité ; ils sont dans la base et dans ses sauvegardes.
-- **Images des outils de CI** (Trivy, gitleaks) épinglées par étiquette et non par digest : elles
-  tournent dans des tâches en lecture seule, sans accès aux secrets de publication.
+- **Journaux conservés par défaut sans limite** : pour la traçabilité, le journal d'audit et
+  l'historique de triage ne sont pas purgés. `-audit-retention-days` limite la durée du journal
+  d'audit quand une politique l'impose (il contient des noms et des adresses IP) ; l'historique de
+  triage n'est jamais purgé.
+- **Double authentification facultative par défaut** : Paramètres → Utilisateurs permet de
+  l'exiger des administrateurs ou de tous ; c'est recommandé en mode serveur.
 - **Jetons d'API sans expiration** : à révoquer à la main (Paramètres) quand un pipeline disparaît.
 - **Proxy HTTP sortant** : le proxy résout les noms à nouveau ; entre la vérification de Vigil et
   sa résolution, un nom pourrait changer d'adresse (rebinding DNS). Comme seul HTTPS est permis et

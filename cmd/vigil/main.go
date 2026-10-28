@@ -41,7 +41,7 @@ const usage = `vigil — veille de sécurité légère
 Usage :
   vigil serve   [-db fichier] [-addr 127.0.0.1:8080] [-tls-cert c -tls-key k] [-behind-proxy]
                 [-sync-interval 6h] [-digest-interval 24h] [-base-url https://...] [-allow-private-urls]
-                [-backup-dir dossier -backup-interval 24h -backup-keep 14] [options SMTP]
+                [-backup-dir dossier -backup-interval 24h -backup-keep 14] [-audit-retention-days 0] [options SMTP]
   vigil sync    [-db fichier] [-allow-private-urls] [options SMTP]
   vigil digest  [-db fichier] [-no-webhooks] [-allow-private-urls] [options SMTP]
   vigil import-sbom [-project nom] [-db fichier] fichier.json
@@ -209,6 +209,7 @@ func runServe(ctx context.Context, log *slog.Logger, args []string) error {
 	backupDir := fs.String("backup-dir", "", "dossier des sauvegardes automatiques (vide = désactivées)")
 	backupEvery := fs.Duration("backup-interval", 24*time.Hour, "intervalle des sauvegardes automatiques")
 	backupKeep := fs.Int("backup-keep", 14, "nombre de sauvegardes automatiques conservées")
+	auditDays := fs.Int("audit-retention-days", 0, "durée de conservation du journal d'audit en jours (0 = sans limite)")
 	mailer := smtpFlags(fs)
 	parseFlags(fs, args)
 	mail, err := mailer()
@@ -234,7 +235,7 @@ func runServe(ctx context.Context, log *slog.Logger, args []string) error {
 	sv := newServices(st, log, *allowPrivate, mail, *baseURL)
 	srv := &web.Server{Store: st, Syncer: sv.syncer, CTI: sv.cti, Notifier: sv.notifier, Log: log,
 		Version: version, BaseURL: *baseURL, SecureCookies: useTLS || *behindProxy, BehindProxy: *behindProxy, Context: ctx,
-		LocalOnly: isLocalAddr(*addr) && !useTLS && !*behindProxy}
+		LocalOnly: isLocalAddr(*addr) && !useTLS && !*behindProxy, AuditRetention: time.Duration(*auditDays) * 24 * time.Hour}
 	handler, err := srv.Handler()
 	if err != nil {
 		return err

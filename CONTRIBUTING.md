@@ -32,9 +32,9 @@
 Les actions GitHub sont épinglées par SHA de commit, les images de base par digest et GoReleaser
 par version exacte : une étiquette compromise ne peut pas changer ce qui construit une release.
 L'image est compilée en croisé, sans émulateur QEMU. Dependabot propose les mises à jour, sauf pour
-GoReleaser (`version:` dans `ci.yml` et `release.yml`, à monter à la main après 7 jours). Les images
-des outils Trivy et gitleaks ne sont épinglées que par étiquette : elles tournent dans des tâches
-en lecture seule.
+GoReleaser (`version:` dans `ci.yml` et `release.yml`), des images Trivy et gitleaks (`ci.yml`) et de
+BuildKit (`release.yml`), épinglés par version ou digest et à monter à la main après 7 jours :
+`crane digest image:tag` donne le digest.
 
 En local :
 

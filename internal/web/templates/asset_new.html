@@ -1,0 +1,42 @@
+{{define "content"}}
+<p><a href="/assets">← Inventaire</a></p>
+<h2 id="ajouter">Ajouter un actif</h2>
+<form method="get" action="/assets/cpe" class="card inline-search">
+  <label>Produit, technologie ou éditeur sans purl ? Trouver son CPE dans le dictionnaire de la NVD (un éditeur seul permet
+    de suivre tous ses produits)
+    <input type="search" name="q" maxlength="100" placeholder="fortios 7.2.4, fortinet, exchange server 2019, nginx…" required></label>
+  <button type="submit">Rechercher</button>
+</form>
+<form method="post" action="/assets" class="card">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  {{template "assetFields" .Data.Form}}
+  <button type="submit">Ajouter l'actif</button>
+</form>
+
+<h2>Importer un SBOM</h2>
+<form method="post" action="/assets/import" enctype="multipart/form-data" class="card">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <div class="grid">
+    <label>Fichier CycloneDX ou SPDX (JSON, 20 Mo max) <input type="file" name="sbom" accept=".json,application/json" required></label>
+    <label>Projet (par défaut : nom indiqué dans le SBOM) <input name="project" maxlength="200"></label>
+  </div>
+  <p class="muted small">Un nouvel import du même projet remplace ses actifs : les actifs inchangés gardent leur historique de suivi.
+    Les nouveaux actifs sont suivis sur les 120 derniers jours, comme un ajout manuel.</p>
+  <button type="submit">Importer le SBOM</button>
+</form>
+
+<h2>Importer un tableau (CSV)</h2>
+<form method="post" action="/assets/import-csv" enctype="multipart/form-data" class="card">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <label>Fichier CSV (2 Mo max), séparé par des virgules ou des points-virgules
+    <input type="file" name="csv" accept=".csv,text/csv" required></label>
+  <p class="muted small">Première ligne : noms des colonnes. Seule <code>name</code> (ou <code>nom</code>) est obligatoire ;
+    colonnes reconnues : <code>version</code>, <code>kind</code> (<code>type</code>), <code>criticality</code> (<code>criticité</code>),
+    <code>owner</code> (<code>responsable</code>), <code>project</code> (<code>projet</code>), <code>purl</code>, <code>ecosystem</code>,
+    <code>cpe</code>, <code>cpe_mode</code>, <code>cpe_from</code>, <code>track_since</code>, <code>notes</code>, <code>tags</code> (étiquettes, séparées par des virgules).
+    Les types et criticités s'écrivent comme dans l'interface (« Produit », « Haute »…) ou par leur code. Le plus simple :
+    partir d'un <a href="/assets.csv">export de l'inventaire</a>. Le fichier entier est refusé à la moindre ligne invalide ;
+    les lignes identiques à un actif existant sont ignorées.</p>
+  <button type="submit">Importer le tableau</button>
+</form>
+{{end}}

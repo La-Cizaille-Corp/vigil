@@ -13,7 +13,9 @@ Outil open source de **veille de sécurité** léger : un seul binaire, aucune i
   KEV > EPSS élevé > sévérité.
 - **Suivi** du traitement avec les statuts CycloneDX / VEX et un historique, triage par lot ;
   **délais de traitement** par sévérité avec indicateur « hors délai » ; résolution et réouverture
-  automatiques quand une version change ; **export et import VEX** CycloneDX, export CSV.
+  automatiques quand une version change ; **version corrigée** indiquée sur chaque vulnérabilité ;
+  **export et import VEX** CycloneDX, export CSV. Un composant absent d'un nouveau SBOM est retiré
+  sans perdre son historique.
 - **Veille CTI** : flux RSS/Atom (CERT-FR, CISA, presse spécialisée… modifiables), étiquetés par
   **pays** et **secteur** (liste NIS2), avec filtres enregistrés ; **veille réglementaire** (NIS2,
   CRA, DORA, RGPD, AI Act, ISO 27001, SecNumCloud…) alimentée par des sources officielles (Commission
@@ -163,8 +165,8 @@ en cas de téléphone perdu, un administrateur la retire dans Paramètres → Ut
   - *à partir de la version X* : CVE affectant les versions ≥ X.
 - **Période de suivi** : un nouvel actif (ajout manuel ou SBOM) remonte les vulnérabilités publiées
   dans les 120 jours précédant son ajout, puis toutes les nouvelles. Les plus anciennes ne sont
-  signalées que si elles sont activement exploitées (CISA KEV). Videz la date de début de l'actif
-  pour suivre tout l'historique.
+  signalées que si elles sont activement exploitées (CISA KEV) ; leur nombre est affiché sur l'actif,
+  avec un bouton « Suivre tout l'historique ».
 - L'ajout ou la modification d'un actif lance aussitôt son analyse ; « Analyser cet actif » la
   relance, « Synchroniser l'inventaire » relance tout. L'état de la dernière synchronisation est
   affiché à côté.

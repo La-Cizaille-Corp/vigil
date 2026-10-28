@@ -2,8 +2,10 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -89,5 +91,44 @@ func TestRotateKeepsManualCopies(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, BackupName(base))); !os.IsNotExist(err) {
 		t.Error("oldest scheduled backup kept")
+	}
+}
+
+// Temporary files of interrupted backups are removed once clearly
+// abandoned; only the newest copies taken before a schema upgrade are kept.
+func TestBackupLeftovers(t *testing.T) {
+	dir := t.TempDir()
+	stale := filepath.Join(dir, BackupName(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))+".tmp")
+	fresh := filepath.Join(dir, BackupName(time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC))+".tmp")
+	os.WriteFile(stale, nil, 0o600)
+	os.WriteFile(fresh, nil, 0o600)
+	old := time.Now().Add(-2 * time.Hour)
+	os.Chtimes(stale, old, old)
+	if err := RotateBackups(dir, 5); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Error("abandoned temporary backup kept")
+	}
+	if _, err := os.Stat(fresh); err != nil {
+		t.Error("temporary file of a running backup removed")
+	}
+
+	db := filepath.Join(dir, "vigil.db")
+	for i := range 5 {
+		p := fmt.Sprintf("%s.schema-%d.2026010%d-000000.bak", db, 8+i, i+1)
+		os.WriteFile(p, nil, 0o600)
+		mod := time.Now().Add(time.Duration(i-10) * time.Hour)
+		os.Chtimes(p, mod, mod)
+	}
+	pruneUpgradeBackups(db, 3)
+	matches, _ := filepath.Glob(db + ".schema-*.bak")
+	if len(matches) != 3 {
+		t.Fatalf("upgrade copies kept: %v", matches)
+	}
+	for _, m := range matches {
+		if strings.Contains(m, "schema-8.") || strings.Contains(m, "schema-9.") {
+			t.Errorf("oldest copy kept: %s", m)
+		}
 	}
 }

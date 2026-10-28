@@ -38,6 +38,19 @@ func (s *Server) require(role string, next http.HandlerFunc) http.Handler {
 			return
 		}
 		// SECURITY: authorization is checked server-side on every route.
+		// SECURITY: where a second factor is required, an account without one
+		// can only reach its own page, to set it up.
+		if !sess.User.TOTP && !totpExempt(r.URL.Path) {
+			required, err := s.totpRequired(r, sess.User.Role)
+			if err != nil {
+				s.serverError(w, r, err)
+				return
+			}
+			if required {
+				redirect(w, r, "/account", "totp-required")
+				return
+			}
+		}
 		if !auth.RoleAtLeast(sess.User.Role, role) {
 			http.Error(w, "Accès refusé.", http.StatusForbidden)
 			return
@@ -51,6 +64,18 @@ func (s *Server) require(role string, next http.HandlerFunc) http.Handler {
 		}
 		next(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, sess)))
 	})
+}
+
+// totpExempt lists what an account without its required second factor may
+// still reach: its own page, where the factor is set up, and sign-out.
+func totpExempt(path string) bool {
+	return path == "/account" || strings.HasPrefix(path, "/account/") || path == "/logout"
+}
+
+// totpRequired reports whether the TOTP policy applies to role.
+func (s *Server) totpRequired(r *http.Request, role string) (bool, error) {
+	policy, err := s.Store.TOTPPolicy(r.Context())
+	return policy == store.TOTPEveryone || policy == store.TOTPAdmins && role == auth.RoleAdmin, err
 }
 
 // localHosts are the names a browser uses for this machine.
@@ -111,6 +136,8 @@ func securityHeaders(next http.Handler) http.Handler {
 		h.Set("Referrer-Policy", "same-origin") // "no-referrer" makes browsers send "Origin: null" on form posts
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Cross-Origin-Opener-Policy", "same-origin")
+		h.Set("Cross-Origin-Resource-Policy", "same-origin")
+		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
 		h.Set("Cache-Control", "no-store")
 		if r.TLS != nil {
 			h.Set("Strict-Transport-Security", "max-age=31536000")

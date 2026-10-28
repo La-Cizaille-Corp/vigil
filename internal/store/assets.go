@@ -31,17 +31,22 @@ type Asset struct {
 	Tags        []string // free tags chosen by the users (see inventory.NormalizeTags)
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+	Retired     time.Time // dropped from its project's SBOM; zero while active
+	OlderVulns  int       // known vulnerabilities published before TrackSince, at the last check
 }
 
-const assetColumns = `id, name, kind, ecosystem, version, purl, cpe, cpe_mode, cpe_from, track_since, criticality, owner, notes, source, project, tags, created_at, updated_at`
+const assetColumns = `id, name, kind, ecosystem, version, purl, cpe, cpe_mode, cpe_from, track_since, criticality, owner, notes, source, project, tags, created_at, updated_at, retired_at, older_vulns`
 
 func scanAsset(row interface{ Scan(...any) error }) (Asset, error) {
 	var a Asset
-	var tags, created, updated string
+	var tags, created, updated, retired string
 	err := row.Scan(&a.ID, &a.Name, &a.Kind, &a.Ecosystem, &a.Version, &a.PURL, &a.CPE, &a.CPEMode, &a.CPEFrom, &a.TrackSince,
-		&a.Criticality, &a.Owner, &a.Notes, &a.Source, &a.Project, &tags, &created, &updated)
+		&a.Criticality, &a.Owner, &a.Notes, &a.Source, &a.Project, &tags, &created, &updated, &retired, &a.OlderVulns)
 	a.Tags = splitTags(tags)
 	a.CreatedAt, a.UpdatedAt = parseTime(created), parseTime(updated)
+	if retired != "" {
+		a.Retired = parseTime(retired)
+	}
 	return a, err
 }
 
@@ -85,9 +90,24 @@ func (s *Store) Asset(ctx context.Context, id int64) (Asset, error) {
 	return a, err
 }
 
-// ListAssets returns every asset ordered by name.
+// ListAssets returns the active assets ordered by name: retired ones (see
+// ReplaceProjectAssets) are neither listed nor checked.
 func (s *Store) ListAssets(ctx context.Context) ([]Asset, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+assetColumns+` FROM assets ORDER BY project COLLATE NOCASE, name COLLATE NOCASE, version`)
+	return s.listAssets(ctx, false)
+}
+
+// ListRetiredAssets returns the components dropped from their project's SBOM.
+func (s *Store) ListRetiredAssets(ctx context.Context) ([]Asset, error) {
+	return s.listAssets(ctx, true)
+}
+
+func (s *Store) listAssets(ctx context.Context, retired bool) ([]Asset, error) {
+	cond := "retired_at = ''"
+	if retired {
+		cond = "retired_at <> ''"
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT `+assetColumns+` FROM assets WHERE `+cond+`
+		ORDER BY project COLLATE NOCASE, name COLLATE NOCASE, version`)
 	if err != nil {
 		return nil, fmt.Errorf("list assets: %w", err)
 	}
@@ -106,7 +126,7 @@ func (s *Store) ListAssets(ctx context.Context) ([]Asset, error) {
 // AssetTags returns every tag in use, with the number of assets carrying it,
 // in alphabetical order.
 func (s *Store) AssetTags(ctx context.Context) ([]TagCount, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT tags FROM assets WHERE tags <> ''`)
+	rows, err := s.db.QueryContext(ctx, `SELECT tags FROM assets WHERE tags <> '' AND retired_at = ''`)
 	if err != nil {
 		return nil, fmt.Errorf("asset tags: %w", err)
 	}
@@ -133,6 +153,13 @@ func (s *Store) AssetTags(ctx context.Context) ([]TagCount, error) {
 type TagCount struct {
 	Tag string
 	N   int
+}
+
+// SetOlderVulns records how many known vulnerabilities of an asset were
+// published before its tracked period.
+func (s *Store) SetOlderVulns(ctx context.Context, id int64, n int) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE assets SET older_vulns = ? WHERE id = ?`, n, id)
+	return err
 }
 
 // DeleteAsset removes an asset and, by cascade, its findings.

@@ -1,7 +1,6 @@
 package web
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -105,23 +104,12 @@ func (s *Server) tokenCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, sess.User.ID, "api_token_create", t.Name+" → "+t.Project)
-	// SECURITY: the secret is displayed once, in this response only.
-	r = r.WithContext(withNewToken(r.Context(), secret))
-	s.renderSettings(w, r, http.StatusOK, "")
+	// SECURITY: the secret is displayed once, on the page this redirects to.
+	s.keepOnce(r, secret)
+	redirect(w, r, "/settings", "token-created")
 }
 
 func (s *Server) tokenDelete(w http.ResponseWriter, r *http.Request) {
 	s.byID(w, r, s.audited(r, "api_token_delete", "", func(id int64) error { return s.Store.DeleteAPIToken(r.Context(), id) }),
 		"/settings", "token-deleted")
-}
-
-type newTokenKey struct{}
-
-func withNewToken(ctx context.Context, secret string) context.Context {
-	return context.WithValue(ctx, newTokenKey{}, secret)
-}
-
-func newTokenFrom(ctx context.Context) string {
-	v, _ := ctx.Value(newTokenKey{}).(string)
-	return v
 }

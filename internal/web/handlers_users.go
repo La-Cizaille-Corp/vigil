@@ -16,7 +16,14 @@ type newPassword struct {
 }
 
 func (s *Server) userList(w http.ResponseWriter, r *http.Request) {
-	s.renderUsers(w, r, http.StatusOK, "", nil)
+	secret, _ := s.takeOnce(r).(*newPassword)
+	s.renderUsers(w, r, http.StatusOK, "", secret)
+}
+
+// newToken is the API token just created by this session, shown once.
+func (s *Server) newToken(r *http.Request) string {
+	v, _ := s.takeOnce(r).(string)
+	return v
 }
 
 func (s *Server) renderUsers(w http.ResponseWriter, r *http.Request, status int, formErr string, secret *newPassword) {
@@ -25,8 +32,25 @@ func (s *Server) renderUsers(w http.ResponseWriter, r *http.Request, status int,
 		s.serverError(w, r, err)
 		return
 	}
+	policy, err := s.Store.TOTPPolicy(r.Context())
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
 	s.render(w, r, status, "users", page{Title: "Utilisateurs", Error: formErr,
-		Data: map[string]any{"Users": accounts, "Secret": secret}})
+		Data: map[string]any{"Users": accounts, "Secret": secret, "Policy": policy}})
+}
+
+// userTOTPPolicy sets who must use a second factor.
+func (s *Server) userTOTPPolicy(w http.ResponseWriter, r *http.Request) {
+	policy := r.PostFormValue("policy")
+	if err := s.Store.SetTOTPPolicy(r.Context(), policy); err != nil {
+		s.renderUsers(w, r, http.StatusBadRequest, "Choix inconnu.", nil)
+		return
+	}
+	sess, _ := sessionFrom(r.Context())
+	s.audit(r, sess.User.ID, "totp_policy", "required="+policy)
+	redirect(w, r, "/settings/users", "totp-policy-saved")
 }
 
 // userCreate adds an account with a generated temporary password.
@@ -52,8 +76,9 @@ func (s *Server) userCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	sess, _ := sessionFrom(r.Context())
 	s.audit(r, sess.User.ID, "user_create", "id="+strconv.FormatInt(id, 10)+" "+username+" role="+role)
-	// SECURITY: the password is displayed once, in this response only.
-	s.renderUsers(w, r, http.StatusOK, "", &newPassword{Username: username, Password: password})
+	// SECURITY: the password is displayed once, on the page this redirects to.
+	s.keepOnce(r, &newPassword{Username: username, Password: password})
+	redirect(w, r, "/settings/users", "user-created")
 }
 
 // userRole changes the role of another account.
@@ -109,7 +134,8 @@ func (s *Server) userPassword(w http.ResponseWriter, r *http.Request) {
 		return s.Store.ResetPassword(r.Context(), id, hash)
 	})
 	if ok {
-		s.renderUsers(w, r, http.StatusOK, "", &newPassword{Username: target.Username, Password: password})
+		s.keepOnce(r, &newPassword{Username: target.Username, Password: password})
+		redirect(w, r, "/settings/users", "password-reset")
 	}
 }
 

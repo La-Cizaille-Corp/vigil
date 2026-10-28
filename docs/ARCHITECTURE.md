@@ -401,10 +401,26 @@ code au regard de l'OWASP ASVS, puis de chaque écran. Décisions :
   produire un digest par canal.
 - *Traçabilité* : le journal d'audit est dupliqué dans le journal du service, pour une copie hors
   de la base ; les suppressions et désactivations de flux, canaux et jetons y entrent.
-- *Différé* : retrait « doux » des actifs absents d'un nouveau SBOM (aujourd'hui supprimés avec leur
-  historique ; seul un SBOM vide est refusé), rétention configurable des journaux, double
-  authentification obligatoire pour les administrateurs, épinglage par digest des images d'outils de
-  CI.
+- *Suites (même mois)* : voir A49.
+
+**A49. Suites de l'audit.** Les points différés et les recommandations d'ergonomie de A48 :
+- *Composants retirés d'un SBOM* : marqués retirés (migration 012) au lieu d'être supprimés. Leurs
+  vulnérabilités encore ouvertes passent « corrigées » avec un événement d'historique (le composant
+  a disparu, souvent remplacé par une version corrigée) ; les décisions (non affecté, faux positif)
+  restent ; le composant revient tel quel si un SBOM le liste à nouveau. Ni listé ni vérifié tant
+  qu'il est retiré ; une vue de l'inventaire les montre. Écarté : un retrait sans clôture des
+  vulnérabilités, qui les aurait laissées ouvertes sans actif à corriger.
+- *Double authentification obligatoire* : réglage « personne / administrateurs / tous » ; un compte
+  concerné sans second facteur n'atteint plus que « Mon compte ». Pas d'option de démarrage : le
+  réglage se change dans l'interface et entre dans le journal d'audit.
+- *Rétention* : `-audit-retention-days` pour le seul journal d'audit, sans limite par défaut.
+- *Images d'outils* : Trivy, gitleaks, BuildKit et Caddy épinglés par digest.
+- *Ergonomie* : nombre de vulnérabilités antérieures à la période de suivi affiché sur l'actif (pour
+  les paquets ; la NVD n'est interrogée que sur la période) ; version corrigée lue dans l'avis
+  stocké (OSV : intervalles ; NVD : bornes des CPE), la branche de la version de l'actif en tête ;
+  page de suivi de la synchronisation qui se recharge seule, sans JavaScript (balise *refresh*) ;
+  listes en cartes sur téléphone ; ajout d'actifs sur sa propre page ; mots de passe et jetons
+  affichés une fois après redirection (pas de nouvel envoi du formulaire au rechargement).
 
 **A43. Triage par lot et journal d'audit consultable.** Le triage par lot applique une même
 décision à des vulnérabilités cochées, avec un événement d'historique pour chacune (pas de

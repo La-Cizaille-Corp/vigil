@@ -119,10 +119,16 @@ func TestUserAdministration(t *testing.T) {
 	admin := loginAs(t, base, "admin", "a-strong-password")
 	token := admin.csrf()
 
-	code, body := admin.postBody("/settings/users", url.Values{"csrf": {token}, "username": {"bob"}, "role": {"analyst"}})
+	// The password is shown once, on the page the form redirects to: a
+	// reload neither posts the form again nor shows it twice.
+	code := admin.post("/settings/users", url.Values{"csrf": {token}, "username": {"bob"}, "role": {"analyst"}})
+	_, body := admin.get("/settings/users")
 	m := passwordRe.FindStringSubmatch(body)
-	if code != http.StatusOK || m == nil {
+	if code != http.StatusSeeOther || m == nil {
 		t.Fatalf("create user: %d, password shown: %v", code, m != nil)
+	}
+	if _, again := admin.get("/settings/users"); passwordRe.MatchString(again) {
+		t.Error("temporary password shown twice")
 	}
 	bob := loginAs(t, base, "bob", m[1])
 	if code, _ := bob.get("/settings/users"); code != http.StatusForbidden {
@@ -152,8 +158,9 @@ func TestUserAdministration(t *testing.T) {
 		t.Errorf("admin disabled their own account: %d", code)
 	}
 	admin.post(path+"/enable", url.Values{"csrf": {token}})
-	code, body = admin.postBody(path+"/password", url.Values{"csrf": {token}})
-	if m = passwordRe.FindStringSubmatch(body); code != http.StatusOK || m == nil {
+	code = admin.post(path+"/password", url.Values{"csrf": {token}})
+	_, body = admin.get("/settings/users")
+	if m = passwordRe.FindStringSubmatch(body); code != http.StatusSeeOther || m == nil {
 		t.Fatalf("password reset: %d", code)
 	}
 	loginAs(t, base, "bob", m[1])

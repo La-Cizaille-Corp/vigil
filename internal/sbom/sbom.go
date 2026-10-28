@@ -118,6 +118,10 @@ func parseSPDX(data []byte) (Document, error) {
 // add keeps components identified by a purl, the only reliable key for
 // vulnerability matching; others are counted as skipped.
 func (d *Document) add(name, version, purl, cpe string, isOS bool) {
+	// Beyond the limit the document is refused (check): stop the work early.
+	if len(d.Assets)+d.Skipped > maxComponents {
+		return
+	}
 	if purl == "" || name == "" {
 		d.Skipped++
 		return

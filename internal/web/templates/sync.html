@@ -1,0 +1,8 @@
+{{define "content"}}
+{{$st := syncFor .User.Role}}
+<div class="card">
+  <p>{{template "syncText" $st}}</p>
+  {{if $st.Running}}<p class="muted small">Cette page se met à jour toute seule toutes les 5 secondes.</p>{{end}}
+</div>
+<p><a href="/">Tableau de bord</a> · <a href="/findings">Vulnérabilités</a> · <a href="/assets">Inventaire</a></p>
+{{end}}

@@ -152,6 +152,39 @@ func (s *Store) ResetTOTP(ctx context.Context, id int64) error {
 	})
 }
 
+// TOTP policies: who must use a second factor.
+const (
+	TOTPOptional = ""
+	TOTPAdmins   = "admin"
+	TOTPEveryone = "all"
+)
+
+const totpPolicyKey = "totp_required"
+
+// TOTPPolicy returns who must use a second factor.
+func (s *Store) TOTPPolicy(ctx context.Context) (string, error) {
+	return s.Setting(ctx, totpPolicyKey)
+}
+
+// SetTOTPPolicy sets who must use a second factor.
+func (s *Store) SetTOTPPolicy(ctx context.Context, policy string) error {
+	switch policy {
+	case TOTPOptional, TOTPAdmins, TOTPEveryone:
+		return s.SetSetting(ctx, totpPolicyKey, policy)
+	}
+	return fmt.Errorf("unknown second factor policy %q", policy)
+}
+
+// PurgeAudit deletes the audit entries older than before; it returns how
+// many were deleted.
+func (s *Store) PurgeAudit(ctx context.Context, before time.Time) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM audit_log WHERE created_at < ?`, formatTime(before))
+	if err != nil {
+		return 0, fmt.Errorf("purge audit log: %w", err)
+	}
+	return res.RowsAffected()
+}
+
 // accountChanged explains an UPDATE of a user that changed nothing: unknown
 // or disabled user (ErrNotFound), or last active administrator.
 func accountChanged(ctx context.Context, q rowQuerier, id int64, res sql.Result, err error) error {

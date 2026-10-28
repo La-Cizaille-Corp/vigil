@@ -64,8 +64,11 @@ type Server struct {
 	// LocalOnly is set when the UI listens on the loopback interface in plain
 	// HTTP: requests must then name the machine (see checkHost).
 	LocalOnly bool
+	// AuditRetention, when set, is how long audit entries are kept.
+	AuditRetention time.Duration
 
 	pages    map[string]*template.Template
+	once     onceStore     // values shown once after a redirect
 	limiter  *auth.Limiter // failed sign-ins per client address
 	accounts *auth.Limiter // failed sign-ins per account name
 }
@@ -99,11 +102,13 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.Handle("GET /assets.csv", s.require(auth.RoleViewer, s.assetCSV))
 	mux.Handle("POST /assets/import-csv", s.require(auth.RoleAnalyst, s.assetCSVImport))
 	mux.Handle("GET /assets/cpe", s.require(auth.RoleAnalyst, s.cpeSearch))
+	mux.Handle("GET /assets/new", s.require(auth.RoleAnalyst, s.assetNew))
 	mux.Handle("POST /assets", s.require(auth.RoleAnalyst, s.assetCreate))
 	mux.Handle("GET /assets/{id}", s.require(auth.RoleViewer, s.assetEdit))
 	mux.Handle("POST /assets/{id}", s.require(auth.RoleAnalyst, s.assetUpdate))
 	mux.Handle("POST /assets/{id}/delete", s.require(auth.RoleAnalyst, s.assetDelete))
 	mux.Handle("POST /assets/{id}/scan", s.require(auth.RoleAnalyst, s.assetScan))
+	mux.Handle("POST /assets/{id}/full-history", s.require(auth.RoleAnalyst, s.assetFullHistory))
 	mux.Handle("GET /findings", s.require(auth.RoleViewer, s.findingList))
 	mux.Handle("GET /findings.csv", s.require(auth.RoleViewer, s.findingCSV))
 	mux.Handle("POST /findings/bulk", s.require(auth.RoleAnalyst, s.findingBulk))
@@ -138,6 +143,8 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.Handle("POST /settings/users/{id}/enable", s.require(auth.RoleAdmin, s.userEnable))
 	mux.Handle("POST /settings/users/{id}/password", s.require(auth.RoleAdmin, s.userPassword))
 	mux.Handle("POST /settings/users/{id}/totp-reset", s.require(auth.RoleAdmin, s.userTOTPReset))
+	mux.Handle("POST /settings/users/totp-policy", s.require(auth.RoleAdmin, s.userTOTPPolicy))
+	mux.Handle("GET /sync", s.require(auth.RoleViewer, s.syncPage))
 	mux.Handle("POST /settings/webhooks/{id}/delete", s.require(auth.RoleAdmin, s.webhookDelete))
 	mux.Handle("POST /settings/tokens", s.require(auth.RoleAdmin, s.tokenCreate))
 	mux.Handle("POST /settings/tokens/{id}/delete", s.require(auth.RoleAdmin, s.tokenDelete))
@@ -156,6 +163,7 @@ func (s *Server) parseTemplates() error {
 		"roleLabel":   func(v string) string { return inventory.Label(roles, v) },
 		"roles":       func() []inventory.Option { return roles },
 		"maskURL":     maskURL,
+		"syncFor":     s.syncFor,
 		"tracking":    trackingSource,
 		"vendorOf":    inventory.VendorName,
 		"wholeVendor": inventory.WholeVendor,
@@ -238,13 +246,14 @@ func (s *Server) parseTemplates() error {
 
 // page is the data passed to every template.
 type page struct {
-	Path  string // of the request, to mark the current menu entry
-	Title string
-	User  *store.User
-	CSRF  string
-	Flash string
-	Error string
-	Data  any
+	Path    string // of the request, to mark the current menu entry
+	Refresh bool   // reload the page every few seconds (a sync is running)
+	Title   string
+	User    *store.User
+	CSRF    string
+	Flash   string
+	Error   string
+	Data    any
 }
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name string, p page) {
@@ -270,41 +279,46 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name
 
 // flashes maps fixed keys to messages, so no user input is ever reflected.
 var flashes = map[string]string{ // #nosec G101 -- message keys, not credentials
-	"asset-created":    "Actif ajouté ; recherche de ses vulnérabilités lancée, actualisez la page dans quelques instants.",
-	"asset-updated":    "Actif enregistré ; recherche de ses vulnérabilités relancée, actualisez la page dans quelques instants.",
-	"asset-deleted":    "Actif supprimé.",
-	"scan-started":     "Recherche des vulnérabilités de l'actif lancée ; actualisez la page dans quelques instants.",
-	"status-updated":   "Statut mis à jour.",
-	"sync-started":     "Synchronisation lancée ; actualisez la page dans quelques instants.",
-	"sync-running":     "Une synchronisation est déjà en cours ; actualisez la page dans quelques instants.",
-	"digest-created":   "Digest généré.",
-	"digest-sent":      "Digest généré et envoyé aux canaux de notification.",
-	"digest-webhook":   "Digest généré, mais au moins un canal de notification a échoué (détail dans Paramètres, visible par un administrateur).",
-	"cti-started":      "Collecte des flux lancée ; actualisez la page dans quelques instants.",
-	"watch-saved":      "Filtres de veille enregistrés.",
-	"feed-created":     "Flux ajouté.",
-	"feed-updated":     "Étiquettes du flux enregistrées ; elles s'appliquent aussi aux actualités déjà collectées.",
-	"feed-enabled":     "Flux activé.",
-	"feed-disabled":    "Flux désactivé.",
-	"feed-deleted":     "Flux supprimé.",
-	"hook-created":     "Canal de notification ajouté.",
-	"hook-updated":     "Canal de notification enregistré.",
-	"hook-enabled":     "Canal de notification activé.",
-	"hook-disabled":    "Canal de notification désactivé.",
-	"hook-deleted":     "Canal de notification supprimé.",
-	"csv-imported":     "Inventaire importé ; synchronisation lancée, actualisez la page dans quelques instants.",
-	"bulk-updated":     "Statut appliqué aux vulnérabilités sélectionnées.",
-	"sla-saved":        "Délais de traitement enregistrés ; les échéances sont recalculées.",
-	"sbom-imported":    "SBOM importé ; synchronisation lancée, actualisez la page dans quelques instants.",
-	"password-changed": "Mot de passe modifié ; vos autres sessions ont été fermées.",
-	"token-deleted":    "Jeton révoqué.",
-	"user-updated":     "Rôle modifié ; il s'applique aussitôt.",
-	"user-disabled":    "Compte désactivé ; ses sessions sont fermées.",
-	"user-enabled":     "Compte réactivé.",
-	"user-totp-reset":  "Double authentification retirée ; les sessions de l'utilisateur sont fermées.",
-	"totp-enabled":     "Double authentification activée.",
-	"totp-disabled":    "Double authentification désactivée.",
-	"vex-imported":     "VEX importé : les analyses correspondantes ont été appliquées.",
+	"asset-created":     "Actif ajouté ; recherche de ses vulnérabilités lancée : « suivre l'avancement » ci-dessous.",
+	"asset-updated":     "Actif enregistré ; recherche de ses vulnérabilités relancée : « suivre l'avancement » ci-dessous.",
+	"asset-deleted":     "Actif supprimé.",
+	"scan-started":      "Recherche des vulnérabilités de l'actif lancée : « suivre l'avancement » ci-dessous.",
+	"status-updated":    "Statut mis à jour.",
+	"sync-started":      "Synchronisation lancée : « suivre l'avancement » ci-dessous.",
+	"sync-running":      "Une synchronisation est déjà en cours : « suivre l'avancement » ci-dessous.",
+	"digest-created":    "Digest généré.",
+	"digest-sent":       "Digest généré et envoyé aux canaux de notification.",
+	"digest-webhook":    "Digest généré, mais au moins un canal de notification a échoué (détail dans Paramètres, visible par un administrateur).",
+	"cti-started":       "Collecte des flux lancée ; actualisez la page dans quelques instants.",
+	"watch-saved":       "Filtres de veille enregistrés.",
+	"feed-created":      "Flux ajouté.",
+	"feed-updated":      "Étiquettes du flux enregistrées ; elles s'appliquent aussi aux actualités déjà collectées.",
+	"feed-enabled":      "Flux activé.",
+	"feed-disabled":     "Flux désactivé.",
+	"feed-deleted":      "Flux supprimé.",
+	"hook-created":      "Canal de notification ajouté.",
+	"hook-updated":      "Canal de notification enregistré.",
+	"hook-enabled":      "Canal de notification activé.",
+	"hook-disabled":     "Canal de notification désactivé.",
+	"hook-deleted":      "Canal de notification supprimé.",
+	"csv-imported":      "Inventaire importé ; synchronisation lancée : « suivre l'avancement » ci-dessous.",
+	"bulk-updated":      "Statut appliqué aux vulnérabilités sélectionnées.",
+	"sla-saved":         "Délais de traitement enregistrés ; les échéances sont recalculées.",
+	"sbom-imported":     "SBOM importé ; synchronisation lancée : « suivre l'avancement » ci-dessous.",
+	"password-changed":  "Mot de passe modifié ; vos autres sessions ont été fermées.",
+	"token-deleted":     "Jeton révoqué.",
+	"token-created":     "Jeton créé.",
+	"user-created":      "Compte créé.",
+	"password-reset":    "Mot de passe provisoire généré ; les sessions de l'utilisateur sont fermées.",
+	"user-updated":      "Rôle modifié ; il s'applique aussitôt.",
+	"user-disabled":     "Compte désactivé ; ses sessions sont fermées.",
+	"user-enabled":      "Compte réactivé.",
+	"user-totp-reset":   "Double authentification retirée ; les sessions de l'utilisateur sont fermées.",
+	"totp-required":     "La double authentification est obligatoire pour votre compte : configurez-la pour continuer.",
+	"totp-policy-saved": "Règle de double authentification enregistrée.",
+	"totp-enabled":      "Double authentification activée.",
+	"totp-disabled":     "Double authentification désactivée.",
+	"vex-imported":      "VEX importé : les analyses correspondantes ont été appliquées.",
 }
 
 func redirect(w http.ResponseWriter, r *http.Request, path, msg string) {
@@ -408,6 +422,13 @@ func (s *Server) PurgeSessions(ctx context.Context) {
 		case <-t.C:
 			if err := s.Store.DeleteExpiredSessions(ctx); err != nil {
 				s.Log.Warn("purge sessions", "err", err)
+			}
+			if s.AuditRetention > 0 {
+				if n, err := s.Store.PurgeAudit(ctx, time.Now().Add(-s.AuditRetention)); err != nil {
+					s.Log.Warn("purge audit log", "err", err)
+				} else if n > 0 {
+					s.Log.Info("audit log purged", "entries", n)
+				}
 			}
 		}
 	}

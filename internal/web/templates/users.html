@@ -66,6 +66,21 @@ Il reste nommé dans l'historique de triage et le journal d'audit, et peut être
 </tbody>
 </table>
 
+<h2>Double authentification</h2>
+<form method="post" action="/settings/users/totp-policy" class="card">
+  <input type="hidden" name="csrf" value="{{$csrf}}">
+  <label>Obligatoire pour
+    <select name="policy">
+      <option value=""{{if eq .Data.Policy ""}} selected{{end}}>personne (facultative)</option>
+      <option value="admin"{{if eq .Data.Policy "admin"}} selected{{end}}>les administrateurs</option>
+      <option value="all"{{if eq .Data.Policy "all"}} selected{{end}}>tous les utilisateurs</option>
+    </select>
+  </label>
+  <p class="small muted">Un compte concerné qui ne l'a pas encore configurée n'accède plus qu'à « Mon compte »,
+    le temps de la configurer. Recommandé en mode serveur, au moins pour les administrateurs.</p>
+  <button type="submit">Enregistrer</button>
+</form>
+
 <h2>Ajouter un utilisateur</h2>
 <form method="post" action="/settings/users" class="card">
   <input type="hidden" name="csrf" value="{{$csrf}}">
