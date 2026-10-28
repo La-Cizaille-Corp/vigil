@@ -100,3 +100,22 @@ func TestModes(t *testing.T) {
 		t.Error("from without version accepted")
 	}
 }
+
+// Every product of a vendor: the vendor CPE goes to the NVD as is, like a
+// whole product, even when the asset has a version.
+func TestWholeVendor(t *testing.T) {
+	var got []url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.URL.Query())
+		io.WriteString(w, sample)
+	}))
+	defer srv.Close()
+	c := &Client{URL: srv.URL, HTTP: srv.Client()}
+	vendor := WholeVendor("fortinet")
+	if _, err := c.ForCPE(context.Background(), Query{CPE: vendor, Version: "7.2.4"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Get("virtualMatchString") != "cpe:2.3:*:fortinet:*:*:*:*:*:*:*:*:*" || got[0].Has("cpeName") {
+		t.Errorf("requests: %v", got)
+	}
+}

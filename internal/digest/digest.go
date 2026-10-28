@@ -7,12 +7,15 @@ import (
 	_ "embed"
 	"fmt"
 	htmltemplate "html/template"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	texttemplate "text/template"
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/cti"
+	"github.com/La-Cizaille-Corp/vigil/internal/cvss"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
@@ -25,9 +28,16 @@ var mdSource string
 var htmlSource string
 
 var funcs = map[string]any{
-	"date":      func(t time.Time) string { return t.Local().Format("02/01/2006 15:04") },
-	"status":    func(s string) string { return inventory.Label(tracking.Statuses, s) },
-	"sev":       tracking.SeverityLabel,
+	"date":   func(t time.Time) string { return t.Local().Format("02/01/2006 15:04") },
+	"status": func(s string) string { return inventory.Label(tracking.Statuses, s) },
+	"sev":    tracking.SeverityLabel,
+	"band":   Band,
+	"score": func(v float64) string {
+		if v <= 0 {
+			return ""
+		}
+		return strconv.FormatFloat(v, 'f', 1, 64)
+	},
 	"join":      strings.Join,
 	"epss":      FormatEPSS,
 	"countries": func(v []string) string { return labels(cti.Countries, v) },
@@ -51,8 +61,8 @@ const DefaultWindow = 7 * 24 * time.Hour
 type Data struct {
 	Since       time.Time
 	GeneratedAt time.Time
-	New         []store.Finding
-	Open        []store.Finding // still in triage or exploitable, all dates
+	New         Breakdown // first seen in the period
+	Open        Breakdown // still in triage or exploitable, all dates
 	Counts      []Count
 	CTI         []store.CTIItem // threat news matching the watched countries/sectors
 	CTIScope    string          // human description of that filter
@@ -71,6 +81,123 @@ type Count struct {
 	N      int
 }
 
+// Bands are the severity ranges findings are counted in, most severe first;
+// CRITICAL means a CVSS score of 9 or more, HIGH 7 to 8.9, MEDIUM 4 to 6.9
+// and LOW below 4.
+var Bands = []string{"CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"}
+
+// Band returns the severity range of a finding: its advisory severity, or
+// the rating of its CVSS score when the advisory gives none.
+func Band(f store.Finding) string {
+	s := strings.ToUpper(f.Severity)
+	if s == "MODERATE" {
+		s = "MEDIUM"
+	}
+	if s == "" {
+		s = cvss.Severity(f.CVSS)
+	}
+	if severityRank(s) == 0 {
+		return "UNKNOWN"
+	}
+	return s
+}
+
+// Breakdown is a set of findings by vendor, the most exposed vendor first.
+type Breakdown struct {
+	Total  Group // every finding, most severe first
+	Groups []Group
+}
+
+// Group is the findings of one vendor, most severe first.
+type Group struct {
+	Vendor   string
+	Bands    []int // number of findings in each of Bands
+	KEV      int   // known exploited
+	Findings []store.Finding
+}
+
+// Summary describes the bands of a group: "2 critiques, 1 haute".
+func (g Group) Summary() string {
+	var parts []string
+	for i, n := range g.Bands {
+		if n == 0 {
+			continue
+		}
+		label := strings.ToLower(tracking.SeverityLabel(Bands[i]))
+		if Bands[i] == "UNKNOWN" {
+			label = "de sévérité " + label
+		} else if n > 1 {
+			label += "s"
+		}
+		parts = append(parts, strconv.Itoa(n)+" "+label)
+	}
+	switch {
+	case g.KEV == 1:
+		parts = append(parts, "dont 1 exploitée")
+	case g.KEV > 1:
+		parts = append(parts, fmt.Sprintf("dont %d exploitées", g.KEV))
+	}
+	return strings.Join(parts, ", ")
+}
+
+// unknownVendor files the findings of assets without CPE nor purl.
+const unknownVendor = "Éditeur non renseigné"
+
+// ByVendor groups findings by the vendor of their asset (see
+// inventory.VendorName) and counts them by severity band.
+func ByVendor(fs []store.Finding) Breakdown {
+	b := Breakdown{Total: newGroup("Total")}
+	index := map[string]int{}
+	for _, f := range fs {
+		vendor := inventory.VendorName(store.Asset{CPE: f.AssetCPE, PURL: f.AssetPURL})
+		if vendor == "" {
+			vendor = unknownVendor
+		}
+		i, ok := index[vendor]
+		if !ok {
+			i = len(b.Groups)
+			index[vendor] = i
+			b.Groups = append(b.Groups, newGroup(vendor))
+		}
+		b.Groups[i].add(f)
+		b.Total.add(f)
+	}
+	SortBySeverity(b.Total.Findings)
+	for _, g := range b.Groups {
+		SortBySeverity(g.Findings)
+	}
+	sort.SliceStable(b.Groups, func(i, j int) bool {
+		a, c := b.Groups[i], b.Groups[j]
+		for k := range a.Bands {
+			if a.Bands[k] != c.Bands[k] {
+				return a.Bands[k] > c.Bands[k]
+			}
+		}
+		return strings.ToLower(a.Vendor) < strings.ToLower(c.Vendor)
+	})
+	return b
+}
+
+// maxListed bounds the findings listed per vendor among open ones: a vendor
+// subscription can hold thousands, the counts above them stay complete.
+const maxListed = 25
+
+// Listed returns the most severe findings of the group, at most maxListed.
+func (g Group) Listed() []store.Finding { return g.Findings[:min(len(g.Findings), maxListed)] }
+
+// Unlisted is the number of findings Listed leaves out.
+func (g Group) Unlisted() int { return len(g.Findings) - len(g.Listed()) }
+
+func newGroup(vendor string) Group { return Group{Vendor: vendor, Bands: make([]int, len(Bands))} }
+
+func (g *Group) add(f store.Finding) {
+	g.Findings = append(g.Findings, f)
+	g.Bands[slices.Index(Bands, Band(f))]++
+	if f.KEV {
+		g.KEV++
+	}
+}
+
 // Generate builds and stores a digest covering findings first seen since the
 // previous digest (or DefaultWindow for the first one).
 func Generate(ctx context.Context, st *store.Store) (store.Digest, error) {
@@ -85,16 +212,20 @@ func Generate(ctx context.Context, st *store.Store) (store.Digest, error) {
 	}
 
 	d := Data{Since: since, GeneratedAt: now}
-	if d.New, err = st.ListFindings(ctx, store.FindingFilter{Since: since}); err != nil {
+	news, err := st.ListFindings(ctx, store.FindingFilter{Since: since})
+	if err != nil {
 		return store.Digest{}, err
 	}
+	d.New = ByVendor(news)
+	var open []store.Finding
 	for _, status := range []string{"exploitable", "in_triage"} {
-		open, err := st.ListFindings(ctx, store.FindingFilter{Status: status})
+		fs, err := st.ListFindings(ctx, store.FindingFilter{Status: status})
 		if err != nil {
 			return store.Digest{}, err
 		}
-		d.Open = append(d.Open, open...)
+		open = append(open, fs...)
 	}
+	d.Open = ByVendor(open)
 	counts, err := st.CountFindingsByStatus(ctx)
 	if err != nil {
 		return store.Digest{}, err
@@ -102,12 +233,10 @@ func Generate(ctx context.Context, st *store.Store) (store.Digest, error) {
 	for _, s := range tracking.Statuses {
 		d.Counts = append(d.Counts, Count{Status: s.Value, N: counts[s.Value]})
 	}
-	SortByPriority(d.New)
-	SortByPriority(d.Open)
 	if d.Overdue, err = st.ListFindings(ctx, store.FindingFilter{Overdue: true}); err != nil {
 		return store.Digest{}, err
 	}
-	SortByPriority(d.Overdue)
+	SortBySeverity(d.Overdue)
 	if d.Concerning, err = st.ListCTIItems(ctx, store.CTIFilter{Concerning: true, Since: since, Limit: maxCTIItems}); err != nil {
 		return store.Digest{}, err
 	}
@@ -163,6 +292,27 @@ func SortByPriority(fs []store.Finding) {
 		}
 		if ra, rb := severityRank(a.Severity), severityRank(b.Severity); ra != rb {
 			return ra > rb
+		}
+		if a.EPSS != b.EPSS {
+			return a.EPSS > b.EPSS
+		}
+		return a.FirstSeen.After(b.FirstSeen)
+	})
+}
+
+// SortBySeverity orders findings by severity band, then known exploited
+// (KEV) first, then CVSS and EPSS scores, newest first on ties.
+func SortBySeverity(fs []store.Finding) {
+	sort.SliceStable(fs, func(i, j int) bool {
+		a, b := fs[i], fs[j]
+		if ra, rb := severityRank(Band(a)), severityRank(Band(b)); ra != rb {
+			return ra > rb
+		}
+		if a.KEV != b.KEV {
+			return a.KEV
+		}
+		if a.CVSS != b.CVSS {
+			return a.CVSS > b.CVSS
 		}
 		if a.EPSS != b.EPSS {
 			return a.EPSS > b.EPSS

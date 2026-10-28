@@ -28,6 +28,8 @@ sont en gras.
 |---|---|---|---|---|---|---|---|
 | Inventaire saisi à la main (produits sans SBOM) | Oui | Oui | Oui (éditeur, produit) | Partiel | Non | Oui (liste de surveillance) | Non |
 | Aide pour identifier un produit (recherche CPE) | Non | **Oui** | Oui | ? | Non | Oui | Non |
+| Suivre tous les produits d'un éditeur | Non | **Oui** | Oui | Non | Non | Oui | Non |
+| Étiquettes libres sur l'inventaire | Non | **Oui** | ? | Oui | Oui | Non | Non |
 | Import d'inventaire par tableur | Non | **Oui (CSV)** | Non | Non | Partiel | Non | Non |
 | Import SBOM | Oui (CycloneDX, SPDX) | Oui | Non | Oui (CycloneDX) | Oui | Non | Non |
 | Correspondance par version précise | Oui (OSV, NVD) | Oui | Non | Oui | Via les scanners | Partiel | Non |
@@ -60,6 +62,7 @@ sont en gras.
 | Triage ligne par ligne après un import SBOM | DefectDojo | Triage par lot, historique conservé pour chaque vulnérabilité (A43) |
 | Mise à jour sans filet | Pratique d'exploitation | Copie avant migration, refus d'une base plus récente, tests sur de vraies bases de chaque version (A36) |
 | Flux et webhooks inaccessibles derrière un proxy obligatoire | Tous | `HTTPS_PROXY` pris en charge, contrôle anti-SSRF conservé (A44) |
+| Digest en liste unique, difficile à répartir entre équipes | OpenCVE (rapports par abonnement) | Digest regroupé par éditeur, compté par sévérité, trié par gravité (A47) |
 
 ## Ce qui reste hors du périmètre
 

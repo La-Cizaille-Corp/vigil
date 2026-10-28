@@ -74,7 +74,10 @@ th, td { text-align: left; padding: .55rem .7rem; border-bottom: 1px solid var(-
 tbody tr:last-child td { border-bottom: 0; }
 tbody tr:hover { background: var(--accent-soft); }
 th { font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); background: var(--bg); }
-td.num { text-align: right; font-variant-numeric: tabular-nums; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+tfoot th { border-top: 1px solid var(--border-strong); border-bottom: 0; color: var(--fg); font-size: .85rem; }
+.digest h3 { margin-bottom: .2rem; }
+.digest h3 + .muted { margin-top: 0; }
 .card table { box-shadow: none; }
 
 /* --- forms --------------------------------------------------------------- */
@@ -138,6 +141,11 @@ details.bulk { margin: .5rem 0 1rem; }
 details.bulk form { margin-top: .75rem; }
 form.inline-search { display: flex; flex-wrap: wrap; gap: .75rem; align-items: flex-end; }
 form.inline-search label { flex: 1 1 22rem; }
+.cpe-vendor-head { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: baseline; justify-content: space-between; }
+.cpe-vendor-head h2 { margin: 0; }
+.cpe-product { border-top: 1px solid var(--border); padding-top: .75rem; margin-top: .75rem; }
+.cpe-product h3 { margin: 0 0 .25rem; font-size: 1rem; }
+.cpe-old { opacity: .75; }
 form.delivery { display: flex; flex-wrap: wrap; gap: .4rem .6rem; align-items: center; }
 form.delivery select { width: auto; max-width: 18rem; font-size: .85rem; }
 

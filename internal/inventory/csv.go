@@ -15,13 +15,13 @@ import (
 // CSVColumns are the columns of an inventory export, in order. An import
 // needs a header row with at least "name"; French headers are accepted too.
 var CSVColumns = []string{"name", "version", "kind", "criticality", "owner", "project",
-	"purl", "ecosystem", "cpe", "cpe_mode", "cpe_from", "track_since", "notes"}
+	"purl", "ecosystem", "cpe", "cpe_mode", "cpe_from", "track_since", "notes", "tags"}
 
 // csvAliases maps French headers to columns.
 var csvAliases = map[string]string{
 	"nom": "name", "type": "kind", "criticité": "criticality", "criticite": "criticality",
 	"responsable": "owner", "projet": "project", "écosystème": "ecosystem", "ecosysteme": "ecosystem",
-	"suivi depuis": "track_since",
+	"suivi depuis": "track_since", "étiquettes": "tags", "etiquettes": "tags",
 }
 
 // MaxCSVRows bounds an import.
@@ -31,7 +31,7 @@ const MaxCSVRows = 5000
 // every cell neutralised against formula injection (see CSVCell).
 func CSVRow(a store.Asset) []string {
 	row := []string{a.Name, a.Version, a.Kind, a.Criticality, a.Owner, a.Project,
-		a.PURL, a.Ecosystem, a.CPE, a.CPEMode, a.CPEFrom, a.TrackSince, a.Notes}
+		a.PURL, a.Ecosystem, a.CPE, a.CPEMode, a.CPEFrom, a.TrackSince, a.Notes, strings.Join(a.Tags, ", ")}
 	for i := range row {
 		row[i] = CSVCell(row[i])
 	}
@@ -107,7 +107,7 @@ func AssetsFromCSV(records [][]string, now time.Time) ([]store.Asset, error) {
 		a := store.Asset{
 			Name: cell("name"), Version: cell("version"), Owner: cell("owner"), Project: cell("project"),
 			PURL: cell("purl"), Ecosystem: cell("ecosystem"), CPE: cell("cpe"), CPEFrom: cell("cpe_from"),
-			Notes: cell("notes"), Source: "manual",
+			Notes: cell("notes"), Source: "manual", Tags: ParseTags(cell("tags")),
 			Kind:        optionValue(Kinds, cell("kind"), "package"),
 			Criticality: optionValue(Criticalities, cell("criticality"), "medium"),
 			CPEMode:     optionValue(CPEModes, cell("cpe_mode"), ""),

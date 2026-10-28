@@ -10,6 +10,7 @@
   {{end}}
   <span class="muted small">{{template "syncText" syncStatus}}</span>
 </div>
+{{with $a.Tags}}<p>{{range .}}<a class="tag" href="/assets?tag={{.}}">{{.}}</a>{{end}}</p>{{end}}
 
 <h2>Vulnérabilités de cet actif</h2>
 <p class="muted small">{{if $a.TrackSince}}Période de suivi : vulnérabilités publiées depuis le {{isoDate $a.TrackSince}}, plus les plus anciennes

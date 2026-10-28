@@ -235,6 +235,7 @@ func assetFromForm(r *http.Request) store.Asset {
 		Owner:       r.PostFormValue("owner"),
 		Notes:       r.PostFormValue("notes"),
 		Project:     r.PostFormValue("project"),
+		Tags:        inventory.ParseTags(r.PostFormValue("tags")),
 	}
 	inventory.Normalize(&a)
 	return a
@@ -250,11 +251,11 @@ func (s *Server) renderAssets(w http.ResponseWriter, r *http.Request, status int
 		s.serverError(w, r, err)
 		return
 	}
-	project := r.URL.Query().Get("project")
-	if project != "" {
+	project, tag := r.URL.Query().Get("project"), r.URL.Query().Get("tag")
+	if project != "" || tag != "" {
 		var filtered []store.Asset
 		for _, a := range assets {
-			if a.Project == project {
+			if (project == "" || a.Project == project) && (tag == "" || slices.Contains(a.Tags, tag)) {
 				filtered = append(filtered, a)
 			}
 		}
@@ -265,8 +266,13 @@ func (s *Server) renderAssets(w http.ResponseWriter, r *http.Request, status int
 		s.serverError(w, r, err)
 		return
 	}
+	tags, err := s.Store.AssetTags(r.Context())
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
 	s.render(w, r, status, "assets", page{Title: "Inventaire", Error: formErr,
-		Data: map[string]any{"Assets": assets, "Form": form, "Projects": projects, "Project": project}})
+		Data: map[string]any{"Assets": assets, "Form": form, "Projects": projects, "Project": project, "Tags": tags, "Tag": tag}})
 }
 
 func (s *Server) assetCreate(w http.ResponseWriter, r *http.Request) {
@@ -393,8 +399,13 @@ func (s *Server) renderFindings(w http.ResponseWriter, r *http.Request, status i
 		s.serverError(w, r, err)
 		return
 	}
+	tags, err := s.Store.AssetTags(r.Context())
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
 	s.render(w, r, status, "findings", page{Title: "Vulnérabilités", Error: formErr, Data: map[string]any{
-		"Findings": findings, "Filter": f, "Projects": projects, "Query": r.URL.RawQuery,
+		"Findings": findings, "Filter": f, "Projects": projects, "Tags": tags, "Query": r.URL.RawQuery,
 		"MinEPSSPercent": f.MinEPSS * 100, "Next": "/findings?" + r.URL.Query().Encode(),
 		// Re-encoded from the parsed query: a safe relative link with the same filters.
 		"CSVLink": template.URL("/findings.csv?" + r.URL.Query().Encode()), // #nosec G203 -- fixed path, encoded values
@@ -538,8 +549,12 @@ func findingFilterFrom(q url.Values) store.FindingFilter {
 		MinCVSS:    number("cvss", 10),
 		MinEPSS:    number("epss", 100) / 100, // entered as a percentage
 		Project:    q.Get("project"),
+		Tag:        strings.ToLower(strings.TrimSpace(q.Get("tag"))),
 		Search:     strings.TrimSpace(q.Get("q")),
 		Sort:       q.Get("sort"),
+	}
+	if len(f.Tag) > 100 {
+		f.Tag = ""
 	}
 	if len(f.Search) > 200 {
 		f.Search = f.Search[:200]

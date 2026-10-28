@@ -63,12 +63,17 @@
   </label>
   <label>Responsable <input name="owner" value="{{.Owner}}" maxlength="200"></label>
   <label>Projet <input name="project" value="{{.Project}}" maxlength="200"></label>
+  <label>Étiquettes, séparées par des virgules <input name="tags" value="{{join .Tags ", "}}" maxlength="900"
+    placeholder="prod, équipe web, site de Lyon…"></label>
 </div>
+{{with knownTags}}<p class="muted small">Étiquettes existantes : {{range $i, $t := .}}{{if $i}}, {{end}}{{$t.Tag}}{{end}}.
+  Toute nouvelle étiquette est créée à l'enregistrement.</p>{{end}}
 <fieldset class="plain">
   <legend>Détection des vulnérabilités</legend>
   <p class="muted small">Renseignez un purl, ou un écosystème avec une version : l'actif est vérifié dans OSV.
     Pour un produit ou une technologie sans purl, renseignez un CPE : il est vérifié dans la NVD
-    (pour le trouver : « Trouver son CPE » sur la page Inventaire ; mettez « * » à la place de la version pour suivre le produit entier).</p>
+    (pour le trouver : « Trouver son CPE » sur la page Inventaire ; mettez « * » à la place de la version pour suivre le produit
+    entier, et aussi à la place du produit pour suivre tout l'éditeur : <code>cpe:2.3:*:fortinet:*:*:*:*:*:*:*:*:*</code>).</p>
   <div class="grid">
     <label>purl <input name="purl" value="{{.PURL}}" maxlength="500" placeholder="pkg:npm/lodash@4.17.15"></label>
     <label>Écosystème

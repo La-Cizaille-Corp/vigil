@@ -71,6 +71,7 @@ type FindingFilter struct {
 	// Priority keeps vulnerabilities exploited (KEV) or likely to be (EPSS >= 10 %).
 	Priority bool
 	Project  string
+	Tag      string // the asset carries this tag
 
 	Statuses   []string // any of these statuses
 	Severities []string // any of these ratings; "UNKNOWN" matches findings without one
@@ -292,6 +293,10 @@ func (s *Store) ListFindings(ctx context.Context, f FindingFilter) ([]Finding, e
 	if f.Project != "" {
 		where = append(where, "a.project = ?")
 		args = append(args, f.Project)
+	}
+	if f.Tag != "" {
+		where = append(where, `a.tags LIKE ? ESCAPE '\'`)
+		args = append(args, "%,"+likeEscaper.Replace(f.Tag)+",%")
 	}
 	if f.KEV {
 		where = append(where, "v.kev = 1")

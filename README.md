@@ -3,7 +3,8 @@
 Outil open source de **veille de sécurité** léger : un seul binaire, aucune infrastructure.
 
 - **Inventaire** des actifs suivis (dépendances, technologies, produits, OS) : saisie manuelle
-  avec **recherche de CPE** dans le dictionnaire de la NVD, **import de SBOM** CycloneDX / SPDX
+  avec **recherche de CPE** dans le dictionnaire de la NVD (un produit, ou **tous les produits d'un
+  éditeur**), **étiquettes libres** (équipe, environnement, site…), **import de SBOM** CycloneDX / SPDX
   (JSON) regroupés par projet, ou **import et export CSV** (tableur, Excel en français compris).
 - **Vulnérabilités** détectées via [OSV.dev](https://osv.dev) pour les paquets (purl) et la
   [NVD](https://nvd.nist.gov) pour les produits identifiés par un CPE, enrichies par
@@ -18,7 +19,8 @@ Outil open source de **veille de sécurité** léger : un seul binaire, aucune i
   CRA, DORA, RGPD, AI Act, ISO 27001, SecNumCloud…) alimentée par des sources officielles (Commission
   européenne, CNIL, EDPB, EBA) et par la détection des réglementations citées dans tous les flux.
   Les actualités qui citent une vulnérabilité ouverte de l'inventaire sont signalées (« Vous concerne »).
-- **Digest** périodique (vulnérabilités, retards, menaces filtrées) consultable dans l'interface,
+- **Digest** périodique (vulnérabilités regroupées par éditeur et comptées par sévérité, retards,
+  menaces filtrées) consultable dans l'interface,
   exportable en Markdown, et **alertes immédiates** dès qu'une vulnérabilité devient urgente
   (exploitée, probable, critique), par **e-mail** ou **webhook** Slack, Mattermost, Teams ou JSON.
 - Fonctionne **en local** (par défaut sur `127.0.0.1`) ou **en mode client / serveur** (TLS, rôles,
@@ -142,6 +144,12 @@ téléphone perdu : `vigil user reset-totp -username NOM`.
 
 - Un **purl** (`pkg:npm/lodash@4.17.21`) est interrogé dans OSV : correspondance de version précise.
   Les SBOM en fournissent un par composant.
+- Pour suivre **tous les produits d'un éditeur**, recherchez l'éditeur seul (« fortinet ») puis
+  « Suivre tous les produits », ou saisissez `cpe:2.3:*:fortinet:*:*:*:*:*:*:*:*:*`. Pour un grand
+  éditeur (Microsoft, Google…), cela représente des milliers de vulnérabilités par an.
+- La recherche signale les **anciens noms d'éditeur** (« ancien nom » : plus aucune version ajoutée
+  depuis des années, comme `elasticsearch:elasticsearch` devenu `elastic:elasticsearch`) : préférez
+  le nom actuel, proposé en premier, sans quoi aucune vulnérabilité récente ne remonte.
 - Un **CPE** (`cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*`, à trouver avec « Trouver son CPE »
   dans l'inventaire) est interrogé dans la NVD quand l'actif n'a pas de purl.
   Le champ **Versions suivies dans la NVD** de l'actif choisit les versions concernées :

@@ -1,20 +1,28 @@
 {{define "content"}}
 {{template "syncBar" .}}
-{{if .Data.Projects}}
+{{if or .Data.Projects .Data.Tags}}
 <nav class="filters">
-  <a href="/assets" {{if not .Data.Project}}class="active"{{end}}>Tous les actifs</a>
+  <a href="/assets" {{if not (or .Data.Project .Data.Tag)}}class="active"{{end}}>Tous les actifs</a>
   {{range .Data.Projects}}<a href="/assets?project={{.}}" {{if eq . $.Data.Project}}class="active"{{end}}>{{.}}</a>{{end}}
   {{with .Data.Project}}<span class="muted">— <a href="/findings?project={{.}}">vulnérabilités de ce projet</a></span>{{end}}
 </nav>
 {{end}}
+{{if .Data.Tags}}
+<nav class="filters tag-filters" aria-label="Étiquettes">
+  <span class="muted small">Étiquettes :</span>
+  {{range .Data.Tags}}<a href="/assets?tag={{.Tag}}" {{if eq .Tag $.Data.Tag}}class="active"{{end}}>{{.Tag}} <small>{{.N}}</small></a>{{end}}
+  {{with .Data.Tag}}<span class="muted">— <a href="/findings?tag={{.}}">vulnérabilités de ces actifs</a></span>{{end}}
+</nav>
+{{end}}
 {{if .Data.Assets}}
 <table>
-<thead><tr><th>Nom</th><th>Version</th><th>Type</th><th>Identifiant (purl, CPE ou écosystème)</th><th>Projet</th><th>Criticité</th><th>Responsable</th><th>Détection</th></tr></thead>
+<thead><tr><th>Nom</th><th>Éditeur</th><th>Version</th><th>Type</th><th>Identifiant (purl, CPE ou écosystème)</th><th>Projet</th><th>Criticité</th><th>Responsable</th><th>Détection</th></tr></thead>
 <tbody>
 {{range .Data.Assets}}
 <tr>
-  <td><a href="/assets/{{.ID}}">{{.Name}}</a></td>
-  <td>{{.Version}}</td>
+  <td><a href="/assets/{{.ID}}">{{.Name}}</a>{{if .Tags}}<br>{{range .Tags}}<a class="tag" href="/assets?tag={{.}}">{{.}}</a>{{end}}{{end}}</td>
+  <td>{{vendorOf .}}</td>
+  <td>{{if wholeVendor .}}<span class="muted">tous les produits</span>{{else}}{{.Version}}{{end}}</td>
   <td>{{kindLabel .Kind}}</td>
   <td>{{if .PURL}}<code>{{.PURL}}</code>{{else if .CPE}}<code>{{.CPE}}</code>{{else}}{{.Ecosystem}}{{end}}</td>
   <td>{{.Project}}</td>
@@ -34,8 +42,9 @@
 {{if can .User.Role "analyst"}}
 <h2 id="ajouter">Ajouter un actif</h2>
 <form method="get" action="/assets/cpe" class="card inline-search">
-  <label>Produit ou technologie sans purl ? Trouver son CPE dans le dictionnaire de la NVD
-    <input type="search" name="q" maxlength="100" placeholder="fortios 7.2.4, exchange server 2019, nginx…" required></label>
+  <label>Produit, technologie ou éditeur sans purl ? Trouver son CPE dans le dictionnaire de la NVD (un éditeur seul permet
+    de suivre tous ses produits)
+    <input type="search" name="q" maxlength="100" placeholder="fortios 7.2.4, fortinet, exchange server 2019, nginx…" required></label>
   <button type="submit">Rechercher</button>
 </form>
 <form method="post" action="/assets" class="card">

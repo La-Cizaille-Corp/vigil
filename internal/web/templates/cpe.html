@@ -1,28 +1,39 @@
 {{define "content"}}
 <p><a href="/assets#ajouter">← Inventaire</a></p>
 <form method="get" action="/assets/cpe" class="card inline-search">
-  <label>Produit, éditeur ou version <input type="search" name="q" value="{{.Data.Query}}" maxlength="100" required
-    placeholder="fortios 7.2.4, exchange server 2019, nginx…"></label>
+  <label>Éditeur, produit et éventuellement version <input type="search" name="q" value="{{.Data.Query}}" maxlength="100" required
+    placeholder="fortios 7.2.4, fortinet, exchange server 2019, elasticsearch…"></label>
   <button type="submit">Rechercher</button>
 </form>
-<p class="muted small">Recherche dans le dictionnaire CPE de la NVD : tous les mots doivent apparaître. Sans clé d'API, la NVD
-  limite le débit : une recherche peut prendre quelques secondes.</p>
+<p class="muted small">Recherche dans le dictionnaire CPE de la NVD : d'abord le nom exact du produit (tous ses éditeurs), puis
+  « éditeur produit », puis l'éditeur seul, enfin les mots-clés. Sans clé d'API, la NVD limite le débit : une recherche peut
+  prendre une vingtaine de secondes.</p>
 {{if .Data.Searched}}
-{{if .Data.Wholes}}
-<h2>Suivre tout le produit</h2>
-<p class="muted small">Toutes les vulnérabilités du produit, quelle que soit la version (à partir de la période de suivi).</p>
-<table>
-<thead><tr><th>Produit</th><th>CPE</th><th></th></tr></thead>
-<tbody>{{range .Data.Wholes}}<tr><td>{{.Title}}</td><td><code class="small">{{.CPE}}</code></td><td><a href="{{.Use}}">Utiliser</a></td></tr>{{end}}</tbody>
-</table>
+{{range .Data.Vendors}}
+<section class="card cpe-vendor{{if .Old}} cpe-old{{end}}">
+  <header class="cpe-vendor-head">
+    <h2>{{.Title}} <code class="small">{{.Name}}</code>{{if .Old}} <span class="tag">ancien nom</span>{{end}}</h2>
+    <a href="{{.Whole.Use}}">Suivre tous les produits {{.Title}}</a>
+  </header>
+  {{if not .Old}}<p class="muted small">Tous les produits : chaque vulnérabilité publiée pour cet éditeur, quel que soit le produit.
+    Pour un grand éditeur (Microsoft, Google, Apple…), cela représente des milliers de vulnérabilités par an.</p>{{end}}
+  {{range .Products}}
+  <article class="cpe-product">
+    <h3>{{.Title}} <code class="small">{{.Name}}</code>{{if .Old}} <span class="tag">ancien nom</span>{{end}}</h3>
+    <p class="muted small">{{.Versions}} version(s) référencée(s), la dernière ajoutée le {{.Latest.Format "02/01/2006"}}{{if .Old}} :
+      plus rien depuis {{.Latest.Year}}. Les vulnérabilités récentes sont sans doute rattachées à un autre nom d'éditeur ou de produit{{end}}.
+      · <a href="{{.Whole.Use}}">Suivre toutes les versions</a></p>
+    {{if .Choices}}
+    <table>
+    <thead><tr><th>Version</th><th>CPE</th><th></th></tr></thead>
+    <tbody>{{range .Choices}}<tr><td>{{.Title}}</td><td><code class="small">{{.CPE}}</code></td><td><a href="{{.Use}}">Utiliser</a></td></tr>{{end}}</tbody>
+    </table>
+    {{end}}
+  </article>
+  {{end}}
+</section>
+{{else}}
+<p class="muted">Aucun résultat : essayez le nom du produit seul (« fortios »), ou celui de l'éditeur (« fortinet »).</p>
 {{end}}
-{{if .Data.Products}}
-<h2>Suivre une version précise</h2>
-<table>
-<thead><tr><th>Version</th><th>CPE</th><th></th></tr></thead>
-<tbody>{{range .Data.Products}}<tr><td>{{.Title}}</td><td><code class="small">{{.CPE}}</code></td><td><a href="{{.Use}}">Utiliser</a></td></tr>{{end}}</tbody>
-</table>
-{{end}}
-{{if not (or .Data.Wholes .Data.Products)}}<p class="muted">Aucun résultat : essayez moins de mots, ou le nom de l'éditeur.</p>{{end}}
 {{end}}
 {{end}}

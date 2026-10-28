@@ -2,6 +2,7 @@ package web
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/csv"
 	"errors"
@@ -9,8 +10,11 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/nvd"
@@ -26,7 +30,38 @@ const maxCSVBytes = 2 << 20
 type cpeChoice struct {
 	Title, CPE string
 	Use        string // link to the prefilled asset form
+	version    string
 }
+
+// cpeProduct is one product under one vendor name, as found in the dictionary.
+type cpeProduct struct {
+	Title        string // product name, without version
+	Vendor, Name string
+	Whole        cpeChoice   // every version of the product
+	Versions     int         // distinct versions referenced
+	Latest       time.Time   // when its newest entry was added
+	Old          bool        // no entry added for years: the vendor name changed, most likely
+	Choices      []cpeChoice // single versions, newest entries first
+}
+
+// cpeVendor groups the products found under one vendor name.
+type cpeVendor struct {
+	Name     string    // vendor field of the CPE
+	Title    string    // display name
+	Whole    cpeChoice // every product of the vendor
+	Old      bool      // every product found is an old name
+	Products []cpeProduct
+}
+
+const (
+	// oldProduct: a product with no entry added for that long is shown as an
+	// old name (e.g. elasticsearch:elasticsearch, replaced by elastic).
+	oldProduct     = 3 * 365 * 24 * time.Hour
+	maxCPEProducts = 12
+	maxCPEChoices  = 12
+	// maxCPEChoicesEach bounds the versions of each product when several match.
+	maxCPEChoicesEach = 5
+)
 
 // cpeSearch looks a product up in the NVD CPE dictionary, so that nobody has
 // to write a CPE name by hand.
@@ -42,39 +77,202 @@ func (s *Server) cpeSearch(w http.ResponseWriter, r *http.Request) {
 				Error: "La recherche dans la NVD n'est pas disponible.", Data: data})
 			return
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+		ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 		defer cancel()
-		products, err := s.Syncer.NVD.SearchCPE(ctx, q, 50)
+		products, err := s.Syncer.NVD.SearchCPE(ctx, q)
 		if err != nil {
 			s.Log.Warn("recherche CPE", "err", err)
 			s.render(w, r, http.StatusBadGateway, "cpe", page{Title: "Trouver un CPE", Error: err.Error(), Data: data})
 			return
 		}
-		data["Products"], data["Wholes"] = cpeChoices(products)
+		_, versions := nvd.SplitQuery(q)
+		data["Vendors"] = cpeVendors(cpeProducts(products, versions, time.Now()))
 		data["Searched"] = true
 	}
 	s.render(w, r, http.StatusOK, "cpe", page{Title: "Trouver un CPE", Data: data})
 }
 
-// cpeChoices offers each version found, then each product as a whole.
-func cpeChoices(products []nvd.Product) (versions, wholes []cpeChoice) {
-	seen := map[string]bool{}
-	for _, p := range products {
+// cpeProducts groups dictionary entries by product and vendor name, current
+// names first: those still receiving entries, the most recent first. Versions
+// offered are the newest entries, or those of the versions searched for.
+func cpeProducts(entries []nvd.Product, versions []string, now time.Time) []cpeProduct {
+	entries = slices.Clone(entries)
+	slices.SortStableFunc(entries, func(a, b nvd.Product) int { return b.Created.Compare(a.Created) })
+	groups := map[string]*cpeProduct{}
+	seen := map[string]bool{} // product + version
+	var out []*cpeProduct
+	for _, e := range entries {
+		key := e.Part + ":" + e.Vendor + ":" + e.Name
 		kind := "product"
-		if p.Part == "o" {
+		if e.Part == "o" {
 			kind = "os"
 		}
-		name := strings.TrimSpace(strings.TrimSuffix(p.Title, " "+p.Version))
-		if p.Version != "*" && p.Version != "-" {
-			versions = append(versions, cpeChoice{Title: p.Title, CPE: p.CPE, Use: prefill(name, p.Version, kind, p.CPE, "")})
+		g := groups[key]
+		if g == nil {
+			title := productTitle(e)
+			whole := e.WholeProduct()
+			g = &cpeProduct{Title: title, Vendor: e.Vendor, Name: e.Name, Latest: e.Created,
+				Whole: cpeChoice{Title: title, CPE: whole, Use: prefill(title, "", kind, whole, "all")}}
+			groups[key] = g
+			out = append(out, g)
 		}
-		whole := p.WholeProduct()
-		if !seen[whole] {
-			seen[whole] = true
-			wholes = append(wholes, cpeChoice{Title: name, CPE: whole, Use: prefill(name, "", kind, whole, "all")})
+		if e.Version == "*" || e.Version == "-" {
+			continue
+		}
+		if !seen[key+":"+e.Version] {
+			seen[key+":"+e.Version] = true
+			g.Versions++
+		}
+		if versionMatches(e.Version, versions) {
+			g.Choices = append(g.Choices, cpeChoice{Title: e.Title, CPE: e.CPE, version: e.Version,
+				Use: prefill(g.Title, e.Version, kind, e.CPE, "")})
 		}
 	}
-	return versions, wholes
+	for _, g := range out {
+		g.Old = !g.Latest.IsZero() && now.Sub(g.Latest) > oldProduct
+		if g.Old && len(versions) == 0 {
+			g.Choices = nil // an old name: its versions only distract
+			continue
+		}
+		// Highest versions first: 9.5.5 before 9.5.3 before 8.19.23.
+		slices.SortStableFunc(g.Choices, func(a, b cpeChoice) int { return compareVersions(b.version, a.version) })
+		limit := maxCPEChoices
+		if len(out) > 1 {
+			limit = maxCPEChoicesEach // several products: keep the page short
+		}
+		g.Choices = g.Choices[:min(len(g.Choices), limit)]
+	}
+	// Current names first, then old ones; most recent first within each.
+	slices.SortStableFunc(out, func(a, b *cpeProduct) int {
+		if a.Old != b.Old {
+			if a.Old {
+				return 1
+			}
+			return -1
+		}
+		return b.Latest.Compare(a.Latest)
+	})
+	result := make([]cpeProduct, 0, min(len(out), maxCPEProducts))
+	for _, g := range out[:min(len(out), maxCPEProducts)] {
+		result = append(result, *g)
+	}
+	return result
+}
+
+// cpeVendors groups products by vendor, keeping their order: vendors with a
+// current product first.
+func cpeVendors(products []cpeProduct) []cpeVendor {
+	var out []cpeVendor
+	index := map[string]int{}
+	for _, p := range products {
+		i, ok := index[p.Vendor]
+		if !ok {
+			title := inventory.VendorTitle(p.Vendor)
+			whole := nvd.WholeVendor(p.Vendor)
+			i = len(out)
+			index[p.Vendor] = i
+			out = append(out, cpeVendor{Name: p.Vendor, Title: title, Old: true,
+				Whole: cpeChoice{Title: title, CPE: whole, Use: prefill(title+" (tous les produits)", "", "product", whole, "all")}})
+		}
+		out[i].Products = append(out[i].Products, p)
+		out[i].Old = out[i].Old && p.Old
+	}
+	return out
+}
+
+// compareVersions orders version strings by their numbers, then their
+// letters: 9.5.5 > 9.5.3 > 8.19.23, 10.0 > 9.9, 1.4.0 > 1.4.0-beta1.
+func compareVersions(a, b string) int {
+	pa, pb := versionParts(a), versionParts(b)
+	for i := 0; i < min(len(pa), len(pb)); i++ {
+		x, y := pa[i], pb[i]
+		xn, xerr := strconv.Atoi(x)
+		yn, yerr := strconv.Atoi(y)
+		switch {
+		case xerr == nil && yerr == nil && xn != yn:
+			return cmp.Compare(xn, yn)
+		case (xerr == nil) != (yerr == nil):
+			if xerr == nil { // a number ranks above a pre-release label
+				return 1
+			}
+			return -1
+		case x != y:
+			return strings.Compare(x, y)
+		}
+	}
+	// One is a prefix of the other: more numbers rank higher (1.4.1 > 1.4),
+	// a pre-release label lower (1.4.0 > 1.4.0-beta1).
+	switch {
+	case len(pa) > len(pb):
+		return extraRank(pa[len(pb)])
+	case len(pb) > len(pa):
+		return -extraRank(pb[len(pa)])
+	}
+	return 0
+}
+
+func extraRank(part string) int {
+	if _, err := strconv.Atoi(part); err == nil {
+		return 1
+	}
+	return -1
+}
+
+// versionParts splits a version into runs of digits and runs of letters.
+func versionParts(v string) []string {
+	var parts []string
+	start := -1
+	digit := false
+	for i, r := range v {
+		isDigit, isLetter := r >= '0' && r <= '9', unicode.IsLetter(r)
+		if !isDigit && !isLetter {
+			if start >= 0 {
+				parts = append(parts, v[start:i])
+			}
+			start = -1
+			continue
+		}
+		if start >= 0 && isDigit != digit {
+			parts = append(parts, v[start:i])
+			start = -1
+		}
+		if start < 0 {
+			start, digit = i, isDigit
+		}
+	}
+	if start >= 0 {
+		parts = append(parts, v[start:])
+	}
+	return parts
+}
+
+// versionMatches reports whether version is one of wanted, or starts with
+// one of them ("7.2" matches 7.2.4); any version matches when none is wanted.
+func versionMatches(version string, wanted []string) bool {
+	if len(wanted) == 0 {
+		return true
+	}
+	for _, w := range wanted {
+		if version == w || strings.HasPrefix(version, w+".") || strings.HasPrefix(version, w+"-") {
+			return true
+		}
+	}
+	return false
+}
+
+// productTitle is the dictionary title of an entry without its version
+// ("Microsoft Exchange Server 2019 Cumulative Update 14" → "Microsoft
+// Exchange Server"), or the vendor and product names.
+func productTitle(e nvd.Product) string {
+	if e.Version != "*" && e.Version != "-" {
+		if i := strings.Index(e.Title, " "+e.Version); i > 0 {
+			return e.Title[:i]
+		}
+	}
+	if e.Title != "" && (e.Version == "*" || e.Version == "-") {
+		return e.Title
+	}
+	return strings.ReplaceAll(e.Vendor+" "+e.Name, "_", " ")
 }
 
 func prefill(name, version, kind, cpe, mode string) string {

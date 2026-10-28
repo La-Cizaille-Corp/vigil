@@ -4,6 +4,8 @@ package inventory
 import (
 	"errors"
 	"fmt"
+	"net/url"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -76,6 +78,31 @@ func Normalize(a *store.Asset) {
 	if a.Source == "" {
 		a.Source = "manual"
 	}
+	a.Tags = NormalizeTags(a.Tags)
+}
+
+// Tag limits: enough for team, environment, site, application...
+const (
+	MaxTags   = 20
+	maxTagLen = 40
+)
+
+// ParseTags reads tags typed in one field, separated by commas or semicolons.
+func ParseTags(field string) []string {
+	return NormalizeTags(strings.FieldsFunc(field, func(r rune) bool { return r == ',' || r == ';' }))
+}
+
+// NormalizeTags trims tags, lowercases them so that "Prod" and "prod" are one
+// tag, collapses inner spaces and drops empty ones and duplicates.
+func NormalizeTags(tags []string) []string {
+	var out []string
+	for _, t := range tags {
+		t = strings.ToLower(strings.Join(strings.Fields(t), " "))
+		if t != "" && !slices.Contains(out, t) {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // Validate checks an asset before it is stored.
@@ -87,6 +114,11 @@ func Validate(a store.Asset) error {
 		}
 	}
 	check(a.Name != "", "le nom est obligatoire")
+	check(len(a.Tags) <= MaxTags, fmt.Sprintf("%d étiquettes au plus", MaxTags))
+	for _, t := range a.Tags {
+		check(maxLen(t, maxTagLen) && !strings.ContainsAny(t, ",;\x00"),
+			fmt.Sprintf("étiquette « %s » : %d caractères au plus, sans virgule", t, maxTagLen))
+	}
 	check(maxLen(a.Name, 200) && maxLen(a.Version, 100) && maxLen(a.Owner, 200) && maxLen(a.Project, 200) &&
 		maxLen(a.PURL, 500) && maxLen(a.CPE, 500) && maxLen(a.Notes, 4000), "un champ dépasse la longueur maximale")
 	check(isOption(Kinds, a.Kind), "type d'actif invalide")
@@ -161,4 +193,72 @@ func Describe(a store.Asset) string {
 		return a.Name
 	}
 	return fmt.Sprintf("%s %s", a.Name, a.Version)
+}
+
+// VendorProduct returns the vendor and the product an asset designates: the
+// fields of its CPE, where product "" means every product of the vendor; or
+// the namespace and name of its purl (pkg:maven/org.apache.logging.log4j/log4j-core).
+func VendorProduct(a store.Asset) (vendor, product string) {
+	if a.CPE != "" {
+		f := strings.Split(a.CPE, ":")
+		if len(f) == 13 {
+			vendor, product = f[3], f[4]
+			if product == "*" {
+				product = ""
+			}
+			return vendor, product
+		}
+	}
+	if rest, ok := strings.CutPrefix(a.PURL, "pkg:"); ok {
+		rest, _, _ = strings.Cut(rest, "#")
+		rest, _, _ = strings.Cut(rest, "?")
+		rest, _, _ = strings.Cut(rest, "@")
+		parts := strings.Split(rest, "/")
+		if len(parts) >= 2 {
+			vendor, _ = url.PathUnescape(strings.Join(parts[1:len(parts)-1], "/"))
+			product, _ = url.PathUnescape(parts[len(parts)-1])
+		}
+	}
+	return vendor, product
+}
+
+// VendorName is the vendor an asset is filed under in reports: the CPE
+// vendor as a title (fortinet → Fortinet), the purl namespace as written
+// (org.apache.logging.log4j), or the packages of an ecosystem when the purl
+// has no namespace (Paquets npm). It is "" for an asset with neither.
+func VendorName(a store.Asset) string {
+	vendor, _ := VendorProduct(a)
+	switch {
+	case vendor == "*":
+	case vendor != "" && a.CPE != "":
+		return VendorTitle(vendor)
+	case vendor != "":
+		return vendor
+	}
+	kind, _, ok := strings.Cut(strings.TrimPrefix(a.PURL, "pkg:"), "/")
+	if !ok || !strings.HasPrefix(a.PURL, "pkg:") {
+		return ""
+	}
+	for _, e := range Ecosystems {
+		if strings.EqualFold(e, kind) {
+			kind = e
+		}
+	}
+	return "Paquets " + kind
+}
+
+// VendorTitle turns a CPE vendor field into a display name: fortinet → Fortinet.
+func VendorTitle(vendor string) string {
+	words := strings.Fields(strings.ReplaceAll(vendor, "_", " "))
+	for i, w := range words {
+		r := []rune(w)
+		words[i] = strings.ToUpper(string(r[:1])) + string(r[1:])
+	}
+	return strings.Join(words, " ")
+}
+
+// WholeVendor reports whether the asset tracks every product of a vendor.
+func WholeVendor(a store.Asset) bool {
+	f := strings.Split(a.CPE, ":")
+	return len(f) == 13 && f[3] != "*" && f[4] == "*"
 }
