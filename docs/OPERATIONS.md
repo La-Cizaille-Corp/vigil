@@ -81,8 +81,8 @@ Garanties (registre A36 de [ARCHITECTURE.md](ARCHITECTURE.md)) :
 - les tests ouvrent de vraies bases produites par chaque version publiée et vérifient que chaque
   valeur est conservée.
 
-Les copies `.bak` ne sont pas supprimées automatiquement : effacez-les une fois la nouvelle
-version validée.
+Seules les trois copies `.bak` les plus récentes sont gardées (chacune contient tous les secrets
+de la base) ; effacez-les une fois la nouvelle version validée.
 
 ## Surveiller
 
@@ -97,6 +97,11 @@ version validée.
 
 ## Gérer les comptes
 
+- **Double authentification obligatoire** : Paramètres → Utilisateurs → « Double authentification »,
+  pour les administrateurs ou pour tous. Un compte concerné qui ne l'a pas encore configurée
+  n'accède plus qu'à « Mon compte ».
+- **Durée du journal d'audit** : sans limite par défaut ; `-audit-retention-days 365` (ou
+  `VIGIL_AUDIT_RETENTION_DAYS`) purge les entrées plus anciennes, chaque heure.
 - **Arrivée** : Paramètres → Utilisateurs → « Ajouter un utilisateur ». Un mot de passe provisoire
   s'affiche une fois ; transmettez-le par un canal sûr, l'utilisateur le change dans « Mon compte ».
 - **Départ ou compte compromis** : « Désactiver… ». La connexion est refusée et les sessions sont

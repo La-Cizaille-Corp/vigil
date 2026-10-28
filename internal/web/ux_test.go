@@ -39,7 +39,7 @@ func TestAssetAndSyncFlow(t *testing.T) {
 	c := loginAs(t, base, "admin", "a-strong-password")
 
 	// A new asset is tracked over the last 120 days by default.
-	_, body := c.get("/assets")
+	_, body := c.get("/assets/new")
 	if want := `name="track_since" value="` + inventory.DefaultSince(time.Now()) + `"`; !strings.Contains(body, want) {
 		t.Errorf("default tracked period missing: %s", want)
 	}

@@ -75,3 +75,61 @@ func TestCTIItemsFilter(t *testing.T) {
 		t.Fatalf("all items = %d", len(all))
 	}
 }
+
+// A component dropped from an SBOM is retired, not deleted: open findings
+// are resolved with an event, decisions are kept, and the component comes
+// back with its history when a later SBOM lists it again.
+func TestRetiredComponentsKeepHistory(t *testing.T) {
+	ctx := context.Background()
+	st := openTest(t)
+	a := Asset{Name: "a", Kind: "package", PURL: "pkg:npm/a@1"}
+	b := Asset{Name: "b", Kind: "package", PURL: "pkg:npm/b@1"}
+	st.ReplaceProjectAssets(ctx, "app", []Asset{a, b})
+	assets, _ := st.ListAssets(ctx)
+	ids := map[string]int64{}
+	for _, x := range assets {
+		ids[x.Name] = x.ID
+	}
+	st.UpsertVulnerability(ctx, Vulnerability{ID: "V-OPEN", Severity: "HIGH"})
+	st.UpsertVulnerability(ctx, Vulnerability{ID: "V-DECIDED", Severity: "LOW"})
+	st.ObserveFinding(ctx, ids["b"], "V-OPEN", time.Now())
+	st.ObserveFinding(ctx, ids["b"], "V-DECIDED", time.Now())
+	findings, _ := st.ListFindings(ctx, FindingFilter{AssetID: ids["b"]})
+	var open, decided int64
+	for _, f := range findings {
+		if f.VulnID == "V-OPEN" {
+			open = f.ID
+		} else {
+			decided = f.ID
+		}
+	}
+	st.SetFindingStatus(ctx, decided, 0, "not_affected", "code_not_present", "vérifié")
+
+	if res, err := st.ReplaceProjectAssets(ctx, "app", []Asset{a}); err != nil || res.Removed != 1 {
+		t.Fatalf("import without b: %+v %v", res, err)
+	}
+	if active, _ := st.ListAssets(ctx); len(active) != 1 {
+		t.Errorf("active assets = %d, want 1", len(active))
+	}
+	retired, _ := st.ListRetiredAssets(ctx)
+	if len(retired) != 1 || retired[0].Retired.IsZero() {
+		t.Fatalf("retired = %+v", retired)
+	}
+	got, _ := st.Finding(ctx, open)
+	if got.Status != "resolved" {
+		t.Errorf("open finding of a retired component: %s", got.Status)
+	}
+	if events, _ := st.FindingEvents(ctx, open); len(events) == 0 || events[len(events)-1].NewStatus != "resolved" {
+		t.Errorf("no history event: %+v", events)
+	}
+	if got, _ := st.Finding(ctx, decided); got.Status != "not_affected" || got.Comment != "vérifié" {
+		t.Errorf("decision lost: %+v", got)
+	}
+
+	if res, err := st.ReplaceProjectAssets(ctx, "app", []Asset{a, b}); err != nil || res.Kept != 2 || res.Added != 0 {
+		t.Fatalf("b listed again: %+v %v", res, err)
+	}
+	if retired, _ := st.ListRetiredAssets(ctx); len(retired) != 0 {
+		t.Error("b still retired")
+	}
+}

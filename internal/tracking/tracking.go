@@ -153,6 +153,9 @@ func (s *Syncer) run(ctx context.Context, assetID int64) (res Result, err error)
 		var a store.Asset
 		a, err = s.Store.Asset(ctx, assetID)
 		assets, name = []store.Asset{a}, a.Name
+		if !a.Retired.IsZero() { // dropped from its SBOM: checking it would reopen its findings
+			assets = nil
+		}
 	}
 	if err != nil {
 		return res, err
@@ -269,6 +272,7 @@ func (s *Syncer) scan(ctx context.Context, assets []store.Asset) (Result, error)
 // tracked period of the asset are skipped, unless they are listed in KEV or
 // already have a finding.
 func (s *Syncer) record(ctx context.Context, res *Result, a store.Asset, reported []string, seen time.Time) error {
+	older := 0
 	for _, id := range reported {
 		in, err := s.Store.InTrackedPeriod(ctx, a.ID, id, a.TrackSince)
 		if err != nil {
@@ -276,6 +280,7 @@ func (s *Syncer) record(ctx context.Context, res *Result, a store.Asset, reporte
 		}
 		if !in {
 			res.Skipped++
+			older++
 			continue
 		}
 		touch, err := s.Store.ObserveFinding(ctx, a.ID, id, seen)
@@ -294,6 +299,9 @@ func (s *Syncer) record(ctx context.Context, res *Result, a store.Asset, reporte
 		return fmt.Errorf("auto-resolve asset %d: %w", a.ID, err)
 	}
 	res.Resolved += n
+	if older != a.OlderVulns {
+		return s.Store.SetOlderVulns(ctx, a.ID, older)
+	}
 	return nil
 }
 

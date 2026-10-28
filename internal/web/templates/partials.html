@@ -2,19 +2,19 @@
    selectable adds checkboxes bound to the form id="bulk" of the page. */}}
 {{define "findingTable"}}
 {{if .List}}
-<table>
+<table class="cards">
 <thead><tr>{{if .Select}}<th class="select"><span class="sr-only">Sélection</span></th>{{end}}<th>Priorité</th><th>Vulnérabilité</th><th>Actif</th><th>Statut</th><th>Détectée le</th><th>Échéance</th><th>Résumé</th></tr></thead>
 <tbody>
 {{range .List}}
 <tr>
-  {{if $.Select}}<td class="select"><input type="checkbox" name="id" value="{{.ID}}" form="bulk" aria-label="Sélectionner {{.VulnID}} sur {{.AssetName}}"></td>{{end}}
-  <td>{{if .KEV}}<span class="kev">Exploitée</span><br>{{end}}<span class="sev sev-{{.Severity}}">{{sevLabel .Severity}}</span>{{with cvss .CVSS}} <small>CVSS {{.}}</small>{{end}}{{with epss .EPSS}}<br><small>EPSS {{.}}</small>{{end}}</td>
-  <td><a href="/findings/{{.ID}}">{{.VulnID}}</a>{{if .Aliases}}<br><small>{{join .Aliases ", "}}</small>{{end}}</td>
-  <td><a href="/assets/{{.AssetID}}">{{.AssetName}} {{.AssetVersion}}</a>{{with .AssetProject}}<br><small class="muted">projet {{.}}</small>{{end}}</td>
-  <td>{{statusLabel .Status}}</td>
-  <td>{{date .FirstSeen}}</td>
-  <td>{{if .Late}}<span class="late">Hors délai</span><br><small>{{.Due.Format "02/01/2006"}}</small>{{else if and (not .Due.IsZero) (or (eq .Status "in_triage") (eq .Status "exploitable"))}}{{.Due.Format "02/01/2006"}}{{else}}<span class="muted">—</span>{{end}}</td>
-  <td>{{.Summary}}</td>
+  {{if $.Select}}<td class="select" data-label="Sélection"><input type="checkbox" name="id" value="{{.ID}}" form="bulk" aria-label="Sélectionner {{.VulnID}} sur {{.AssetName}}"></td>{{end}}
+  <td data-label="Priorité">{{if .KEV}}<span class="kev">Exploitée</span><br>{{end}}<span class="sev sev-{{.Severity}}">{{sevLabel .Severity}}</span>{{with cvss .CVSS}} <small>CVSS {{.}}</small>{{end}}{{with epss .EPSS}}<br><small>EPSS {{.}}</small>{{end}}</td>
+  <td data-label="Vulnérabilité"><a href="/findings/{{.ID}}">{{.VulnID}}</a>{{if .Aliases}}<br><small>{{join .Aliases ", "}}</small>{{end}}</td>
+  <td data-label="Actif"><a href="/assets/{{.AssetID}}">{{.AssetName}} {{.AssetVersion}}</a>{{with .AssetProject}}<br><small class="muted">projet {{.}}</small>{{end}}</td>
+  <td data-label="Statut">{{statusLabel .Status}}</td>
+  <td data-label="Détectée le">{{date .FirstSeen}}</td>
+  <td data-label="Échéance">{{if .Late}}<span class="late">Hors délai</span><br><small>{{.Due.Format "02/01/2006"}}</small>{{else if and (not .Due.IsZero) (or (eq .Status "in_triage") (eq .Status "exploitable"))}}{{.Due.Format "02/01/2006"}}{{else}}<span class="muted">—</span>{{end}}</td>
+  <td data-label="Résumé">{{.Summary}}</td>
 </tr>
 {{end}}
 </tbody>
@@ -26,7 +26,7 @@
 
 {{/* syncBar: inventory synchronisation button and state, for pages that list vulnerabilities. */}}
 {{define "syncBar"}}
-{{$st := syncStatus}}
+{{$st := syncFor .User.Role}}
 <div class="toolbar">
   {{if can .User.Role "analyst"}}
   <form method="post" action="/sync" class="inline">
@@ -41,10 +41,10 @@
 
 {{define "syncText"}}
 {{- if .Running -}}
-  Synchronisation en cours{{with .Asset}} (actif {{.}}){{end}} depuis {{date .Started}} : <a href="">actualisez la page</a> pour voir le résultat.
+  Synchronisation en cours{{with .Asset}} (actif {{.}}){{end}} depuis {{date .Started}} : <a href="/sync">suivre l'avancement</a>.
 {{- else if not .Finished.IsZero -}}
   Dernière synchronisation{{with .Asset}} (actif {{.}}){{end}} le {{date .Finished}} :
-  {{if .Err}}<span class="danger-link">échec ({{.Err}}).</span>{{else}}{{.Result.Created}} nouvelle(s), {{.Result.Reopened}} rouverte(s), {{.Result.Resolved}} corrigée(s) automatiquement{{if .Result.Skipped}}, {{.Result.Skipped}} ignorée(s) car publiée(s) avant la période de suivi{{end}}.{{end}}
+  {{if .Err}}<span class="danger-link">échec{{if .Details}} ({{.Err}}){{end}}.</span>{{else}}{{.Result.Created}} nouvelle(s), {{.Result.Reopened}} rouverte(s), {{.Result.Resolved}} corrigée(s) automatiquement{{if .Result.Skipped}}, {{.Result.Skipped}} ignorée(s) car publiée(s) avant la période de suivi{{end}}.{{end}}
 {{- else -}}
   Aucune synchronisation depuis le démarrage du serveur.
 {{- end -}}

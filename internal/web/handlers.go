@@ -230,7 +230,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	s.render(w, r, http.StatusOK, "dashboard", page{Title: "Tableau de bord", Data: map[string]any{
+	s.render(w, r, http.StatusOK, "dashboard", page{Title: "Tableau de bord", Refresh: s.syncStatus().Running, Data: map[string]any{
 		"Stats": stats, "Counts": counts, "Severe": stats.OpenBySeverity["CRITICAL"] + stats.OpenBySeverity["HIGH"], "Recent": recent, "RecentTotal": recentTotal,
 		"Assets": len(assets), "Tracked": tracked, "Coverage": coverage,
 		"Donut": newDonut(stats.OpenBySeverity), "Weekly": newWeeklyChart(stats.Weeks),
@@ -261,15 +261,22 @@ func assetFromForm(r *http.Request) store.Asset {
 	return a
 }
 
+// assetList shows the inventory; ?retired=1 shows the components dropped
+// from their project's SBOM, kept for their history.
 func (s *Server) assetList(w http.ResponseWriter, r *http.Request) {
-	s.renderAssets(w, r, http.StatusOK, prefilledAssetForm(r.URL.Query()), "")
-}
-
-func (s *Server) renderAssets(w http.ResponseWriter, r *http.Request, status int, form store.Asset, formErr string) {
-	assets, err := s.Store.ListAssets(r.Context())
+	ctx := r.Context()
+	retiredView := r.URL.Query().Get("retired") == "1"
+	retired, err := s.Store.ListRetiredAssets(ctx)
 	if err != nil {
 		s.serverError(w, r, err)
 		return
+	}
+	assets := retired
+	if !retiredView {
+		if assets, err = s.Store.ListAssets(ctx); err != nil {
+			s.serverError(w, r, err)
+			return
+		}
 	}
 	project, tag := r.URL.Query().Get("project"), r.URL.Query().Get("tag")
 	if project != "" || tag != "" {
@@ -291,14 +298,25 @@ func (s *Server) renderAssets(w http.ResponseWriter, r *http.Request, status int
 		s.serverError(w, r, err)
 		return
 	}
-	s.render(w, r, status, "assets", page{Title: "Inventaire", Error: formErr,
-		Data: map[string]any{"Assets": assets, "Form": form, "Projects": projects, "Project": project, "Tags": tags, "Tag": tag}})
+	s.render(w, r, http.StatusOK, "assets", page{Title: "Inventaire",
+		Data: map[string]any{"Assets": assets, "Projects": projects, "Project": project, "Tags": tags, "Tag": tag,
+			"RetiredView": retiredView, "Retired": len(retired)}})
+}
+
+// assetNew shows the ways to add assets: CPE search, form, SBOM and CSV
+// imports. The form may be prefilled from a CPE search result.
+func (s *Server) assetNew(w http.ResponseWriter, r *http.Request) {
+	s.renderNewAsset(w, r, http.StatusOK, prefilledAssetForm(r.URL.Query()), "")
+}
+
+func (s *Server) renderNewAsset(w http.ResponseWriter, r *http.Request, status int, form store.Asset, formErr string) {
+	s.render(w, r, status, "asset_new", page{Title: "Ajouter des actifs", Error: formErr, Data: map[string]any{"Form": form}})
 }
 
 func (s *Server) assetCreate(w http.ResponseWriter, r *http.Request) {
 	a := assetFromForm(r)
 	if err := inventory.Validate(a); err != nil {
-		s.renderAssets(w, r, http.StatusBadRequest, a, err.Error())
+		s.renderNewAsset(w, r, http.StatusBadRequest, a, err.Error())
 		return
 	}
 	id, err := s.Store.CreateAsset(r.Context(), a)
@@ -371,9 +389,31 @@ func (s *Server) assetUpdate(w http.ResponseWriter, r *http.Request) {
 	redirect(w, r, "/assets/"+strconv.FormatInt(a.ID, 10), "asset-updated")
 }
 
+// assetFullHistory tracks the whole history of an asset: the vulnerabilities
+// published before its tracked period are reported too.
+func (s *Server) assetFullHistory(w http.ResponseWriter, r *http.Request) {
+	a, ok := s.loadAsset(w, r)
+	if !ok {
+		return
+	}
+	a.TrackSince = ""
+	if err := s.Store.UpdateAsset(r.Context(), a); err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	sess, _ := sessionFrom(r.Context())
+	s.audit(r, sess.User.ID, "asset_update", strconv.FormatInt(a.ID, 10)+" historique complet")
+	go s.runAssetSync(a.ID)
+	redirect(w, r, "/assets/"+strconv.FormatInt(a.ID, 10), "asset-updated")
+}
+
 func (s *Server) assetScan(w http.ResponseWriter, r *http.Request) {
 	a, ok := s.loadAsset(w, r)
 	if !ok {
+		return
+	}
+	if !a.Retired.IsZero() { // no longer in its project: checking it would reopen its findings
+		redirect(w, r, "/assets/"+strconv.FormatInt(a.ID, 10), "")
 		return
 	}
 	sess, _ := sessionFrom(r.Context())
@@ -635,7 +675,7 @@ func (s *Server) renderFinding(w http.ResponseWriter, r *http.Request, status in
 		return
 	}
 	s.render(w, r, status, "finding", page{Title: findingTitle(f), Error: formErr,
-		Data: map[string]any{"Finding": f, "Vuln": v, "Events": events, "Mentions": mentions}})
+		Data: map[string]any{"Finding": f, "Vuln": v, "Events": events, "Mentions": mentions, "Fixes": fixLines(v.Raw, f)}})
 }
 
 func (s *Server) findingUpdate(w http.ResponseWriter, r *http.Request) {

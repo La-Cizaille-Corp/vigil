@@ -5,6 +5,8 @@
   <dt>Sévérité</dt><dd><span class="sev sev-{{$v.Severity}}">{{sevLabel $v.Severity}}</span>{{with cvss $v.CVSS}} — CVSS {{.}}{{end}}</dd>
   <dt>Exploitation</dt><dd>{{if $v.KEV}}<span class="kev">Exploitée activement (CISA KEV)</span>{{if $v.KEVDue}} — échéance CISA {{isoDate $v.KEVDue}}{{end}}{{else}}Non listée dans CISA KEV{{end}}
     {{with epss $v.EPSS}} · probabilité EPSS {{.}}{{end}}</dd>
+  <dt>Correction</dt><dd>{{with .Data.Fixes}}<ul class="fixes">{{range .}}<li>{{if .Yours}}<strong>{{.Text}}</strong> <span class="muted small">(votre version)</span>{{else}}{{.Text}}{{end}}</li>{{end}}</ul>
+    {{else}}<span class="muted">non indiquée par la source</span>{{end}}</dd>
   {{if $v.Aliases}}<dt>Alias</dt><dd>{{join $v.Aliases ", "}}</dd>{{end}}
   <dt>Actif</dt><dd><a href="/assets/{{$f.AssetID}}">{{$f.AssetName}} {{$f.AssetVersion}}</a>{{with $f.AssetProject}} <span class="muted">(projet {{.}})</span>{{end}}</dd>
   <dt>Statut</dt><dd>{{statusLabel $f.Status}}{{if $f.Justification}} — {{justifLabel $f.Justification}}{{end}}</dd>

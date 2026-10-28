@@ -120,7 +120,7 @@ func (s *Server) renderSettings(w http.ResponseWriter, r *http.Request, status i
 	}
 	s.render(w, r, status, "settings", page{Title: "Paramètres", Error: formErr, Data: map[string]any{
 		"Watch": watch, "Feeds": feeds, "Webhooks": hooks,
-		"Tokens": tokens, "NewToken": newTokenFrom(ctx), "BaseURL": s.BaseURL,
+		"Tokens": tokens, "NewToken": s.newToken(r), "BaseURL": s.BaseURL,
 		"SLA": sla, "Mail": s.Notifier != nil && s.Notifier.Mail != nil,
 	}})
 }
@@ -355,13 +355,13 @@ func (s *Server) byID(w http.ResponseWriter, r *http.Request, action func(int64)
 func (s *Server) sbomImport(w http.ResponseWriter, r *http.Request) {
 	file, _, err := r.FormFile("sbom")
 	if err != nil {
-		s.renderAssets(w, r, http.StatusBadRequest, defaultAssetForm(), "Fichier SBOM manquant ou trop volumineux.")
+		s.renderNewAsset(w, r, http.StatusBadRequest, defaultAssetForm(), "Fichier SBOM manquant ou trop volumineux.")
 		return
 	}
 	defer file.Close()
 	doc, err := sbom.Parse(file)
 	if err != nil {
-		s.renderAssets(w, r, http.StatusBadRequest, defaultAssetForm(), err.Error())
+		s.renderNewAsset(w, r, http.StatusBadRequest, defaultAssetForm(), err.Error())
 		return
 	}
 	project := strings.TrimSpace(r.PostFormValue("project"))
@@ -369,7 +369,7 @@ func (s *Server) sbomImport(w http.ResponseWriter, r *http.Request) {
 		project = doc.Name
 	}
 	if project == "" || len(project) > 200 {
-		s.renderAssets(w, r, http.StatusBadRequest, defaultAssetForm(), "Indiquez un nom de projet.")
+		s.renderNewAsset(w, r, http.StatusBadRequest, defaultAssetForm(), "Indiquez un nom de projet.")
 		return
 	}
 	res, err := s.Store.ReplaceProjectAssets(r.Context(), project, doc.Assets)
@@ -378,7 +378,7 @@ func (s *Server) sbomImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess, _ := sessionFrom(r.Context())
-	s.audit(r, sess.User.ID, "sbom_import", fmt.Sprintf("%s: %s +%d =%d -%d (%d ignorés)",
+	s.audit(r, sess.User.ID, "sbom_import", fmt.Sprintf("%s: %s +%d =%d retirés %d (%d ignorés)",
 		project, doc.Format, res.Added, res.Kept, res.Removed, doc.Skipped))
 	go s.runSync()
 	redirect(w, r, "/assets?project="+url.QueryEscape(project), "sbom-imported")

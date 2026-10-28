@@ -1,14 +1,19 @@
 {{define "content"}}
 {{$a := .Data.Form}}
 <p><a href="/assets{{with $a.Project}}?project={{.}}{{end}}">← Inventaire</a></p>
+{{if not $a.Retired.IsZero}}
+<p class="flash" role="status">Composant absent du dernier SBOM du projet {{$a.Project}} depuis le {{date $a.Retired}} : il n'est
+  plus vérifié et ses vulnérabilités encore ouvertes ont été marquées corrigées. Son historique est conservé ; il revient tel
+  quel si un prochain SBOM le liste.</p>
+{{end}}
 <div class="toolbar">
-  {{if can .User.Role "analyst"}}
+  {{if and (can .User.Role "analyst") $a.Retired.IsZero}}
   <form method="post" action="/assets/{{$a.ID}}/scan" class="inline">
     <input type="hidden" name="csrf" value="{{.CSRF}}">
     <button type="submit">Analyser cet actif</button>
   </form>
   {{end}}
-  <span class="muted small">{{template "syncText" syncStatus}}</span>
+  <span class="muted small">{{template "syncText" (syncFor .User.Role)}}</span>
 </div>
 {{with $a.Tags}}<p>{{range .}}<a class="tag" href="/assets?tag={{.}}">{{.}}</a>{{end}}</p>{{end}}
 
@@ -16,6 +21,14 @@
 <p class="muted small">{{if $a.TrackSince}}Période de suivi : vulnérabilités publiées depuis le {{isoDate $a.TrackSince}}, plus les plus anciennes
   activement exploitées (CISA KEV).{{if can .User.Role "analyst"}} Pour voir tout l'historique, videz la date de début ci-dessous.{{end}}{{else}}Période de suivi : tout l'historique.{{end}}
   {{if not (tracking $a)}}<strong>Aucune détection automatique</strong> : renseignez un purl, un écosystème avec une version, ou un CPE.{{end}}</p>
+{{if and $a.OlderVulns $a.TrackSince}}
+<div class="notice">{{$a.OlderVulns}} vulnérabilité(s) connue(s) pour cette version ont été publiées avant le {{isoDate $a.TrackSince}}
+  et ne sont pas signalées ici (sauf exploitées).{{if can .User.Role "analyst"}}
+  <form method="post" action="/assets/{{$a.ID}}/full-history" class="inline">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <button type="submit" class="link">Suivre tout l'historique</button>
+  </form>{{end}}</div>
+{{end}}
 {{template "findingTable" (findingRows .Data.Findings false)}}
 
 {{if can .User.Role "analyst"}}

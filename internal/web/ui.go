@@ -3,12 +3,14 @@ package web
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/La-Cizaille-Corp/vigil/internal/auth"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
@@ -87,6 +89,22 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return string([]rune(s)[:n]) + "…"
+}
+
+// syncView is the data of the "syncText" template: error details (source
+// addresses, proxy messages) are for those who can act on them.
+type syncView struct {
+	tracking.Status
+	Details bool
+}
+
+func (s *Server) syncFor(role string) syncView {
+	return syncView{Status: s.syncStatus(), Details: auth.RoleAtLeast(role, auth.RoleAnalyst)}
+}
+
+// syncPage follows a synchronisation: it reloads itself while it runs.
+func (s *Server) syncPage(w http.ResponseWriter, r *http.Request) {
+	s.render(w, r, http.StatusOK, "sync", page{Title: "Synchronisation", Refresh: s.syncStatus().Running})
 }
 
 // syncStatus is the state of the running or last synchronisation.

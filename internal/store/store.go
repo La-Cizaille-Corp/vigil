@@ -192,7 +192,40 @@ func (s *Store) backupBeforeUpgrade(ctx context.Context, path string, current in
 		return fmt.Errorf("copie de sécurité avant mise à jour du schéma (espace disque, droits ?) : %w", err)
 	}
 	s.upgradeBackup = dest
+	pruneUpgradeBackups(path, keepUpgradeBackups)
 	return nil
+}
+
+// keepUpgradeBackups is how many copies taken before a schema upgrade are
+// kept next to the database: each holds every secret of the database.
+const keepUpgradeBackups = 3
+
+// pruneUpgradeBackups deletes the oldest copies taken before a schema
+// upgrade beyond keep. Failures only leave extra files behind.
+func pruneUpgradeBackups(path string, keep int) {
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil {
+		return
+	}
+	type copyFile struct {
+		name string
+		mod  time.Time
+	}
+	var copies []copyFile
+	prefix := filepath.Base(path) + ".schema-"
+	for _, e := range entries {
+		n := e.Name()
+		if !e.Type().IsRegular() || !strings.HasPrefix(n, prefix) || !strings.HasSuffix(n, ".bak") {
+			continue
+		}
+		if info, err := e.Info(); err == nil {
+			copies = append(copies, copyFile{n, info.ModTime()})
+		}
+	}
+	sort.Slice(copies, func(i, j int) bool { return copies[i].mod.After(copies[j].mod) })
+	for _, c := range copies[min(keep, len(copies)):] {
+		_ = os.Remove(filepath.Join(filepath.Dir(path), c.name))
+	}
 }
 
 // apply runs one migration in a transaction. Another process (vigil sync

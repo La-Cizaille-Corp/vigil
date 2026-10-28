@@ -92,10 +92,12 @@ legend { font-weight: 600; font-size: .9rem; padding: 0 .3rem; }
 fieldset.plain { max-height: none; overflow: visible; margin: .5rem 0 1rem; }
 label.check { display: flex; gap: .45rem; align-items: center; margin: .1rem 0; font-weight: 400; }
 label.check input { width: auto; margin: 0; }
-button { padding: .5rem 1rem; font: inherit; font-weight: 600; border: 0; border-radius: 6px; background: var(--accent);
+button, a.button { padding: .5rem 1rem; font: inherit; font-weight: 600; border: 0; border-radius: 6px; background: var(--accent);
   color: #fff; cursor: pointer; }
-@media (prefers-color-scheme: dark) { button { color: #0b1220; } }
-button:hover { filter: brightness(1.08); }
+a.button { display: inline-block; }
+a.button:hover { text-decoration: none; }
+@media (prefers-color-scheme: dark) { button, a.button { color: #0b1220; } }
+button:hover, a.button:hover { filter: brightness(1.08); }
 button:disabled { opacity: .55; cursor: default; filter: none; }
 button.danger { background: var(--danger); color: #fff; }
 button.link { background: none; color: var(--accent); padding: 0; font-weight: 500; }
@@ -104,6 +106,9 @@ form.inline { display: inline-flex; flex-wrap: wrap; gap: .5rem; align-items: ce
 details > summary { cursor: pointer; }
 details.card > summary { color: var(--accent); font-weight: 600; }
 details.more-filters { margin: .25rem 0 .75rem; }
+ul.fixes { margin: 0; padding-left: 1.1rem; }
+.notice { background: var(--accent-soft); border-radius: var(--radius); padding: .6rem .8rem; margin: .5rem 0 1rem; }
+.notice form.inline { margin: 0; }
 details.more-filters > summary { color: var(--accent); font-weight: 600; margin-bottom: .5rem; }
 details.confirm { display: inline-block; margin: .25rem 0; }
 details.confirm > summary { color: var(--danger); }
@@ -207,6 +212,15 @@ svg.donut { width: 168px; height: 168px; flex: none; }
 @media (max-width: 700px) {
   table { display: block; overflow-x: auto; }
   header { position: static; }
+  /* Long lists read as cards on a phone: every column stays visible. */
+  table.cards { overflow: visible; border: 0; background: none; box-shadow: none; }
+  table.cards thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  table.cards tbody { display: grid; gap: .6rem; }
+  table.cards tr { display: grid; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: .35rem 0; }
+  table.cards td { display: block; position: relative; border: 0; padding: .3rem .75rem .3rem 8.25rem; text-align: left; width: auto; }
+  table.cards td::before { content: attr(data-label); position: absolute; left: .75rem; top: .45rem; width: 7rem;
+    font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); }
+  table.cards td:empty { display: none; }
 }
 @media (forced-colors: active) {
   .swatch, .donut-seg, .bar { forced-color-adjust: none; }

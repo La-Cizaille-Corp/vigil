@@ -1,5 +1,11 @@
 {{define "content"}}
 {{template "syncBar" .}}
+{{if can .User.Role "analyst"}}<p><a class="button" href="/assets/new">Ajouter des actifs</a>
+  <span class="muted small">produit, paquet, SBOM ou tableau CSV</span></p>{{end}}
+{{if .Data.RetiredView}}
+<p class="muted">Composants absents du dernier SBOM de leur projet. Leur historique de triage est conservé ;
+  ils reviennent tels quels si un prochain SBOM les liste. <a href="/assets">← Inventaire</a></p>
+{{end}}
 {{if or .Data.Projects .Data.Tags}}
 <nav class="filters">
   <a href="/assets" {{if not (or .Data.Project .Data.Tag)}}class="active"{{end}}>Tous les actifs</a>
@@ -15,69 +21,31 @@
 </nav>
 {{end}}
 {{if .Data.Assets}}
-<table>
+<table class="cards">
 <thead><tr><th>Nom</th><th>Éditeur</th><th>Version</th><th>Type</th><th>Identifiant (purl, CPE ou écosystème)</th><th>Projet</th><th>Criticité</th><th>Responsable</th><th>Détection</th></tr></thead>
 <tbody>
 {{range .Data.Assets}}
 <tr>
-  <td><a href="/assets/{{.ID}}">{{.Name}}</a>{{if .Tags}}<br>{{range .Tags}}<a class="tag" href="/assets?tag={{.}}">{{.}}</a>{{end}}{{end}}</td>
-  <td>{{vendorOf .}}</td>
-  <td>{{if wholeVendor .}}<span class="muted">tous les produits</span>{{else}}{{.Version}}{{end}}</td>
-  <td>{{kindLabel .Kind}}</td>
-  <td>{{if .PURL}}<code>{{.PURL}}</code>{{else if .CPE}}<code>{{.CPE}}</code>{{else}}{{.Ecosystem}}{{end}}</td>
-  <td>{{.Project}}</td>
-  <td>{{critLabel .Criticality}}</td>
-  <td>{{.Owner}}</td>
-  <td>{{with tracking .}}{{.}}{{else}}<span class="muted">aucune</span>{{end}}
-    <br><small class="muted">{{if .TrackSince}}depuis le {{isoDate .TrackSince}}{{else}}tout l'historique{{end}}</small></td>
+  <td data-label="Nom"><a href="/assets/{{.ID}}">{{.Name}}</a>{{if .Tags}}<br>{{range .Tags}}<a class="tag" href="/assets?tag={{.}}">{{.}}</a>{{end}}{{end}}</td>
+  <td data-label="Éditeur">{{vendorOf .}}</td>
+  <td data-label="Version">{{if wholeVendor .}}<span class="muted">tous les produits</span>{{else}}{{.Version}}{{end}}</td>
+  <td data-label="Type">{{kindLabel .Kind}}</td>
+  <td data-label="Identifiant">{{if .PURL}}<code>{{.PURL}}</code>{{else if .CPE}}<code>{{.CPE}}</code>{{else}}{{.Ecosystem}}{{end}}</td>
+  <td data-label="Projet">{{.Project}}</td>
+  <td data-label="Criticité">{{critLabel .Criticality}}</td>
+  <td data-label="Responsable">{{.Owner}}</td>
+  <td data-label="Détection">{{with tracking .}}{{.}}{{else}}<span class="muted">aucune</span>{{end}}
+    <br><small class="muted">{{if .TrackSince}}depuis le {{isoDate .TrackSince}}{{else}}tout l'historique{{end}}</small>
+    {{if and .OlderVulns .TrackSince}}<br><small class="muted">{{.OlderVulns}} antérieure(s) non signalée(s)</small>{{end}}</td>
 </tr>
 {{end}}
 </tbody>
 </table>
 <p class="muted small"><a href="/assets.csv{{with .Data.Project}}?project={{.}}{{end}}">Exporter {{if .Data.Project}}les actifs du projet{{else}}l'inventaire{{end}} (CSV)</a></p>
 {{else}}
-<p class="muted">Aucun actif pour le moment.</p>
+<p class="muted">{{if .Data.RetiredView}}Aucun composant retiré.{{else}}Aucun actif pour le moment.{{end}}</p>
 {{end}}
-
-{{if can .User.Role "analyst"}}
-<h2 id="ajouter">Ajouter un actif</h2>
-<form method="get" action="/assets/cpe" class="card inline-search">
-  <label>Produit, technologie ou éditeur sans purl ? Trouver son CPE dans le dictionnaire de la NVD (un éditeur seul permet
-    de suivre tous ses produits)
-    <input type="search" name="q" maxlength="100" placeholder="fortios 7.2.4, fortinet, exchange server 2019, nginx…" required></label>
-  <button type="submit">Rechercher</button>
-</form>
-<form method="post" action="/assets" class="card">
-  <input type="hidden" name="csrf" value="{{.CSRF}}">
-  {{template "assetFields" .Data.Form}}
-  <button type="submit">Ajouter l'actif</button>
-</form>
-
-<h2>Importer un SBOM</h2>
-<form method="post" action="/assets/import" enctype="multipart/form-data" class="card">
-  <input type="hidden" name="csrf" value="{{.CSRF}}">
-  <div class="grid">
-    <label>Fichier CycloneDX ou SPDX (JSON, 20 Mo max) <input type="file" name="sbom" accept=".json,application/json" required></label>
-    <label>Projet (par défaut : nom indiqué dans le SBOM) <input name="project" maxlength="200"></label>
-  </div>
-  <p class="muted small">Un nouvel import du même projet remplace ses actifs : les actifs inchangés gardent leur historique de suivi.
-    Les nouveaux actifs sont suivis sur les 120 derniers jours, comme un ajout manuel.</p>
-  <button type="submit">Importer le SBOM</button>
-</form>
-
-<h2>Importer un tableau (CSV)</h2>
-<form method="post" action="/assets/import-csv" enctype="multipart/form-data" class="card">
-  <input type="hidden" name="csrf" value="{{.CSRF}}">
-  <label>Fichier CSV (2 Mo max), séparé par des virgules ou des points-virgules
-    <input type="file" name="csv" accept=".csv,text/csv" required></label>
-  <p class="muted small">Première ligne : noms des colonnes. Seule <code>name</code> (ou <code>nom</code>) est obligatoire ;
-    colonnes reconnues : <code>version</code>, <code>kind</code> (<code>type</code>), <code>criticality</code> (<code>criticité</code>),
-    <code>owner</code> (<code>responsable</code>), <code>project</code> (<code>projet</code>), <code>purl</code>, <code>ecosystem</code>,
-    <code>cpe</code>, <code>cpe_mode</code>, <code>cpe_from</code>, <code>track_since</code>, <code>notes</code>, <code>tags</code> (étiquettes, séparées par des virgules).
-    Les types et criticités s'écrivent comme dans l'interface (« Produit », « Haute »…) ou par leur code. Le plus simple :
-    partir d'un <a href="/assets.csv">export de l'inventaire</a>. Le fichier entier est refusé à la moindre ligne invalide ;
-    les lignes identiques à un actif existant sont ignorées.</p>
-  <button type="submit">Importer le tableau</button>
-</form>
+{{if and .Data.Retired (not .Data.RetiredView)}}
+<p class="muted small"><a href="/assets?retired=1">{{.Data.Retired}} composant(s) retiré(s) des SBOM</a>, historique conservé.</p>
 {{end}}
 {{end}}

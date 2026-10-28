@@ -131,10 +131,10 @@ func (s *Store) Vulnerability(ctx context.Context, id string) (Vulnerability, er
 	var v Vulnerability
 	var aliases, refs string
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, aliases, summary, details, severity, cvss, published, modified, refs, kev, kev_due, epss
+		SELECT id, aliases, summary, details, severity, cvss, published, modified, refs, kev, kev_due, epss, raw
 		FROM vulnerabilities WHERE id = ?`, id).
 		Scan(&v.ID, &aliases, &v.Summary, &v.Details, &v.Severity, &v.CVSS, &v.Published, &v.Modified, &refs,
-			&v.KEV, &v.KEVDue, &v.EPSS)
+			&v.KEV, &v.KEVDue, &v.EPSS, &v.Raw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return v, ErrNotFound
 	}

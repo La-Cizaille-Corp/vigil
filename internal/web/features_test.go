@@ -265,7 +265,7 @@ func TestCPESearch(t *testing.T) {
 		t.Error("versions offered do not follow the search")
 	}
 	// "Use" prefills the new asset form.
-	_, body = c.get("/assets?cpe=cpe%3A2.3%3Ao%3Afortinet%3Afortios%3A7.2.4%3A*%3A*%3A*%3A*%3A*%3A*%3A*&kind=os&name=Fortinet+FortiOS&version=7.2.4")
+	_, body = c.get("/assets/new?cpe=cpe%3A2.3%3Ao%3Afortinet%3Afortios%3A7.2.4%3A*%3A*%3A*%3A*%3A*%3A*%3A*&kind=os&name=Fortinet+FortiOS&version=7.2.4")
 	for _, want := range []string{`value="Fortinet FortiOS"`, `value="7.2.4"`, `value="cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("prefilled form misses %s", want)

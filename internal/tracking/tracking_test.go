@@ -176,6 +176,10 @@ func TestTrackedPeriod(t *testing.T) {
 	if s := syncer.Status(); s.Running || s.Asset != "lib" || s.Result.Created != 2 || s.Finished.IsZero() {
 		t.Errorf("status: %+v", s)
 	}
+	// The asset page tells that older known flaws exist.
+	if a, _ := st.Asset(ctx, id); a.OlderVulns != 1 {
+		t.Errorf("older vulnerabilities = %d, want 1", a.OlderVulns)
+	}
 
 	// Whole history: the old one is reported too.
 	a, _ := st.Asset(ctx, id)
@@ -183,6 +187,9 @@ func TestTrackedPeriod(t *testing.T) {
 	st.UpdateAsset(ctx, a)
 	if res, _ = syncer.RunAsset(ctx, id); res.Created != 1 {
 		t.Fatalf("created %d, want 1", res.Created)
+	}
+	if a, _ := st.Asset(ctx, id); a.OlderVulns != 0 {
+		t.Errorf("older vulnerabilities after tracking the whole history = %d", a.OlderVulns)
 	}
 }
 

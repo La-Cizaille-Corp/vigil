@@ -14,6 +14,7 @@ type User struct {
 	Username     string
 	PasswordHash string
 	Role         string
+	TOTP         bool // second factor enabled (set on sessions)
 }
 
 // Session is an authenticated browser session with its user.
@@ -67,10 +68,10 @@ func (s *Store) SessionByHash(ctx context.Context, tokenHash string) (Session, e
 	var sess Session
 	var expires string
 	err := s.db.QueryRowContext(ctx, `
-		SELECT u.id, u.username, u.role, s.csrf_token, s.expires_at
+		SELECT u.id, u.username, u.role, u.totp_secret <> '', s.csrf_token, s.expires_at
 		FROM sessions s JOIN users u ON u.id = s.user_id
 		WHERE s.token_hash = ? AND s.expires_at > ? AND u.disabled_at = ''`, tokenHash, now()).
-		Scan(&sess.User.ID, &sess.User.Username, &sess.User.Role, &sess.CSRFToken, &expires)
+		Scan(&sess.User.ID, &sess.User.Username, &sess.User.Role, &sess.User.TOTP, &sess.CSRFToken, &expires)
 	if errors.Is(err, sql.ErrNoRows) {
 		return sess, ErrNotFound
 	}

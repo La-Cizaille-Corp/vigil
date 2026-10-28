@@ -81,3 +81,18 @@ func TestCreateFirstAdmin(t *testing.T) {
 		t.Errorf("second first admin: %v", err)
 	}
 }
+
+func TestPurgeAudit(t *testing.T) {
+	ctx := context.Background()
+	st := openTest(t)
+	st.Audit(ctx, 0, "login", "x")
+	if n, err := st.PurgeAudit(ctx, time.Now().Add(-time.Hour)); err != nil || n != 0 {
+		t.Fatalf("recent entry purged: %d %v", n, err)
+	}
+	if n, err := st.PurgeAudit(ctx, time.Now().Add(time.Hour)); err != nil || n != 1 {
+		t.Fatalf("old entry kept: %d %v", n, err)
+	}
+	if err := st.SetTOTPPolicy(ctx, "sometimes"); err == nil {
+		t.Error("unknown policy accepted")
+	}
+}

@@ -283,7 +283,7 @@ func prefill(name, version, kind, cpe, mode string) string {
 	if mode != "" {
 		q.Set("cpe_mode", mode)
 	}
-	return "/assets?" + q.Encode() + "#ajouter"
+	return "/assets/new?" + q.Encode() + "#ajouter"
 }
 
 // prefilledAssetForm is the new-asset form, prefilled from a CPE search. The
@@ -340,7 +340,7 @@ func (s *Server) assetCSV(w http.ResponseWriter, r *http.Request) {
 func (s *Server) assetCSVImport(w http.ResponseWriter, r *http.Request) {
 	file, _, err := r.FormFile("csv") // body bounded by limitBody
 	if err != nil {
-		s.renderAssets(w, r, http.StatusBadRequest, defaultAssetForm(), "Fichier CSV manquant ou trop volumineux (2 Mo max).")
+		s.renderNewAsset(w, r, http.StatusBadRequest, defaultAssetForm(), "Fichier CSV manquant ou trop volumineux (2 Mo max).")
 		return
 	}
 	defer file.Close()
@@ -350,7 +350,7 @@ func (s *Server) assetCSVImport(w http.ResponseWriter, r *http.Request) {
 		assets, err = inventory.AssetsFromCSV(records, time.Now())
 	}
 	if err != nil {
-		s.renderAssets(w, r, http.StatusBadRequest, defaultAssetForm(), "Import CSV refusé, aucun actif ajouté : "+err.Error())
+		s.renderNewAsset(w, r, http.StatusBadRequest, defaultAssetForm(), "Import CSV refusé, aucun actif ajouté : "+err.Error())
 		return
 	}
 	existing, err := s.Store.ListAssets(r.Context())

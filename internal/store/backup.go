@@ -147,15 +147,26 @@ func RotateBackups(dir string, keep int) error {
 		return fmt.Errorf("rotate backups: %w", err)
 	}
 	var names []string
+	var errs []error
 	for _, e := range entries {
+		n := e.Name()
+		if !e.Type().IsRegular() {
+			continue
+		}
 		// Only names written by BackupName: a copy made by hand
 		// ("vigil-avant-maj.db") is neither counted nor deleted.
-		if n := e.Name(); e.Type().IsRegular() && isBackupName(n) {
+		if isBackupName(n) {
 			names = append(names, n)
+		}
+		// A backup interrupted by a crash leaves its temporary file, a full
+		// copy of the database: removed once clearly abandoned.
+		if tmp, ok := strings.CutSuffix(n, ".tmp"); ok && isBackupName(tmp) {
+			if info, err := e.Info(); err == nil && time.Since(info.ModTime()) > time.Hour {
+				errs = append(errs, os.Remove(filepath.Join(dir, n)))
+			}
 		}
 	}
 	sort.Strings(names) // timestamps sort chronologically
-	var errs []error
 	for len(names) > keep {
 		if err := os.Remove(filepath.Join(dir, names[0])); err != nil {
 			errs = append(errs, err)
