@@ -9,5 +9,7 @@ regex = '''vgl_[A-Za-z0-9_-]{43}'''
 keywords = ["vgl_"]
 
 [allowlist]
-description = "Test fixtures with fake secrets"
+description = "Test fixtures with fake secrets; the character set of generated passwords"
 paths = ['''_test\.go$''']
+regexTarget = "line"
+regexes = ['''passwordAlphabet = "''']
