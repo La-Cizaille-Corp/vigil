@@ -80,7 +80,8 @@ modification, ou sur demande), par l'API après un import SBOM, ou par `vigil sy
 ### Digest
 
 Couvre la période depuis le digest précédent (7 jours pour le premier) : nouvelles
-vulnérabilités, vulnérabilités ouvertes, synthèse par statut, veille menaces filtrée, veille
+vulnérabilités et vulnérabilités ouvertes, chacune regroupée par éditeur (A47), hors délai,
+actualités citant l'inventaire, synthèse par statut, veille menaces filtrée, veille
 réglementaire. Stocké (Markdown + HTML), consultable, exportable, envoyé aux webhooks.
 
 ## 4. Registre des arbitrages
@@ -373,6 +374,16 @@ sont mises en minuscules pour qu'une même étiquette ne se dédouble pas (« Pr
 Stockage comme les étiquettes de la veille (`,prod,web,`, migration 010). Filtres de l'inventaire et
 des vulnérabilités, export et import CSV. Écarté : une table d'étiquettes avec administration
 (complexité sans besoin avéré).
+
+**A47. Digest regroupé par éditeur.** Le digest commence par un tableau éditeur × sévérité
+(critiques, hautes, moyennes, basses, inconnues, total, exploitées), puis liste les vulnérabilités
+de chaque éditeur de la plus grave à la moins grave ; dans une même sévérité, les exploitées (KEV)
+d'abord, puis par score CVSS. La sévérité est celle de l'avis, à défaut la tranche du score CVSS
+(9 et plus, 7 à 8,9, 4 à 6,9, moins de 4). L'éditeur vient du CPE (Fortinet), de l'espace de noms du
+purl (org.apache.logging.log4j) ou, sans espace de noms, de l'écosystème (Paquets npm). Les
+vulnérabilités ouvertes sont limitées à 25 par éditeur dans la liste, les compteurs restant
+complets : un abonnement à un grand éditeur en compte des milliers. Le tableau vient en tête pour
+survivre à la troncature des messages de discussion.
 
 **A43. Triage par lot et journal d'audit consultable.** Le triage par lot applique une même
 décision à des vulnérabilités cochées, avec un événement d'historique pour chacune (pas de

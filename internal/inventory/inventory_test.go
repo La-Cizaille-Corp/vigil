@@ -81,3 +81,20 @@ func TestTags(t *testing.T) {
 		t.Error("too many tags accepted")
 	}
 }
+
+func TestVendorName(t *testing.T) {
+	for _, c := range []struct {
+		in   store.Asset
+		want string
+	}{
+		{store.Asset{CPE: "cpe:2.3:a:palo_alto_networks:pan-os:*:*:*:*:*:*:*:*"}, "Palo Alto Networks"},
+		{store.Asset{PURL: "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1"}, "org.apache.logging.log4j"},
+		{store.Asset{PURL: "pkg:pypi/django@4.2"}, "Paquets PyPI"},
+		{store.Asset{PURL: "pkg:golang/stdlib@1.22.0"}, "Paquets golang"},
+		{store.Asset{Name: "manual"}, ""},
+	} {
+		if got := VendorName(c.in); got != c.want {
+			t.Errorf("VendorName(%+v) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

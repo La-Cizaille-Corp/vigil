@@ -222,6 +222,41 @@ func VendorProduct(a store.Asset) (vendor, product string) {
 	return vendor, product
 }
 
+// VendorName is the vendor an asset is filed under in reports: the CPE
+// vendor as a title (fortinet → Fortinet), the purl namespace as written
+// (org.apache.logging.log4j), or the packages of an ecosystem when the purl
+// has no namespace (Paquets npm). It is "" for an asset with neither.
+func VendorName(a store.Asset) string {
+	vendor, _ := VendorProduct(a)
+	switch {
+	case vendor == "*":
+	case vendor != "" && a.CPE != "":
+		return VendorTitle(vendor)
+	case vendor != "":
+		return vendor
+	}
+	kind, _, ok := strings.Cut(strings.TrimPrefix(a.PURL, "pkg:"), "/")
+	if !ok || !strings.HasPrefix(a.PURL, "pkg:") {
+		return ""
+	}
+	for _, e := range Ecosystems {
+		if strings.EqualFold(e, kind) {
+			kind = e
+		}
+	}
+	return "Paquets " + kind
+}
+
+// VendorTitle turns a CPE vendor field into a display name: fortinet → Fortinet.
+func VendorTitle(vendor string) string {
+	words := strings.Fields(strings.ReplaceAll(vendor, "_", " "))
+	for i, w := range words {
+		r := []rune(w)
+		words[i] = strings.ToUpper(string(r[:1])) + string(r[1:])
+	}
+	return strings.Join(words, " ")
+}
+
 // WholeVendor reports whether the asset tracks every product of a vendor.
 func WholeVendor(a store.Asset) bool {
 	f := strings.Split(a.CPE, ":")

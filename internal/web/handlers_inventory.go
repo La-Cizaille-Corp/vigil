@@ -167,7 +167,7 @@ func cpeVendors(products []cpeProduct) []cpeVendor {
 	for _, p := range products {
 		i, ok := index[p.Vendor]
 		if !ok {
-			title := vendorTitle(p.Vendor)
+			title := inventory.VendorTitle(p.Vendor)
 			whole := nvd.WholeVendor(p.Vendor)
 			i = len(out)
 			index[p.Vendor] = i
@@ -178,16 +178,6 @@ func cpeVendors(products []cpeProduct) []cpeVendor {
 		out[i].Old = out[i].Old && p.Old
 	}
 	return out
-}
-
-// vendorTitle turns a CPE vendor field into a display name: fortinet → Fortinet.
-func vendorTitle(vendor string) string {
-	words := strings.Fields(strings.ReplaceAll(vendor, "_", " "))
-	for i, w := range words {
-		r := []rune(w)
-		words[i] = strings.ToUpper(string(r[:1])) + string(r[1:])
-	}
-	return strings.Join(words, " ")
 }
 
 // compareVersions orders version strings by their numbers, then their

@@ -1,14 +1,18 @@
 <section class="digest">
 <p>Généré le {{date .GeneratedAt}} — période depuis le {{date .Since}}.</p>
 
-<h2>Nouvelles vulnérabilités ({{len .New}})</h2>
-{{if .New}}
+<h2>Nouvelles vulnérabilités ({{len .New.Total.Findings}})</h2>
+{{if .New.Groups}}
+{{template "breakdown" .New}}
+{{range .New.Groups}}
+<h3>{{.Vendor}} ({{len .Findings}})</h3>
+<p class="muted">{{.Summary}}</p>
 <table>
-<thead><tr><th>Priorité</th><th>Vulnérabilité</th><th>Actif</th><th>Statut</th><th>Résumé</th></tr></thead>
+<thead><tr><th>Sévérité</th><th>Vulnérabilité</th><th>Actif</th><th>Statut</th><th>Résumé</th></tr></thead>
 <tbody>
-{{range .New}}
+{{range .Findings}}
 <tr>
-<td>{{if .KEV}}<span class="kev">Exploitée</span><br>{{end}}<span class="sev sev-{{.Severity}}">{{sev .Severity}}</span>{{with epss .EPSS}}<br><small>EPSS {{.}}</small>{{end}}</td>
+<td>{{if .KEV}}<span class="kev">Exploitée</span><br>{{end}}<span class="sev sev-{{band .}}">{{sev (band .)}}</span>{{with score .CVSS}} <small>CVSS {{.}}</small>{{end}}{{with epss .EPSS}}<br><small>EPSS {{.}}</small>{{end}}</td>
 <td><a href="/findings/{{.ID}}">{{.VulnID}}</a>{{if .Aliases}}<br><small>{{join .Aliases ", "}}</small>{{end}}</td>
 <td><a href="/assets/{{.AssetID}}">{{.AssetName}} {{.AssetVersion}}</a></td>
 <td>{{status .Status}}</td>
@@ -17,6 +21,7 @@
 {{end}}
 </tbody>
 </table>
+{{end}}
 {{else}}
 <p>Aucune nouvelle vulnérabilité sur la période.</p>
 {{end}}
@@ -25,7 +30,7 @@
 <h2>Hors délai de traitement ({{len .Overdue}})</h2>
 <ul>
 {{range .Overdue}}
-<li><span class="sev sev-{{.Severity}}">{{sev .Severity}}</span>{{if .KEV}} <span class="kev">Exploitée</span>{{end}} <a href="/findings/{{.ID}}">{{.VulnID}}</a> — {{.AssetName}} {{.AssetVersion}} — échéance {{.Due.Format "02/01/2006"}}</li>
+<li><span class="sev sev-{{band .}}">{{sev (band .)}}</span>{{if .KEV}} <span class="kev">Exploitée</span>{{end}} <a href="/findings/{{.ID}}">{{.VulnID}}</a> — {{.AssetName}} {{.AssetVersion}} — échéance {{.Due.Format "02/01/2006"}}</li>
 {{end}}
 </ul>
 {{end}}
@@ -40,13 +45,19 @@
 </ul>
 {{end}}
 
-<h2>Vulnérabilités ouvertes ({{len .Open}})</h2>
-{{if .Open}}
+<h2>Vulnérabilités ouvertes ({{len .Open.Total.Findings}})</h2>
+{{if .Open.Groups}}
+{{template "breakdown" .Open}}
+{{range .Open.Groups}}
+<h3>{{.Vendor}} ({{len .Findings}})</h3>
+<p class="muted">{{.Summary}}</p>
 <ul>
-{{range .Open}}
-<li>{{if .KEV}}<span class="kev">Exploitée</span> {{end}}<span class="sev sev-{{.Severity}}">{{sev .Severity}}</span>{{with epss .EPSS}} <small>EPSS {{.}}</small>{{end}} <a href="/findings/{{.ID}}">{{.VulnID}}</a> — {{.AssetName}} {{.AssetVersion}} — {{status .Status}}</li>
+{{range .Listed}}
+<li>{{if .KEV}}<span class="kev">Exploitée</span> {{end}}<span class="sev sev-{{band .}}">{{sev (band .)}}</span>{{with score .CVSS}} <small>CVSS {{.}}</small>{{end}}{{with epss .EPSS}} <small>EPSS {{.}}</small>{{end}} <a href="/findings/{{.ID}}">{{.VulnID}}</a> — {{.AssetName}} {{.AssetVersion}} — {{status .Status}}</li>
 {{end}}
+{{with .Unlisted}}<li class="muted">… et {{.}} autres, moins sévères, à consulter dans la liste des vulnérabilités</li>{{end}}
 </ul>
+{{end}}
 {{else}}
 <p>Aucune vulnérabilité ouverte.</p>
 {{end}}
@@ -82,3 +93,13 @@
 <p>Aucune actualité réglementaire sur la période.</p>
 {{end}}
 </section>
+
+{{define "breakdown"}}
+<table class="breakdown">
+<thead><tr><th>Éditeur</th><th class="num">Critiques</th><th class="num">Hautes</th><th class="num">Moyennes</th><th class="num">Basses</th><th class="num">Inconnues</th><th class="num">Total</th><th class="num">Exploitées (KEV)</th></tr></thead>
+<tbody>
+{{range .Groups}}<tr><td>{{.Vendor}}</td>{{range .Bands}}<td class="num">{{if .}}{{.}}{{else}}<span class="muted">0</span>{{end}}</td>{{end}}<td class="num">{{len .Findings}}</td><td class="num">{{if .KEV}}{{.KEV}}{{else}}<span class="muted">0</span>{{end}}</td></tr>
+{{end}}</tbody>
+<tfoot><tr><th>Total</th>{{range .Total.Bands}}<th class="num">{{.}}</th>{{end}}<th class="num">{{len .Total.Findings}}</th><th class="num">{{.Total.KEV}}</th></tr></tfoot>
+</table>
+{{end}}

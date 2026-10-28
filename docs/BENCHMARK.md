@@ -62,6 +62,7 @@ sont en gras.
 | Triage ligne par ligne après un import SBOM | DefectDojo | Triage par lot, historique conservé pour chaque vulnérabilité (A43) |
 | Mise à jour sans filet | Pratique d'exploitation | Copie avant migration, refus d'une base plus récente, tests sur de vraies bases de chaque version (A36) |
 | Flux et webhooks inaccessibles derrière un proxy obligatoire | Tous | `HTTPS_PROXY` pris en charge, contrôle anti-SSRF conservé (A44) |
+| Digest en liste unique, difficile à répartir entre équipes | OpenCVE (rapports par abonnement) | Digest regroupé par éditeur, compté par sévérité, trié par gravité (A47) |
 
 ## Ce qui reste hors du périmètre
 
