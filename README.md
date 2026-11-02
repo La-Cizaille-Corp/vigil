@@ -96,8 +96,8 @@ Les données vivent hors du binaire (fichier SQLite, ou volume `/data` du conten
 binaire ou changer le tag de l'image les conserve. Au premier démarrage d'une nouvelle version,
 Vigil écrit une copie de la base (`vigil.db.schema-N.<date>.bak`) avant de faire évoluer son schéma,
 et refuse d'ouvrir une base créée par une version plus récente. Chaque version est testée sur de
-vraies bases produites par les versions précédentes. Procédure par système :
-[docs/INSTALL.md](docs/INSTALL.md#7-mettre-à-jour-en-conservant-les-données).
+vraies bases produites par les versions précédentes. Procédure pas à pas, poste local et
+serveur : [docs/MISE_A_JOUR.md](docs/MISE_A_JOUR.md).
 
 ### Notifications
 
