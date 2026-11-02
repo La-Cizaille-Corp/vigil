@@ -28,6 +28,12 @@ var releasedMigrations = map[string]string{
 	"005_cpe_scope.sql":      "3af2f175d2e3ea441440a238399572ecad169b50378676d3f2cf30526bd5d9d2",
 	"006_cvss.sql":           "77cffaa46ed21d8ea8235ee724740bd5fd8145075ffe2a316e710070ca18397f",
 	"007_regulations.sql":    "2f0e538b2fbbbe3a0a01bcf1c7e20acafc68bebf7a03816928e564da41c81075",
+	// 0.3.0
+	"008_track_since.sql":   "a0c79375395fa37eca683197f284b4fd354a9468eeb34c3b78e1b94f90297ba0",
+	"009_notifications.sql": "99a78d86daa59bdde8b87def37f593e73b63790b815bf91a007856cc1b5c6622",
+	"010_asset_tags.sql":    "11a059f8323e00223237413263469d7b295acb953476d2ffb858a6ffaea0237d",
+	"011_user_status.sql":   "ffc940f22e84eb77b67bde243b35814e3d03e2b67006ea2519ee6350604fb19e",
+	"012_asset_retired.sql": "112f2eea05a0537e78a4bf5c5c70505c55fb2954c14bef71f5a38d9cfd289c13",
 }
 
 func TestMigrationsFrozen(t *testing.T) {
@@ -79,15 +85,23 @@ func TestUpgradeFromReleases(t *testing.T) {
 			}
 
 			// The copy written before the upgrade is the old database, intact.
+			// The fixture of the latest release has nothing to upgrade until
+			// the next migration: it is then only reopened.
 			backup := st.UpgradeBackup()
-			if !strings.Contains(backup, fmt.Sprintf(".schema-%d.", oldVersion)) {
-				t.Fatalf("upgrade backup: %q", backup)
-			}
-			if err := CheckIntegrity(ctx, backup); err != nil {
-				t.Fatal(err)
-			}
-			if got := snapshotFile(t, backup); !reflect.DeepEqual(got, before) {
-				t.Error("the pre-upgrade copy differs from the original database")
+			if oldVersion == LatestSchema() {
+				if backup != "" {
+					t.Errorf("a copy was written without a pending migration: %q", backup)
+				}
+			} else {
+				if !strings.Contains(backup, fmt.Sprintf(".schema-%d.", oldVersion)) {
+					t.Fatalf("upgrade backup: %q", backup)
+				}
+				if err := CheckIntegrity(ctx, backup); err != nil {
+					t.Fatal(err)
+				}
+				if got := snapshotFile(t, backup); !reflect.DeepEqual(got, before) {
+					t.Error("the pre-upgrade copy differs from the original database")
+				}
 			}
 
 			// Every row and every value written by the old version is still there.
@@ -158,8 +172,14 @@ func checkUpgradedData(ctx context.Context, t *testing.T, st *Store) {
 			t.Errorf("%s still uses the sliding NVD mode", a.Name)
 		}
 	}
-	if v, _ := st.Setting(ctx, "watch_countries"); v != "FR,BE" {
-		t.Errorf("watch setting: %q", v)
+	// The 0.1.0 and 0.2.0 fixtures carry a hand-written "watch_countries" row;
+	// from 0.3.0 the fixture holds the key the application really uses.
+	watched, _ := st.Setting(ctx, "cti_countries")
+	if legacy, _ := st.Setting(ctx, "watch_countries"); legacy != "" {
+		watched = legacy
+	}
+	if watched != "FR,BE" {
+		t.Errorf("watch setting: %q", watched)
 	}
 	feeds, _ := st.ListFeeds(ctx)
 	custom := false
