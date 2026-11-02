@@ -71,4 +71,9 @@ Les données des utilisateurs doivent survivre à chaque mise à jour (registre 
 2. produire avec le binaire publié une base de démonstration (comptes, import SBOM, synchronisation,
    triage, flux, canal de notification, digest), la réduire, et l'ajouter en
    `internal/store/testdata/upgrade/vX.Y.Z.sql` (`sqlite3 base.db .dump`) : `TestUpgradeFromReleases`
-   vérifiera ensuite que chaque version future la reprend sans perte.
+   vérifiera ensuite que chaque version future la reprend sans perte. Jusqu'à la migration suivante,
+   cette base est seulement rouverte (aucune copie de mise à niveau n'est attendue).
+
+Sous Windows, n'envoyez pas les formulaires du scénario avec `curl` en ligne de commande : il
+convertit les arguments dans la page de codes du système et les textes accentués arrivent en
+Latin-1 dans la base. Un petit script Python (`urllib`, UTF-8) convient.
