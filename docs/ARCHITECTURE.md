@@ -422,6 +422,24 @@ code au regard de l'OWASP ASVS, puis de chaque écran. Décisions :
   listes en cartes sur téléphone ; ajout d'actifs sur sa propre page ; mots de passe et jetons
   affichés une fois après redirection (pas de nouvel envoi du formulaire au rechargement).
 
+**A50. Pas de chiffrement applicatif des secrets au repos.** Les secrets que Vigil vérifie sont
+stockés comme empreintes (mots de passe en argon2id, jetons de session et d'API en SHA-256). Ceux
+qu'il utilise ne peuvent pas l'être : le secret de double authentification sert à calculer le code
+attendu, l'URL d'un webhook est l'adresse d'envoi. Options écartées :
+- *chiffrement par une clé du serveur* : une clé à créer, sauvegarder à part, faire tourner, avec
+  la perte de la double authentification et des canaux si elle disparaît ; trop de complexité pour
+  un outil sans infrastructure ;
+- *clé tirée du mot de passe de l'utilisateur* : qui vole la base et casse le mot de passe obtient
+  aussi la clé ; aucun gain ;
+- *exclure ces secrets des sauvegardes* : une restauration perdrait sans bruit la double
+  authentification de tous et les notifications ;
+- *SQLCipher* : CGO, fin du binaire unique.
+
+Retenu : la base et ses copies se protègent dans leur ensemble par l'infrastructure (chiffrement du
+disque, sauvegardes hors machine chiffrées par restic, borg ou rclone crypt), ce qui couvre aussi
+l'inventaire, la donnée la plus sensible ; et une fuite se traite par rotation :
+`vigil user reset-totp -all`, régénération des URL de webhooks et des clés de flux (OPERATIONS.md).
+
 **A43. Triage par lot et journal d'audit consultable.** Le triage par lot applique une même
 décision à des vulnérabilités cochées, avec un événement d'historique pour chacune (pas de
 raccourci qui perdrait la traçabilité). Le journal d'audit, déjà écrit, devient lisible par les

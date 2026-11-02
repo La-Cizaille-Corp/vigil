@@ -152,6 +152,29 @@ func (s *Store) ResetTOTP(ctx context.Context, id int64) error {
 	})
 }
 
+// ResetAllTOTP removes the second factor of every account that has one, or
+// is enrolling, and ends their sessions. After a leak of the database or of a
+// backup, the secrets it held become worthless once everyone has enrolled
+// again. It returns the number of accounts reset.
+func (s *Store) ResetAllTOTP(ctx context.Context) (int64, error) {
+	var n int64
+	err := s.inTx(ctx, func(tx *sql.Tx) error {
+		const enrolled = `totp_secret <> '' OR totp_pending <> ''`
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE `+enrolled+`)`); err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx,
+			`UPDATE users SET totp_secret = '', totp_pending = '', totp_last_step = 0 WHERE `+enrolled)
+		if err != nil {
+			return err
+		}
+		n, err = res.RowsAffected()
+		return err
+	})
+	return n, err
+}
+
 // TOTP policies: who must use a second factor.
 const (
 	TOTPOptional = ""

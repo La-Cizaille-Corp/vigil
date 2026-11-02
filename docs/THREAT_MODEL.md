@@ -48,7 +48,13 @@ API externes (OSV, NVD, KEV, EPSS), requêtes de l'API CI.
 
 - **Base SQLite non chiffrée** : quiconque lit le fichier voit l'inventaire et les secrets TOTP. Le
   fichier est créé en `0600` ; chiffrer le disque est recommandé en mode serveur.
-- **Secrets TOTP stockés en clair dans la base** (nécessaire pour vérifier les codes).
+- **Secrets utilisables stockés en clair dans la base** : secrets de double authentification,
+  URL des webhooks, URL des flux qui portent une clé. Vigil s'en sert (calcul du code attendu,
+  envoi du message) au lieu de seulement les vérifier : ils ne peuvent pas être hachés comme les
+  mots de passe et les jetons. Pas de chiffrement applicatif, pour n'avoir aucune clé à gérer
+  (registre A50) : la base et ses sauvegardes se protègent par le chiffrement du disque et des
+  copies hors machine ; en cas de fuite, `vigil user reset-totp -all` et la rotation des URL les
+  rendent sans valeur (OPERATIONS.md, « Fuite de la base ou d'une sauvegarde »).
 - **Derrière un reverse proxy joignable autrement que par le proxy**, `X-Forwarded-For` peut être
   forgé et la limitation des tentatives contournée : n'exposez Vigil `-behind-proxy` que sur
   `127.0.0.1` ou un réseau interne (c'est le cas de l'unité systemd et du Compose fournis).

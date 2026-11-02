@@ -31,10 +31,19 @@ pendant les écritures :
    réplique la base vers S3, Azure Blob, SFTP… en lisant le WAL, sans arrêter Vigil. Outil externe,
    à installer à côté (`litestream replicate /var/lib/vigil/vigil.db s3://bucket/vigil`).
 
-Les sauvegardes contiennent les mêmes secrets que la base (secrets TOTP, empreintes de mots de
-passe, URL de webhooks) : elles sont créées en `0600` ; stockez-les chiffrées.
 **Une sauvegarde sur le même disque ne protège pas d'une perte du disque** : exportez
-`backups/` hors de la machine (sauvegarde du serveur, rclone, Litestream…).
+`backups/` hors de la machine.
+
+Une sauvegarde contient tout ce que contient la base : l'inventaire et ses vulnérabilités, mais
+aussi des secrets que Vigil utilise en clair (secrets de double authentification, URL des webhooks,
+URL des flux qui portent une clé). Vigil ne les chiffre pas lui-même, pour n'avoir aucune clé à
+gérer (registre A50). Protégez donc la base et ses copies dans leur ensemble :
+
+- chiffrez le disque du serveur (BitLocker, LUKS, FileVault) ;
+- copiez les sauvegardes hors de la machine avec un outil qui les chiffre :
+  [restic](https://restic.net), [borg](https://www.borgbackup.org) ou `rclone crypt`. Leur clé
+  est gérée par cet outil et se garde ailleurs que sur le serveur ;
+- si une copie fuit malgré tout, suivez [Fuite de la base ou d'une sauvegarde](#fuite-de-la-base-ou-dune-sauvegarde).
 
 ## Restaurer
 
@@ -113,3 +122,34 @@ de la base) ; effacez-les une fois la nouvelle version validée.
   `vigil user reset-password -username NOM` ou `vigil user set-role -username NOM -role admin`.
 - Un administrateur ne peut ni se désactiver ni changer son propre rôle, et le dernier
   administrateur actif ne peut pas être désactivé ni rétrogradé.
+
+## Fuite de la base ou d'une sauvegarde
+
+Une copie de `vigil.db`, d'une sauvegarde ou d'une copie `.bak` est sortie de vos mains.
+
+**Ce qui est exposé**
+
+- L'inventaire et ses vulnérabilités : la liste de vos points faibles. Rien à révoquer, mais
+  considérez-la comme connue et traitez en priorité les vulnérabilités exploitées.
+- Des secrets utilisables tels quels : secrets de double authentification, URL des webhooks,
+  URL des flux qui portent une clé d'accès.
+
+**Ce qui ne l'est pas** : les mots de passe (empreintes argon2id), les jetons de session et
+les jetons d'API (empreintes SHA-256) ne se retrouvent pas à partir de la base.
+
+**Que faire, dans l'ordre**
+
+1. **Double authentification** : `vigil user reset-totp -all` la retire de tous les comptes et
+   ferme leurs sessions. Chacun la reconfigure dans « Mon compte » ; si elle est obligatoire
+   (Paramètres → Utilisateurs), Vigil l'y conduit à la connexion.
+2. **Canaux de notification** : chez le fournisseur, supprimez chaque webhook et créez-en un
+   nouveau (Slack : application → *Incoming Webhooks* ; Mattermost : Intégrations → Webhooks
+   entrants ; Teams : workflow ou connecteur du canal), puis dans Paramètres supprimez le canal et
+   recréez-le avec la nouvelle URL. L'ancienne URL ne permet plus d'écrire dans le canal.
+3. **Flux à clé** : faites changer la clé chez le fournisseur, puis supprimez et ajoutez à nouveau
+   le flux.
+4. **Mots de passe** : ils résistent, mais un mot de passe faible finit par céder à une attaque
+   hors ligne sur son empreinte. Faites-les changer, administrateurs d'abord (« Nouveau mot de
+   passe… » ou `vigil user reset-password`).
+5. **Origine** : cherchez par où la copie est sortie (emplacement des sauvegardes, droits,
+   journaux d'accès) avant de reprendre les copies hors machine.

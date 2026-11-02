@@ -52,7 +52,7 @@ Usage :
   vigil user set-role -username nom -role admin|analyst|viewer [-db fichier]
   vigil user disable|enable -username nom [-db fichier]
   vigil user reset-password -username nom [-db fichier]
-  vigil user reset-totp -username nom [-db fichier]
+  vigil user reset-totp -username nom | -all [-db fichier]
   vigil version
 
 La base par défaut se trouve dans le dossier de configuration de l'utilisateur
@@ -655,12 +655,25 @@ func runResetTOTP(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("user reset-totp", flag.ExitOnError)
 	dbPath := fs.String("db", defaultDB(), "fichier SQLite")
 	username := fs.String("username", "", "nom d'utilisateur")
+	all := fs.Bool("all", false, "tous les comptes (après une fuite de la base ou d'une sauvegarde)")
 	parseFlags(fs, args)
+	if *all == (*username != "") {
+		return errors.New("indiquez -username nom ou -all")
+	}
 	st, err := openStore(ctx, *dbPath)
 	if err != nil {
 		return err
 	}
 	defer st.Close()
+	if *all {
+		n, err := st.ResetAllTOTP(ctx)
+		if err != nil {
+			return err
+		}
+		auditCLI(ctx, st, "totp_reset_all", fmt.Sprintf("%d compte(s)", n))
+		fmt.Printf("double authentification retirée de %d compte(s), leurs sessions sont fermées : chacun la reconfigure à sa prochaine connexion\n", n)
+		return nil
+	}
 	if err := st.DisableTOTPByName(ctx, *username); err != nil {
 		return fmt.Errorf("utilisateur %q : %w", *username, err)
 	}

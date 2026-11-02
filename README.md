@@ -144,7 +144,7 @@ les comptes dans **Paramètres → Utilisateurs** : création avec mot de passe 
 désactivation d'un départ (sessions fermées aussitôt, historique conservé). Chaque utilisateur
 peut activer la **double authentification TOTP** dans « Mon compte » (recommandé en mode serveur) ;
 en cas de téléphone perdu, un administrateur la retire dans Paramètres → Utilisateurs ou avec
-`vigil user reset-totp -username NOM`.
+`vigil user reset-totp -username NOM` (`-all` pour tous les comptes, après une fuite de la base).
 
 ### Paquets et produits : purl ou CPE
 

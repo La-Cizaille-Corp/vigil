@@ -96,3 +96,34 @@ func TestPurgeAudit(t *testing.T) {
 		t.Error("unknown policy accepted")
 	}
 }
+
+// After a leak, every second factor is removed at once and the sessions of
+// those accounts end; accounts without one keep theirs.
+func TestResetAllTOTP(t *testing.T) {
+	ctx := context.Background()
+	st := openTest(t)
+	alice, _ := st.CreateUser(ctx, "alice", "hash", "admin")
+	bob, _ := st.CreateUser(ctx, "bob", "hash", "analyst")
+	carol, _ := st.CreateUser(ctx, "carol", "hash", "viewer")
+	st.SetTOTPPending(ctx, alice, "SECRETA")
+	st.EnableTOTP(ctx, alice, 1)
+	st.SetTOTPPending(ctx, bob, "SECRETB") // enrolling
+	for i, id := range []int64{alice, bob, carol} {
+		st.CreateSession(ctx, "s"+string(rune('a'+i)), id, "csrf", time.Now().Add(time.Hour))
+	}
+	n, err := st.ResetAllTOTP(ctx)
+	if err != nil || n != 2 {
+		t.Fatalf("reset: %d %v", n, err)
+	}
+	for _, id := range []int64{alice, bob} {
+		if secret, pending, _, _ := st.UserTOTP(ctx, id); secret != "" || pending != "" {
+			t.Errorf("user %d keeps a second factor", id)
+		}
+	}
+	if _, err := st.SessionByHash(ctx, "sa"); !errors.Is(err, ErrNotFound) {
+		t.Error("session of a reset account survived")
+	}
+	if _, err := st.SessionByHash(ctx, "sc"); err != nil {
+		t.Errorf("session of an account without second factor ended: %v", err)
+	}
+}
