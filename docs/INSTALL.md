@@ -2,7 +2,7 @@
 
 Vigil est un binaire unique, sans dépendance : ni base de données à installer, ni runtime. Les
 données tiennent dans un fichier SQLite, **hors du binaire** : remplacer le binaire (ou l'image
-Docker) conserve tout (voir [Mettre à jour](#7-mettre-à-jour-en-conservant-les-données)).
+Docker) conserve tout (voir [MISE_A_JOUR.md](MISE_A_JOUR.md)).
 
 Exploitation courante (sauvegarde, restauration, supervision) : [OPERATIONS.md](OPERATIONS.md).
 
@@ -381,33 +381,14 @@ connexion directe au serveur SMTP.
 
 ## 7. Mettre à jour en conservant les données
 
-La base est un fichier (ou un volume) séparé du binaire : remplacer le binaire ou changer le tag
-de l'image conserve inventaire, triage, historique, comptes et réglages.
+La base est un fichier (ou un volume) séparé du programme : remplacer le programme ou changer le
+tag de l'image conserve inventaire, triage, historique, comptes et réglages. Au démarrage, Vigil
+copie la base avant toute évolution de schéma et refuse d'ouvrir une base créée par une version
+plus récente.
 
-À partir de la 0.3, au démarrage, Vigil :
-
-- écrit une copie cohérente de la base **avant** d'appliquer des migrations de schéma, à côté
-  d'elle : `vigil.db.schema-<N>.<horodatage UTC>.bak` (N = version de schéma avant mise à jour) ;
-- **refuse de démarrer** sur une base créée par une version plus récente que lui : le message
-  indique de mettre Vigil à jour ou de restaurer la copie prise avant la mise à jour.
-
-Faites tout de même une sauvegarde explicite avant, et un contrôle après.
-
-| Système | Mise à jour |
-|---|---|
-| Windows (poste) | `Ctrl+C`, `vigil.exe backup -o C:\Users\…\vigil-avant-maj.db`, remplacer `vigil.exe` (même dossier), relancer |
-| Windows (tâche) | `Stop-ScheduledTask Vigil` ; `vigil.exe backup -db C:\ProgramData\Vigil\vigil.db -o C:\ProgramData\Vigil\backups\avant-maj.db` ; extraire la nouvelle archive dans `C:\Program Files\Vigil` ; `Start-ScheduledTask Vigil` |
-| macOS | `vigil backup -o ~/vigil-avant-maj.db` ; `sudo install -m 0755 vigil /usr/local/bin/vigil` ; `launchctl kickstart -k gui/$(id -u)/org.lacizaille.vigil` |
-| Linux (systemd) | `sudo -u vigil VIGIL_DB=/var/lib/vigil/vigil.db vigil backup -o /var/lib/vigil/backups/avant-maj.db` ; `sudo install -m 0755 vigil /usr/local/bin/vigil` ; `sudo systemctl restart vigil` |
-| Docker Compose | `docker compose exec vigil vigil backup -o /data/backups/avant-maj.db` ; changer le tag d'image dans `docker-compose.yml` ; `docker compose pull && docker compose up -d` (jamais `down -v`) |
-
-Sous Windows, `vigil.exe` est verrouillé tant qu'il tourne : arrêtez-le avant de le remplacer.
-Après le redémarrage, vérifiez le journal (« base mise à jour vers le schéma N ; copie de
-l'ancienne base : … ») et lancez `vigil check` (avec le même `-db`), qui contrôle l'intégrité de la
-base et indique sa version de schéma. `vigil backup` copie la base telle quelle, sans la mettre à
-jour, même lancé avec le nouveau binaire. Pour revenir en arrière : arrêtez Vigil, restaurez la copie
-`.bak` (ou votre sauvegarde) comme décrit dans [OPERATIONS.md](OPERATIONS.md#restaurer), puis
-relancez l'ancienne version.
+**Procédure pas à pas, poste local et serveur, retour arrière compris :
+[MISE_A_JOUR.md](MISE_A_JOUR.md).** L'essentiel : arrêter Vigil et tout ce qui le relance (tâche
+planifiée Windows, LaunchAgent macOS), sauvegarder, remplacer, relancer, vérifier.
 
 ## 8. Dépannage
 

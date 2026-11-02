@@ -68,13 +68,8 @@ Testez une restauration de temps en temps : une sauvegarde jamais restaurée n'e
 ## Mettre à jour
 
 Les données ne sont jamais dans le binaire ni dans l'image : fichier SQLite (`-db`, `VIGIL_DB`) ou
-volume `/data`. Procédure par système : [INSTALL.md](INSTALL.md#7-mettre-à-jour-en-conservant-les-données).
-
-1. `vigil backup -o …` (copie la base telle quelle, sans la mettre à jour, quel que soit le binaire) ;
-2. vérifier la release (checksums, `gh attestation verify`, voir le README) ;
-3. remplacer le binaire ou changer le tag de l'image, redémarrer ;
-4. lire le journal : « base mise à jour vers le schéma N ; copie de l'ancienne base : … », puis
-   `vigil check`.
+volume `/data`. **Procédure pas à pas, poste local et serveur : [MISE_A_JOUR.md](MISE_A_JOUR.md)**
+(arrêt de tous les processus, sauvegarde, remplacement, vérification, retour arrière).
 
 Garanties (registre A36 de [ARCHITECTURE.md](ARCHITECTURE.md)) :
 
