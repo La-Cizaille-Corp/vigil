@@ -54,7 +54,7 @@
 {{define "assetFields"}}
 <div class="grid">
   <label>Nom * <input name="name" value="{{.Name}}" required maxlength="200" placeholder="lodash, nginx, Windows Server…"></label>
-  <label>Version <input name="version" value="{{.Version}}" maxlength="100"></label>
+  <label>Version <input name="version" value="{{.Version}}" maxlength="100" placeholder="4.17.21, ou latest"></label>
   <label>Type
     <select name="kind">{{range kinds}}<option value="{{.Value}}" {{if eq .Value $.Kind}}selected{{end}}>{{.Label}}</option>{{end}}</select>
   </label>
@@ -73,7 +73,11 @@
   <p class="muted small">Renseignez un purl, ou un écosystème avec une version : l'actif est vérifié dans OSV.
     Pour un produit ou une technologie sans purl, renseignez un CPE : il est vérifié dans la NVD
     (pour le trouver : « Trouver son CPE » sur la page Inventaire ; mettez « * » à la place de la version pour suivre le produit
-    entier, et aussi à la place du produit pour suivre tout l'éditeur : <code>cpe:2.3:*:fortinet:*:*:*:*:*:*:*:*:*</code>).</p>
+    entier, et aussi à la place du produit pour suivre tout l'éditeur : <code>cpe:2.3:*:fortinet:*:*:*:*:*:*:*:*:*</code>).
+    Sans purl ni CPE, Vigil cherche le nom de l'actif dans les descriptions des CVE de la NVD : donnez-lui le nom employé
+    par l'éditeur (« Ivanti Connect Secure », « FortiOS »). Moins précise, cette recherche donne des résultats à vérifier.</p>
+  <p class="muted small">Version <code>latest</code> : l'actif est tenu à jour sur la dernière version publiée. Seules les
+    vulnérabilités sans version corrigée connue sont signalées, et elles sont marquées corrigées dès que le correctif sort.</p>
   <div class="grid">
     <label>purl <input name="purl" value="{{.PURL}}" maxlength="500" placeholder="pkg:npm/lodash@4.17.15"></label>
     <label>Écosystème

@@ -5,10 +5,13 @@
   <dt>Sévérité</dt><dd><span class="sev sev-{{$v.Severity}}">{{sevLabel $v.Severity}}</span>{{with cvss $v.CVSS}} — CVSS {{.}}{{end}}</dd>
   <dt>Exploitation</dt><dd>{{if $v.KEV}}<span class="kev">Exploitée activement (CISA KEV)</span>{{if $v.KEVDue}} — échéance CISA {{isoDate $v.KEVDue}}{{end}}{{else}}Non listée dans CISA KEV{{end}}
     {{with epss $v.EPSS}} · probabilité EPSS {{.}}{{end}}</dd>
-  <dt>Correction</dt><dd>{{with .Data.Fixes}}<ul class="fixes">{{range .}}<li>{{if .Yours}}<strong>{{.Text}}</strong> <span class="muted small">(votre version)</span>{{else}}{{.Text}}{{end}}</li>{{end}}</ul>
+  <dt>Correction</dt><dd>{{with .Data.Fixes}}<ul class="fixes">{{range .}}<li>{{if .Yours}}<strong>{{.Text}}</strong> <span class="muted small">({{if $.Data.Latest}}concerne la dernière version{{else}}votre version{{end}})</span>{{else}}{{.Text}}{{end}}</li>{{end}}</ul>
     {{else}}<span class="muted">non indiquée par la source</span>{{end}}</dd>
   {{if $v.Aliases}}<dt>Alias</dt><dd>{{join $v.Aliases ", "}}</dd>{{end}}
-  <dt>Actif</dt><dd><a href="/assets/{{$f.AssetID}}">{{$f.AssetName}} {{$f.AssetVersion}}</a>{{with $f.AssetProject}} <span class="muted">(projet {{.}})</span>{{end}}</dd>
+  <dt>Actif</dt><dd><a href="/assets/{{$f.AssetID}}">{{$f.AssetName}} {{$f.AssetVersion}}</a>{{with $f.AssetProject}} <span class="muted">(projet {{.}})</span>{{end}}
+    {{if .Data.Latest}}<div class="muted small">Tenu à jour sur la dernière version : signalée faute de version corrigée connue,
+      cette vulnérabilité sera marquée corrigée dès que la source en indiquera une.</div>{{end}}
+    {{if .Data.ByName}}<div class="muted small">Trouvée par le nom de l'actif dans la description de la CVE : vérifiez qu'elle le concerne bien.</div>{{end}}</dd>
   <dt>Statut</dt><dd>{{statusLabel $f.Status}}{{if $f.Justification}} — {{justifLabel $f.Justification}}{{end}}</dd>
   <dt>Détectée le</dt><dd>{{date $f.FirstSeen}}</dd>
   {{if not $f.Due.IsZero}}<dt>Échéance de traitement</dt><dd>{{$f.Due.Format "02/01/2006"}}{{if $f.Late}} <span class="late">Hors délai</span>{{end}}

@@ -78,8 +78,98 @@ type Vuln struct {
 	DatabaseSpecific struct {
 		Severity string `json:"severity"`
 	} `json:"database_specific"`
+	Affected  []Affected `json:"affected"`
+	Withdrawn string     `json:"withdrawn"`
 
 	Raw json.RawMessage `json:"-"`
+}
+
+// Affected is a package named by an advisory, with its affected ranges.
+type Affected struct {
+	Package Package `json:"package"`
+	Ranges  []Range `json:"ranges"`
+}
+
+// Range lists the events of an affected range, in the advisory's order:
+// {"introduced": "0"}, {"fixed": "4.17.21"}, {"last_affected": "1.2.3"}…
+type Range struct {
+	Type   string              `json:"type"`
+	Events []map[string]string `json:"events"`
+}
+
+// For returns the entries of the advisory that concern pkg: same purl
+// (version and qualifiers aside), or same name in the same ecosystem
+// (Debian matches Debian:12). An entry without purl is taken for a purl
+// query when it is the only one.
+func (v Vuln) For(pkg Package) []Affected {
+	var out []Affected
+	for _, a := range v.Affected {
+		switch {
+		case pkg.PURL != "" && a.Package.PURL != "":
+			if purlBase(a.Package.PURL) != purlBase(pkg.PURL) {
+				continue
+			}
+		case pkg.PURL != "":
+			if len(v.Affected) > 1 {
+				continue
+			}
+		case !strings.EqualFold(a.Package.Name, pkg.Name) ||
+			a.Package.Ecosystem != pkg.Ecosystem && !strings.HasPrefix(a.Package.Ecosystem, pkg.Ecosystem+":"):
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
+// Unfixed reports whether the advisory still affects the latest release of
+// pkg: one of its ranges ends affected, after "introduced" (no fixed version
+// yet) or "last_affected" (affected up to that version, no fix indicated).
+// A withdrawn advisory affects nothing.
+func (v Vuln) Unfixed(pkg Package) bool {
+	if v.Withdrawn != "" {
+		return false
+	}
+	for _, a := range v.For(pkg) {
+		for _, r := range a.Ranges {
+			open := false
+			for _, e := range r.Events {
+				switch {
+				case e["introduced"] != "", e["last_affected"] != "":
+					open = true
+				case e["fixed"] != "":
+					open = false
+				}
+			}
+			if open {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// purlBase drops the version, qualifiers and subpath of a purl, lower case:
+// pkg:npm/lodash@4.17.15?x=y → pkg:npm/lodash.
+func purlBase(purl string) string {
+	base, _, _ := strings.Cut(purl, "#")
+	base, _, _ = strings.Cut(base, "?")
+	base, _, _ = strings.Cut(base, "@")
+	return strings.ToLower(base)
+}
+
+// WithoutVersion drops the version of a purl, keeping its qualifiers:
+// pkg:npm/lodash@4.17.15 → pkg:npm/lodash.
+func WithoutVersion(purl string) string {
+	at := strings.LastIndex(purl, "@")
+	if at < 0 {
+		return purl
+	}
+	end := strings.IndexAny(purl[at:], "?#")
+	if end < 0 {
+		return purl[:at]
+	}
+	return purl[:at] + purl[at+end:]
 }
 
 // CVSSScore returns the highest CVSS 3.x base score computed from the
@@ -126,6 +216,41 @@ func (c *Client) QueryBatch(ctx context.Context, queries []Query) ([][]VulnRef, 
 		}
 	}
 	return out, nil
+}
+
+// maxQueryPages bounds the pages read for one package: OSV returns up to a
+// thousand advisories per page, more than any package has.
+const maxQueryPages = 10
+
+// Query returns every advisory of a package, whatever its version, in full.
+func (c *Client) Query(ctx context.Context, pkg Package) ([]Vuln, error) {
+	var out []Vuln
+	token := ""
+	for range maxQueryPages {
+		body := map[string]any{"package": pkg}
+		if token != "" {
+			body["page_token"] = token
+		}
+		var resp struct {
+			Vulns         []json.RawMessage `json:"vulns"`
+			NextPageToken string            `json:"next_page_token"`
+		}
+		if err := c.do(ctx, http.MethodPost, "/v1/query", body, &resp); err != nil {
+			return nil, err
+		}
+		for _, raw := range resp.Vulns {
+			var v Vuln
+			if err := json.Unmarshal(raw, &v); err != nil {
+				return nil, fmt.Errorf("decode osv vuln: %w", err)
+			}
+			v.Raw = raw
+			out = append(out, v)
+		}
+		if token = resp.NextPageToken; token == "" {
+			return out, nil
+		}
+	}
+	return nil, fmt.Errorf("osv query: more than %d pages of results", maxQueryPages)
 }
 
 // Vuln fetches the full record of a vulnerability.

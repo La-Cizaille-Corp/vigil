@@ -4,7 +4,11 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
+	"github.com/La-Cizaille-Corp/vigil/internal/sources/nvd"
+	"github.com/La-Cizaille-Corp/vigil/internal/sources/osv"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/versions"
 )
 
 // fixLine is one affected range of a vulnerability and how it ends.
@@ -16,20 +20,31 @@ type fixLine struct {
 // maxFixLines bounds the ranges shown on a finding page.
 const maxFixLines = 8
 
-// fixLines reads, in the advisory stored for f, which versions fix it for
-// the finding's asset: OSV ranges for a package, NVD configurations for a
-// product. The range holding the asset's version comes first.
-func fixLines(raw string, f store.Finding) []fixLine {
+// fixLines reads, in the advisory stored for a finding of asset a, which
+// versions fix it: OSV ranges for a package, NVD configurations for a
+// product, named by its CPE or by the asset's name. The range holding the
+// asset's version comes first; for an asset kept at its latest release, the
+// ranges without a fixed version.
+func fixLines(raw string, a store.Asset) []fixLine {
 	var lines []fixLine
-	version := f.AssetVersion
+	version := a.Version
 	if version == "" {
-		version = purlVersion(f.AssetPURL)
+		version = purlVersion(a.PURL)
 	}
 	switch {
-	case f.AssetPURL != "":
-		lines = osvFixes(raw, f.AssetPURL, version)
-	case f.AssetCPE != "":
-		lines = nvdFixes(raw, f.AssetCPE, version)
+	case a.PURL != "" || inventory.Queryable(a):
+		lines = osvFixes(raw, inventory.Package(a), version)
+	case a.CPE != "":
+		f := nvd.SplitCPE(a.CPE)
+		if len(f) == 13 {
+			whole := f[4] == "*"
+			if whole && version != inventory.Latest {
+				version = "" // the version of no product in particular
+			}
+			lines = nvdFixes(raw, version, whole, func(m nvd.Match) bool { return m.Vendor == f[3] && (whole || m.Product == f[4]) })
+		}
+	case inventory.ByName(a):
+		lines = nvdFixes(raw, version, true, func(m nvd.Match) bool { return m.Named(a.Name) })
 	}
 	var out, others []fixLine
 	seen := map[string]bool{}
@@ -59,148 +74,97 @@ func purlVersion(purl string) string {
 	return v
 }
 
-// purlBase drops the version and qualifiers: pkg:npm/lodash@4.17.15 → pkg:npm/lodash.
-func purlBase(purl string) string {
-	base, _, _ := strings.Cut(purl, "@")
-	base, _, _ = strings.Cut(base, "?")
-	return strings.ToLower(base)
-}
-
-// interval is an affected range: from start (included unless startOpen) to
-// fixed (excluded) or lastAffected (included).
-type interval struct {
-	start, fixed, lastAffected string
-	startOpen                  bool
-}
-
-func (iv interval) holds(v string) bool {
-	if v == "" {
-		return false
-	}
-	if iv.start != "" && iv.start != "0" {
-		c := compareVersions(v, iv.start)
-		if c < 0 || c == 0 && iv.startOpen {
-			return false
-		}
-	}
-	switch {
-	case iv.fixed != "":
-		return compareVersions(v, iv.fixed) < 0
-	case iv.lastAffected != "":
-		return compareVersions(v, iv.lastAffected) <= 0
-	}
-	return true
-}
-
-func (iv interval) text(prefix string) string {
+// rangeText describes how a range ends.
+func rangeText(r versions.Range, prefix string) string {
 	from := ""
-	if iv.start != "" && iv.start != "0" {
-		from = " (affectée à partir de " + iv.start + ")"
-		if iv.startOpen {
-			from = " (affectée après " + iv.start + ")"
+	if r.Start != "" && r.Start != "0" {
+		from = " (affectée à partir de " + r.Start + ")"
+		if r.StartOpen {
+			from = " (affectée après " + r.Start + ")"
 		}
 	}
 	switch {
-	case iv.fixed != "":
-		return prefix + "corrigée en " + iv.fixed + from
-	case iv.lastAffected != "":
-		return prefix + "affectée jusqu'à " + iv.lastAffected + " incluse, sans version corrigée indiquée" + from
+	case r.Fixed != "":
+		return prefix + "corrigée en " + r.Fixed + from
+	case r.LastAffected != "":
+		return prefix + "affectée jusqu'à " + r.LastAffected + " incluse, sans version corrigée indiquée" + from
 	}
 	return prefix + "aucune version corrigée indiquée" + from
 }
 
-// osvFixes reads the ranges of an OSV advisory for the package of purl.
-func osvFixes(raw, purl, version string) []fixLine {
-	var doc struct {
-		Affected []struct {
-			Package struct {
-				Ecosystem string `json:"ecosystem"`
-				Name      string `json:"name"`
-				PURL      string `json:"purl"`
-			} `json:"package"`
-			Ranges []struct {
-				Type   string              `json:"type"`
-				Events []map[string]string `json:"events"`
-			} `json:"ranges"`
-		} `json:"affected"`
-	}
-	if json.Unmarshal([]byte(raw), &doc) != nil {
+// osvFixes reads the ranges of an OSV advisory for a package. At the latest
+// release, the ranges without a fixed version are the asset's (see
+// osv.Vuln.Unfixed).
+func osvFixes(raw string, pkg osv.Package, version string) []fixLine {
+	var v osv.Vuln
+	if json.Unmarshal([]byte(raw), &v) != nil {
 		return nil
 	}
-	want := purlBase(purl)
+	latest := version == inventory.Latest
 	var out []fixLine
-	for _, a := range doc.Affected {
-		if purlBase(a.Package.PURL) != want {
-			continue
-		}
+	for _, a := range v.For(pkg) {
 		for _, r := range a.Ranges {
 			if r.Type == "GIT" { // commit hashes, not versions
 				continue
 			}
-			var iv interval
+			var iv versions.Range
+			open := false
 			for _, e := range r.Events {
 				switch {
 				case e["introduced"] != "":
-					iv = interval{start: e["introduced"]}
+					iv, open = versions.Range{Start: e["introduced"]}, true
 				case e["fixed"] != "":
-					iv.fixed = e["fixed"]
-					out = append(out, fixLine{iv.text(""), iv.holds(version)})
-					iv = interval{}
+					iv.Fixed = e["fixed"]
+					out = append(out, fixLine{rangeText(iv, ""), !latest && iv.Holds(version)})
+					iv, open = versions.Range{}, false
 				case e["last_affected"] != "":
-					iv.lastAffected = e["last_affected"]
-					out = append(out, fixLine{iv.text(""), iv.holds(version)})
-					iv = interval{}
+					iv.LastAffected = e["last_affected"]
+					out = append(out, fixLine{rangeText(iv, ""), latest || iv.Holds(version)})
+					iv, open = versions.Range{}, false
 				}
+			}
+			if open {
+				out = append(out, fixLine{rangeText(iv, ""), latest || iv.Holds(version)})
 			}
 		}
 	}
 	return out
 }
 
-// nvdFixes reads the CPE ranges of an NVD record for the product of cpe, or
-// for every product of the vendor when cpe tracks a whole vendor.
-func nvdFixes(raw, cpe, version string) []fixLine {
-	var doc struct {
-		Configurations []struct {
-			Nodes []struct {
-				CPEMatch []struct {
-					Vulnerable            bool   `json:"vulnerable"`
-					Criteria              string `json:"criteria"`
-					VersionStartIncluding string `json:"versionStartIncluding"`
-					VersionStartExcluding string `json:"versionStartExcluding"`
-					VersionEndExcluding   string `json:"versionEndExcluding"`
-					VersionEndIncluding   string `json:"versionEndIncluding"`
-				} `json:"cpeMatch"`
-			} `json:"nodes"`
-		} `json:"configurations"`
-	}
-	asset := strings.Split(cpe, ":")
-	if json.Unmarshal([]byte(raw), &doc) != nil || len(asset) != 13 {
-		return nil
-	}
-	wholeVendor := asset[4] == "*"
+// nvdFixes reads the version ranges of an NVD record for the products kept;
+// with several products possible (a whole vendor, an asset named), each line
+// names its product. At the latest release, the open ranges are the asset's
+// (see nvd.Match.Open).
+func nvdFixes(raw, version string, several bool, keep func(nvd.Match) bool) []fixLine {
 	var out []fixLine
-	for _, c := range doc.Configurations {
-		for _, n := range c.Nodes {
-			for _, m := range n.CPEMatch {
-				f := strings.Split(m.Criteria, ":")
-				if !m.Vulnerable || len(f) != 13 || f[3] != asset[3] || !wholeVendor && f[4] != asset[4] {
-					continue
-				}
-				iv := interval{start: m.VersionStartIncluding, fixed: m.VersionEndExcluding, lastAffected: m.VersionEndIncluding}
-				if m.VersionStartExcluding != "" {
-					iv.start, iv.startOpen = m.VersionStartExcluding, true
-				}
-				if iv.fixed == "" && iv.lastAffected == "" { // one release named in the criteria
-					continue
-				}
-				prefix := ""
-				if wholeVendor {
-					prefix = f[4] + " : "
-				}
-				out = append(out, fixLine{iv.text(prefix), !wholeVendor && iv.holds(version)})
-			}
+	for _, m := range nvd.Matches([]byte(raw)) {
+		if !keep(m) {
+			continue
 		}
+		prefix := ""
+		if several {
+			prefix = m.Product + " : "
+		}
+		if !m.Ranged() { // one release: shown when it is the asset's
+			if version != "" && version != inventory.Latest && m.Affects(version) {
+				out = append(out, fixLine{prefix + "version " + release(m) + " citée comme affectée, sans version corrigée indiquée", true})
+			}
+			continue
+		}
+		yours := m.Range.Holds(version)
+		if version == inventory.Latest {
+			yours = m.Open()
+		}
+		out = append(out, fixLine{rangeText(m.Range, prefix), yours})
 	}
 	return out
+}
+
+// release names the release of a match: "22.7 r2.3", "2.4.62".
+func release(m nvd.Match) string {
+	name := strings.ReplaceAll(m.Version, `\`, "")
+	if m.Update != "*" && m.Update != "-" && m.Update != "" {
+		name += " " + strings.ReplaceAll(m.Update, `\`, "")
+	}
+	return name
 }

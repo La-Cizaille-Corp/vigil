@@ -20,7 +20,10 @@
 <h2>Vulnérabilités de cet actif</h2>
 <p class="muted small">{{if $a.TrackSince}}Période de suivi : vulnérabilités publiées depuis le {{isoDate $a.TrackSince}}, plus les plus anciennes
   activement exploitées (CISA KEV).{{if can .User.Role "analyst"}} Pour voir tout l'historique, videz la date de début ci-dessous.{{end}}{{else}}Période de suivi : tout l'historique.{{end}}
-  {{if not (tracking $a)}}<strong>Aucune détection automatique</strong> : renseignez un purl, un écosystème avec une version, ou un CPE.{{end}}</p>
+  {{if not (tracking $a)}}<strong>Aucune détection automatique</strong> : renseignez un purl ou un écosystème, avec une version
+  (ou <code>latest</code>), ou un CPE.{{else if byName $a}}<strong>Détection par le nom</strong> : Vigil cherche « {{$a.Name}} » dans
+  les descriptions des CVE de la NVD ; vérifiez chaque résultat. Un purl ou un CPE rend la détection exacte.{{end}}
+  {{if eq $a.Version "latest"}}Version <code>latest</code> : seules les vulnérabilités sans version corrigée connue sont signalées.{{end}}</p>
 {{if and $a.OlderVulns $a.TrackSince}}
 <div class="notice">{{$a.OlderVulns}} vulnérabilité(s) connue(s) pour cette version ont été publiées avant le {{isoDate $a.TrackSince}}
   et ne sont pas signalées ici (sauf exploitées).{{if can .User.Role "analyst"}}

@@ -7,7 +7,9 @@ Outil open source de **veille de sécurité** léger : un seul binaire, aucune i
   éditeur**), **étiquettes libres** (équipe, environnement, site…), **import de SBOM** CycloneDX / SPDX
   (JSON) regroupés par projet, ou **import et export CSV** (tableur, Excel en français compris).
 - **Vulnérabilités** détectées via [OSV.dev](https://osv.dev) pour les paquets (purl) et la
-  [NVD](https://nvd.nist.gov) pour les produits identifiés par un CPE, enrichies par
+  [NVD](https://nvd.nist.gov) pour les produits identifiés par un CPE, ou à défaut par leur nom ;
+  version **`latest`** pour un actif toujours à jour (seules les failles sans correctif sont
+  signalées). Elles sont enrichies par
   [CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) (exploitation avérée) et
   [FIRST EPSS](https://www.first.org/epss/) (probabilité d'exploitation), puis priorisées :
   KEV > EPSS élevé > sévérité.
@@ -146,7 +148,7 @@ peut activer la **double authentification TOTP** dans « Mon compte » (recomman
 en cas de téléphone perdu, un administrateur la retire dans Paramètres → Utilisateurs ou avec
 `vigil user reset-totp -username NOM` (`-all` pour tous les comptes, après une fuite de la base).
 
-### Paquets et produits : purl ou CPE
+### Paquets et produits : purl, CPE ou nom
 
 - Un **purl** (`pkg:npm/lodash@4.17.21`) est interrogé dans OSV : correspondance de version précise.
   Les SBOM en fournissent un par composant.
@@ -170,10 +172,24 @@ en cas de téléphone perdu, un administrateur la retire dans Paramètres → Ut
 - L'ajout ou la modification d'un actif lance aussitôt son analyse ; « Analyser cet actif » la
   relance, « Synchroniser l'inventaire » relance tout. L'état de la dernière synchronisation est
   affiché à côté.
+- **Sans purl ni CPE**, Vigil cherche le **nom de l'actif** dans les descriptions des CVE de la NVD
+  (« Ivanti Connect Secure », « FortiOS » : le nom employé par l'éditeur dans ses avis). Une CVE déjà
+  analysée par la NVD n'est gardée que si ses produits correspondent au nom, à la version de l'actif
+  (une CVE qui cite seulement le nom, comme Shellshock pour Apache HTTP Server, est écartée) ; une
+  CVE en attente d'analyse est gardée. Moins précise qu'un CPE, cette détection donne des résultats
+  à vérifier ; elle ne s'applique pas aux composants de SBOM sans purl. Le nom est envoyé à la NVD :
+  n'y mettez pas d'information interne.
+- **Version `latest`** : l'actif est tenu à jour sur la dernière version publiée (mises à jour
+  automatiques, service en ligne). Seules les vulnérabilités **sans version corrigée connue** sont
+  signalées : plage OSV encore ouverte ou affectée « jusqu'à » une version sans correctif ; dans la
+  NVD, produit affecté sans borne haute (« jusqu'à 7.2.13 » y vaut correction dans la suivante, comme
+  dans les bulletins des éditeurs). Dès que la source indique un correctif, la vulnérabilité est
+  marquée corrigée. Valable avec un purl, un écosystème, un CPE ou le nom.
 - Un actif qui a un purl est interrogé dans OSV uniquement : son CPE est alors ignoré, il n'y a donc
   pas de doublon. Évitez en revanche de déclarer le même produit en deux actifs (un purl, un CPE).
 - Sans clé, la NVD limite à 5 requêtes par 30 secondes : une clé gratuite
-  (variable `VIGIL_NVD_API_KEY`) accélère la synchronisation des gros inventaires.
+  (variable `VIGIL_NVD_API_KEY`) accélère la synchronisation des gros inventaires, surtout avec
+  beaucoup d'actifs suivis par CPE ou par leur nom.
 
 ## Développement
 

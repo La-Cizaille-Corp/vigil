@@ -179,6 +179,43 @@ doublerait les alertes (GHSA et CVE pour la même faille) et le CPE est moins pr
 de rapprochement entre deux actifs distincts décrivant le même produit : la consigne est d'en
 déclarer un seul.
 
+**A51. Version `latest` : seules les vulnérabilités sans version corrigée connue.** Un service
+en ligne, un navigateur ou un logiciel mis à jour automatiquement n'a pas de version stable à
+déclarer. Résoudre « la dernière version » demanderait un registre par écosystème (et n'existe pas
+pour les produits) ; Vigil lit plutôt l'avis lui-même : l'actif est affecté si une plage reste
+ouverte. OSV : la dernière étape d'une plage du paquet est `introduced` (aucun correctif) ou
+`last_affected` (affectée jusqu'à une version, sans correctif indiqué : prudence). NVD : produit
+affecté sans borne haute ; une borne incluse (« jusqu'à 7.2.13 ») vaut correction dans la version
+suivante, car c'est ainsi que les bulletins d'éditeurs (Fortinet, Oracle, Adobe) sont transcrits ;
+la traiter comme ouverte signalerait presque toutes leurs CVE. Pour un paquet, OSV est interrogé
+sans version (`/v1/query`, avis complets, un appel par paquet) et seuls les avis retenus sont
+stockés. *Conséquence* : quand le correctif sort, la source le signale et la vulnérabilité est
+résolue automatiquement (A14), ce qui correspond à un actif qui se met à jour. Un correctif
+publié mais pas encore installé n'est pas signalé : c'est l'hypothèse même de `latest`.
+
+**A52. Détection par le nom, sans purl ni CPE.** Beaucoup d'actifs sont saisis par leur seul nom :
+ils n'étaient pas vérifiés. Ils sont désormais cherchés dans les descriptions des CVE de la NVD
+(phrase exacte, `keywordSearch` + `keywordExactMatch`, même période de suivi et même requête KEV
+qu'un CPE). Un essai réel a montré le bruit d'une recherche brute : 176 CVE pour « Apache HTTP
+Server 2.4.62 », dont Shellshock et des CMS qui citent simplement le serveur. Règles retenues :
+une CVE analysée n'est gardée que si un de ses produits correspond au nom (tous les mots du nom
+dans l'éditeur et le produit du CPE, ou tous les mots du produit dans le nom) et que la version
+de l'actif est dans une de ses plages, ou est la version citée (mise à jour comprise :
+`22.7:r2.1` pour Ivanti 22.7R2.1, `22.7:-` pour la 22.7 seule) ; une CVE en attente d'analyse
+(sans configuration) est gardée, ce qui fait remonter les failles récentes avant la NVD. Résultat
+sur le même essai : 65 CVE pour Apache, 36 au lieu de 56 pour Ivanti Connect Secure 22.7R2.3,
+toutes postérieures à la version. Les composants de SBOM sans purl sont exclus (noms génériques,
+volume). *Conséquence* : résultats à vérifier, signalés comme tels ; un nom qui ne correspond à
+aucun produit de la NVD (« FortiGate » pour `fortios`) ne garde que les CVE en attente d'analyse :
+le CPE reste la voie précise. Le nom part à la NVD (modèle de menace).
+
+**A53. Suffixes de version : mise à jour au-dessus, pré-version en dessous.** La comparaison
+plaçait toute lettre après les chiffres en pré-version (1.4.0-beta1 < 1.4.0), donc 22.7R2.3
+avant 22.7 : une CVE « avant 22.7 » touchait à tort Ivanti 22.7R2.3. Seuls les libellés connus de
+pré-version (alpha, beta, rc, dev, snapshot, preview…, et a, b, c, m suivis d'un nombre : 2.0a1,
+3.0-M1) restent en dessous ; les autres sont des mises à jour (22.7R2, 9.5p1 d'OpenSSH, 1.1.1w
+d'OpenSSL, 2.4.0-r1 d'Alpine). La comparaison ignore la casse.
+
 **A13. Statuts CycloneDX / VEX.** Des statuts maison auraient été plus « parlants » mais non
 interopérables. Les états VEX (`in_triage`, `exploitable`, `resolved`, `not_affected` +
 justification, `false_positive`) sont libellés en français dans l'interface, et l'export /

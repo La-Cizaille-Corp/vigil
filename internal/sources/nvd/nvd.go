@@ -128,9 +128,27 @@ func (c *Client) ForCPE(ctx context.Context, query Query) ([]CVE, error) {
 		return nil, fmt.Errorf("mode de suivi NVD inconnu : %q", mode)
 	}
 	q.Set("resultsPerPage", fmt.Sprint(pageSize))
+	return c.search(ctx, q, query.Since)
+}
 
+// ForKeyword returns the CVEs whose description holds phrase (any case),
+// published since `since` plus those listed in CISA KEV, or all of them
+// when since is zero.
+func (c *Client) ForKeyword(ctx context.Context, phrase string, since time.Time) ([]CVE, error) {
+	if strings.TrimSpace(phrase) == "" {
+		return nil, errors.New("recherche vide")
+	}
+	q := url.Values{}
+	q.Set("keywordSearch", phrase)
+	q.Set("keywordExactMatch", "")
+	q.Set("resultsPerPage", fmt.Sprint(pageSize))
+	return c.search(ctx, q, since)
+}
+
+// search runs q over the publication period starting at since.
+func (c *Client) search(ctx context.Context, q url.Values, since time.Time) ([]CVE, error) {
 	end := time.Now().UTC()
-	if query.Since.IsZero() || end.Sub(query.Since) > maxDateRanges*maxDateRange {
+	if since.IsZero() || end.Sub(since) > maxDateRanges*maxDateRange {
 		return c.pages(ctx, q)
 	}
 	// The NVD only accepts 120-day ranges: one request per range, plus one
@@ -145,7 +163,7 @@ func (c *Client) ForCPE(ctx context.Context, query Query) ([]CVE, error) {
 			}
 		}
 	}
-	for from := query.Since.UTC(); from.Before(end); from = from.Add(maxDateRange) {
+	for from := since.UTC(); from.Before(end); from = from.Add(maxDateRange) {
 		to := from.Add(maxDateRange)
 		if to.After(end) {
 			to = end
@@ -261,6 +279,7 @@ type response struct {
 
 type record struct {
 	ID           string `json:"id"`
+	VulnStatus   string `json:"vulnStatus"`
 	Published    string `json:"published"`
 	LastModified string `json:"lastModified"`
 	Descriptions []struct {
@@ -287,7 +306,7 @@ func parse(data []byte) ([]CVE, int, error) {
 	out := make([]CVE, 0, len(r.Vulnerabilities))
 	for _, v := range r.Vulnerabilities {
 		var rec record
-		if err := json.Unmarshal(v.CVE, &rec); err != nil || rec.ID == "" {
+		if err := json.Unmarshal(v.CVE, &rec); err != nil || rec.ID == "" || rec.VulnStatus == "Rejected" {
 			continue
 		}
 		c := CVE{CVSS: -1, ID: rec.ID, Published: rec.Published, Modified: rec.LastModified, Raw: v.CVE}

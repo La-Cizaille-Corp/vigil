@@ -55,6 +55,10 @@ API externes (OSV, NVD, KEV, EPSS), requêtes de l'API CI.
   (registre A50) : la base et ses sauvegardes se protègent par le chiffrement du disque et des
   copies hors machine ; en cas de fuite, `vigil user reset-totp -all` et la rotation des URL les
   rendent sans valeur (OPERATIONS.md, « Fuite de la base ou d'une sauvegarde »).
+- **Les requêtes aux sources publiques révèlent une partie de l'inventaire** : purl et CPE à OSV et
+  à la NVD, et, pour les actifs détectés par leur nom, ce nom tel quel. Un nom d'actif ne doit donc
+  pas contenir d'information interne (nom de serveur, de client) ; renseignez-la dans les notes ou
+  les étiquettes, qui ne sortent pas.
 - **Derrière un reverse proxy joignable autrement que par le proxy**, `X-Forwarded-For` peut être
   forgé et la limitation des tentatives contournée : n'exposez Vigil `-behind-proxy` que sur
   `127.0.0.1` ou un réseau interne (c'est le cas de l'unité systemd et du Compose fournis).
