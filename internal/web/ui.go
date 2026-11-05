@@ -54,6 +54,8 @@ func trackingSource(a store.Asset) string {
 		return "NVD (éditeur)"
 	case a.CPE != "":
 		return "NVD"
+	case inventory.ByName(a):
+		return "NVD (nom)"
 	}
 	return ""
 }

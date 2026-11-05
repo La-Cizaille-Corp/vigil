@@ -107,7 +107,7 @@ func TestFixLines(t *testing.T) {
 		{"type":"ECOSYSTEM","events":[{"introduced":"2.13.0"},{"fixed":"2.15.0"}]},
 		{"type":"GIT","events":[{"introduced":"0"},{"fixed":"abc123"}]}]},
 		{"package":{"purl":"pkg:maven/other/lib"},"ranges":[{"type":"ECOSYSTEM","events":[{"introduced":"0"},{"fixed":"9.9"}]}]}]}`
-	lines := fixLines(osvRaw, store.Finding{AssetPURL: "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1"})
+	lines := fixLines(osvRaw, store.Asset{PURL: "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1"})
 	if len(lines) != 2 || !lines[0].Yours || !strings.Contains(lines[0].Text, "2.15.0") || lines[1].Yours {
 		t.Errorf("OSV: %+v", lines)
 	}
@@ -116,12 +116,46 @@ func TestFixLines(t *testing.T) {
 		{"vulnerable":true,"criteria":"cpe:2.3:o:fortinet:fortios:*:*:*:*:*:*:*:*","versionStartIncluding":"7.2.0","versionEndExcluding":"7.2.5"},
 		{"vulnerable":true,"criteria":"cpe:2.3:o:fortinet:fortios:*:*:*:*:*:*:*:*","versionStartIncluding":"7.0.0","versionEndIncluding":"7.0.12"},
 		{"vulnerable":true,"criteria":"cpe:2.3:a:fortinet:fortiproxy:*:*:*:*:*:*:*:*","versionEndExcluding":"7.0.10"}]}]}]}`
-	lines = fixLines(nvdRaw, store.Finding{AssetCPE: "cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*", AssetVersion: "7.2.4"})
+	lines = fixLines(nvdRaw, store.Asset{CPE: "cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*", Version: "7.2.4"})
 	if len(lines) != 2 || !lines[0].Yours || !strings.Contains(lines[0].Text, "corrigée en 7.2.5") {
 		t.Errorf("NVD: %+v", lines)
 	}
-	lines = fixLines(nvdRaw, store.Finding{AssetCPE: "cpe:2.3:*:fortinet:*:*:*:*:*:*:*:*:*"})
+	lines = fixLines(nvdRaw, store.Asset{CPE: "cpe:2.3:*:fortinet:*:*:*:*:*:*:*:*:*"})
 	if len(lines) != 3 || !strings.HasPrefix(lines[2].Text, "fortiproxy : ") {
 		t.Errorf("whole vendor: %+v", lines)
+	}
+
+	// At the latest release, the ranges without a fixed version are the
+	// asset's: an open one for OSV, an unbounded one for the NVD.
+	openRaw := `{"affected":[{"package":{"purl":"pkg:npm/left"},"ranges":[
+		{"type":"SEMVER","events":[{"introduced":"0"},{"fixed":"1.2.0"}]},
+		{"type":"SEMVER","events":[{"introduced":"2.0.0"}]}]}]}`
+	lines = fixLines(openRaw, store.Asset{PURL: "pkg:npm/left", Version: "latest"})
+	if len(lines) != 2 || !lines[0].Yours || lines[0].Text != "aucune version corrigée indiquée (affectée à partir de 2.0.0)" || lines[1].Yours {
+		t.Errorf("OSV latest: %+v", lines)
+	}
+	lines = fixLines(openRaw, store.Asset{PURL: "pkg:npm/left@1.1.0"})
+	if len(lines) != 2 || !lines[0].Yours || lines[0].Text != "corrigée en 1.2.0" {
+		t.Errorf("OSV open range: %+v", lines)
+	}
+	nvdOpen := `{"configurations":[{"nodes":[{"cpeMatch":[
+		{"vulnerable":true,"criteria":"cpe:2.3:a:ivanti:connect_secure:*:*:*:*:*:*:*:*","versionEndExcluding":"22.7"},
+		{"vulnerable":true,"criteria":"cpe:2.3:a:ivanti:connect_secure:*:*:*:*:*:*:*:*","versionStartIncluding":"22.7"},
+		{"vulnerable":true,"criteria":"cpe:2.3:a:ivanti:policy_secure:*:*:*:*:*:*:*:*","versionEndExcluding":"22.8"}]}]}]}`
+	lines = fixLines(nvdOpen, store.Asset{Name: "Ivanti Connect Secure", Version: "latest", Kind: "product"})
+	if len(lines) != 2 || !lines[0].Yours || lines[0].Text != "connect_secure : aucune version corrigée indiquée (affectée à partir de 22.7)" {
+		t.Errorf("by name, latest: %+v", lines)
+	}
+	lines = fixLines(nvdOpen, store.Asset{Name: "Connect Secure", Version: "22.6R1", Kind: "product"})
+	if len(lines) != 2 || !lines[0].Yours || lines[0].Text != "connect_secure : corrigée en 22.7" {
+		t.Errorf("by name: %+v", lines)
+	}
+	nvdRelease := `{"configurations":[{"nodes":[{"cpeMatch":[
+		{"vulnerable":true,"criteria":"cpe:2.3:a:ivanti:connect_secure:*:*:*:*:*:*:*:*","versionEndExcluding":"22.7"},
+		{"vulnerable":true,"criteria":"cpe:2.3:a:ivanti:connect_secure:22.7:r2.2:*:*:*:*:*:*"},
+		{"vulnerable":true,"criteria":"cpe:2.3:a:ivanti:connect_secure:22.7:r2.3:*:*:*:*:*:*"}]}]}]}`
+	lines = fixLines(nvdRelease, store.Asset{Name: "Connect Secure", Version: "22.7R2.3", Kind: "product"})
+	if len(lines) != 2 || !lines[0].Yours || lines[0].Text != "connect_secure : version 22.7 r2.3 citée comme affectée, sans version corrigée indiquée" || lines[1].Yours {
+		t.Errorf("release named: %+v", lines)
 	}
 }

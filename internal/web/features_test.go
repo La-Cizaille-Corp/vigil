@@ -291,18 +291,6 @@ func TestClientIPBehindProxy(t *testing.T) {
 	}
 }
 
-func TestCompareVersions(t *testing.T) {
-	ordered := []string{"10.0", "9.5.5", "9.5.3", "8.19.23", "1.4.1", "1.4.0", "1.4.0-rc1", "1.4.0-beta1"}
-	for i := 0; i+1 < len(ordered); i++ {
-		if compareVersions(ordered[i], ordered[i+1]) <= 0 || compareVersions(ordered[i+1], ordered[i]) >= 0 {
-			t.Errorf("%s should rank above %s", ordered[i], ordered[i+1])
-		}
-	}
-	if compareVersions("2019", "2019") != 0 {
-		t.Error("equal versions")
-	}
-}
-
 func TestAssetTags(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	ctx := context.Background()

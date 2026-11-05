@@ -33,6 +33,44 @@ func TestQueryable(t *testing.T) {
 	}
 }
 
+// "latest" is recognised in any case, also as the version of a purl; the
+// package queried then has no version.
+func TestLatest(t *testing.T) {
+	for _, a := range []store.Asset{
+		{Name: "lodash", Kind: "package", Ecosystem: "npm", Version: "Latest"},
+		{Name: "lodash", Kind: "package", PURL: "pkg:npm/lodash@latest"},
+		{Name: "lodash", Kind: "package", PURL: "pkg:npm/lodash@4.17.15", Version: "LATEST"},
+	} {
+		Normalize(&a)
+		if !IsLatest(a) || !Queryable(a) {
+			t.Errorf("not latest: %+v", a)
+		}
+		if p := Package(a); p.PURL != "" && p.PURL != "pkg:npm/lodash" || p.PURL == "" && (p.Name != "lodash" || p.Ecosystem != "npm") {
+			t.Errorf("package of %+v: %+v", a, p)
+		}
+	}
+}
+
+func TestByName(t *testing.T) {
+	cases := []struct {
+		a    store.Asset
+		want bool
+	}{
+		{store.Asset{Name: "Ivanti Connect Secure", Version: "22.7R2"}, true},
+		{store.Asset{Name: "FortiOS", Version: Latest}, true},
+		{store.Asset{Name: "lodash", Ecosystem: "npm"}, true}, // no version for OSV
+		{store.Asset{Name: "lodash", Ecosystem: "npm", Version: "4.17.15"}, false},
+		{store.Asset{Name: "lodash", PURL: "pkg:npm/lodash"}, false},
+		{store.Asset{Name: "FortiOS", CPE: "cpe:2.3:o:fortinet:fortios:*:*:*:*:*:*:*:*"}, false},
+		{store.Asset{Name: "libc.so.6", Source: "sbom"}, false},
+	}
+	for _, c := range cases {
+		if got := ByName(c.a); got != c.want {
+			t.Errorf("ByName(%+v) = %v, want %v", c.a, got, c.want)
+		}
+	}
+}
+
 func TestValidate(t *testing.T) {
 	ok := store.Asset{Name: "x", Kind: "package", Criticality: "low"}
 	if err := Validate(ok); err != nil {

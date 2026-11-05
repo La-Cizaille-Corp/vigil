@@ -43,7 +43,7 @@
   <a class="kpi" href="/assets">
     <span class="kpi-label">Couverture de détection</span>
     <span class="kpi-value">{{if ge .Data.Coverage 0}}{{.Data.Coverage}} %{{else}}—{{end}}</span>
-    <span class="kpi-note">{{.Data.Tracked}} actif(s) sur {{.Data.Assets}} vérifié(s) automatiquement</span>
+    <span class="kpi-note">{{.Data.Tracked}} actif(s) sur {{.Data.Assets}} vérifié(s) automatiquement{{with .Data.ByName}}, dont {{.}} par leur nom{{end}}</span>
   </a>
 </section>
 

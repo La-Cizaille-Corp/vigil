@@ -215,10 +215,13 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	tracked := 0
+	tracked, byName := 0, 0
 	for _, a := range assets {
 		if trackingSource(a) != "" {
 			tracked++
+		}
+		if inventory.ByName(a) {
+			byName++
 		}
 	}
 	coverage := -1
@@ -232,7 +235,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	s.render(w, r, http.StatusOK, "dashboard", page{Title: "Tableau de bord", Refresh: s.syncStatus().Running, Data: map[string]any{
 		"Stats": stats, "Counts": counts, "Severe": stats.OpenBySeverity["CRITICAL"] + stats.OpenBySeverity["HIGH"], "Recent": recent, "RecentTotal": recentTotal,
-		"Assets": len(assets), "Tracked": tracked, "Coverage": coverage,
+		"Assets": len(assets), "Tracked": tracked, "ByName": byName, "Coverage": coverage,
 		"Donut": newDonut(stats.OpenBySeverity), "Weekly": newWeeklyChart(stats.Weeks),
 		"TopAssets": newAssetChart(stats.TopAssets), "OpenQuery": openFindings, "SLA": sla,
 	}})
@@ -674,8 +677,14 @@ func (s *Server) renderFinding(w http.ResponseWriter, r *http.Request, status in
 		s.serverError(w, r, err)
 		return
 	}
+	asset, err := s.Store.Asset(r.Context(), f.AssetID)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
 	s.render(w, r, status, "finding", page{Title: findingTitle(f), Error: formErr,
-		Data: map[string]any{"Finding": f, "Vuln": v, "Events": events, "Mentions": mentions, "Fixes": fixLines(v.Raw, f)}})
+		Data: map[string]any{"Finding": f, "Vuln": v, "Events": events, "Mentions": mentions, "Fixes": fixLines(v.Raw, asset),
+			"ByName": inventory.ByName(asset), "Latest": inventory.IsLatest(asset)}})
 }
 
 func (s *Server) findingUpdate(w http.ResponseWriter, r *http.Request) {

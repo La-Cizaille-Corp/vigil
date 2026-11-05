@@ -102,7 +102,7 @@ type Syncer struct {
 	Store *store.Store
 	OSV   *osv.Client
 	Log   *slog.Logger
-	// NVD matches assets that only have a CPE; nil disables it.
+	// NVD matches assets that only have a CPE, or only a name; nil disables it.
 	NVD *nvd.Client
 
 	// HTTP is used for KEV and EPSS; nil disables enrichment.
@@ -197,18 +197,22 @@ func (s *Syncer) scan(ctx context.Context, assets []store.Asset) (Result, error)
 	var res Result
 	start := time.Now().UTC().Truncate(time.Second)
 
-	var targets, cpeTargets []store.Asset
+	var targets, latestTargets, cpeTargets, nameTargets []store.Asset
 	var queries []osv.Query
 	for _, a := range assets {
 		switch {
+		case inventory.Queryable(a) && inventory.IsLatest(a):
+			latestTargets = append(latestTargets, a)
 		case inventory.Queryable(a):
 			targets = append(targets, a)
 			queries = append(queries, toQuery(a))
 		case a.CPE != "" && s.NVD != nil:
 			cpeTargets = append(cpeTargets, a)
+		case inventory.ByName(a) && s.NVD != nil:
+			nameTargets = append(nameTargets, a)
 		}
 	}
-	res.Assets = len(targets) + len(cpeTargets)
+	res.Assets = len(targets) + len(latestTargets) + len(cpeTargets) + len(nameTargets)
 	if res.Assets == 0 {
 		return res, nil
 	}
@@ -231,22 +235,60 @@ func (s *Syncer) scan(ctx context.Context, assets []store.Asset) (Result, error)
 			seen = append(seen, observation{a, reported})
 		}
 	}
+	// At its latest release, a package is affected by the advisories that
+	// have no fixed version yet: all of them are read, then sorted.
+	for _, a := range latestTargets {
+		pkg := inventory.Package(a)
+		vulns, err := s.OSV.Query(ctx, pkg)
+		if err != nil {
+			// One unknown package must not block the others.
+			s.Log.Warn("OSV", "asset", a.Name, "err", err)
+			continue
+		}
+		var reported []string
+		for _, v := range vulns {
+			if !v.Unfixed(pkg) {
+				continue
+			}
+			reported = append(reported, v.ID)
+			if err := s.storeOSV(ctx, v, false); err != nil {
+				return res, err
+			}
+		}
+		seen = append(seen, observation{a, reported})
+	}
 	for _, a := range cpeTargets {
 		q := nvd.Query{CPE: a.CPE, Version: a.Version, Mode: a.CPEMode, From: a.CPEFrom, Since: inventory.SinceTime(a)}
+		keep := func(nvd.CVE) bool { return true }
+		if a.CPEMode == "" && inventory.IsLatest(a) {
+			q.Version, q.Mode = "", "all"
+			keep = func(c nvd.CVE) bool { return nvd.UnfixedFor(c, a.CPE) }
+		}
 		cves, err := s.NVD.ForCPE(ctx, q)
 		if err != nil {
 			// One unreachable or invalid CPE must not block the others.
 			s.Log.Warn("NVD", "asset", a.Name, "err", err)
 			continue
 		}
-		var reported []string
-		for _, c := range cves {
-			reported = append(reported, c.ID)
-			if err := s.Store.UpsertVulnerability(ctx, nvdVuln(c)); err != nil {
-				return res, err
-			}
+		o, err := s.storeNVD(ctx, a, cves, keep)
+		if err != nil {
+			return res, err
 		}
-		seen = append(seen, observation{a, reported})
+		seen = append(seen, o)
+	}
+	for _, a := range nameTargets {
+		cves, err := s.NVD.ForKeyword(ctx, a.Name, inventory.SinceTime(a))
+		if err != nil {
+			s.Log.Warn("NVD", "asset", a.Name, "err", err)
+			continue
+		}
+		o, err := s.storeNVD(ctx, a, cves, func(c nvd.CVE) bool {
+			return nvd.NameAffects(c, a.Name, a.Version, inventory.IsLatest(a))
+		})
+		if err != nil {
+			return res, err
+		}
+		seen = append(seen, o)
 	}
 
 	// 2. Exploitation signals before the findings: an old vulnerability is
@@ -305,6 +347,21 @@ func (s *Syncer) record(ctx context.Context, res *Result, a store.Asset, reporte
 	return nil
 }
 
+// storeNVD stores the CVEs kept for an asset and returns them as observed.
+func (s *Syncer) storeNVD(ctx context.Context, a store.Asset, cves []nvd.CVE, keep func(nvd.CVE) bool) (observation, error) {
+	o := observation{asset: a}
+	for _, c := range cves {
+		if !keep(c) {
+			continue
+		}
+		o.reported = append(o.reported, c.ID)
+		if err := s.Store.UpsertVulnerability(ctx, nvdVuln(c)); err != nil {
+			return o, err
+		}
+	}
+	return o, nil
+}
+
 func nvdVuln(c nvd.CVE) store.Vulnerability {
 	summary := c.Description
 	if i := strings.Index(summary, ". "); i > 0 && i < 300 {
@@ -330,6 +387,18 @@ func (s *Syncer) refreshVuln(ctx context.Context, ref osv.VulnRef) error {
 	v, err := s.OSV.Vuln(ctx, ref.ID)
 	if err != nil {
 		return err
+	}
+	return s.storeOSV(ctx, v, true)
+}
+
+// storeOSV stores an advisory, unless the stored copy has the same
+// modification date; changed: it was fetched because it differs.
+func (s *Syncer) storeOSV(ctx context.Context, v osv.Vuln, changed bool) error {
+	if !changed {
+		modified, known, err := s.Store.VulnModified(ctx, v.ID)
+		if err != nil || known && modified == v.Modified {
+			return err
+		}
 	}
 	var refs []string
 	for _, r := range v.References {

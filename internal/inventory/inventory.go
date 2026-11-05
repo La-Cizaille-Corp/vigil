@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/La-Cizaille-Corp/vigil/internal/sources/osv"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
 
@@ -43,6 +44,14 @@ var CPEModes = []Option{
 	{Value: "from", Label: "Versions à partir de…"},
 }
 
+// Latest is the version of an asset kept up to date on its latest release:
+// only the vulnerabilities without a released fix concern it, and they are
+// marked fixed once the fix is out.
+const Latest = "latest"
+
+// IsLatest reports whether an asset is kept at its latest release.
+func IsLatest(a store.Asset) bool { return a.Version == Latest }
+
 // DefaultWindow is how far back a new asset is checked: vulnerabilities
 // published earlier are not reported unless exploited (KEV).
 const DefaultWindow = 120 * 24 * time.Hour
@@ -71,6 +80,9 @@ func Normalize(a *store.Asset) {
 	}
 	if a.Version == "" {
 		a.Version = purlVersion(a.PURL)
+	}
+	if strings.EqualFold(a.Version, Latest) {
+		a.Version = Latest
 	}
 	if a.Criticality == "" {
 		a.Criticality = "medium"
@@ -142,6 +154,22 @@ func Queryable(a store.Asset) bool {
 		return a.Version != "" || strings.Contains(a.PURL, "@")
 	}
 	return a.Ecosystem != "" && a.Version != ""
+}
+
+// Package is the package an asset designates in OSV, whatever its version.
+func Package(a store.Asset) osv.Package {
+	if a.PURL != "" {
+		return osv.Package{PURL: osv.WithoutVersion(a.PURL)}
+	}
+	return osv.Package{Name: a.Name, Ecosystem: a.Ecosystem}
+}
+
+// ByName reports whether an asset is checked by searching its name in the
+// descriptions of the CVEs (NVD): it has no purl, no CPE, no ecosystem with
+// a version, and does not come from an SBOM, whose components without purl
+// are many and named too generically (libc, a file name).
+func ByName(a store.Asset) bool {
+	return a.PURL == "" && a.CPE == "" && !Queryable(a) && a.Source != "sbom" && a.Name != ""
 }
 
 // Label returns the label of value in opts, or value itself.

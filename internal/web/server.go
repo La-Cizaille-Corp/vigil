@@ -197,6 +197,7 @@ func (s *Server) parseTemplates() error {
 		"statuses":         func() []inventory.Option { return tracking.Statuses },
 		"justifs":          func() []inventory.Option { return tracking.Justifications },
 		"queryable":        inventory.Queryable,
+		"byName":           inventory.ByName,
 		"epss":             digest.FormatEPSS,
 		"countryLabel":     func(v string) string { return cti.Label(cti.Countries, v) },
 		"sectorLabel":      func(v string) string { return cti.Label(cti.Sectors, v) },
