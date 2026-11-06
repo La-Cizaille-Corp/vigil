@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -16,7 +18,29 @@ const (
 	SettingCountries   = "cti_countries"
 	SettingSectors     = "cti_sectors"
 	SettingRegulations = "cti_regulations"
+	// SettingNewsPerDay is how many times a day the feeds are collected.
+	SettingNewsPerDay = "cti_news_per_day"
 )
+
+// DefaultNewsPerDay is the frequency of the collection when it was not chosen.
+const DefaultNewsPerDay = 4
+
+// NewsFrequencies are the times a day the feeds can be collected; 0 is on
+// demand only.
+var NewsFrequencies = []int{0, 1, 2, 4, 6, 12, 24}
+
+// NewsPerDay returns how many times a day the feeds are collected.
+func NewsPerDay(ctx context.Context, st *store.Store) (int, error) {
+	v, err := st.Setting(ctx, SettingNewsPerDay)
+	if err != nil {
+		return 0, err
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || !slices.Contains(NewsFrequencies, n) {
+		return DefaultNewsPerDay, nil
+	}
+	return n, nil
+}
 
 // Retention of CTI items.
 const Retention = 180 * 24 * time.Hour
@@ -28,7 +52,25 @@ type Collector struct {
 	UserAgent string
 	Log       *slog.Logger
 
-	mu sync.Mutex
+	mu   sync.Mutex
+	last time.Time // start of the last collection
+}
+
+// RunIfDue collects the feeds when the time between two collections has
+// passed, according to the setting read each time: it can change at any moment.
+func (c *Collector) RunIfDue(ctx context.Context) error {
+	perDay, err := NewsPerDay(ctx, c.Store)
+	if err != nil || perDay == 0 {
+		return err
+	}
+	c.mu.Lock()
+	last := c.last
+	c.mu.Unlock()
+	if !last.IsZero() && time.Since(last) < 24*time.Hour/time.Duration(perDay) {
+		return nil
+	}
+	_, err = c.Run(ctx)
+	return err
 }
 
 // Run fetches all enabled feeds and returns the number of new items.
@@ -36,6 +78,7 @@ type Collector struct {
 func (c *Collector) Run(ctx context.Context) (int, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.last = time.Now()
 
 	feeds, err := c.Store.ListFeeds(ctx)
 	if err != nil {

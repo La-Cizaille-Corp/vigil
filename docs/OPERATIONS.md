@@ -139,8 +139,8 @@ les jetons d'API (empreintes SHA-256) ne se retrouvent pas à partir de la base.
    (Paramètres → Utilisateurs), Vigil l'y conduit à la connexion.
 2. **Canaux de notification** : chez le fournisseur, supprimez chaque webhook et créez-en un
    nouveau (Slack : application → *Incoming Webhooks* ; Mattermost : Intégrations → Webhooks
-   entrants ; Teams : workflow ou connecteur du canal), puis dans Paramètres supprimez le canal et
-   recréez-le avec la nouvelle URL. L'ancienne URL ne permet plus d'écrire dans le canal.
+   entrants ; Teams : workflow du canal, avec « Qui peut déclencher le flux » sur « Tout le monde »),
+   puis dans Paramètres supprimez le canal et recréez-le avec la nouvelle URL. L'ancienne URL ne permet plus d'écrire dans le canal.
 3. **Flux à clé** : faites changer la clé chez le fournisseur, puis supprimez et ajoutez à nouveau
    le flux.
 4. **Mots de passe** : ils résistent, mais un mot de passe faible finit par céder à une attaque

@@ -31,6 +31,19 @@ la section correspondante du digest (sans sélection : toutes les réglementatio
 
 <h2 id="flux">Flux de veille</h2>
 <p class="muted">Les étiquettes d'un flux s'appliquent à toutes ses actualités, en plus de celles détectées dans leur texte.</p>
+{{$perDay := .Data.NewsPerDay}}
+{{if $admin}}
+<form method="post" action="/settings/news" class="delivery">
+  <input type="hidden" name="csrf" value="{{$csrf}}">
+  <label>Collecter les flux
+    <select name="per_day">{{range .Data.NewsFrequencies}}<option value="{{.}}" {{if eq . $perDay}}selected{{end}}>{{if .}}{{.}} fois par jour{{else}}À la demande seulement{{end}}</option>{{end}}</select>
+  </label>
+  <button type="submit">Enregistrer</button>
+  <span class="muted small">En plus de chaque démarrage et du bouton « Collecter les flux » de la page Veille.</span>
+</form>
+{{else}}
+<p class="muted small">Collecte des flux : {{if $perDay}}{{$perDay}} fois par jour{{else}}à la demande seulement{{end}}.</p>
+{{end}}
 {{if .Data.Feeds}}
 <table>
 <thead><tr><th>Nom</th><th>URL</th><th>Étiquettes du flux</th><th>Dernière collecte</th>{{if $admin}}<th></th>{{end}}</tr></thead>
@@ -132,6 +145,10 @@ la section correspondante du digest (sans sélection : toutes les réglementatio
   </td>
   <td>{{if .LastError}}<span class="danger-link small">Échec : {{.LastError}}</span>{{else}}<span class="muted">OK (ou jamais envoyé)</span>{{end}}</td>
   <td>
+    <form method="post" action="/settings/webhooks/{{.ID}}/test" class="inline">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <button type="submit" class="link">Envoyer un test</button>
+    </form>
     <form method="post" action="/settings/webhooks/{{.ID}}/toggle" class="inline">
       <input type="hidden" name="csrf" value="{{$csrf}}">
       <input type="hidden" name="enabled" value="{{if .Enabled}}0{{else}}1{{end}}">

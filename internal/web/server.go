@@ -128,12 +128,14 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.Handle("GET /settings", s.require(auth.RoleViewer, s.settings))
 	mux.Handle("POST /settings/watch", s.require(auth.RoleAnalyst, s.saveWatch))
 	mux.Handle("POST /settings/feeds", s.require(auth.RoleAdmin, s.feedCreate))
+	mux.Handle("POST /settings/news", s.require(auth.RoleAdmin, s.newsFrequency))
 	mux.Handle("POST /settings/feeds/{id}", s.require(auth.RoleAdmin, s.feedUpdate))
 	mux.Handle("POST /settings/feeds/{id}/toggle", s.require(auth.RoleAdmin, s.feedToggle))
 	mux.Handle("POST /settings/feeds/{id}/delete", s.require(auth.RoleAdmin, s.feedDelete))
 	mux.Handle("POST /settings/webhooks", s.require(auth.RoleAdmin, s.webhookCreate))
 	mux.Handle("POST /settings/webhooks/{id}", s.require(auth.RoleAdmin, s.webhookDelivery))
 	mux.Handle("POST /settings/webhooks/{id}/toggle", s.require(auth.RoleAdmin, s.webhookToggle))
+	mux.Handle("POST /settings/webhooks/{id}/test", s.require(auth.RoleAdmin, s.webhookTest))
 	mux.Handle("POST /settings/sla", s.require(auth.RoleAdmin, s.slaSave))
 	mux.Handle("GET /settings/audit", s.require(auth.RoleAdmin, s.auditList))
 	mux.Handle("GET /settings/users", s.require(auth.RoleAdmin, s.userList))
@@ -298,6 +300,9 @@ var flashes = map[string]string{ // #nosec G101 -- message keys, not credentials
 	"feed-disabled":     "Flux désactivé.",
 	"feed-deleted":      "Flux supprimé.",
 	"hook-created":      "Canal de notification ajouté.",
+	"hook-test-sent":    "Message de test envoyé : vérifiez qu'il est bien arrivé.",
+	"hook-test-failed":  "Le message de test a échoué : la raison figure dans l'état du canal.",
+	"news-updated":      "Fréquence de collecte des flux enregistrée.",
 	"hook-updated":      "Canal de notification enregistré.",
 	"hook-enabled":      "Canal de notification activé.",
 	"hook-disabled":     "Canal de notification désactivé.",

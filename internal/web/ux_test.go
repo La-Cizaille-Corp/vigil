@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
+	"github.com/La-Cizaille-Corp/vigil/internal/cti"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
 )
 
@@ -126,4 +127,35 @@ func TestPasswordChange(t *testing.T) {
 		t.Errorf("other session still valid: %d", code)
 	}
 	loginAs(t, base, "bob", "another-strong-one")
+}
+
+func TestNewsFrequency(t *testing.T) {
+	st, base := newTestServer(t)
+	ctx := context.Background()
+	hash, _ := auth.HashPassword("a-strong-password")
+	st.CreateUser(ctx, "admin", hash, auth.RoleAdmin)
+	st.CreateUser(ctx, "bob", hash, auth.RoleViewer)
+	c := loginAs(t, base, "admin", "a-strong-password")
+	_, body := c.get("/settings")
+	if !strings.Contains(body, `<option value="4" selected>4 fois par jour</option>`) || !strings.Contains(body, "À la demande seulement") {
+		t.Errorf("default frequency not offered:\n%s", body)
+	}
+	if code := c.post("/settings/news", url.Values{"csrf": {c.csrf()}, "per_day": {"12"}}); code != http.StatusSeeOther {
+		t.Fatalf("save: %d", code)
+	}
+	if v, _ := st.Setting(ctx, cti.SettingNewsPerDay); v != "12" {
+		t.Errorf("setting = %q", v)
+	}
+	for _, bad := range []string{"3", "x", "-1", ""} {
+		if code := c.post("/settings/news", url.Values{"csrf": {c.csrf()}, "per_day": {bad}}); code != http.StatusBadRequest {
+			t.Errorf("frequency %q: %d", bad, code)
+		}
+	}
+	viewer := loginAs(t, base, "bob", "a-strong-password")
+	if code := viewer.post("/settings/news", url.Values{"csrf": {viewer.csrf()}, "per_day": {"1"}}); code != http.StatusForbidden {
+		t.Errorf("a reader changed the frequency: %d", code)
+	}
+	if _, body := viewer.get("/settings"); !strings.Contains(body, "12 fois par jour") || strings.Contains(body, `name="per_day"`) {
+		t.Errorf("reader's view:\n%s", body)
+	}
 }

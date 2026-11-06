@@ -333,3 +333,43 @@ func TestAssetTags(t *testing.T) {
 		t.Errorf("CSV export misses the tags:\n%s", body)
 	}
 }
+
+// A channel can be tested without waiting for an alert; the reason of a refusal
+// shows in its state, and its URL is never shown.
+func TestWebhookTestButton(t *testing.T) {
+	status := http.StatusOK
+	hook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(status)
+		if status != http.StatusOK {
+			io.WriteString(w, `{"error":{"code":"DirectApiAuthorizationRequired","message":"The request must be authenticated."}}`)
+		}
+	}))
+	defer hook.Close()
+	st, base := newServerWith(t, func(s *Server) {
+		s.Notifier = &notify.Notifier{Store: s.Store, HTTP: hook.Client(), Log: s.Log}
+	})
+	id, err := st.CreateWebhook(context.Background(), store.Webhook{Name: "Équipe", Kind: "teams", URL: hook.URL + "/SECRET?sig=SECRET", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := "/settings/webhooks/" + strconv.FormatInt(id, 10) + "/test"
+	admin := loginAs(t, base, "admin", "a-strong-password")
+	if code, loc := admin.postLocation(path, url.Values{"csrf": {admin.csrf()}}); code != http.StatusSeeOther || !strings.Contains(loc, "msg=hook-test-sent") {
+		t.Errorf("test: %d %s", code, loc)
+	}
+	status = http.StatusUnauthorized
+	if code, loc := admin.postLocation(path, url.Values{"csrf": {admin.csrf()}}); code != http.StatusSeeOther || !strings.Contains(loc, "msg=hook-test-failed") {
+		t.Errorf("failed test: %d %s", code, loc)
+	}
+	_, body := admin.get("/settings")
+	if !strings.Contains(body, "DirectApiAuthorizationRequired") || !strings.Contains(body, "Tout le monde") || strings.Contains(body, "SECRET") {
+		t.Errorf("state of the channel:\n%s", body)
+	}
+	if code := admin.post("/settings/webhooks/999/test", url.Values{"csrf": {admin.csrf()}}); code != http.StatusNotFound {
+		t.Errorf("unknown channel: %d", code)
+	}
+	analyst := loginAs(t, base, "analyst", "a-strong-password")
+	if code := analyst.post(path, url.Values{"csrf": {analyst.csrf()}}); code != http.StatusForbidden {
+		t.Errorf("an analyst tested a channel: %d", code)
+	}
+}
