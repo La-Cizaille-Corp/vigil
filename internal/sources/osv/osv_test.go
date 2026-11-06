@@ -48,9 +48,31 @@ func TestWithoutVersion(t *testing.T) {
 		"pkg:deb/debian/openssl@3.0.11?distro=x":   "pkg:deb/debian/openssl?distro=x",
 		"pkg:npm/lodash":                           "pkg:npm/lodash",
 		"pkg:golang/github.com/a/b@v1.2.3#sub/dir": "pkg:golang/github.com/a/b#sub/dir",
+		"pkg:npm/@babel/core@7.0.0":                "pkg:npm/@babel/core",
+		"pkg:npm/@babel/core":                      "pkg:npm/@babel/core",
+		"pkg:deb/debian/libc6?upstream=glibc@2.36": "pkg:deb/debian/libc6?upstream=glibc@2.36",
 	} {
 		if got := WithoutVersion(in); got != want {
 			t.Errorf("WithoutVersion(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestPURLVersion(t *testing.T) {
+	for in, want := range map[string]string{
+		"pkg:npm/lodash@4.17.15":                   "4.17.15",
+		"pkg:npm/lodash@4.17.15?repository_url=x":  "4.17.15",
+		"pkg:golang/github.com/a/b@v1.2.3#sub/dir": "v1.2.3",
+		"pkg:deb/debian/libssl3@1%3A3.0.11-1%7Eb1": "1:3.0.11-1~b1",
+		"pkg:npm/%40angular/core@17.0.0":           "17.0.0",
+		"pkg:npm/@babel/core@7.0.0":                "7.0.0",
+		"pkg:github/a/b@releases/v2":               "releases/v2",
+		"pkg:npm/lodash":                           "",
+		"pkg:npm/@babel/core":                      "",
+		"pkg:deb/debian/libc6?upstream=glibc@2.36": "",
+	} {
+		if got := PURLVersion(in); got != want {
+			t.Errorf("PURLVersion(%q) = %q, want %q", in, got, want)
 		}
 	}
 }
@@ -165,6 +187,19 @@ func TestPURLQuery(t *testing.T) {
 		{"pkg:rpm/almalinux/kernel-core@5.14.0?distro=almalinux-9", "", Query{Package: Package{Name: "kernel", Ecosystem: "AlmaLinux:9"}, Version: "5.14.0"}},
 		{"pkg:rpm/redhat/openssl@3.0.7?distro=rhel-9.3", "", Query{Package: Package{PURL: "pkg:rpm/redhat/openssl@3.0.7"}}},
 		{"pkg:deb/debian/openssl@3.0.11?distro=sid", "", Query{Package: Package{PURL: "pkg:deb/debian/openssl@3.0.11"}}},
+		// A version that differs from the purl's overrides it, and the version
+		// of the source package as well.
+		{"pkg:npm/lodash@4.17.15", "4.17.21", Query{Package: Package{PURL: "pkg:npm/lodash"}, Version: "4.17.21"}},
+		{"pkg:npm/@babel/core@7.0.0", "7.1.0", Query{Package: Package{PURL: "pkg:npm/@babel/core"}, Version: "7.1.0"}},
+		{"pkg:npm/@babel/core", "7.1.0", Query{Package: Package{PURL: "pkg:npm/@babel/core"}, Version: "7.1.0"}},
+		{"pkg:deb/debian/openssl@3.0.11-1?distro=debian-12", "3.0.15-1", Query{Package: Package{Name: "openssl", Ecosystem: "Debian:12"}, Version: "3.0.15-1"}},
+		{"pkg:deb/debian/libc6@2.36-9?upstream=glibc%402.36-8&distro=debian-12", "2.36-10", Query{Package: Package{Name: "glibc", Ecosystem: "Debian:12"}, Version: "2.36-10"}},
+		{"pkg:rpm/rocky/openssl@3.0.7-24.el9?epoch=1&distro=rocky-9.3", "1:3.0.7-24.el9", Query{Package: Package{Name: "openssl", Ecosystem: "Rocky Linux:9"}, Version: "1:3.0.7-24.el9"}},
+		// The same version, whichever way it is written, changes nothing: the
+		// source package keeps its own.
+		{"pkg:deb/debian/libc6@2.36-9?upstream=glibc%402.36-8&distro=debian-12", "2.36-9", Query{Package: Package{Name: "glibc", Ecosystem: "Debian:12"}, Version: "2.36-8"}},
+		{"pkg:deb/debian/libssl3@1%3A3.0.11?distro=debian-12", "1:3.0.11", Query{Package: Package{Name: "libssl3", Ecosystem: "Debian:12"}, Version: "1:3.0.11"}},
+		{"pkg:deb/debian/libssl3@1%3A3.0.11?distro=debian-12", "1%3A3.0.11", Query{Package: Package{Name: "libssl3", Ecosystem: "Debian:12"}, Version: "1:3.0.11"}},
 	}
 	for _, c := range cases {
 		if got := PURLQuery(c.purl, c.version); got != c.want {

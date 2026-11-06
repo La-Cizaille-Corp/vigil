@@ -12,6 +12,7 @@ import (
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
 	"github.com/La-Cizaille-Corp/vigil/internal/cti"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
+	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
 
 // postLocation posts a form and returns the status and redirect target.
@@ -63,6 +64,39 @@ func TestAssetAndSyncFlow(t *testing.T) {
 		_, loc := c.postLocation("/sync", url.Values{"csrf": {c.csrf()}, "next": {next}})
 		if !strings.HasPrefix(loc, want) {
 			t.Errorf("sync from %s redirected to %s", next, loc)
+		}
+	}
+}
+
+// The Version field overrides the purl: editing it keeps the purl as written,
+// and editing the purl alone brings the field along.
+func TestAssetUpdateVersionAndPURL(t *testing.T) {
+	st, base := newTestServer(t)
+	ctx := context.Background()
+	hash, _ := auth.HashPassword("a-strong-password")
+	st.CreateUser(ctx, "admin", hash, auth.RoleAdmin)
+	c := loginAs(t, base, "admin", "a-strong-password")
+
+	id, err := st.CreateAsset(ctx, store.Asset{Name: "lodash", Kind: "package", Criticality: "high",
+		Source: "manual", PURL: "pkg:npm/lodash@4.17.15", Version: "4.17.15"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range []struct{ purl, version, want string }{
+		{"pkg:npm/lodash@4.17.15", "4.17.21", "4.17.21"},
+		{"pkg:npm/lodash@4.17.30", "4.17.21", "4.17.30"},
+	} {
+		code, loc := c.postLocation("/assets/"+strconv.FormatInt(id, 10), url.Values{"csrf": {c.csrf()}, "name": {"lodash"},
+			"kind": {"package"}, "criticality": {"high"}, "purl": {step.purl}, "version": {step.version}})
+		if code != http.StatusSeeOther || !strings.Contains(loc, "msg=asset-updated") {
+			t.Fatalf("update: %d %s", code, loc)
+		}
+		a, err := st.Asset(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if a.PURL != step.purl || a.Version != step.want {
+			t.Errorf("after %+v: purl = %q, version = %q", step, a.PURL, a.Version)
 		}
 	}
 }

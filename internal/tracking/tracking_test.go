@@ -139,6 +139,49 @@ func TestSyncLifecycle(t *testing.T) {
 	}
 }
 
+// TestVersionFieldOverridesThePURL updates an asset through its Version field
+// alone, its purl still carrying the former version: the vulnerability of that
+// version must be resolved, and reopened on the way back.
+func TestVersionFieldOverridesThePURL(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	srv := fakeOSV(t)
+	defer srv.Close()
+	client := osv.New("vigil-test")
+	client.BaseURL = srv.URL
+	syncer := &tracking.Syncer{Store: st, OSV: client, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		HTTP: srv.Client(), KEVURL: srv.URL + "/kev", EPSSURL: srv.URL + "/epss"}
+
+	asset := store.Asset{Name: "lodash", Kind: "package", PURL: "pkg:npm/lodash@4.17.15", Version: "4.17.15",
+		Criticality: "high", Source: "manual"}
+	if asset.ID, err = st.CreateAsset(ctx, asset); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := syncer.Run(ctx); err != nil || res.Created != 1 {
+		t.Fatalf("created = %d, err = %v", res.Created, err)
+	}
+
+	asset.Version = "4.17.21"
+	if err := st.UpdateAsset(ctx, asset); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := syncer.Run(ctx); err != nil || res.Resolved != 1 {
+		t.Fatalf("resolved = %d, err = %v", res.Resolved, err)
+	}
+
+	asset.Version = "4.17.15"
+	if err := st.UpdateAsset(ctx, asset); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := syncer.Run(ctx); err != nil || res.Reopened != 1 {
+		t.Fatalf("reopened = %d, err = %v", res.Reopened, err)
+	}
+}
+
 // TestTrackedPeriod checks that an asset only reports vulnerabilities
 // published since the start of its tracked period, or exploited.
 func TestTrackedPeriod(t *testing.T) {

@@ -161,7 +161,9 @@ en cas de téléphone perdu, un administrateur la retire dans Paramètres → Ut
 ### Paquets et produits : purl, CPE ou nom
 
 - Un **purl** (`pkg:npm/lodash@4.17.21`) est interrogé dans OSV : correspondance de version précise.
-  Les SBOM en fournissent un par composant.
+  Les SBOM en fournissent un par composant. Pour mettre à jour un actif, changez le champ **Version** :
+  s'il diffère de la version écrite dans le purl, c'est lui qui est vérifié. Si vous ne changez que la
+  version du purl, le champ Version la reprend.
 - Pour suivre **tous les produits d'un éditeur**, recherchez l'éditeur seul (« fortinet ») puis
   « Suivre tous les produits », ou saisissez `cpe:2.3:*:fortinet:*:*:*:*:*:*:*:*:*`. Pour un grand
   éditeur (Microsoft, Google…), cela représente des milliers de vulnérabilités par an.
