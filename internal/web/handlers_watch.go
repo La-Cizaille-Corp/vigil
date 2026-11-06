@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -118,8 +119,13 @@ func (s *Server) renderSettings(w http.ResponseWriter, r *http.Request, status i
 		s.serverError(w, r, err)
 		return
 	}
+	newsPerDay, err := cti.NewsPerDay(ctx, s.Store)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
 	s.render(w, r, status, "settings", page{Title: "Paramètres", Error: formErr, Data: map[string]any{
-		"Watch": watch, "Feeds": feeds, "Webhooks": hooks,
+		"Watch": watch, "Feeds": feeds, "Webhooks": hooks, "NewsPerDay": newsPerDay, "NewsFrequencies": cti.NewsFrequencies,
 		"Tokens": tokens, "NewToken": s.newToken(r), "BaseURL": s.BaseURL,
 		"SLA": sla, "Mail": s.Notifier != nil && s.Notifier.Mail != nil,
 	}})
@@ -255,6 +261,49 @@ func (s *Server) webhookToggle(w http.ResponseWriter, r *http.Request) {
 	s.byID(w, r, s.audited(r, "webhook_toggle", fmt.Sprintf("enabled=%t", enabled), func(id int64) error {
 		return s.Store.SetWebhookEnabled(r.Context(), id, enabled)
 	}), "/settings", msg)
+}
+
+// newsFrequency chooses how many times a day the feeds are collected.
+func (s *Server) newsFrequency(w http.ResponseWriter, r *http.Request) {
+	n, err := strconv.Atoi(r.PostFormValue("per_day"))
+	if err != nil || !slices.Contains(cti.NewsFrequencies, n) {
+		s.renderSettings(w, r, http.StatusBadRequest, "Fréquence de collecte invalide.")
+		return
+	}
+	if err := s.Store.SetSetting(r.Context(), cti.SettingNewsPerDay, strconv.Itoa(n)); err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	sess, _ := sessionFrom(r.Context())
+	s.audit(r, sess.User.ID, "news_frequency", strconv.Itoa(n))
+	redirect(w, r, "/settings", "news-updated")
+}
+
+// webhookTest sends a short message to a channel, to check its settings without
+// waiting for an alert; the result shows in the state of the channel.
+func (s *Server) webhookTest(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		s.notFound(w)
+		return
+	}
+	hooks, err := s.Store.ListWebhooks(r.Context())
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	i := slices.IndexFunc(hooks, func(h store.Webhook) bool { return h.ID == id })
+	if i < 0 || s.Notifier == nil {
+		s.notFound(w)
+		return
+	}
+	sess, _ := sessionFrom(r.Context())
+	s.audit(r, sess.User.ID, "webhook_test", notify.Target(hooks[i]))
+	msg := "hook-test-sent"
+	if err := s.Notifier.SendTest(r.Context(), hooks[i]); err != nil {
+		msg = "hook-test-failed"
+	}
+	redirect(w, r, "/settings", msg)
 }
 
 // webhookDelivery chooses what a channel receives: digests, alerts or both.

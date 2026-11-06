@@ -185,16 +185,6 @@ func safeRedirect(req *http.Request, via []*http.Request) error {
 	return nil
 }
 
-// refresh runs a vulnerability sync then a CTI collection.
-func (sv services) refresh(ctx context.Context) error {
-	_, syncErr := sv.syncer.Run(ctx)
-	if errors.Is(syncErr, tracking.ErrRunning) {
-		syncErr = nil
-	}
-	_, ctiErr := sv.cti.Run(ctx)
-	return errors.Join(syncErr, ctiErr)
-}
-
 func runServe(ctx context.Context, log *slog.Logger, args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	dbPath := fs.String("db", defaultDB(), "fichier SQLite")
@@ -202,7 +192,7 @@ func runServe(ctx context.Context, log *slog.Logger, args []string) error {
 	certFile := fs.String("tls-cert", "", "certificat TLS (PEM)")
 	keyFile := fs.String("tls-key", "", "clé privée TLS (PEM)")
 	behindProxy := fs.Bool("behind-proxy", false, "TLS terminé par un reverse proxy")
-	syncEvery := fs.Duration("sync-interval", 6*time.Hour, "intervalle de synchronisation vulnérabilités + CTI (0 = désactivé)")
+	syncEvery := fs.Duration("sync-interval", 6*time.Hour, "intervalle de synchronisation des vulnérabilités (0 = désactivé, collecte des flux comprise, dont la fréquence se règle dans Paramètres)")
 	digestEvery := fs.Duration("digest-interval", 0, "intervalle de génération et d'envoi du digest, ex. 24h (0 = désactivé)")
 	baseURL := fs.String("base-url", "", "adresse publique de l'interface, utilisée dans les messages webhook")
 	allowPrivate := fs.Bool("allow-private-urls", false, "autoriser flux et webhooks vers des adresses privées ou locales")
@@ -248,8 +238,13 @@ func runServe(ctx context.Context, log *slog.Logger, args []string) error {
 	go srv.PurgeSessions(ctx)
 	if *syncEvery > 0 {
 		go every(ctx, *syncEvery, true, func() {
-			if err := sv.refresh(ctx); err != nil {
+			if _, err := sv.syncer.Run(ctx); err != nil && !errors.Is(err, tracking.ErrRunning) {
 				log.Error("synchronisation automatique", "err", err)
+			}
+		})
+		go every(ctx, time.Minute, true, func() {
+			if err := sv.cti.RunIfDue(ctx); err != nil {
+				log.Error("collecte automatique des flux", "err", err)
 			}
 		})
 	}

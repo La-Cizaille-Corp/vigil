@@ -102,17 +102,18 @@ func (s *Store) RecordFeedFetch(ctx context.Context, id int64, fetchErr error) e
 	return err
 }
 
-// InsertCTIItem stores an item unless the feed already has it; it reports
-// whether the item is new.
+// InsertCTIItem stores an item unless the feed already has it, or another feed
+// has the same article; it reports whether the item is new.
 func (s *Store) InsertCTIItem(ctx context.Context, feedID int64, it CTIItem) (bool, error) {
 	created := false
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx, `
 			INSERT INTO cti_items (feed_id, guid, title, link, summary, published, countries, sectors, regulations, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+			WHERE ? = '' OR NOT EXISTS (SELECT 1 FROM cti_items WHERE link = ?)
 			ON CONFLICT (feed_id, guid) DO NOTHING`,
 			feedID, it.GUID, it.Title, it.Link, it.Summary, formatTime(it.Published),
-			joinTags(it.Countries), joinTags(it.Sectors), joinTags(it.Regulations), now())
+			joinTags(it.Countries), joinTags(it.Sectors), joinTags(it.Regulations), now(), it.Link, it.Link)
 		if err != nil {
 			return err
 		}
