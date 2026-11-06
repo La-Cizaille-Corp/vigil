@@ -565,33 +565,57 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	return nil
 }
 
+// retryDelays are the waits before asking again after a temporary failure: a
+// network glitch on the batch request would fail the whole synchronisation.
+var retryDelays = []time.Duration{5 * time.Second, 15 * time.Second}
+
 // send makes a request and returns its response when it succeeds.
 func (c *Client) send(ctx context.Context, method, path string, body any) (*http.Response, error) {
+	for attempt := 0; ; attempt++ {
+		resp, temporary, err := c.sendOnce(ctx, method, path, body)
+		if err == nil || !temporary || attempt == len(retryDelays) || ctx.Err() != nil {
+			return resp, err
+		}
+		delay := retryDelays[attempt]
+		if c.BaseURL != DefaultBaseURL {
+			delay = 0 // tests and mirrors
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(delay):
+		}
+	}
+}
+
+// sendOnce makes a request; temporary says whether trying again may succeed.
+func (c *Client) sendOnce(ctx context.Context, method, path string, body any) (resp *http.Response, temporary bool, err error) {
 	var reader io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		reader = bytes.NewReader(b)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, reader)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	req.Header.Set("User-Agent", c.UserAgent)
 	req.Header.Set("Accept", "application/json")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := c.HTTP.Do(req)
+	resp, err = c.HTTP.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("osv %s: %w", path, err)
+		return nil, true, fmt.Errorf("osv %s: %w", path, err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
 		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return nil, fmt.Errorf("osv %s: status %d: %s", path, resp.StatusCode, bytes.TrimSpace(snippet))
+		temporary = resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
+		return nil, temporary, fmt.Errorf("osv %s: status %d: %s", path, resp.StatusCode, bytes.TrimSpace(snippet))
 	}
-	return resp, nil
+	return resp, false, nil
 }

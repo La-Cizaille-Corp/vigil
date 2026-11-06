@@ -271,7 +271,8 @@ journal : la NVD répond souvent 503 un moment, et une seule requête perdue sur
 suffisait. L'état indique désormais le nombre d'actifs vérifiés, ce qui est en cours et une barre
 (`<progress>`, aucun JavaScript) ; le tableau de bord et la page de suivi se rechargent seuls, mais
 pas l'inventaire ni les vulnérabilités, où cela ferait perdre une saisie. La NVD est réinterrogée après
-une panne passagère (10 puis 30 secondes). Les actifs non vérifiés sont comptés dans le résultat,
+une panne passagère (10 puis 30 secondes), OSV aussi (5 puis 15 secondes), où un seul incident réseau
+sur la requête groupée faisait échouer toute la synchronisation. Les actifs non vérifiés sont comptés dans le résultat,
 avec la raison pour qui peut agir, et gardent leurs vulnérabilités. La limite d'une synchronisation
 lancée depuis l'interface passe de 15 minutes à 2 heures : sans clé NVD, une vingtaine d'actifs suivis
 par CPE ou par nom la dépassaient, et tout le résultat était perdu.

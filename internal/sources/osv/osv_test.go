@@ -282,3 +282,30 @@ func TestComparesVersions(t *testing.T) {
 		t.Error("only the Linux ecosystem is compared by Vigil")
 	}
 }
+
+// A temporary failure is tried again, a few times; a definite refusal is not.
+func TestRetries(t *testing.T) {
+	calls, codes := 0, []int{http.StatusBadGateway, http.StatusTooManyRequests}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls <= len(codes) {
+			w.WriteHeader(codes[calls-1])
+			return
+		}
+		w.Write([]byte(`{"results":[{}]}`))
+	}))
+	defer srv.Close()
+	c := New("test")
+	c.BaseURL = srv.URL
+	if _, err := c.QueryBatch(context.Background(), make([]Query, 1)); err != nil || calls != 3 {
+		t.Errorf("temporary failures: %d calls, %v", calls, err)
+	}
+	calls, codes = 0, []int{503, 503, 503, 503}
+	if _, err := c.QueryBatch(context.Background(), make([]Query, 1)); err == nil || calls != 3 {
+		t.Errorf("lasting failure: %d calls, %v", calls, err)
+	}
+	calls, codes = 0, []int{http.StatusBadRequest}
+	if _, err := c.QueryBatch(context.Background(), make([]Query, 1)); err == nil || calls != 1 {
+		t.Errorf("refusal: %d calls, %v", calls, err)
+	}
+}
