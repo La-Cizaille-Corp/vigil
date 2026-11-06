@@ -23,6 +23,19 @@ Les commandes de chaque cas sont plus bas :
 | sur un serveur Windows (tâche planifiée) | [Serveur Windows](#serveur-windows-tâche-planifiée) |
 | sur un serveur avec Docker Compose | [Serveur Docker Compose](#serveur-docker-compose) |
 
+## De la 0.4.0 à la 0.4.1
+
+Version corrective : la procédure est la même et la base est conservée. Son schéma ne change pas
+(14), donc **Vigil n'écrit pas de copie `.bak`** : votre sauvegarde est la seule copie d'avant la mise à
+jour. Pour revenir en arrière, il suffit de remettre le programme de la 0.4.0.
+
+- **Fichiers de déploiement** : rien à reprendre. Sous Docker, l'image `0.4` passe d'elle-même à la
+  0.4.1 : suivez la procédure de votre cas sans changer le tag.
+- **Le champ Version fait foi.** Si le purl d'un actif porte une autre version que ce champ, c'est
+  désormais le champ qui est vérifié. Dès la première synchronisation, ces actifs peuvent changer de
+  résultat : des vulnérabilités passent à « Corrigé », d'autres apparaissent. Un SBOM qui sépare
+  l'époque de la version (Version `1:3.0.7-24.el9`, purl `@3.0.7-24.el9?epoch=1`) est concerné.
+
 ## De la 0.3 à la 0.4
 
 La procédure est la même, et **la base est conservée** : inventaire, triage et historique, comptes,
@@ -65,13 +78,13 @@ Après la mise à jour :
 
 ## 2. Télécharger et vérifier la nouvelle version
 
-Remplacez `0.4.0` par la version à installer. Le programme est extrait dans un dossier à part : il
+Remplacez `0.4.1` par la version à installer. Le programme est extrait dans un dossier à part : il
 ne remplace encore rien.
 
 **Windows** (PowerShell) :
 
 ```powershell
-$v = "0.4.0"; $arch = "amd64"   # arm64 sur processeur ARM
+$v = "0.4.1"; $arch = "amd64"   # arm64 sur processeur ARM
 $zip = "vigil_${v}_windows_$arch.zip"
 $base = "https://github.com/La-Cizaille-Corp/vigil/releases/download/v$v"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -87,7 +100,7 @@ Expand-Archive $zip -DestinationPath ".\vigil-$v" -Force
 **macOS** :
 
 ```bash
-VERSION=0.4.0; ARCH=arm64   # amd64 sur Mac Intel
+VERSION=0.4.1; ARCH=arm64   # amd64 sur Mac Intel
 BASE=https://github.com/La-Cizaille-Corp/vigil/releases/download/v$VERSION
 curl -fsSLO $BASE/vigil_${VERSION}_darwin_$ARCH.tar.gz
 curl -fsSLO $BASE/checksums.txt
@@ -99,7 +112,7 @@ xattr -d com.apple.quarantine vigil-$VERSION/vigil 2>/dev/null || true
 **Linux** :
 
 ```bash
-VERSION=0.4.0; ARCH=amd64   # arm64 sur ARM
+VERSION=0.4.1; ARCH=amd64   # arm64 sur ARM
 BASE=https://github.com/La-Cizaille-Corp/vigil/releases/download/v$VERSION
 curl -fsSLO $BASE/vigil_${VERSION}_linux_$ARCH.tar.gz
 curl -fsSLO $BASE/checksums.txt
@@ -140,21 +153,26 @@ Avec Docker, rien à télécharger : l'image est récupérée à l'étape de rem
 1. **Arrêter** :
    - lancé dans un terminal : `Ctrl+C` ;
    - lancé au démarrage de la session (LaunchAgent) : `launchctl bootout gui/$(id -u)/org.lacizaille.vigil`
-     (un simple arrêt ne suffit pas : launchd le relancerait).
+     (un simple arrêt ne suffit pas : launchd le relancerait). `Boot-out failed: 3: No such process`
+     signifie qu'aucun LaunchAgent n'est chargé : rien à arrêter de ce côté.
 
    `pgrep -lx vigil` ne doit plus rien afficher ; sinon `pkill -x vigil` l'arrête proprement.
 
-2. **Sauvegarder** :
+2. **Sauvegarder**, dans le dossier du téléchargement. La nouvelle version copie la base telle quelle,
+   sans la mettre à jour, et fonctionne où que soit installée l'ancienne :
 
    ```bash
-   vigil backup -o ~/vigil-avant-maj-$(date +%Y%m%d-%H%M).db
+   vigil-$VERSION/vigil backup -o ~/vigil-avant-maj-$(date +%Y%m%d-%H%M).db
    ```
 
 3. **Remplacer** :
 
    ```bash
+   sudo mkdir -p /usr/local/bin
    sudo install -m 0755 vigil-$VERSION/vigil /usr/local/bin/vigil
    ```
+
+   Si vous lanciez Vigil depuis un autre dossier, l'ancien programme ne sert plus : lancez celui-ci.
 
 4. **Relancer** : `vigil serve` dans un terminal, ou pour le LaunchAgent :
    `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/org.lacizaille.vigil.plist`.

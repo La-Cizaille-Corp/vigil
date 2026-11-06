@@ -35,7 +35,7 @@ commande l'emporte.
 ### Télécharger et vérifier
 
 ```powershell
-$v = "0.4.0"; $arch = "amd64"   # arm64 sur processeur ARM
+$v = "0.4.1"; $arch = "amd64"   # arm64 sur processeur ARM
 $base = "https://github.com/La-Cizaille-Corp/vigil/releases/download/v$v"
 $zip = "vigil_${v}_windows_$arch.zip"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -135,7 +135,7 @@ New-NetFirewallRule -DisplayName "Vigil (HTTPS)" -Direction Inbound -Protocol TC
 ## 3. macOS (Intel et Apple Silicon)
 
 ```bash
-VERSION=0.4.0; ARCH=arm64   # amd64 sur Mac Intel
+VERSION=0.4.1; ARCH=arm64   # amd64 sur Mac Intel
 BASE=https://github.com/La-Cizaille-Corp/vigil/releases/download/v$VERSION
 curl -fsSLO $BASE/vigil_${VERSION}_darwin_$ARCH.tar.gz
 curl -fsSLO $BASE/checksums.txt
@@ -177,7 +177,7 @@ sudo /usr/libexec/ApplicationFirewall/socketfilterfw --unblockapp /usr/local/bin
 ## 4. Linux
 
 ```bash
-VERSION=0.4.0; ARCH=amd64   # arm64 sur ARM
+VERSION=0.4.1; ARCH=amd64   # arm64 sur ARM
 BASE=https://github.com/La-Cizaille-Corp/vigil/releases/download/v$VERSION
 curl -fsSLO $BASE/vigil_${VERSION}_linux_$ARCH.tar.gz
 curl -fsSLO $BASE/checksums.txt
@@ -238,7 +238,7 @@ Binaire statique sans bibliothèque externe : aucune règle SELinux ou AppArmor 
 
 Image distroless (sans shell), utilisateur non privilégié, données dans le volume `/data`.
 Fonctionne de la même façon sous Docker Desktop (Windows, macOS). Les tags suivent les versions
-(`0.4.0`, `0.4`) : fixez-en toujours un.
+(`0.4.1`, `0.4`) : fixez-en toujours un.
 
 **Poste local** :
 
@@ -255,7 +255,7 @@ ce volume nommé, Docker en crée un anonyme, et le conteneur suivant repartirai
 
 ```bash
 mkdir vigil && cd vigil
-RAW=https://raw.githubusercontent.com/La-Cizaille-Corp/vigil/v0.4.0/deploy
+RAW=https://raw.githubusercontent.com/La-Cizaille-Corp/vigil/v0.4.1/deploy
 curl -fsSLO $RAW/docker-compose.yml
 curl -fsSLO $RAW/Caddyfile
 curl -fsSL -o .env $RAW/.env.example   # renseignez VIGIL_DOMAIN ; vérifiez le tag d'image du compose
