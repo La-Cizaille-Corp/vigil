@@ -11,9 +11,10 @@ Outil open source de **veille de sécurité** léger : un seul binaire, aucune i
   version **`latest`** pour un actif toujours à jour (seules les failles sans correctif sont
   signalées). Elles sont enrichies par
   [CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) (exploitation avérée) et
-  [FIRST EPSS](https://www.first.org/epss/) (probabilité d'exploitation), puis priorisées :
-  KEV > EPSS élevé > sévérité.
+  [FIRST EPSS](https://www.first.org/epss/) (probabilité d'exploitation), puis classées en quatre
+  niveaux : Urgentes, À planifier, À surveiller, Écartées. Les tableaux se trient par colonne.
 - **Suivi** du traitement avec les statuts CycloneDX / VEX et un historique, triage par lot ;
+  **règles pour écarter** ce qui ne concerne pas un actif (`wifi:` sur un serveur sans Wi-Fi) ;
   **délais de traitement** par sévérité avec indicateur « hors délai » ; résolution et réouverture
   automatiques quand une version change ; **version corrigée** indiquée sur chaque vulnérabilité ;
   **export et import VEX** CycloneDX, export CSV. Un composant absent d'un nouveau SBOM est retiré
@@ -61,9 +62,11 @@ go build -o vigil ./cmd/vigil
 **Docker** (image distroless, utilisateur non privilégié, données dans `/data`) :
 
 ```bash
-docker run -d --name vigil -p 127.0.0.1:8080:8080 -v vigil-data:/data ghcr.io/la-cizaille-corp/vigil:0.3
+docker run -d --name vigil -p 127.0.0.1:8080:8080 -v vigil-data:/data ghcr.io/la-cizaille-corp/vigil:0.4
 docker exec -it vigil vigil user add -username admin -role admin
 ```
+
+Gardez `-v vigil-data:/data` : c'est ce volume nommé qui conserve la base d'une version à l'autre.
 
 Dans un conteneur, et plus généralement derrière un reverse proxy (`-behind-proxy`), la page de
 configuration est désactivée : le premier administrateur se crée en ligne de commande
@@ -77,8 +80,9 @@ configuration est désactivée : le premier administrateur se crée en ligne de 
 ```
 
 Ouvrez <http://127.0.0.1:8080> : au premier lancement, la page de configuration crée le compte
-administrateur (uniquement depuis la machine locale). La synchronisation (vulnérabilités + CTI)
-tourne au démarrage puis toutes les 6 heures.
+administrateur (uniquement depuis la machine locale). La synchronisation des vulnérabilités tourne
+au démarrage puis toutes les 6 heures ; les flux de veille sont collectés au démarrage puis 4 fois par
+jour, fréquence réglable dans **Paramètres → Flux de veille**.
 
 | Commande | Rôle |
 |---|---|
@@ -99,7 +103,7 @@ binaire ou changer le tag de l'image les conserve. Au premier démarrage d'une n
 Vigil écrit une copie de la base (`vigil.db.schema-N.<date>.bak`) avant de faire évoluer son schéma,
 et refuse d'ouvrir une base créée par une version plus récente. Chaque version est testée sur de
 vraies bases produites par les versions précédentes. Procédure pas à pas, poste local et
-serveur : [docs/MISE_A_JOUR.md](docs/MISE_A_JOUR.md).
+serveur, et ce qui change de la 0.3 à la 0.4 : [docs/MISE_A_JOUR.md](docs/MISE_A_JOUR.md).
 
 ### Notifications
 
@@ -107,6 +111,12 @@ Dans **Paramètres → Canaux de notification**, chaque canal (webhook ou e-mail
 les alertes immédiates, ou les deux. L'e-mail demande un serveur SMTP :
 `vigil serve -smtp-addr smtp.example.org:587 -smtp-from vigil@example.org -smtp-username …`, mot de
 passe dans `VIGIL_SMTP_PASSWORD`. Les délais de traitement se règlent dans la même page.
+« Envoyer un test » vérifie un canal sans attendre une alerte, et son état indique la raison d'un refus.
+
+Teams : créez un workflow « Publier dans un canal lors de la réception d'une requête webhook » dont
+le déclencheur accepte **« Tout le monde »**. Un workflow réservé aux utilisateurs du tenant répond 401,
+car un webhook n'a pas de jeton Microsoft. Si votre organisation l'impose, le canal e-mail peut viser
+l'adresse e-mail du canal Teams.
 
 ### Intégration continue
 

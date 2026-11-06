@@ -23,25 +23,55 @@ Les commandes de chaque cas sont plus bas :
 | sur un serveur Windows (tâche planifiée) | [Serveur Windows](#serveur-windows-tâche-planifiée) |
 | sur un serveur avec Docker Compose | [Serveur Docker Compose](#serveur-docker-compose) |
 
+## De la 0.3 à la 0.4
+
+La procédure est la même, et **la base est conservée** : inventaire, triage et historique, comptes,
+canaux, jetons et réglages. Au premier démarrage, elle passe du schéma 12 au schéma 14 : une table et
+une colonne pour les règles d'écart, un index et un flux de veille. Rien n'est supprimé.
+
+- **Fichiers de déploiement** : rien à reprendre. L'unité systemd, le `Caddyfile`, le
+  `docker-compose.yml` et votre `.env` restent valables. Sous Compose, changez seulement le tag de
+  l'image (`0.3` → `0.4`).
+- **Proxy d'entreprise** : autorisez `thehackernews.com`, nouveau flux par défaut.
+- **Place** : gardez libre au moins deux fois la taille de la base ([détail](OPERATIONS.md#place-à-prévoir)).
+
+Après la mise à jour :
+
+1. **Précisez la version de vos distributions.** Passez vos actifs de `Debian` à `Debian:12`, de
+   `Ubuntu` à `Ubuntu:22.04:LTS`, d'`Alpine` à `Alpine:v3.20`… Sans cela, la version est comparée aux
+   avis de toutes les versions de la distribution : beaucoup de faux positifs, et rien pour Alpine.
+   La page de l'actif le signale. Le triage déjà fait sur ces actifs est conservé.
+2. **Attendez-vous à du volume.** Un noyau n'était pas détecté correctement en 0.3 : il peut remonter
+   des milliers de vulnérabilités à la première synchronisation, qui peut prendre une vingtaine de
+   minutes avec un noyau Ubuntu. Commencez par le niveau « Urgentes », et écartez ce que vous n'utilisez pas
+   (page de l'actif). Les alertes restent groupées : un message par canal et par niveau.
+3. **Actifs sans identifiant** : un actif sans purl, sans CPE ni écosystème est désormais cherché par
+   son nom dans la NVD. Ce nom sort donc de chez vous : retirez-en toute information interne avant de
+   mettre à jour.
+4. **Fréquence des actualités** : elle se règle désormais dans Paramètres (4 fois par jour par défaut).
+   `-sync-interval` ne concerne plus que les vulnérabilités, mais `0` coupe toujours les deux.
+
 ## 1. Avant de commencer
 
 - Lisez les [notes de version](https://github.com/La-Cizaille-Corp/vigil/releases) : elles
   signalent ce qui change pour vous (par exemple : se reconnecter, fichier de déploiement à
   reprendre).
 - En mode serveur, prévenez les utilisateurs : l'interface est indisponible une ou deux minutes.
+- Gardez libre au moins deux fois la taille de la base : sauvegarde, puis copie automatique. Si la
+  place manque, Vigil s'arrête sans rien modifier.
 - Mettez en pause ce qui lance `vigil` de lui-même en dehors du service : tâche cron ou planifiée
   (`vigil sync`, `vigil digest`), pipeline qui envoie des SBOM. Pendant la mise à jour, aucun autre
   processus `vigil` ne doit utiliser la base.
 
 ## 2. Télécharger et vérifier la nouvelle version
 
-Remplacez `0.3.0` par la version à installer. Le programme est extrait dans un dossier à part : il
+Remplacez `0.4.0` par la version à installer. Le programme est extrait dans un dossier à part : il
 ne remplace encore rien.
 
 **Windows** (PowerShell) :
 
 ```powershell
-$v = "0.3.0"; $arch = "amd64"   # arm64 sur processeur ARM
+$v = "0.4.0"; $arch = "amd64"   # arm64 sur processeur ARM
 $zip = "vigil_${v}_windows_$arch.zip"
 $base = "https://github.com/La-Cizaille-Corp/vigil/releases/download/v$v"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -57,7 +87,7 @@ Expand-Archive $zip -DestinationPath ".\vigil-$v" -Force
 **macOS** :
 
 ```bash
-VERSION=0.3.0; ARCH=arm64   # amd64 sur Mac Intel
+VERSION=0.4.0; ARCH=arm64   # amd64 sur Mac Intel
 BASE=https://github.com/La-Cizaille-Corp/vigil/releases/download/v$VERSION
 curl -fsSLO $BASE/vigil_${VERSION}_darwin_$ARCH.tar.gz
 curl -fsSLO $BASE/checksums.txt
@@ -69,7 +99,7 @@ xattr -d com.apple.quarantine vigil-$VERSION/vigil 2>/dev/null || true
 **Linux** :
 
 ```bash
-VERSION=0.3.0; ARCH=amd64   # arm64 sur ARM
+VERSION=0.4.0; ARCH=amd64   # arm64 sur ARM
 BASE=https://github.com/La-Cizaille-Corp/vigil/releases/download/v$VERSION
 curl -fsSLO $BASE/vigil_${VERSION}_linux_$ARCH.tar.gz
 curl -fsSLO $BASE/checksums.txt
@@ -150,11 +180,21 @@ Avec Docker, rien à télécharger : l'image est récupérée à l'étape de rem
 
 ### Docker (`docker run`)
 
+Vérifiez d'abord que la base est dans un volume nommé. Cette commande doit afficher `vigil-data` :
+
+```bash
+docker inspect vigil --format '{{range .Mounts}}{{.Name}} -> {{.Destination}}{{end}}'
+```
+
+Si elle affiche une longue suite de chiffres et de lettres, le conteneur a été créé sans `-v` :
+remplacez `vigil-data` par ce nom dans la commande `docker run` ci-dessous, sinon le nouveau conteneur
+repartirait d'une base vide.
+
 ```bash
 docker exec vigil vigil backup -o /data/backups/avant-maj-$(date +%Y%m%d-%H%M).db   # sauvegarder (Vigil tourne encore)
 docker stop vigil && docker rm vigil       # arrêter ; le volume vigil-data, qui contient la base, reste
-docker pull ghcr.io/la-cizaille-corp/vigil:0.3   # changez 0.3 pour passer à une nouvelle version mineure
-docker run -d --name vigil --restart unless-stopped -p 127.0.0.1:8080:8080 -v vigil-data:/data ghcr.io/la-cizaille-corp/vigil:0.3
+docker pull ghcr.io/la-cizaille-corp/vigil:0.4   # changez 0.4 pour passer à une nouvelle version mineure
+docker run -d --name vigil --restart unless-stopped -p 127.0.0.1:8080:8080 -v vigil-data:/data ghcr.io/la-cizaille-corp/vigil:0.4
 docker logs --tail 20 vigil
 ```
 
@@ -209,7 +249,7 @@ Dans le dossier du `docker-compose.yml` :
 
 ```bash
 docker compose exec vigil vigil backup -o /data/backups/avant-maj-$(date +%Y%m%d-%H%M).db   # sauvegarder (Vigil tourne encore)
-# Nouvelle version mineure (0.3 → 0.4) : changez le tag de l'image dans docker-compose.yml.
+# Nouvelle version mineure (0.4 → 0.5) : changez le tag de l'image dans docker-compose.yml.
 docker compose pull
 docker compose up -d             # arrête proprement l'ancien conteneur et démarre le nouveau
 docker compose logs --tail 20 vigil
@@ -217,7 +257,8 @@ docker compose logs --tail 20 vigil
 
 N'utilisez jamais `docker compose down -v` : `-v` supprime le volume, donc la base. Si les notes de
 version signalent un changement de `docker-compose.yml` ou du `Caddyfile`, reprenez-les au tag de
-la nouvelle version (vos réglages restent dans `.env`).
+la nouvelle version (vos réglages restent dans `.env`). Gardez la ligne `name: vigil` du fichier : elle
+fixe le nom du volume (`vigil_vigil-data`), et le conteneur repartirait sinon d'un volume vide.
 
 Puis [vérifier](#vérifier).
 
@@ -233,9 +274,13 @@ Puis [vérifier](#vérifier).
    - serveur Linux : `sudo -u vigil VIGIL_DB=/var/lib/vigil/vigil.db vigil check` ;
    - serveur Windows : `& "C:\Program Files\Vigil\vigil.exe" check -db C:\ProgramData\Vigil\vigil.db` ;
    - Docker : `docker compose exec vigil vigil check` (ou `docker exec vigil vigil check`).
-4. **Interface** : connectez-vous, ouvrez l'inventaire, lancez « Synchroniser l'inventaire » et
-   suivez-la jusqu'au bout.
+4. **Interface** : connectez-vous avec votre compte habituel, et vérifiez que l'inventaire et le
+   triage sont là. Lancez « Synchroniser l'inventaire » et suivez-la jusqu'au bout.
 5. **Remettez en route** ce que vous aviez mis en pause (tâches, pipelines).
+
+Page de première configuration ou inventaire vide : **rien n'est perdu**, Vigil a ouvert une autre
+base. Arrêtez-le sans rien saisir. Le journal de démarrage indique le fichier ouvert (`db=…`) : relancez
+avec le bon compte, le bon `-db` ou `VIGIL_DB`, ou le bon volume Docker.
 
 Gardez la sauvegarde `avant-maj` quelques jours, puis supprimez-la : elle contient les mêmes secrets
 que la base. Vigil ne garde de lui-même que les trois dernières copies `.bak`.
@@ -254,8 +299,8 @@ Si la nouvelle version ne démarre pas ou se comporte mal :
    sous Docker, remettez l'ancien tag d'image.
 4. **Relancez**.
 
-Sous Docker, la base est dans le volume ; un conteneur auxiliaire la restaure (le volume s'appelle
-`vigil_vigil-data` si le dossier du Compose s'appelle `vigil` : `docker volume ls` le confirme) :
+Sous Docker, la base est dans le volume ; un conteneur auxiliaire la restaure (sous Compose, le
+volume s'appelle `vigil_vigil-data` : `docker volume ls` le confirme ; avec `docker run`, `vigil-data`) :
 
 ```bash
 docker compose stop vigil

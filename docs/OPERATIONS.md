@@ -15,6 +15,25 @@ Toutes les options de `vigil serve` se règlent aussi par variables d'environnem
 la page de configuration web est désactivée : le premier administrateur se crée avec
 `vigil user add -username admin -role admin`.
 
+## Place à prévoir
+
+La base grossit avec le nombre de vulnérabilités suivies, surtout celles du noyau Linux. Mesures sur
+120 jours de suivi :
+
+| Inventaire | Base | Durée d'une synchronisation |
+|---|---|---|
+| Quelques paquets et produits | quelques Mo | quelques secondes |
+| Noyau Debian 13 (4 467 vulnérabilités) | 16 Mo | moins d'une minute |
+| Noyaux Debian 13 et Ubuntu 22.04 (7 629 vulnérabilités) | 180 Mo | environ 17 minutes |
+
+Le noyau Ubuntu est le plus lourd : ses avis listent des centaines de paquets. Chaque synchronisation
+les relit, soit plusieurs Go téléchargés : allongez `-sync-interval` si votre bande passante est comptée.
+
+Comptez ensuite une copie par sauvegarde gardée (`-backup-keep`, 14 par défaut), plus trois copies
+`.bak` au plus lors des évolutions de schéma. **Avant une mise à jour, gardez libre au moins deux fois
+la taille de la base** : si la copie automatique échoue, faute de place, Vigil s'arrête sans rien
+modifier. Réduisez `-backup-keep` si le disque est petit, et exportez les sauvegardes ailleurs.
+
 ## Sauvegarder
 
 La base SQLite est en mode WAL : les dernières transactions vivent dans `vigil.db-wal`.
@@ -91,6 +110,13 @@ de la base) ; effacez-les une fois la nouvelle version validée.
 ## Surveiller
 
 - Le journal (stderr, ou `journalctl -u vigil`) trace synchronisations, sauvegardes, webhooks en échec.
+- L'état de la dernière synchronisation (tableau de bord, inventaire, vulnérabilités) indique les
+  actifs non vérifiés : une source n'a pas répondu, même après plusieurs essais. Ils gardent leurs
+  vulnérabilités, et la prochaine synchronisation les reprend.
+- `-sync-interval` règle les vulnérabilités (6 h par défaut, `0` coupe aussi la collecte des flux) ;
+  **Paramètres → Flux de veille** règle les actualités (4 fois par jour par défaut). Sans clé NVD, un
+  actif suivi par CPE ou par nom demande environ une minute, et un noyau plusieurs minutes : gardez
+  un intervalle plus long que la synchronisation.
 - `vigil check` vérifie l'intégrité de la base (utilisé comme healthcheck Docker).
 - La page Paramètres affiche la dernière erreur de chaque flux CTI et de chaque canal de
   notification (webhook ou e-mail) ; le journal trace aussi les alertes en échec.
@@ -140,7 +166,8 @@ les jetons d'API (empreintes SHA-256) ne se retrouvent pas à partir de la base.
 2. **Canaux de notification** : chez le fournisseur, supprimez chaque webhook et créez-en un
    nouveau (Slack : application → *Incoming Webhooks* ; Mattermost : Intégrations → Webhooks
    entrants ; Teams : workflow du canal, avec « Qui peut déclencher le flux » sur « Tout le monde »),
-   puis dans Paramètres supprimez le canal et recréez-le avec la nouvelle URL. L'ancienne URL ne permet plus d'écrire dans le canal.
+   puis dans Paramètres supprimez le canal et recréez-le avec la nouvelle URL. L'ancienne URL ne
+   permet plus d'écrire dans le canal.
 3. **Flux à clé** : faites changer la clé chez le fournisseur, puis supprimez et ajoutez à nouveau
    le flux.
 4. **Mots de passe** : ils résistent, mais un mot de passe faible finit par céder à une attaque
