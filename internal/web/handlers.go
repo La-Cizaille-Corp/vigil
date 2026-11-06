@@ -444,6 +444,7 @@ func (s *Server) assetUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	a := assetFromForm(r)
 	a.ID = old.ID
+	inventory.FollowPURL(&a, old)
 	if err := inventory.Validate(a); err != nil {
 		s.renderAsset(w, r, http.StatusBadRequest, old, a, err.Error())
 		return

@@ -29,7 +29,7 @@ func fixLines(raw string, a store.Asset) []fixLine {
 	var lines []fixLine
 	version := a.Version
 	if version == "" {
-		version = purlVersion(a.PURL)
+		version = osv.PURLVersion(a.PURL)
 	}
 	switch {
 	case a.PURL != "" || inventory.Queryable(a):
@@ -61,17 +61,6 @@ func fixLines(raw string, a store.Asset) []fixLine {
 	}
 	out = append(out, others...)
 	return out[:min(len(out), maxFixLines)]
-}
-
-// purlVersion is the version of a purl: pkg:npm/lodash@4.17.15 → 4.17.15.
-func purlVersion(purl string) string {
-	_, v, ok := strings.Cut(purl, "@")
-	if !ok {
-		return ""
-	}
-	v, _, _ = strings.Cut(v, "?")
-	v, _, _ = strings.Cut(v, "#")
-	return v
 }
 
 // rangeText describes how a range ends.

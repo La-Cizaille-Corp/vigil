@@ -16,6 +16,52 @@ func TestNormalizeTakesVersionFromPURL(t *testing.T) {
 	}
 }
 
+func TestNormalizeReadsThePURLVersion(t *testing.T) {
+	for purl, want := range map[string]string{
+		"pkg:deb/debian/libssl3@1%3A3.0.11-1%7Edeb12u2?distro=debian-12": "1:3.0.11-1~deb12u2",
+		"pkg:npm/@babel/core@7.0.0":                                      "7.0.0",
+		"pkg:npm/@babel/core":                                            "",
+		"pkg:npm/lodash@LATEST":                                          Latest,
+	} {
+		a := store.Asset{PURL: purl}
+		Normalize(&a)
+		if a.Version != want {
+			t.Errorf("version of %s = %q, want %q", purl, a.Version, want)
+		}
+	}
+}
+
+// The Version field overrides the purl: an edit of the purl alone must bring
+// it along, or that edit would have no effect.
+func TestFollowPURL(t *testing.T) {
+	old := store.Asset{PURL: "pkg:npm/lodash@4.17.15", Version: "4.17.15"}
+	cases := []struct {
+		name, purl, version, want string
+	}{
+		{"purl seul", "pkg:npm/lodash@4.17.21", "4.17.15", "4.17.21"},
+		{"version seule", "pkg:npm/lodash@4.17.15", "4.17.21", "4.17.21"},
+		{"les deux, différents", "pkg:npm/lodash@4.17.20", "4.17.21", "4.17.21"},
+		{"les deux, identiques", "pkg:npm/lodash@4.17.21", "4.17.21", "4.17.21"},
+		{"rien", "pkg:npm/lodash@4.17.15", "4.17.15", "4.17.15"},
+		{"version retirée du purl", "pkg:npm/lodash", "4.17.15", "4.17.15"},
+		{"latest dans le purl", "pkg:npm/lodash@LATEST", "4.17.15", Latest},
+	}
+	for _, c := range cases {
+		a := store.Asset{PURL: c.purl, Version: c.version}
+		FollowPURL(&a, old)
+		if a.Version != c.want {
+			t.Errorf("%s: version = %q, want %q", c.name, a.Version, c.want)
+		}
+	}
+
+	// A version already overridden by an earlier edit: the purl can still move it.
+	a := store.Asset{PURL: "pkg:npm/lodash@4.17.30", Version: "4.17.21"}
+	FollowPURL(&a, store.Asset{PURL: "pkg:npm/lodash@4.17.15", Version: "4.17.21"})
+	if a.Version != "4.17.30" {
+		t.Errorf("version = %q, want 4.17.30", a.Version)
+	}
+}
+
 func TestQueryable(t *testing.T) {
 	cases := []struct {
 		a    store.Asset
@@ -23,6 +69,9 @@ func TestQueryable(t *testing.T) {
 	}{
 		{store.Asset{PURL: "pkg:npm/lodash@4.17.15"}, true},
 		{store.Asset{PURL: "pkg:npm/lodash"}, false}, // no version: would match every advisory
+		{store.Asset{PURL: "pkg:npm/@babel/core"}, false},
+		{store.Asset{PURL: "pkg:npm/@babel/core@7.0.0"}, true},
+		{store.Asset{PURL: "pkg:npm/@babel/core", Version: "7.0.0"}, true},
 		{store.Asset{Ecosystem: "npm", Name: "lodash", Version: "1.0.0"}, true},
 		{store.Asset{Name: "nginx", Version: "1.24"}, false},
 	}

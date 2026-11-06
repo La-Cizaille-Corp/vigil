@@ -260,27 +260,55 @@ func purlBase(purl string) string {
 	return strings.ToLower(base)
 }
 
+// versionSpan locates the version of a purl: from its @ at the end of the path,
+// up to the qualifiers. at is -1 without version: an @ further on is in a
+// qualifier (upstream=glibc@2.36), one that starts a segment is a scope
+// (pkg:npm/@babel/core).
+func versionSpan(purl string) (at, end int) {
+	end = len(purl)
+	if i := strings.IndexAny(purl, "?#"); i >= 0 {
+		end = i
+	}
+	at = strings.LastIndex(purl[:end], "@")
+	if at > 0 && purl[at-1] == '/' {
+		at = -1
+	}
+	return at, end
+}
+
 // WithoutVersion drops the version of a purl, keeping its qualifiers:
 // pkg:npm/lodash@4.17.15 → pkg:npm/lodash.
 func WithoutVersion(purl string) string {
-	at := strings.LastIndex(purl, "@")
+	at, end := versionSpan(purl)
 	if at < 0 {
 		return purl
 	}
-	end := strings.IndexAny(purl[at:], "?#")
-	if end < 0 {
-		return purl[:at]
-	}
-	return purl[:at] + purl[at+end:]
+	return purl[:at] + purl[end:]
 }
 
-// PURLQuery returns what to ask OSV for a purl; version is the one to use if
-// the purl has none. A release named by the distro qualifier becomes an
+// PURLVersion returns the version written in a purl, decoded:
+// pkg:deb/debian/libssl3@1%3A3.0.11?distro=debian-12 → 1:3.0.11.
+func PURLVersion(purl string) string {
+	at, end := versionSpan(purl)
+	if at < 0 {
+		return ""
+	}
+	return purlDecode(purl[at+1 : end])
+}
+
+// PURLQuery returns what to ask OSV for a purl at a version. A version that
+// differs from the one written in the purl overrides it: it is the Version
+// field of an asset, which people update and which the pages show. Without one,
+// or with the same one, the purl decides, and the source package it names keeps
+// its own version. A release named by the distro qualifier becomes an
 // ecosystem: OSV finds nothing for pkg:deb/debian/x?distro=debian-12, and
 // without the release it compares the version with the advisories of all of
 // them, where any version of Debian 12 is below the fix of Debian 14.
 func PURLQuery(purl, version string) Query {
 	source := SourcePURL(purl)
+	if version != "" && purlDecode(version) != PURLVersion(purl) {
+		source = WithoutVersion(source)
+	}
 	withoutSubpath, _, _ := strings.Cut(purl, "#")
 	_, rawQualifiers, _ := strings.Cut(withoutSubpath, "?")
 	qualifiers, _ := url.ParseQuery(rawQualifiers) // on error, what could be read
@@ -293,7 +321,7 @@ func PURLQuery(purl, version string) Query {
 			return Query{Package: Package{Name: purlDecode(name), Ecosystem: ecosystem}, Version: version}
 		}
 	}
-	if strings.Contains(source, "@") {
+	if PURLVersion(source) != "" {
 		version = "" // a purl that carries a version must not be sent with one
 	}
 	return Query{Package: Package{PURL: source}, Version: version}

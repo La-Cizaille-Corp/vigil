@@ -306,6 +306,17 @@ chez OSV. Autre effet du volume : les tris et les sauvegardes peuvent écrire de
 conteneur a un système de fichiers en lecture seule. Les données temporaires restent donc en mémoire
 (`temp_store`).
 
+**A63. Une seule version fait foi : le champ Version.** Un actif peut porter sa version à deux endroits : le
+champ Version et le purl. Le purl l'emportait : changer le champ Version laissait OSV interrogé sur l'ancienne
+version, et la vulnérabilité restait ouverte alors que la page affichait la nouvelle. Le champ Version, celui que
+l'on met à jour et que les pages affichent, l'emporte désormais dès qu'il diffère du purl (`osv.PURLQuery`), y
+compris sur la version du paquet source (`upstream=glibc@2.36`). Le purl n'est pas réécrit : il reste la clé
+d'un composant de SBOM. La règle s'appliquant à la requête, elle vaut aussi pour les actifs déjà en base. Pour
+qu'une modification du seul purl garde son effet, le champ la reprend à l'enregistrement
+(`inventory.FollowPURL`). *Conséquence* : une page peut montrer un purl et une version différents ; c'est la
+version qui est vérifiée. Un SBOM qui sépare l'époque de la version (`1:3.0.7`, purl `@3.0.7?epoch=1`) est
+désormais vérifié avec son époque.
+
 **A13. Statuts CycloneDX / VEX.** Des statuts maison auraient été plus « parlants » mais non
 interopérables. Les états VEX (`in_triage`, `exploitable`, `resolved`, `not_affected` +
 justification, `false_positive`) sont libellés en français dans l'interface, et l'export /

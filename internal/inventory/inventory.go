@@ -83,7 +83,7 @@ func Normalize(a *store.Asset) {
 		*f = strings.TrimSpace(*f)
 	}
 	if a.Version == "" {
-		a.Version = purlVersion(a.PURL)
+		a.Version = osv.PURLVersion(a.PURL)
 	}
 	if strings.EqualFold(a.Version, Latest) {
 		a.Version = Latest
@@ -95,6 +95,17 @@ func Normalize(a *store.Asset) {
 		a.Source = "manual"
 	}
 	a.Tags = NormalizeTags(a.Tags)
+}
+
+// FollowPURL brings the Version field along when an edit of an asset changes
+// the version written in its purl and leaves the field as it was: the field
+// overrides the purl (see osv.PURLQuery), so that edit would have no effect.
+func FollowPURL(a *store.Asset, old store.Asset) {
+	version := osv.PURLVersion(a.PURL)
+	if version != "" && version != osv.PURLVersion(old.PURL) && a.Version == old.Version {
+		a.Version = ""
+		Normalize(a)
+	}
 }
 
 // Tag limits: enough for team, environment, site, application...
@@ -155,7 +166,7 @@ func Validate(a store.Asset) error {
 // Without a version OSV would return every advisory ever published.
 func Queryable(a store.Asset) bool {
 	if a.PURL != "" {
-		return a.Version != "" || strings.Contains(a.PURL, "@")
+		return a.Version != "" || osv.PURLVersion(a.PURL) != ""
 	}
 	return a.Ecosystem != "" && a.Version != ""
 }
@@ -202,19 +213,6 @@ func Label(opts []Option, value string) string {
 		}
 	}
 	return value
-}
-
-// purlVersion extracts the version of a purl ("pkg:npm/lodash@4.17.15?x=y" → "4.17.15").
-func purlVersion(purl string) string {
-	i := strings.LastIndex(purl, "@")
-	if i < 0 {
-		return ""
-	}
-	v := purl[i+1:]
-	if j := strings.IndexAny(v, "?#"); j >= 0 {
-		v = v[:j]
-	}
-	return v
 }
 
 func maxLen(s string, n int) bool { return utf8.RuneCountInString(s) <= n }
