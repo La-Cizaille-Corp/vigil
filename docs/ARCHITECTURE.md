@@ -296,6 +296,16 @@ VEX ; la règle s'applique aux suivantes, avant les alertes. Trois garde-fous : 
 probable reste visible et revient si elle le devient, une décision prise par quelqu'un n'est jamais changée, et
 supprimer la règle défait ce qu'elle a fait.
 
+**A62. Une base qui reste légère : ne garder d'un avis que ce qui est relu.** Lors de l'essai réel de
+la 0.4, la base pesait 1,9 Go pour 8 actifs : 3 146 avis Ubuntu de 600 Ko chacun, listant 257 paquets avec
+leurs binaires et leurs versions. Chaque sauvegarde et chaque copie de mise à jour héritait de ce poids.
+Vigil ne relit de ces avis que les plages de versions, pour indiquer le correctif : le reste figure déjà dans
+ses colonnes, ou n'est jamais lu. Seuls l'identifiant, les paquets et leurs plages sont donc stockés
+(`osv.Vuln.Compact`). Une fiche déjà en base garde son ancienne forme jusqu'à sa prochaine modification
+chez OSV. Autre effet du volume : les tris et les sauvegardes peuvent écrire des fichiers temporaires, or le
+conteneur a un système de fichiers en lecture seule. Les données temporaires restent donc en mémoire
+(`temp_store`).
+
 **A13. Statuts CycloneDX / VEX.** Des statuts maison auraient été plus « parlants » mais non
 interopérables. Les états VEX (`in_triage`, `exploitable`, `resolved`, `not_affected` +
 justification, `false_positive`) sont libellés en français dans l'interface, et l'export /

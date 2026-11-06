@@ -28,7 +28,7 @@ func BackupFile(ctx context.Context, src, dest string) error {
 	if _, err := os.Stat(src); err != nil {
 		return fmt.Errorf("backup: %w", err)
 	}
-	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(src)+"?mode=ro&_pragma=busy_timeout(5000)")
+	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(src)+"?mode=ro&_pragma=busy_timeout(5000)&_pragma=temp_store(2)")
 	if err != nil {
 		return fmt.Errorf("backup: %w", err)
 	}

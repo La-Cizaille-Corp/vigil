@@ -584,7 +584,7 @@ func (s *Syncer) storeOSV(ctx context.Context, v osv.Vuln, changed bool) error {
 		Published: v.Published,
 		Modified:  v.Modified,
 		Refs:      refs,
-		Raw:       string(v.Raw),
+		Raw:       string(v.Compact()),
 	})
 }
 

@@ -35,7 +35,7 @@ commande l'emporte.
 ### Télécharger et vérifier
 
 ```powershell
-$v = "0.3.0"; $arch = "amd64"   # arm64 sur processeur ARM
+$v = "0.4.0"; $arch = "amd64"   # arm64 sur processeur ARM
 $base = "https://github.com/La-Cizaille-Corp/vigil/releases/download/v$v"
 $zip = "vigil_${v}_windows_$arch.zip"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -135,7 +135,7 @@ New-NetFirewallRule -DisplayName "Vigil (HTTPS)" -Direction Inbound -Protocol TC
 ## 3. macOS (Intel et Apple Silicon)
 
 ```bash
-VERSION=0.3.0; ARCH=arm64   # amd64 sur Mac Intel
+VERSION=0.4.0; ARCH=arm64   # amd64 sur Mac Intel
 BASE=https://github.com/La-Cizaille-Corp/vigil/releases/download/v$VERSION
 curl -fsSLO $BASE/vigil_${VERSION}_darwin_$ARCH.tar.gz
 curl -fsSLO $BASE/checksums.txt
@@ -177,7 +177,7 @@ sudo /usr/libexec/ApplicationFirewall/socketfilterfw --unblockapp /usr/local/bin
 ## 4. Linux
 
 ```bash
-VERSION=0.3.0; ARCH=amd64   # arm64 sur ARM
+VERSION=0.4.0; ARCH=amd64   # arm64 sur ARM
 BASE=https://github.com/La-Cizaille-Corp/vigil/releases/download/v$VERSION
 curl -fsSLO $BASE/vigil_${VERSION}_linux_$ARCH.tar.gz
 curl -fsSLO $BASE/checksums.txt
@@ -238,23 +238,24 @@ Binaire statique sans bibliothèque externe : aucune règle SELinux ou AppArmor 
 
 Image distroless (sans shell), utilisateur non privilégié, données dans le volume `/data`.
 Fonctionne de la même façon sous Docker Desktop (Windows, macOS). Les tags suivent les versions
-(`0.3.0`, `0.3`) : fixez-en toujours un.
+(`0.4.0`, `0.4`) : fixez-en toujours un.
 
 **Poste local** :
 
 ```bash
-docker run -d --name vigil --restart unless-stopped -p 127.0.0.1:8080:8080 -v vigil-data:/data ghcr.io/la-cizaille-corp/vigil:0.3
+docker run -d --name vigil --restart unless-stopped -p 127.0.0.1:8080:8080 -v vigil-data:/data ghcr.io/la-cizaille-corp/vigil:0.4
 docker exec -it vigil vigil user add -username admin -role admin
 ```
 
 Gardez `127.0.0.1:` devant le port : l'image écoute en clair derrière un proxy attendu, et
-`-p 8080:8080` exposerait l'interface au réseau sans TLS.
+`-p 8080:8080` exposerait l'interface au réseau sans TLS. Gardez aussi `-v vigil-data:/data` : sans
+ce volume nommé, Docker en crée un anonyme, et le conteneur suivant repartirait d'une base vide.
 
 **Serveur avec HTTPS automatique** ([docker-compose.yml](../deploy/docker-compose.yml) + Caddy) :
 
 ```bash
 mkdir vigil && cd vigil
-RAW=https://raw.githubusercontent.com/La-Cizaille-Corp/vigil/v0.3.0/deploy
+RAW=https://raw.githubusercontent.com/La-Cizaille-Corp/vigil/v0.4.0/deploy
 curl -fsSLO $RAW/docker-compose.yml
 curl -fsSLO $RAW/Caddyfile
 curl -fsSL -o .env $RAW/.env.example   # renseignez VIGIL_DOMAIN ; vérifiez le tag d'image du compose
@@ -270,6 +271,8 @@ conteneur `caddy`) ou
 
 **Les données vivent dans le volume nommé `vigil-data`**, pas dans le conteneur : `docker compose
 down`, `pull`, `up` les conservent. **`docker compose down -v` supprime le volume, donc la base.**
+Le fichier fixe le nom du projet (`name: vigil`), donc celui du volume (`vigil_vigil-data`) : gardez
+cette ligne, sinon un nouveau volume vide serait créé.
 Sous Docker Desktop, le volume est dans la machine virtuelle de Docker, invisible dans
 l'Explorateur ou le Finder ; pour copier une sauvegarde sur l'hôte :
 
@@ -314,12 +317,12 @@ l'interface. Toutes les requêtes sortantes sont en HTTPS (TCP 443), sauf l'e-ma
 
 | Destination | Usage | Nécessaire |
 |---|---|---|
-| `api.osv.dev` | Vulnérabilités des paquets (purl) | Oui, si l'inventaire a des purl |
-| `services.nvd.nist.gov` | CVE des produits (CPE) et recherche de CPE | Oui, si l'inventaire a des CPE |
+| `api.osv.dev` | Vulnérabilités des paquets (purl ou écosystème) | Oui, si l'inventaire a des paquets |
+| `services.nvd.nist.gov` | CVE des produits (CPE, ou à défaut leur nom) et recherche de CPE | Oui, si l'inventaire a des produits |
 | `www.cisa.gov` | Catalogue KEV (exploitation avérée) et flux d'avis CISA | Recommandé |
 | `api.first.org` | Scores EPSS | Recommandé |
 | `www.cert.ssi.gouv.fr` | Flux CERT-FR (alertes, avis, menaces) | Flux par défaut |
-| `www.bleepingcomputer.com`, `feeds.feedburner.com` | Presse spécialisée | Flux par défaut |
+| `www.bleepingcomputer.com`, `feeds.feedburner.com`, `thehackernews.com` | Presse spécialisée | Flux par défaut |
 | `digital-strategy.ec.europa.eu`, `www.cnil.fr`, `www.edpb.europa.eu`, `www.eba.europa.eu` | Veille réglementaire | Flux par défaut |
 | Flux ajoutés, webhooks (Slack, Teams, Mattermost…) | Selon votre configuration | Selon usage |
 | Serveur SMTP, TCP 587 (STARTTLS) ou 465 (TLS) | Notifications par e-mail | Si le canal e-mail est utilisé |
@@ -399,6 +402,10 @@ planifiée Windows, LaunchAgent macOS), sauvegarder, remplacer, relancer, vérif
 | La page de première configuration redirige vers la connexion | Mode `-behind-proxy` (Docker, systemd) ou accès depuis une autre machine : `vigil user add -username admin -role admin` sur le serveur. |
 | « Origine refusée » à l'envoi d'un formulaire | Le reverse proxy ne transmet pas l'en-tête `Host` d'origine (voir [§ 6](#reverse-proxy)). |
 | Synchronisation NVD très lente | Sans clé, la NVD limite à 5 requêtes par 30 s. Clé gratuite : <https://nvd.nist.gov/developers/request-an-api-key>, dans `VIGIL_NVD_API_KEY`. |
+| « N actif(s) non vérifié(s) » après une synchronisation | Une source n'a pas répondu, même après plusieurs essais (par exemple `status 503`, panne passagère). La raison est affichée aux analystes. Ces actifs gardent leurs vulnérabilités, et la prochaine synchronisation les reprend. |
+| Inventaire vide après une mise à jour ou un changement de service | Vigil a ouvert une **autre base**, rien n'est perdu : autre compte (la base par défaut dépend de l'utilisateur), `-db` ou `VIGIL_DB` absent, conteneur sans le volume nommé. Le journal de démarrage indique le fichier ouvert (`db=…`). Arrêtez Vigil et relancez-le sur la bonne base. |
+| Canal Teams : `réponse HTTP 401` | Le workflow n'accepte que les utilisateurs du tenant (« Qui peut déclencher le flux » doit être sur « Tout le monde »), ou son adresse `logic.azure.com` n'est plus valide : recopiez l'URL du workflow. Si « Tout le monde » est interdit chez vous, utilisez un canal e-mail vers l'adresse du canal Teams. |
+| Disque plein, ou mise à jour refusée à la copie de la base | Voir [la place à prévoir](OPERATIONS.md#place-à-prévoir). |
 | `proxyconnect tcp`, délais dépassés vers les sources | Proxy absent ou mal renseigné : `HTTPS_PROXY`, et autorisation des destinations du [tableau des flux](#flux-sortants). |
 | `x509: certificate signed by unknown authority` | Proxy qui inspecte TLS : voir [§ 6](#proxy-qui-inspecte-tls). |
 | `adresse de destination interdite (réseau privé ou local)` | Flux ou webhook sur le réseau interne : `-allow-private-urls` (et `NO_PROXY` pour cet hôte). |

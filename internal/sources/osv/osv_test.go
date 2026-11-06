@@ -70,7 +70,7 @@ func query(t *testing.T, c *Client, q Query) []Vuln {
 	return out
 }
 
-// Advisories reads every page, without a version, and keeps each record whole.
+// Advisories reads every page, without a version.
 func TestQueryPages(t *testing.T) {
 	var bodies []map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -91,7 +91,7 @@ func TestQueryPages(t *testing.T) {
 	c := New("test")
 	c.BaseURL = srv.URL
 	vulns := query(t, c, Query{Package: Package{PURL: "pkg:npm/x"}})
-	if len(vulns) != 2 || vulns[0].ID != "GHSA-1" || vulns[1].ID != "GHSA-2" || len(vulns[1].Raw) == 0 || len(vulns[1].Affected) != 1 {
+	if len(vulns) != 2 || vulns[0].ID != "GHSA-1" || vulns[1].ID != "GHSA-2" || len(vulns[1].Affected) != 1 {
 		t.Fatalf("vulns = %+v", vulns)
 	}
 	if len(bodies) != 2 || bodies[0]["version"] != nil || bodies[1]["page_token"] != "p2" {
@@ -257,7 +257,7 @@ func TestAdvisoriesStream(t *testing.T) {
 	defer srv.Close()
 	c := New("test")
 	c.BaseURL = srv.URL
-	if got := query(t, c, Query{}); len(got) != 2 || got[1].ID != "B" || string(got[1].Raw) != `{"id":"B"}` {
+	if got := query(t, c, Query{}); len(got) != 2 || got[1].ID != "B" {
 		t.Errorf("advisories = %+v", got)
 	}
 	list := c.Advisories(Query{})
@@ -327,5 +327,36 @@ func TestRetries(t *testing.T) {
 	calls, codes = 0, []int{http.StatusBadRequest}
 	if _, err := c.QueryBatch(context.Background(), make([]Query, 1)); err == nil || calls != 1 {
 		t.Errorf("refusal: %d calls, %v", calls, err)
+	}
+}
+
+// What is kept of an advisory is what tells the versions fixing it: an
+// advisory of a distribution lists hundreds of binaries and versions.
+func TestCompact(t *testing.T) {
+	const doc = `{"id":"UBUNTU-CVE-1","details":"long text","published":"2026-01-01T00:00:00Z","references":[{"url":"https://a.example"}],
+		"affected":[
+		{"ranges":[{"type":"GIT","repo":"https://git.example","events":[{"introduced":"abc"},{"fixed":"def"}]}]},
+		{"package":{"name":"linux","ecosystem":"Ubuntu:22.04:LTS","purl":"pkg:deb/ubuntu/linux?distro=jammy"},
+		 "versions":["5.15.0-1.1","5.15.0-2.2"],"ecosystem_specific":{"binaries":[{"binary_name":"linux-image"}]},"database_specific":{"source":"x"},
+		 "ranges":[{"type":"ECOSYSTEM","events":[{"introduced":"0"},{"fixed":"5.15.0-3.3"}]},{"type":"GIT","events":[{"introduced":"abc"}]}]}]}`
+	var v Vuln
+	if err := json.Unmarshal([]byte(doc), &v); err != nil {
+		t.Fatal(err)
+	}
+	const want = `{"id":"UBUNTU-CVE-1","affected":[{"package":{"name":"linux","ecosystem":"Ubuntu:22.04:LTS","purl":"pkg:deb/ubuntu/linux?distro=jammy"},` +
+		`"ranges":[{"type":"ECOSYSTEM","events":[{"introduced":"0"},{"fixed":"5.15.0-3.3"}]}]}]}`
+	if got := string(v.Compact()); got != want {
+		t.Errorf("Compact = %s\nwant      %s", got, want)
+	}
+	var kept Vuln
+	if err := json.Unmarshal(v.Compact(), &kept); err != nil {
+		t.Fatal(err)
+	}
+	pkg := Package{Name: "linux", Ecosystem: "Ubuntu:22.04:LTS"}
+	if !kept.Affects(pkg, "5.15.0-2.2") || kept.Affects(pkg, "5.15.0-3.3") {
+		t.Errorf("the ranges must survive: %+v", kept)
+	}
+	if none := (Vuln{ID: "X"}).Compact(); string(none) != `{"id":"X"}` {
+		t.Errorf("an advisory without package: %s", none)
 	}
 }
