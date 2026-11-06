@@ -9,10 +9,13 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/cvss"
+	"github.com/La-Cizaille-Corp/vigil/internal/versions"
 )
 
 // DefaultBaseURL is the public OSV API.
@@ -21,8 +24,12 @@ const DefaultBaseURL = "https://api.osv.dev"
 // maxBatch is the OSV limit of queries per querybatch call.
 const maxBatch = 1000
 
-// maxBody bounds every response we read.
-const maxBody = 32 << 20
+// maxBody bounds every response read at once, maxPage a page of /v1/query, read
+// advisory by advisory: thousands of them, each listing many packages.
+const (
+	maxBody = 32 << 20
+	maxPage = 1 << 30
+)
 
 // Client talks to OSV.
 type Client struct {
@@ -35,7 +42,7 @@ type Client struct {
 func New(userAgent string) *Client {
 	return &Client{
 		BaseURL:   DefaultBaseURL,
-		HTTP:      &http.Client{Timeout: 60 * time.Second},
+		HTTP:      &http.Client{Timeout: 5 * time.Minute}, // a page can take a while to read
 		UserAgent: userAgent,
 	}
 }
@@ -80,14 +87,30 @@ type Vuln struct {
 	} `json:"database_specific"`
 	Affected  []Affected `json:"affected"`
 	Withdrawn string     `json:"withdrawn"`
+	// Upstream names the advisories this one derives from: the CVE of a
+	// DEBIAN-CVE-… record, which has no alias.
+	Upstream []string `json:"upstream"`
 
 	Raw json.RawMessage `json:"-"`
 }
 
+// OtherIDs returns the identifiers of the same vulnerability elsewhere: its
+// aliases and upstream advisories.
+func (v Vuln) OtherIDs() []string {
+	out := slices.Clone(v.Aliases)
+	for _, id := range v.Upstream {
+		if !slices.Contains(out, id) {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
 // Affected is a package named by an advisory, with its affected ranges.
 type Affected struct {
-	Package Package `json:"package"`
-	Ranges  []Range `json:"ranges"`
+	Package  Package  `json:"package"`
+	Ranges   []Range  `json:"ranges"`
+	Versions []string `json:"versions"`
 }
 
 // Range lists the events of an affected range, in the advisory's order:
@@ -95,6 +118,35 @@ type Affected struct {
 type Range struct {
 	Type   string              `json:"type"`
 	Events []map[string]string `json:"events"`
+}
+
+// Intervals returns the affected intervals of a range of versions; none for
+// a range of commits.
+func (r Range) Intervals() []versions.Range {
+	if r.Type == "GIT" {
+		return nil
+	}
+	var out []versions.Range
+	var iv versions.Range
+	open := false
+	for _, e := range r.Events {
+		switch {
+		case e["introduced"] != "":
+			iv, open = versions.Range{Start: e["introduced"]}, true
+		case e["fixed"] != "":
+			iv.Fixed = e["fixed"]
+			out = append(out, iv)
+			iv, open = versions.Range{}, false
+		case e["last_affected"] != "":
+			iv.LastAffected = e["last_affected"]
+			out = append(out, iv)
+			iv, open = versions.Range{}, false
+		}
+	}
+	if open {
+		out = append(out, iv)
+	}
+	return out
 }
 
 // For returns the entries of the advisory that concern pkg: same purl
@@ -149,6 +201,27 @@ func (v Vuln) Unfixed(pkg Package) bool {
 	return false
 }
 
+// Affects reports whether the advisory affects a version of pkg, by its own
+// ranges: OSV does not compare versions for every ecosystem (Linux).
+func (v Vuln) Affects(pkg Package, version string) bool {
+	if v.Withdrawn != "" {
+		return false
+	}
+	for _, a := range v.For(pkg) {
+		if slices.Contains(a.Versions, version) {
+			return true
+		}
+		for _, r := range a.Ranges {
+			for _, iv := range r.Intervals() {
+				if iv.Holds(version) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 // purlBase drops the version, qualifiers and subpath of a purl, lower case:
 // pkg:npm/lodash@4.17.15?x=y → pkg:npm/lodash.
 func purlBase(purl string) string {
@@ -170,6 +243,163 @@ func WithoutVersion(purl string) string {
 		return purl[:at]
 	}
 	return purl[:at] + purl[at+end:]
+}
+
+// PURLQuery returns what to ask OSV for a purl; version is the one to use if
+// the purl has none. A release named by the distro qualifier becomes an
+// ecosystem: OSV finds nothing for pkg:deb/debian/x?distro=debian-12, and
+// without the release it compares the version with the advisories of all of
+// them, where any version of Debian 12 is below the fix of Debian 14.
+func PURLQuery(purl, version string) Query {
+	source := SourcePURL(purl)
+	withoutSubpath, _, _ := strings.Cut(purl, "#")
+	_, rawQualifiers, _ := strings.Cut(withoutSubpath, "?")
+	qualifiers, _ := url.ParseQuery(rawQualifiers) // on error, what could be read
+	if parts := strings.Split(strings.TrimPrefix(source, "pkg:"), "/"); len(parts) == 3 {
+		if ecosystem := releaseEcosystem(parts[1], qualifiers.Get("distro")); ecosystem != "" {
+			name, purlVersion, versioned := strings.Cut(parts[2], "@")
+			if versioned {
+				version = purlDecode(purlVersion)
+			}
+			return Query{Package: Package{Name: purlDecode(name), Ecosystem: ecosystem}, Version: version}
+		}
+	}
+	if strings.Contains(source, "@") {
+		version = "" // a purl that carries a version must not be sent with one
+	}
+	return Query{Package: Package{PURL: source}, Version: version}
+}
+
+func purlDecode(s string) string {
+	if decoded, err := url.PathUnescape(s); err == nil {
+		return decoded
+	}
+	return s
+}
+
+var (
+	debianReleases = map[string]string{"buster": "10", "bullseye": "11", "bookworm": "12", "trixie": "13", "forky": "14"}
+	ubuntuReleases = map[string]string{"focal": "20.04", "jammy": "22.04", "noble": "24.04"}
+)
+
+// releaseEcosystem returns the OSV ecosystem of a release of a distribution,
+// from the namespace of a purl and its distro qualifier: debian-12.5 or
+// bookworm, ubuntu-22.04, alpine-3.18.4, rocky-9.3. It is "" when unknown.
+func releaseEcosystem(namespace, distro string) string {
+	release := strings.ToLower(distro)
+	if i := strings.LastIndex(release, "-"); i >= 0 {
+		release = release[i+1:]
+	}
+	if known, ok := debianReleases[release]; ok && namespace == "debian" {
+		release = known
+	}
+	if known, ok := ubuntuReleases[release]; ok && namespace == "ubuntu" {
+		release = known
+	}
+	major, rest, _ := strings.Cut(release, ".")
+	minor, _, _ := strings.Cut(rest, ".")
+	if _, err := strconv.Atoi(major); err != nil {
+		return ""
+	}
+	switch namespace {
+	case "debian":
+		return "Debian:" + major
+	case "rocky":
+		return "Rocky Linux:" + major
+	case "almalinux":
+		return "AlmaLinux:" + major
+	case "alpine":
+		if minor != "" {
+			return "Alpine:v" + major + "." + minor
+		}
+	case "ubuntu":
+		if minor != "" {
+			year, _ := strconv.Atoi(major)
+			if minor == "04" && year%2 == 0 {
+				return "Ubuntu:" + major + ".04:LTS"
+			}
+			return "Ubuntu:" + major + "." + minor
+		}
+	}
+	return ""
+}
+
+// SourcePURL returns a purl without what OSV cannot match: its qualifiers, and
+// the name of a binary package. OSV files the packages of a distribution under
+// their source package: the upstream qualifier of an SBOM (linux-image-amd64,
+// upstream=linux) gives it, as kernelSource does for the names of a kernel.
+func SourcePURL(purl string) string {
+	purl, _, _ = strings.Cut(purl, "#")
+	base, rawQualifiers, _ := strings.Cut(purl, "?")
+	slash := strings.LastIndex(base, "/")
+	kind, _, _ := strings.Cut(strings.TrimPrefix(base, "pkg:"), "/")
+	if slash < 0 || kind != "deb" && kind != "rpm" && kind != "apk" {
+		return base
+	}
+	name, version, versioned := strings.Cut(base[slash+1:], "@")
+	qualifiers, _ := url.ParseQuery(rawQualifiers) // on error, what could be read
+	if source, sourceVersion := upstreamPackage(kind, qualifiers.Get("upstream")); source != "" {
+		name = source
+		if sourceVersion != "" {
+			version, versioned = sourceVersion, true
+		}
+	}
+	name = kernelSource(name, kind)
+	if !versioned {
+		return base[:slash+1] + name
+	}
+	return base[:slash+1] + name + "@" + version
+}
+
+// upstreamPackage reads the upstream qualifier of a purl: name or
+// name@version, or the source RPM for Red Hat
+// (kernel-5.14.0-362.el9.src.rpm, whose version is the package's).
+func upstreamPackage(kind, upstream string) (name, version string) {
+	if kind != "rpm" {
+		name, version, _ = strings.Cut(upstream, "@")
+		return name, version
+	}
+	parts := strings.Split(strings.TrimSuffix(upstream, ".src.rpm"), "-")
+	if len(parts) < 3 {
+		return "", ""
+	}
+	return strings.Join(parts[:len(parts)-2], "-"), ""
+}
+
+// ComparesVersions reports whether OSV finds the advisories of a version in an
+// ecosystem. In Linux it has the ranges of kernel.org but does not compare them:
+// the advisories of the package must be read and compared here.
+func ComparesVersions(ecosystem string) bool { return ecosystem != "Linux" }
+
+// SourceName returns the name of a package in the advisories of an ecosystem.
+func SourceName(name, ecosystem string) string {
+	distribution, _, _ := strings.Cut(ecosystem, ":") // Debian:12
+	switch distribution {
+	case "Linux":
+		return "Kernel" // its only package
+	case "Debian", "Ubuntu":
+		return kernelSource(name, "deb")
+	case "Red Hat", "Rocky Linux", "AlmaLinux":
+		return kernelSource(name, "rpm")
+	}
+	return name
+}
+
+// kernelPackages are the binary packages of a kernel, by prefix, with their
+// source package: SBOMs list the former, advisories name the latter.
+var kernelPackages = []struct{ kind, prefix, source string }{
+	{"deb", "linux-image-", "linux"}, {"deb", "linux-headers-", "linux"}, {"deb", "linux-modules-", "linux"},
+	{"deb", "linux-tools-", "linux"}, {"deb", "linux-libc-dev", "linux"}, {"deb", "linux-signed", "linux"},
+	{"rpm", "kernel-", "kernel"},
+}
+
+func kernelSource(name, kind string) string {
+	for _, p := range kernelPackages {
+		if p.kind == kind && strings.HasPrefix(strings.ToLower(name), p.prefix) {
+			return p.source
+		}
+	}
+	return name
 }
 
 // CVSSScore returns the highest CVSS 3.x base score computed from the
@@ -194,14 +424,23 @@ func (v Vuln) SeverityLabel() string {
 	return cvss.Severity(v.CVSSScore())
 }
 
+// BatchResult answers one query of a batch: the first page of its
+// vulnerabilities. With More, there are others, and OSV lists from the oldest:
+// read them all with Advisories.
+type BatchResult struct {
+	Vulns []VulnRef
+	More  bool
+}
+
 // QueryBatch returns, for each query, the vulnerabilities affecting it.
-func (c *Client) QueryBatch(ctx context.Context, queries []Query) ([][]VulnRef, error) {
-	out := make([][]VulnRef, 0, len(queries))
+func (c *Client) QueryBatch(ctx context.Context, queries []Query) ([]BatchResult, error) {
+	out := make([]BatchResult, 0, len(queries))
 	for start := 0; start < len(queries); start += maxBatch {
 		end := min(start+maxBatch, len(queries))
 		var resp struct {
 			Results []struct {
-				Vulns []VulnRef `json:"vulns"`
+				Vulns         []VulnRef `json:"vulns"`
+				NextPageToken string    `json:"next_page_token"`
 			} `json:"results"`
 		}
 		body := map[string]any{"queries": queries[start:end]}
@@ -212,45 +451,151 @@ func (c *Client) QueryBatch(ctx context.Context, queries []Query) ([][]VulnRef, 
 			return nil, fmt.Errorf("osv querybatch: got %d results for %d queries", len(resp.Results), end-start)
 		}
 		for _, r := range resp.Results {
-			out = append(out, r.Vulns)
+			out = append(out, BatchResult{Vulns: r.Vulns, More: r.NextPageToken != ""})
 		}
 	}
 	return out, nil
 }
 
-// maxQueryPages bounds the pages read for one package: OSV returns up to a
-// thousand advisories per page, more than any package has.
-const maxQueryPages = 10
+// maxQueryPages bounds the pages read for one query: OSV answers a heavy one
+// in many pages, sometimes empty (more than twenty for the Ubuntu kernel).
+const maxQueryPages = 200
 
-// Query returns every advisory of a package, whatever its version, in full.
-func (c *Client) Query(ctx context.Context, pkg Package) ([]Vuln, error) {
-	var out []Vuln
-	token := ""
-	for range maxQueryPages {
-		body := map[string]any{"package": pkg}
-		if token != "" {
-			body["page_token"] = token
-		}
-		var resp struct {
-			Vulns         []json.RawMessage `json:"vulns"`
-			NextPageToken string            `json:"next_page_token"`
-		}
-		if err := c.do(ctx, http.MethodPost, "/v1/query", body, &resp); err != nil {
-			return nil, err
-		}
-		for _, raw := range resp.Vulns {
-			var v Vuln
-			if err := json.Unmarshal(raw, &v); err != nil {
-				return nil, fmt.Errorf("decode osv vuln: %w", err)
+// Advisories reads every advisory matching a query, in full, one at a time and
+// without keeping them: the Linux kernel has 150 MB of them. It takes no
+// callback, so that this package never calls the code of its users.
+//
+//	list := client.Advisories(q)
+//	defer list.Close()
+//	for list.Next(ctx) {
+//		use(list.Vuln())
+//	}
+//	err := list.Err()
+type Advisories struct {
+	client  *Client
+	query   Query
+	token   string // of the next page
+	pages   int
+	done    bool
+	body    io.Closer // of the page being read
+	dec     *json.Decoder
+	inVulns bool
+	vuln    Vuln
+	err     error
+}
+
+// Advisories returns the advisories matching q: those of a version, or of the
+// whole package without one.
+func (c *Client) Advisories(q Query) *Advisories { return &Advisories{client: c, query: q} }
+
+// Vuln returns the advisory Next moved to.
+func (a *Advisories) Vuln() Vuln { return a.vuln }
+
+// Err returns the failure that ended the reading, if any.
+func (a *Advisories) Err() error { return a.err }
+
+// Close releases the page being read, for a reading stopped before the end.
+func (a *Advisories) Close() {
+	if a.body != nil {
+		_ = a.body.Close() // only read from: nothing to lose
+		a.body, a.dec = nil, nil
+	}
+}
+
+// Next moves to the next advisory; false at the end or after a failure.
+func (a *Advisories) Next(ctx context.Context) bool {
+	for a.err == nil && !a.done {
+		switch {
+		case a.dec == nil:
+			a.err = a.openPage(ctx)
+		case a.inVulns && a.dec.More():
+			if a.err = a.decodeVuln(); a.err == nil {
+				return true
 			}
-			v.Raw = raw
-			out = append(out, v)
-		}
-		if token = resp.NextPageToken; token == "" {
-			return out, nil
+		case a.inVulns:
+			a.inVulns = false
+			a.err = a.expect(']')
+		case a.dec.More():
+			a.err = a.readField()
+		default: // end of the page
+			if a.err = a.expect('}'); a.err == nil {
+				a.Close()
+				a.done = a.token == ""
+			}
 		}
 	}
-	return nil, fmt.Errorf("osv query: more than %d pages of results", maxQueryPages)
+	a.Close()
+	return false
+}
+
+// openPage asks for the next page and enters its object.
+func (a *Advisories) openPage(ctx context.Context) error {
+	if a.pages == maxQueryPages {
+		return fmt.Errorf("osv query: more than %d pages of results", maxQueryPages)
+	}
+	a.pages++
+	body := map[string]any{"package": a.query.Package}
+	if a.query.Version != "" {
+		body["version"] = a.query.Version
+	}
+	if a.token != "" {
+		body["page_token"] = a.token
+	}
+	a.token = ""
+	resp, err := a.client.send(ctx, http.MethodPost, "/v1/query", body)
+	if err != nil {
+		return err
+	}
+	a.body = resp.Body
+	// SECURITY: never read an unbounded response from the network.
+	a.dec = json.NewDecoder(io.LimitReader(resp.Body, maxPage))
+	return a.expect('{')
+}
+
+func (a *Advisories) decodeVuln() error {
+	var v Vuln
+	if err := a.dec.Decode(&v.Raw); err != nil {
+		return fmt.Errorf("osv /v1/query: decode: %w", err)
+	}
+	if err := json.Unmarshal(v.Raw, &v); err != nil {
+		return fmt.Errorf("osv /v1/query: decode: %w", err)
+	}
+	a.vuln = v
+	return nil
+}
+
+// readField reads a field of the page, up to the first advisory of its list.
+func (a *Advisories) readField() error {
+	key, err := a.dec.Token()
+	if err != nil {
+		return fmt.Errorf("osv /v1/query: decode: %w", err)
+	}
+	switch key {
+	case "vulns":
+		a.inVulns = true
+		return a.expect('[')
+	case "next_page_token":
+		err = a.dec.Decode(&a.token)
+	default:
+		var skipped json.RawMessage
+		err = a.dec.Decode(&skipped)
+	}
+	if err != nil {
+		return fmt.Errorf("osv /v1/query: decode: %w", err)
+	}
+	return nil
+}
+
+// expect reads a delimiter of the page, which must be the one given.
+func (a *Advisories) expect(delim json.Delim) error {
+	token, err := a.dec.Token()
+	if err != nil {
+		return fmt.Errorf("osv /v1/query: decode: %w", err)
+	}
+	if token != delim {
+		return fmt.Errorf("osv /v1/query: decode: %v instead of %v", token, delim)
+	}
+	return nil
 }
 
 // Vuln fetches the full record of a vulnerability.
@@ -268,36 +613,69 @@ func (c *Client) Vuln(ctx context.Context, id string) (Vuln, error) {
 }
 
 func (c *Client) do(ctx context.Context, method, path string, body, out any) error {
+	resp, err := c.send(ctx, method, path, body)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	// SECURITY: never read an unbounded response from the network.
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxBody)).Decode(out); err != nil {
+		return fmt.Errorf("osv %s: decode: %w", path, err)
+	}
+	return nil
+}
+
+// retryDelays are the waits before asking again after a temporary failure: a
+// network glitch on the batch request would fail the whole synchronisation.
+var retryDelays = []time.Duration{5 * time.Second, 15 * time.Second}
+
+// send makes a request and returns its response when it succeeds.
+func (c *Client) send(ctx context.Context, method, path string, body any) (*http.Response, error) {
+	for attempt := 0; ; attempt++ {
+		resp, temporary, err := c.sendOnce(ctx, method, path, body)
+		if err == nil || !temporary || attempt == len(retryDelays) || ctx.Err() != nil {
+			return resp, err
+		}
+		delay := retryDelays[attempt]
+		if c.BaseURL != DefaultBaseURL {
+			delay = 0 // tests and mirrors
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(delay):
+		}
+	}
+}
+
+// sendOnce makes a request; temporary says whether trying again may succeed.
+func (c *Client) sendOnce(ctx context.Context, method, path string, body any) (resp *http.Response, temporary bool, err error) {
 	var reader io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
 		if err != nil {
-			return err
+			return nil, false, err
 		}
 		reader = bytes.NewReader(b)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, reader)
 	if err != nil {
-		return err
+		return nil, false, err
 	}
 	req.Header.Set("User-Agent", c.UserAgent)
 	req.Header.Set("Accept", "application/json")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := c.HTTP.Do(req)
+	resp, err = c.HTTP.Do(req)
 	if err != nil {
-		return fmt.Errorf("osv %s: %w", path, err)
+		return nil, true, fmt.Errorf("osv %s: %w", path, err)
 	}
-	defer resp.Body.Close()
-	// SECURITY: never read an unbounded response from the network.
-	limited := io.LimitReader(resp.Body, maxBody)
 	if resp.StatusCode != http.StatusOK {
-		snippet, _ := io.ReadAll(io.LimitReader(limited, 512))
-		return fmt.Errorf("osv %s: status %d: %s", path, resp.StatusCode, bytes.TrimSpace(snippet))
+		defer resp.Body.Close()
+		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		temporary = resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
+		return nil, temporary, fmt.Errorf("osv %s: status %d: %s", path, resp.StatusCode, bytes.TrimSpace(snippet))
 	}
-	if err := json.NewDecoder(limited).Decode(out); err != nil {
-		return fmt.Errorf("osv %s: decode: %w", path, err)
-	}
-	return nil
+	return resp, false, nil
 }

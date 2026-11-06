@@ -136,3 +136,28 @@ func TestVendorName(t *testing.T) {
 		}
 	}
 }
+
+func TestPackageOfDistribution(t *testing.T) {
+	if got := Package(store.Asset{Name: "Linux Kernel", Ecosystem: "Linux"}); got.Name != "Kernel" || got.Ecosystem != "Linux" {
+		t.Errorf("the upstream kernel = %+v", got)
+	}
+	if got := Package(store.Asset{PURL: "pkg:deb/debian/linux-image-amd64@6.1.76-1?distro=debian-12"}); got.Name != "linux" || got.Ecosystem != "Debian:12" || got.PURL != "" {
+		t.Errorf("package of a purl with a release = %+v", got)
+	}
+	if got := Package(store.Asset{PURL: "pkg:deb/debian/linux-image-amd64@6.1.76-1"}); got.PURL != "pkg:deb/debian/linux" {
+		t.Errorf("package of a purl = %+v", got)
+	}
+	for a, want := range map[*store.Asset]bool{
+		{Name: "linux", Ecosystem: "Debian", Version: "6.1.76-1"}:                 true,
+		{Name: "linux", Ecosystem: "Debian:12", Version: "6.1.76-1"}:              false,
+		{Name: "openssl", PURL: "pkg:deb/debian/openssl@3.0.11"}:                  true,
+		{Name: "openssl", PURL: "pkg:deb/debian/openssl@3.0.11?distro=debian-12"}: false,
+		{Name: "lodash", PURL: "pkg:npm/lodash@4.17.15"}:                          false,
+		{Name: "kernel", Ecosystem: "Red Hat", Version: "5.14.0-362.el9"}:         false,
+		{Name: "linux", Ecosystem: "Debian"}:                                      false,
+	} {
+		if got := WholeDistribution(*a); got != want {
+			t.Errorf("WholeDistribution(%+v) = %v", *a, got)
+		}
+	}
+}

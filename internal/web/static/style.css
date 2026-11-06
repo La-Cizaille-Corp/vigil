@@ -75,6 +75,12 @@ tbody tr:last-child td { border-bottom: 0; }
 tbody tr:hover { background: var(--accent-soft); }
 th { font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); background: var(--bg); }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+a.sort { color: inherit; white-space: nowrap; }
+a.sort:hover { color: var(--accent); }
+a.sort::after { content: " \2195"; opacity: .45; }
+th[aria-sort] a.sort { color: var(--accent); }
+th[aria-sort="ascending"] a.sort::after { content: " \25B2"; opacity: 1; font-size: .8em; }
+th[aria-sort="descending"] a.sort::after { content: " \25BC"; opacity: 1; font-size: .8em; }
 tfoot th { border-top: 1px solid var(--border-strong); border-bottom: 0; color: var(--fg); font-size: .85rem; }
 .digest h3 { margin-bottom: .2rem; }
 .digest h3 + .muted { margin-top: 0; }
@@ -117,6 +123,11 @@ details.confirm[open] { display: block; }
 .toolbar form.inline { margin: 0; }
 .form-actions { margin: .5rem 0 0; }
 .form-actions .filters { margin: 0; }
+.shortcuts { display: flex; flex-wrap: wrap; gap: .25rem .85rem; margin-left: auto; }
+form.filter-bar { display: flex; flex-wrap: wrap; gap: .5rem .85rem; align-items: flex-end; margin-bottom: .85rem; }
+form.filter-bar label { margin: 0; }
+form.filter-bar select { width: auto; min-width: 9rem; max-width: 20rem; }
+progress { width: 12rem; max-width: 100%; height: .6rem; vertical-align: middle; accent-color: var(--accent); }
 
 /* --- lists, tags, filters ------------------------------------------------ */
 .filters { display: flex; gap: .35rem; flex-wrap: wrap; align-items: center; margin-bottom: .75rem; }
@@ -221,6 +232,11 @@ svg.donut { width: 168px; height: 168px; flex: none; }
   table.cards td::before { content: attr(data-label); position: absolute; left: .75rem; top: .45rem; width: 7rem;
     font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); }
   table.cards td:empty { display: none; }
+  /* The titles of a sortable list stay within reach, above its cards. */
+  table.sortable thead { position: static; display: block; width: auto; height: auto; overflow: visible; clip-path: none; }
+  table.sortable thead tr { display: flex; flex-wrap: wrap; gap: .2rem .85rem; padding: 0 0 .6rem; background: none; border: 0; }
+  table.sortable th { padding: 0; border: 0; background: none; }
+  table.sortable th.no-sort, table.sortable th.select { display: none; }
 }
 @media (forced-colors: active) {
   .swatch, .donut-seg, .bar { forced-color-adjust: none; }

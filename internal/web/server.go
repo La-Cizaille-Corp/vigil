@@ -188,32 +188,35 @@ func (s *Server) parseTemplates() error {
 		"criticalities": func() []inventory.Option { return inventory.Criticalities },
 		"cpeModes":      func() []inventory.Option { return inventory.CPEModes },
 		"severities":    func() []inventory.Option { return severities },
-		"sortOrders":    func() []inventory.Option { return sortOrders },
 		"cvss": func(v float64) string {
 			if v < 0 {
 				return ""
 			}
 			return strconv.FormatFloat(v, 'f', 1, 64)
 		},
-		"ecosystems":       func() []string { return inventory.Ecosystems },
-		"statuses":         func() []inventory.Option { return tracking.Statuses },
-		"justifs":          func() []inventory.Option { return tracking.Justifications },
-		"queryable":        inventory.Queryable,
-		"byName":           inventory.ByName,
-		"epss":             digest.FormatEPSS,
-		"countryLabel":     func(v string) string { return cti.Label(cti.Countries, v) },
-		"sectorLabel":      func(v string) string { return cti.Label(cti.Sectors, v) },
-		"countries":        func() []cti.Tag { return cti.Countries },
-		"sectors":          func() []cti.Tag { return cti.Sectors },
-		"regulations":      func() []cti.Tag { return cti.Regulations },
-		"regulationLabel":  func(v string) string { return cti.Label(cti.Regulations, v) },
-		"webhookKinds":     func() []inventory.Option { return notify.Kinds },
-		"webhookKindLabel": func(v string) string { return inventory.Label(notify.Kinds, v) },
-		"target":           notify.Target,
-		"alertOptions":     func() []inventory.Option { return notify.AlertOptions },
-		"alertLabel":       func(v string) string { return inventory.Label(notify.AlertOptions, v) },
+		"ecosystems":        func() []string { return inventory.Ecosystems },
+		"statuses":          func() []inventory.Option { return tracking.Statuses },
+		"justifs":           func() []inventory.Option { return tracking.Justifications },
+		"queryable":         inventory.Queryable,
+		"byName":            inventory.ByName,
+		"wholeDistribution": inventory.WholeDistribution,
+		"epss":              digest.FormatEPSS,
+		"countryLabel":      func(v string) string { return cti.Label(cti.Countries, v) },
+		"sectorLabel":       func(v string) string { return cti.Label(cti.Sectors, v) },
+		"countries":         func() []cti.Tag { return cti.Countries },
+		"sectors":           func() []cti.Tag { return cti.Sectors },
+		"regulations":       func() []cti.Tag { return cti.Regulations },
+		"regulationLabel":   func(v string) string { return cti.Label(cti.Regulations, v) },
+		"webhookKinds":      func() []inventory.Option { return notify.Kinds },
+		"webhookKindLabel":  func(v string) string { return inventory.Label(notify.Kinds, v) },
+		"target":            notify.Target,
+		"alertOptions":      func() []inventory.Option { return notify.AlertOptions },
+		"alertLabel":        func(v string) string { return inventory.Label(notify.AlertOptions, v) },
 		"findingRows": func(list []store.Finding, selectable bool) map[string]any {
-			return map[string]any{"List": list, "Select": selectable}
+			return map[string]any{"List": list, "Select": selectable, "Head": plainHeaders(findingColumnList)}
+		},
+		"sortedFindingRows": func(list []store.Finding, selectable bool, head []sortHeader) map[string]any {
+			return map[string]any{"List": list, "Select": selectable, "Head": head, "Sortable": true}
 		},
 		"has": func(list []string, v string) bool {
 			for _, x := range list {

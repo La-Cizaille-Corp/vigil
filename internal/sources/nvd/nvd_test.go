@@ -17,6 +17,34 @@ const sample = `{"totalResults":1,"vulnerabilities":[{"cve":{"id":"CVE-2024-2176
  "metrics":{"cvssMetricV31":[{"cvssData":{"baseSeverity":"CRITICAL","baseScore":9.8}}]},
  "references":[{"url":"https://fortiguard.com/psirt/FG-IR-24-015"},{"url":"javascript:alert(1)"}]}}]}`
 
+// The NVD often answers 503 for a moment: the request is sent again, a few
+// times, and a definite refusal is not.
+func TestRetries(t *testing.T) {
+	calls, codes := 0, []int{http.StatusServiceUnavailable, http.StatusForbidden}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls <= len(codes) {
+			w.WriteHeader(codes[calls-1])
+			return
+		}
+		io.WriteString(w, sample)
+	}))
+	defer srv.Close()
+	c := &Client{URL: srv.URL, HTTP: srv.Client()}
+	q := Query{CPE: "cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*"}
+	if cves, err := c.ForCPE(context.Background(), q); err != nil || len(cves) != 1 || calls != 3 {
+		t.Errorf("temporary failures: %d calls, %v, %v", calls, cves, err)
+	}
+	calls, codes = 0, []int{503, 503, 503, 503}
+	if _, err := c.ForCPE(context.Background(), q); err == nil || calls != 3 {
+		t.Errorf("lasting failure: %d calls, %v", calls, err)
+	}
+	calls, codes = 0, []int{http.StatusBadRequest}
+	if _, err := c.ForCPE(context.Background(), q); err == nil || calls != 1 {
+		t.Errorf("refusal: %d calls, %v", calls, err)
+	}
+}
+
 func TestForCPE(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.URL.Query().Get("cpeName"); got != "cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*" {

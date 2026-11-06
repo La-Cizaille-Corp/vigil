@@ -2,19 +2,10 @@
 {{$f := .Data.Filter}}
 {{template "syncBar" .}}
 {{$more := or $f.Statuses $f.Severities $f.Kinds $f.KEV $f.Priority $f.Overdue $f.MinCVSS $f.MinEPSS $f.Project $f.Tag}}
-<nav class="filters" aria-label="Raccourcis">
-  <a href="/findings?status=in_triage&amp;status=exploitable">Non traitées</a>
-  <a href="/findings?status=in_triage&amp;status=exploitable&amp;priority=1">Prioritaires</a>
-  <a href="/findings?status=in_triage&amp;status=exploitable&amp;severity=CRITICAL&amp;severity=HIGH">Critiques et hautes à traiter</a>
-  <a href="/findings?overdue=1">Hors délai</a>
-</nav>
 <form method="get" action="/findings" class="card filters-form">
-  <div class="grid">
-    <label>Recherche <input type="search" name="q" value="{{$f.Search}}" maxlength="200" placeholder="CVE-2021-44228, log4j, injection…"></label>
-    <label>Tri
-      <select name="sort">{{range sortOrders}}<option value="{{.Value}}" {{if eq .Value $f.Sort}}selected{{end}}>{{.Label}}</option>{{end}}</select>
-    </label>
-  </div>
+  {{with .Data.Sort}}<input type="hidden" name="sort" value="{{.}}">{{end}}
+  {{with .Data.Dir}}<input type="hidden" name="dir" value="{{.}}">{{end}}
+  <label>Recherche <input type="search" name="q" value="{{$f.Search}}" maxlength="200" placeholder="CVE-2021-44228, log4j, injection…"></label>
   <details class="more-filters"{{if $more}} open{{end}}>
     <summary>Plus de filtres{{if $more}} (actifs){{end}}</summary>
     <div class="grid">
@@ -51,6 +42,12 @@
   <div class="toolbar form-actions">
     <button type="submit">Filtrer</button>
     <a href="/findings">Réinitialiser</a>
+    <nav class="shortcuts small" aria-label="Raccourcis">
+      <a href="/findings?status=in_triage&amp;status=exploitable">Non traitées</a>
+      <a href="/findings?status=in_triage&amp;status=exploitable&amp;priority=1">Prioritaires</a>
+      <a href="/findings?status=in_triage&amp;status=exploitable&amp;severity=CRITICAL&amp;severity=HIGH">Critiques et hautes à traiter</a>
+      <a href="/findings?overdue=1">Hors délai</a>
+    </nav>
   </div>
 </form>
 {{$analyst := can .User.Role "analyst"}}
@@ -76,7 +73,7 @@
 </form>
 </details>
 {{end}}
-{{template "findingTable" (findingRows .Data.Findings (and $analyst (gt (len .Data.Findings) 0)))}}
+{{template "findingTable" (sortedFindingRows .Data.Findings (and $analyst (gt (len .Data.Findings) 0)) .Data.Head)}}
 
 <h2>Échange VEX (CycloneDX)</h2>
 <p><a href="/findings/vex{{if $f.Project}}?project={{$f.Project}}{{end}}">Exporter les analyses en VEX{{if $f.Project}} (projet {{$f.Project}}){{end}}</a></p>

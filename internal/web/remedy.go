@@ -104,27 +104,12 @@ func osvFixes(raw string, pkg osv.Package, version string) []fixLine {
 	var out []fixLine
 	for _, a := range v.For(pkg) {
 		for _, r := range a.Ranges {
-			if r.Type == "GIT" { // commit hashes, not versions
-				continue
-			}
-			var iv versions.Range
-			open := false
-			for _, e := range r.Events {
-				switch {
-				case e["introduced"] != "":
-					iv, open = versions.Range{Start: e["introduced"]}, true
-				case e["fixed"] != "":
-					iv.Fixed = e["fixed"]
-					out = append(out, fixLine{rangeText(iv, ""), !latest && iv.Holds(version)})
-					iv, open = versions.Range{}, false
-				case e["last_affected"] != "":
-					iv.LastAffected = e["last_affected"]
-					out = append(out, fixLine{rangeText(iv, ""), latest || iv.Holds(version)})
-					iv, open = versions.Range{}, false
+			for _, iv := range r.Intervals() {
+				yours := iv.Holds(version)
+				if latest {
+					yours = iv.Fixed == ""
 				}
-			}
-			if open {
-				out = append(out, fixLine{rangeText(iv, ""), latest || iv.Holds(version)})
+				out = append(out, fixLine{rangeText(iv, ""), yours})
 			}
 		}
 	}

@@ -170,8 +170,11 @@ en cas de téléphone perdu, un administrateur la retire dans Paramètres → Ut
   signalées que si elles sont activement exploitées (CISA KEV) ; leur nombre est affiché sur l'actif,
   avec un bouton « Suivre tout l'historique ».
 - L'ajout ou la modification d'un actif lance aussitôt son analyse ; « Analyser cet actif » la
-  relance, « Synchroniser l'inventaire » relance tout. L'état de la dernière synchronisation est
-  affiché à côté.
+  relance, « Synchroniser l'inventaire » relance tout. L'avancement (actifs vérifiés, barre) et le
+  résultat de la dernière synchronisation sont affichés à côté, avec les actifs qui n'ont pas pu être
+  vérifiés : ils gardent leurs vulnérabilités jusqu'à la prochaine.
+- Les tableaux de l'inventaire et des vulnérabilités se **trient en cliquant sur le titre d'une
+  colonne**, qui inverse l'ordre au second clic ; l'export CSV des vulnérabilités suit le même ordre.
 - **Sans purl ni CPE**, Vigil cherche le **nom de l'actif** dans les descriptions des CVE de la NVD
   (« Ivanti Connect Secure », « FortiOS » : le nom employé par l'éditeur dans ses avis). Une CVE déjà
   analysée par la NVD n'est gardée que si ses produits correspondent au nom, à la version de l'actif
@@ -185,6 +188,20 @@ en cas de téléphone perdu, un administrateur la retire dans Paramètres → Ut
   NVD, produit affecté sans borne haute (« jusqu'à 7.2.13 » y vaut correction dans la suivante, comme
   dans les bulletins des éditeurs). Dès que la source indique un correctif, la vulnérabilité est
   marquée corrigée. Valable avec un purl, un écosystème, un CPE ou le nom.
+- **Paquets de distribution** : précisez la version de la distribution (écosystème `Debian:12`,
+  `Ubuntu:24.04:LTS`, `Alpine:v3.22`, `AlmaLinux:9`… ou `?distro=debian-12` dans le purl) et nommez le
+  paquet source (`openssl`, pas `libssl3`). Sans version de distribution, la version de l'actif est
+  comparée aux avis de toutes les autres : pour le noyau Debian, le résultat ne bouge plus quand on
+  applique les correctifs. Alpine ne répond même rien sans elle. Les SBOM de Syft et de Trivy donnent
+  le paquet source ; Vigil le lit.
+- **Noyau Linux** : c'est un paquet comme un autre. `linux` dans `Debian:12` ou `Ubuntu:24.04:LTS`,
+  `kernel` dans `AlmaLinux:9` ou `Rocky Linux:9`, avec la version du paquet : c'est la voie exacte, qui
+  tient compte des correctifs reportés par la distribution. Pour le noyau officiel, choisissez
+  l'écosystème `Linux` et sa version : les versions touchées viennent de kernel.org. Chaque
+  synchronisation relit alors tous ses avis (environ 150 Mo, 3 minutes), une seule fois quel que soit
+  le nombre d'actifs. Un CPE `linux_kernel` ne voit que les CVE déjà analysées par la NVD, une petite
+  partie d'entre elles ; un actif seulement nommé « Linux Kernel » remonte des milliers de résultats
+  à vérifier.
 - Un actif qui a un purl est interrogé dans OSV uniquement : son CPE est alors ignoré, il n'y a donc
   pas de doublon. Évitez en revanche de déclarer le même produit en deux actifs (un purl, un CPE).
 - Sans clé, la NVD limite à 5 requêtes par 30 secondes : une clé gratuite

@@ -281,7 +281,8 @@ func (s *Server) assetList(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	project, tag := r.URL.Query().Get("project"), r.URL.Query().Get("tag")
+	q := r.URL.Query()
+	project, tag := q.Get("project"), q.Get("tag")
 	if project != "" || tag != "" {
 		var filtered []store.Asset
 		for _, a := range assets {
@@ -291,6 +292,8 @@ func (s *Server) assetList(w http.ResponseWriter, r *http.Request) {
 		}
 		assets = filtered
 	}
+	order := orderFrom(q, assetColumnList, "")
+	sortRows(assets, assetColumnList, order)
 	projects, err := s.Store.ListProjects(r.Context())
 	if err != nil {
 		s.serverError(w, r, err)
@@ -303,7 +306,8 @@ func (s *Server) assetList(w http.ResponseWriter, r *http.Request) {
 	}
 	s.render(w, r, http.StatusOK, "assets", page{Title: "Inventaire",
 		Data: map[string]any{"Assets": assets, "Projects": projects, "Project": project, "Tags": tags, "Tag": tag,
-			"RetiredView": retiredView, "Retired": len(retired)}})
+			"RetiredView": retiredView, "Retired": len(retired), "Sort": q.Get("sort"), "Dir": q.Get("dir"),
+			"Head": sortHeaders(assetColumnList, "/assets", q, order)}})
 }
 
 // assetNew shows the ways to add assets: CPE search, form, SBOM and CSV
@@ -448,15 +452,15 @@ func (s *Server) findingList(w http.ResponseWriter, r *http.Request) {
 // renderFindings shows the vulnerability list filtered by the query string,
 // with formErr when a form of the page (VEX import) was rejected.
 func (s *Server) renderFindings(w http.ResponseWriter, r *http.Request, status int, formErr string) {
-	f := findingFilterFrom(r.URL.Query())
+	q := r.URL.Query()
+	f := findingFilterFrom(q)
 	findings, err := s.Store.ListFindings(r.Context(), f)
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
-	if f.Sort == "" {
-		digest.SortByPriority(findings)
-	}
+	order := orderFrom(q, findingColumnList, defaultFindingOrder)
+	sortRows(findings, findingColumnList, order)
 	projects, err := s.Store.ListProjects(r.Context())
 	if err != nil {
 		s.serverError(w, r, err)
@@ -469,23 +473,22 @@ func (s *Server) renderFindings(w http.ResponseWriter, r *http.Request, status i
 	}
 	s.render(w, r, status, "findings", page{Title: "Vulnérabilités", Error: formErr, Data: map[string]any{
 		"Findings": findings, "Filter": f, "Projects": projects, "Tags": tags, "Query": r.URL.RawQuery,
-		"MinEPSSPercent": f.MinEPSS * 100, "Next": "/findings?" + r.URL.Query().Encode(),
+		"MinEPSSPercent": f.MinEPSS * 100, "Next": "/findings?" + q.Encode(),
+		"Sort": q.Get("sort"), "Dir": q.Get("dir"), "Head": sortHeaders(findingColumnList, "/findings", q, order),
 		// Re-encoded from the parsed query: a safe relative link with the same filters.
-		"CSVLink": template.URL("/findings.csv?" + r.URL.Query().Encode()), // #nosec G203 -- fixed path, encoded values
+		"CSVLink": template.URL("/findings.csv?" + q.Encode()), // #nosec G203 -- fixed path, encoded values
 	}})
 }
 
 // findingCSV exports the filtered vulnerability list for spreadsheets.
 func (s *Server) findingCSV(w http.ResponseWriter, r *http.Request) {
-	f := findingFilterFrom(r.URL.Query())
-	findings, err := s.Store.ListFindings(r.Context(), f)
+	q := r.URL.Query()
+	findings, err := s.Store.ListFindings(r.Context(), findingFilterFrom(q))
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
-	if f.Sort == "" {
-		digest.SortByPriority(findings)
-	}
+	sortRows(findings, findingColumnList, orderFrom(q, findingColumnList, defaultFindingOrder))
 	cw := csvDownload(w, "vigil-vulnerabilites")
 	_ = cw.Write([]string{"id", "vulnerabilite", "alias", "severite", "cvss", "epss", "exploitee_kev", "actif", "version",
 		"projet", "statut", "justification", "commentaire", "detectee_le", "echeance", "hors_delai", "resume", "lien"})
@@ -614,7 +617,6 @@ func findingFilterFrom(q url.Values) store.FindingFilter {
 		Project:    q.Get("project"),
 		Tag:        strings.ToLower(strings.TrimSpace(q.Get("tag"))),
 		Search:     strings.TrimSpace(q.Get("q")),
-		Sort:       q.Get("sort"),
 	}
 	if len(f.Tag) > 100 {
 		f.Tag = ""
@@ -622,18 +624,10 @@ func findingFilterFrom(q url.Values) store.FindingFilter {
 	if len(f.Search) > 200 {
 		f.Search = f.Search[:200]
 	}
-	if inventory.Label(sortOrders, f.Sort) == f.Sort {
-		f.Sort = ""
-	}
 	return f
 }
 
 var severities = tracking.Severities
-
-var sortOrders = []inventory.Option{
-	{Value: "", Label: "Priorité (KEV, EPSS, sévérité)"}, {Value: "cvss", Label: "Score CVSS"},
-	{Value: "epss", Label: "Probabilité EPSS"}, {Value: "recent", Label: "Plus récentes"},
-}
 
 func (s *Server) loadFinding(w http.ResponseWriter, r *http.Request) (store.Finding, bool) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)

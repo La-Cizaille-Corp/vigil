@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"strings"
 	"time"
 
@@ -60,6 +61,29 @@ type cdxComponent struct {
 	PURL       string         `json:"purl"`
 	CPE        string         `json:"cpe"`
 	Components []cdxComponent `json:"components"`
+	Properties []struct {
+		Name  string `json:"name"`
+		Value string `json:"value"`
+	} `json:"properties"`
+}
+
+// purl returns the purl of a component. Trivy gives the source package of a
+// binary one apart (libssl3, from openssl), and advisories only name the source
+// package: it goes in the upstream qualifier, as Syft does.
+func (c cdxComponent) purl() string {
+	if c.PURL == "" || strings.Contains(c.PURL, "upstream=") {
+		return c.PURL
+	}
+	for _, p := range c.Properties {
+		if p.Name == "aquasecurity:trivy:SrcName" && p.Value != "" {
+			sep := "?"
+			if strings.Contains(c.PURL, "?") {
+				sep = "&"
+			}
+			return c.PURL + sep + "upstream=" + url.QueryEscape(p.Value)
+		}
+	}
+	return c.PURL
 }
 
 func parseCycloneDX(data []byte) (Document, error) {
@@ -76,7 +100,7 @@ func parseCycloneDX(data []byte) (Document, error) {
 	var walk func([]cdxComponent)
 	walk = func(list []cdxComponent) {
 		for _, c := range list {
-			doc.add(c.Name, c.Version, c.PURL, c.CPE, c.Type == "operating-system")
+			doc.add(c.Name, c.Version, c.purl(), c.CPE, c.Type == "operating-system")
 			walk(c.Components)
 		}
 	}

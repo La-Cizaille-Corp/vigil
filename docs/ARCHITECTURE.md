@@ -63,10 +63,12 @@ Lancée périodiquement, depuis l'interface (tout l'inventaire, ou un seul actif
 modification, ou sur demande), par l'API après un import SBOM, ou par `vigil sync`.
 
 1. `tracking.Syncer` liste les actifs : ceux qui ont un purl (ou écosystème + nom + version) vont
-   vers OSV ; ceux qui n'ont qu'un CPE vont vers la NVD.
+   vers OSV ; ceux qui n'ont qu'un CPE, ou qu'un nom, vont vers la NVD.
 2. OSV : une requête `querybatch` pour tout l'inventaire, puis téléchargement des seuls avis
-   nouveaux ou modifiés. NVD : requêtes par CPE limitées à la période de suivi, espacées selon la
-   limite de débit.
+   nouveaux ou modifiés ; un paquet aux avis trop nombreux pour une réponse est relu en entier (A55).
+   Certains paquets sont lus en entier d'emblée et comparés ici (A51, A56). NVD : requêtes par CPE
+   limitées à la période de suivi, espacées selon la limite de débit, renvoyées après une panne
+   passagère. Un actif qu'une source n'a pas pu vérifier est signalé et ne bloque pas les autres.
 3. Enrichissement : CVE croisées avec CISA KEV et EPSS, avant les findings (voir A31). Une panne
    de ces sources est journalisée sans faire échouer la synchronisation.
 4. `findings` : création si nouveau et dans la période de suivi de l'actif, réouverture si résolu
@@ -215,6 +217,65 @@ avant 22.7 : une CVE « avant 22.7 » touchait à tort Ivanti 22.7R2.3. Seuls le
 pré-version (alpha, beta, rc, dev, snapshot, preview…, et a, b, c, m suivis d'un nombre : 2.0a1,
 3.0-M1) restent en dessous ; les autres sont des mises à jour (22.7R2, 9.5p1 d'OpenSSH, 1.1.1w
 d'OpenSSL, 2.4.0-r1 d'Alpine). La comparaison ignore la casse.
+
+**A54. Tri par les titres de colonnes et filtres en listes, sans JavaScript.** Chaque titre de
+colonne est un lien (`?sort=…&dir=…`) qui garde les filtres et inverse l'ordre au second clic ;
+`aria-sort` et la feuille de style disent l'ordre courant. Le tri se fait en Go sur la liste chargée :
+elle n'est pas paginée, et un tri SQL ne saurait pas comparer des versions (A53), ni l'ordre des
+statuts et des criticités. Les valeurs absentes restent en fin de liste dans les deux sens. CVSS et EPSS
+deviennent des colonnes, ce qui remplace la liste « Tri » du formulaire. Sur téléphone, les titres
+restent visibles au-dessus des cartes. Dans l'inventaire, projets et étiquettes passent de rangées
+de liens, d'autant plus hautes que l'inventaire est varié, à deux listes déroulantes combinables ;
+sans JavaScript, elles demandent un clic sur « Filtrer ». Les raccourcis des vulnérabilités, en
+nombre fixe et d'un seul clic, restent des liens, sur la ligne des boutons du formulaire.
+
+**A55. Paquets de distribution : silence ou faux positifs, selon la façon de les interroger.** Le
+noyau d'une distribution n'était jamais détecté, et il a révélé des causes générales. D'abord,
+`querybatch` rend mille avis par requête, triés par identifiant, et le jeton de page suivante était
+ignoré : pour `linux` dans Debian (14 855 avis pour une version), la première page s'arrête à des CVE de
+2023, toutes hors de la période de suivi ; `chromium` dépasse aussi la limite. Suivre le jeton puis
+télécharger chaque avis demanderait près de 15 000 requêtes : quand une réponse a une suite, l'actif est
+relu par `/v1/query`, qui rend les avis entiers, et seuls ceux publiés dans la période de suivi ou
+exploités (KEV) sont stockés. La date de modification ne permet pas de les écarter plus tôt : presque
+tous ont été modifiés dans les 120 derniers jours. Une page pouvant dépasser 64 Mo, elle est lue avis
+par avis. Ensuite, OSV ne rend rien pour un purl Debian qui porte le qualificatif `distro`, présent sur
+tous les paquets des SBOM, et il ne connaît que les paquets sources (`openssl`, pas `libssl3`) : les
+qualificatifs sont retirés, `upstream` (Syft) et la propriété `SrcName` (Trivy) donnent le paquet
+source, et une petite table ramène les paquets binaires du noyau au leur, car `linux-signed-amd64` n'est
+pas plus connu d'OSV. Enfin, sans la version de la distribution, la version de l'actif est comparée aux
+avis de toutes les autres, où toute version de Debian 12 est inférieure au correctif de Debian 14. Sur
+120 jours, `linux` en donne 5 636 pour la 6.1.76-1 comme pour la 6.1.170-1, alors que `Debian:13` passe
+de 4 463 en 6.12.60-1 à 676 en 6.12.113-1. Alpine ne répond rien du tout sans elle. Le qualificatif
+`distro` devient donc l'écosystème de la version (`Debian:12`, `Ubuntu:22.04:LTS`, `Alpine:v3.18`) ; le
+formulaire propose ces écosystèmes, et la page d'un actif signale ceux qui n'en ont pas. Red Hat reste
+global : ses écosystèmes dépendent du dépôt (`Red Hat:enterprise_linux:9::baseos`). Le champ `upstream`
+des avis sert d'alias : c'est par lui que `DEBIAN-CVE-…` reçoit ses signaux KEV et EPSS.
+
+**A56. Le noyau Linux est un paquet comme un autre.** Une première version le traitait à part (noms
+reconnus, CPE détournés, NVD en complément), pour un seul produit et avec autant de cas à expliquer. Le
+modèle reste donc unique : `linux` dans `Debian:13`, `kernel` dans `AlmaLinux:9`, ou `Kernel` dans
+l'écosystème `Linux` pour le noyau officiel. Cet écosystème n'a qu'une particularité, exprimée de façon
+générale par `osv.ComparesVersions` : OSV y a les plages de kernel.org, par branche stable, mais ne les
+compare pas à la version demandée. Le paquet est alors lu en entier (31 000 avis, 150 Mo, moins de
+3 minutes), une fois par synchronisation quel que soit le nombre d'actifs, et comparé ici par le code
+qui sert déjà à `latest` (A51). *Conséquences* : un CPE `linux_kernel` ne voit que ce que la NVD a analysé
+(979 CVE sur 120 jours, contre 5 648 citant « Linux Kernel ») et un actif seulement nommé ainsi garde
+toutes celles sans analyse : le formulaire et le README orientent vers l'écosystème. Ce dernier ne couvre
+que ce que kernel.org a publié (pas CVE-2024-1086, exploitée, antérieure à son rôle d'autorité), que la
+voie par distribution voit. Sur le noyau officiel, les correctifs reportés par une distribution sont
+inconnus : le noyau d'une distribution doit rester un paquet de celle-ci.
+
+**A57. Avancement et échecs visibles.** Une synchronisation pouvait durer sans autre indication
+que son heure de début, et un actif qu'une source n'avait pas pu vérifier ne laissait qu'une ligne de
+journal : la NVD répond souvent 503 un moment, et une seule requête perdue sur les sept d'un actif
+suffisait. L'état indique désormais le nombre d'actifs vérifiés, ce qui est en cours et une barre
+(`<progress>`, aucun JavaScript) ; le tableau de bord et la page de suivi se rechargent seuls, mais
+pas l'inventaire ni les vulnérabilités, où cela ferait perdre une saisie. La NVD est réinterrogée après
+une panne passagère (10 puis 30 secondes), OSV aussi (5 puis 15 secondes), où un seul incident réseau
+sur la requête groupée faisait échouer toute la synchronisation. Les actifs non vérifiés sont comptés dans le résultat,
+avec la raison pour qui peut agir, et gardent leurs vulnérabilités. La limite d'une synchronisation
+lancée depuis l'interface passe de 15 minutes à 2 heures : sans clé NVD, une vingtaine d'actifs suivis
+par CPE ou par nom la dépassaient, et tout le résultat était perdu.
 
 **A13. Statuts CycloneDX / VEX.** Des statuts maison auraient été plus « parlants » mais non
 interopérables. Les états VEX (`in_triage`, `exploitable`, `resolved`, `not_affected` +

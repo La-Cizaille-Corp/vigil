@@ -71,3 +71,32 @@ func TestParseRefusesEmpty(t *testing.T) {
 		}
 	}
 }
+
+// Trivy gives the source package of a binary one as a property: advisories only
+// name the source package.
+func TestTrivySourcePackage(t *testing.T) {
+	doc, err := Parse(strings.NewReader(`{"bomFormat": "CycloneDX", "specVersion": "1.5", "components": [
+	  {"type": "library", "name": "libssl3", "version": "3.0.11-1", "purl": "pkg:deb/debian/libssl3@3.0.11-1?arch=amd64&distro=debian-12",
+	   "properties": [{"name": "aquasecurity:trivy:SrcName", "value": "openssl"}]},
+	  {"type": "library", "name": "curl", "version": "7.88.1", "purl": "pkg:deb/debian/curl@7.88.1",
+	   "properties": [{"name": "aquasecurity:trivy:SrcName", "value": "curl"}]},
+	  {"type": "library", "name": "libc6", "version": "2.36", "purl": "pkg:deb/debian/libc6@2.36?upstream=glibc",
+	   "properties": [{"name": "aquasecurity:trivy:SrcName", "value": "other"}]},
+	  {"type": "library", "name": "lodash", "version": "4.17.15", "purl": "pkg:npm/lodash@4.17.15",
+	   "properties": [{"name": "aquasecurity:trivy:PkgType", "value": "npm"}]}
+	]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"pkg:deb/debian/libssl3@3.0.11-1?arch=amd64&distro=debian-12&upstream=openssl",
+		"pkg:deb/debian/curl@7.88.1?upstream=curl",
+		"pkg:deb/debian/libc6@2.36?upstream=glibc",
+		"pkg:npm/lodash@4.17.15",
+	}
+	for i, a := range doc.Assets {
+		if a.PURL != want[i] {
+			t.Errorf("purl = %q, want %q", a.PURL, want[i])
+		}
+	}
+}

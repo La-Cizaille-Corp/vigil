@@ -101,6 +101,17 @@ func TestSyncPage(t *testing.T) {
 
 // The fixed version comes from the stored advisory; the range holding the
 // asset's version comes first.
+// The upstream kernel is a package like any other: its ranges from OSV.
+func TestFixLinesKernel(t *testing.T) {
+	lines := fixLines(`{"affected":[{"package":{"name":"Kernel","ecosystem":"Linux"},"ranges":[
+		{"type":"ECOSYSTEM","events":[{"introduced":"5.11.0"},{"fixed":"5.15.223"}]},
+		{"type":"ECOSYSTEM","events":[{"introduced":"6.7.0"},{"fixed":"6.12.113"}]}]}]}`,
+		store.Asset{Name: "Linux Kernel", Ecosystem: "Linux", Version: "6.8.1"})
+	if len(lines) != 2 || !lines[0].Yours || !strings.Contains(lines[0].Text, "6.12.113") || lines[1].Yours {
+		t.Errorf("lines = %+v", lines)
+	}
+}
+
 func TestFixLines(t *testing.T) {
 	osvRaw := `{"affected":[{"package":{"purl":"pkg:maven/org.apache.logging.log4j/log4j-core"},"ranges":[
 		{"type":"ECOSYSTEM","events":[{"introduced":"2.4"},{"fixed":"2.12.2"}]},
