@@ -4,6 +4,7 @@ package notify
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -43,6 +44,8 @@ var AlertOptions = []inventory.Option{
 const (
 	// maxText keeps messages below the limits of chat platforms.
 	maxText = 30000
+	// maxTeamsText keeps a card below the 28 KB of a Teams message.
+	maxTeamsText = 20000
 	// maxAlertLines bounds the findings listed in one alert.
 	maxAlertLines = 15
 )
@@ -263,9 +266,14 @@ func (n *Notifier) send(ctx context.Context, h store.Webhook, m message) error {
 		}
 		return n.Mail.Send(ctx, to, m.Subject, m.Text)
 	}
-	var payload any = m.Event
-	if h.Kind != "generic" {
-		// Slack, Mattermost and Teams accept a Markdown "text" field on incoming webhooks.
+	var payload any
+	switch h.Kind {
+	case "generic":
+		payload = m.Event
+	case "teams":
+		payload = teamsCard(m.Text)
+	default:
+		// Slack and Mattermost accept a Markdown "text" field on incoming webhooks.
 		payload = map[string]string{"text": truncate(m.Text, maxText)}
 	}
 	body, err := json.Marshal(payload)
@@ -288,11 +296,77 @@ func (n *Notifier) send(ctx context.Context, h store.Webhook, m message) error {
 		return err
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10)) // drain for connection reuse
+	reply, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10)) // also drains for connection reuse
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return fmt.Errorf("réponse HTTP %d", resp.StatusCode)
+		return refusal(h, resp.StatusCode, reply)
 	}
 	return nil
+}
+
+// SendTest sends a short message to a channel, enabled or not, and records the
+// result, to check its settings without waiting for an alert.
+func (n *Notifier) SendTest(ctx context.Context, h store.Webhook) error {
+	sendErr := n.send(ctx, h, message{
+		Subject: "[Vigil] Test du canal",
+		Text:    "**Vigil** : message de test du canal « " + chattext.Text(h.Name) + " ».",
+		Event:   map[string]any{"event": "test"},
+	})
+	if err := n.Store.RecordWebhookResult(ctx, h.ID, sendErr); err != nil {
+		return err
+	}
+	return sendErr
+}
+
+// teamsCard is a message as the workflows of Teams expect it: an Adaptive Card.
+// The incoming webhooks of the former connectors take it too.
+func teamsCard(text string) map[string]any {
+	return map[string]any{"type": "message", "attachments": []map[string]any{{
+		"contentType": "application/vnd.microsoft.card.adaptive",
+		"content": map[string]any{
+			"$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+			"type":    "AdaptiveCard",
+			"version": "1.4",
+			"msteams": map[string]string{"width": "Full"},
+			"body":    []map[string]any{{"type": "TextBlock", "text": truncate(text, maxTeamsText), "wrap": true}},
+		},
+	}}}
+}
+
+// refusal says why a channel refused a message: its status, the reason it gives
+// and, for Teams, what to change: it answers 401 without a word when the
+// workflow does not accept anonymous calls or its address is no longer valid.
+func refusal(h store.Webhook, status int, reply []byte) error {
+	msg := fmt.Sprintf("réponse HTTP %d", status)
+	if reason := replyReason(reply); reason != "" {
+		msg += " (" + reason + ")"
+	}
+	if h.Kind == "teams" && status == http.StatusUnauthorized {
+		msg += " : dans le workflow Teams, réglez « Qui peut déclencher le flux » sur « Tout le monde », puis copiez sa nouvelle URL" +
+			" (les adresses logic.azure.com ne sont plus valides)"
+	}
+	return errors.New(msg)
+}
+
+// replyReason extracts the reason of a refusal: the code and message of a JSON
+// answer, or a short plain text. SECURITY: anything quoting an address is left
+// out, as it could hold the secret of the webhook.
+func replyReason(reply []byte) string {
+	var doc struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+		Error   struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	text := strings.TrimSpace(string(reply))
+	if json.Unmarshal(reply, &doc) == nil {
+		text = strings.TrimSpace(cmp.Or(doc.Error.Code, doc.Code) + " " + cmp.Or(doc.Error.Message, doc.Message))
+	}
+	if text == "" || strings.ContainsAny(text, "<>\n") || strings.Contains(text, "://") || strings.Contains(text, "sig=") {
+		return ""
+	}
+	return truncate(text, 200)
 }
 
 func truncate(s string, n int) string {

@@ -1,7 +1,13 @@
 package cti
 
 import (
+	"context"
 	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -118,5 +124,60 @@ func TestParseLimits(t *testing.T) {
 		if it.GUID == "future" && it.Link != "" {
 			t.Error("oversized link kept")
 		}
+	}
+}
+
+// The feeds are collected as often as the setting says, read each time.
+func TestRunIfDue(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "cti.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	feeds, _ := st.ListFeeds(ctx)
+	for _, f := range feeds {
+		if err := st.DeleteFeed(ctx, f.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Write([]byte(`<rss><channel></channel></rss>`))
+	}))
+	defer srv.Close()
+	if _, err := st.CreateFeed(ctx, store.Feed{Name: "x", URL: srv.URL, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	c := &Collector{Store: st, HTTP: srv.Client(), Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+
+	if n, _ := NewsPerDay(ctx, st); n != DefaultNewsPerDay {
+		t.Errorf("default frequency = %d", n)
+	}
+	st.SetSetting(ctx, SettingNewsPerDay, "3")
+	if n, _ := NewsPerDay(ctx, st); n != DefaultNewsPerDay {
+		t.Errorf("unknown frequency = %d", n)
+	}
+	st.SetSetting(ctx, SettingNewsPerDay, "0")
+	c.RunIfDue(ctx)
+	if calls != 0 {
+		t.Errorf("collected on demand only: %d calls", calls)
+	}
+	st.SetSetting(ctx, SettingNewsPerDay, "24")
+	c.RunIfDue(ctx) // never collected yet
+	c.RunIfDue(ctx) // the hour has not passed
+	if calls != 1 {
+		t.Errorf("once an hour: %d calls", calls)
+	}
+	c.last = time.Now().Add(-61 * time.Minute)
+	c.RunIfDue(ctx)
+	if calls != 2 {
+		t.Errorf("after an hour: %d calls", calls)
+	}
+	st.SetSetting(ctx, SettingNewsPerDay, "1") // lowered: the day has not passed
+	c.RunIfDue(ctx)
+	if calls != 2 {
+		t.Errorf("once a day: %d calls", calls)
 	}
 }

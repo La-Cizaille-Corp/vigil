@@ -133,3 +133,39 @@ func TestRetiredComponentsKeepHistory(t *testing.T) {
 		t.Error("b still retired")
 	}
 }
+
+// An article published in two feeds is kept once; items without a link are not
+// compared.
+func TestSameArticleInTwoFeeds(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(ctx, filepath.Join(t.TempDir(), "s.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	first, _ := st.CreateFeed(ctx, Feed{Name: "a", URL: "https://a.example/feed", Enabled: true})
+	second, _ := st.CreateFeed(ctx, Feed{Name: "b", URL: "https://b.example/feed", Enabled: true})
+	insert := func(feed int64, guid, link string) bool {
+		t.Helper()
+		created, err := st.InsertCTIItem(ctx, feed, CTIItem{GUID: guid, Title: guid, Link: link, Published: time.Now()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return created
+	}
+	if !insert(first, "1", "https://site.example/article") {
+		t.Error("first copy refused")
+	}
+	if insert(second, "other-guid", "https://site.example/article") {
+		t.Error("the same article was kept twice")
+	}
+	if !insert(second, "2", "https://site.example/other") {
+		t.Error("another article refused")
+	}
+	if !insert(first, "3", "") || !insert(second, "4", "") {
+		t.Error("items without a link must not be compared")
+	}
+	if insert(first, "1", "https://site.example/article") {
+		t.Error("the same item was kept twice")
+	}
+}

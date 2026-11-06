@@ -82,7 +82,7 @@ tourne au démarrage puis toutes les 6 heures.
 
 | Commande | Rôle |
 |---|---|
-| `vigil serve` | Interface web, synchronisation (`-sync-interval 6h`) et digest automatiques (`-digest-interval 24h`) |
+| `vigil serve` | Interface web, synchronisation des vulnérabilités (`-sync-interval 6h`), collecte des flux (fréquence dans Paramètres, 4 fois par jour par défaut) et digest automatiques (`-digest-interval 24h`) |
 | `vigil sync` | Synchronisation ponctuelle : OSV, KEV, EPSS, flux CTI |
 | `vigil digest` | Génère un digest, l'affiche en Markdown et l'envoie aux webhooks (`-no-webhooks` pour ne pas l'envoyer) |
 | `vigil import-sbom -project app sbom.json` | Importe ou met à jour les composants d'un projet |

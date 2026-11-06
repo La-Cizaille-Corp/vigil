@@ -37,7 +37,7 @@ func TestSendDigest(t *testing.T) {
 	for _, h := range []store.Webhook{
 		{Digests: true, Name: "chat", Kind: "slack", URL: srv.URL + "/slack-SECRET", Enabled: true},
 		{Digests: true, Name: "siem", Kind: "generic", URL: srv.URL + "/generic-SECRET", Enabled: true},
-		{Digests: true, Name: "down", Kind: "teams", URL: srv.URL + "/broken-SECRET", Enabled: true},
+		{Digests: true, Name: "down", Kind: "mattermost", URL: srv.URL + "/broken-SECRET", Enabled: true},
 		{Digests: true, Name: "off", Kind: "slack", URL: srv.URL + "/off-SECRET", Enabled: false},
 	} {
 		if _, err := st.CreateWebhook(ctx, h); err != nil {
@@ -121,5 +121,105 @@ func TestAlertNeutralisesMarkup(t *testing.T) {
 		if strings.Contains(m.Text, bad) {
 			t.Errorf("%q survives in %q", bad, m.Text)
 		}
+	}
+}
+
+// Teams gets an Adaptive Card, at the address exactly as it was given: its
+// signature is checked on the query string.
+func TestTeamsCard(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "n.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	var query string
+	var body struct {
+		Type        string `json:"type"`
+		Attachments []struct {
+			ContentType string `json:"contentType"`
+			Content     struct {
+				Type string `json:"type"`
+				Body []struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+					Wrap bool   `json:"wrap"`
+				} `json:"body"`
+			} `json:"content"`
+		} `json:"attachments"`
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query = r.URL.RawQuery
+		json.NewDecoder(r.Body).Decode(&body)
+	}))
+	defer srv.Close()
+	const signed = "api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=a%2Bb-c_d"
+	h := store.Webhook{Name: "Équipe", Kind: "teams", URL: srv.URL + "/workflows/1/invoke?" + signed, Enabled: true}
+	if h.ID, err = st.CreateWebhook(ctx, h); err != nil {
+		t.Fatal(err)
+	}
+	n := &Notifier{Store: st, HTTP: srv.Client(), UserAgent: "test", Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	if err := n.SendTest(ctx, h); err != nil {
+		t.Fatal(err)
+	}
+	if query != signed {
+		t.Errorf("query = %q, want %q", query, signed)
+	}
+	if body.Type != "message" || len(body.Attachments) != 1 || body.Attachments[0].ContentType != "application/vnd.microsoft.card.adaptive" {
+		t.Fatalf("message = %+v", body)
+	}
+	card := body.Attachments[0].Content
+	if card.Type != "AdaptiveCard" || len(card.Body) != 1 || !card.Body[0].Wrap || !strings.Contains(card.Body[0].Text, "test du canal") {
+		t.Errorf("card = %+v", card)
+	}
+	if got := teamsCard(strings.Repeat("é", 40000)); len(mustJSON(t, got)) > 28<<10 {
+		t.Errorf("a long card is %d bytes", len(mustJSON(t, got)))
+	}
+}
+
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func TestRefusal(t *testing.T) {
+	teams := store.Webhook{Kind: "teams"}
+	cases := []struct {
+		name   string
+		h      store.Webhook
+		status int
+		reply  string
+		want   []string
+		absent []string
+	}{
+		{"Teams, silent", teams, 401, "", []string{"réponse HTTP 401", "Tout le monde", "logic.azure.com"}, nil},
+		{"Teams, a reason", teams, 401, `{"error":{"code":"DirectApiAuthorizationRequired","message":"The request must be authenticated."}}`,
+			[]string{"DirectApiAuthorizationRequired", "must be authenticated", "Tout le monde"}, nil},
+		{"Teams, another refusal", teams, 400, `{"code":"InvalidRequestContent","message":"Bad body."}`, []string{"InvalidRequestContent", "Bad body."}, []string{"Tout le monde"}},
+		{"Slack", store.Webhook{Kind: "slack"}, 400, "invalid_payload", []string{"réponse HTTP 400 (invalid_payload)"}, []string{"Tout le monde"}},
+		{"another channel, 401", store.Webhook{Kind: "slack"}, 401, "", []string{"réponse HTTP 401"}, []string{"Tout le monde"}},
+		{"an HTML page", store.Webhook{Kind: "generic"}, 502, "<html>Bad Gateway</html>", []string{"réponse HTTP 502"}, []string{"html", "("}},
+		{"an address", store.Webhook{Kind: "generic"}, 403, `{"message":"denied for https://hooks.example/SECRET"}`, []string{"réponse HTTP 403"}, []string{"SECRET"}},
+		{"a signature", store.Webhook{Kind: "generic"}, 403, `sig=SECRET is wrong`, []string{"réponse HTTP 403"}, []string{"SECRET"}},
+	}
+	for _, c := range cases {
+		got := refusal(c.h, c.status, []byte(c.reply)).Error()
+		for _, want := range c.want {
+			if !strings.Contains(got, want) {
+				t.Errorf("%s: %q misses %q", c.name, got, want)
+			}
+		}
+		for _, absent := range c.absent {
+			if strings.Contains(got, absent) {
+				t.Errorf("%s: %q holds %q", c.name, got, absent)
+			}
+		}
+	}
+	if long := refusal(store.Webhook{}, 400, []byte(strings.Repeat("x", 5000))).Error(); len(long) > 300 {
+		t.Errorf("long reason: %d bytes", len(long))
 	}
 }

@@ -253,6 +253,23 @@ en mémoire, car il ne concerne que le processus en cours. Ajouter, modifier ou 
 actif lance son analyse seule ; si une synchronisation est en cours, l'analyse attend qu'elle
 finisse au lieu d'être perdue.
 
+**A58. Fréquence de collecte des flux, réglable dans l'interface.** Les actualités suivaient
+`-sync-interval`, avec les vulnérabilités : 4 collectes par jour par défaut, et changer l'une changeait
+l'autre, en redémarrant le service. La fréquence devient un réglage (à la demande, 1 à 24 fois par
+jour), relu chaque minute, et que chaque responsable peut changer sans accès au serveur. `-sync-interval 0`
+coupe toujours les deux : c'est le moyen de ne rien appeler seul. Le flux « vulnérabilités » de The
+Hacker News rejoint les flux par défaut ; ses articles figurant aussi dans le flux général du site,
+un article déjà présent sous la même adresse n'est pas repris par un autre flux.
+
+**A59. Teams : carte adaptative, et raison des refus.** Les connecteurs de Microsoft ont cédé la place
+aux workflows, qui attendent une carte adaptative plutôt que le champ `text` commun à Slack et
+Mattermost : Teams a donc son format. Un 401 systématique vient de leur côté : le workflow n'accepte
+pas les appels anonymes (« Qui peut déclencher le flux »), or un webhook n'a que la signature de son URL ;
+ou son adresse n'est plus valide (`logic.azure.com`, retirée fin 2025). Microsoft répond 401 sans
+explication selon les cas : l'état du canal donne donc le code et le message de la réponse quand il y en
+a, ce qu'il faut régler pour Teams, et le bouton « Envoyer un test » évite d'attendre une alerte pour
+vérifier. Rien de ce qui cite une adresse n'est repris d'une réponse : elle pourrait contenir le secret.
+
 **A15. Priorisation KEV > EPSS > sévérité, plutôt que CVSS seul.** Le CVSS mesure la gravité
 théorique, pas la probabilité d'exploitation. Exploitation avérée (KEV) d'abord, puis probabilité
 EPSS ≥ 10 %, puis sévérité. Le score CVSS reste affiché et filtrable.
@@ -297,7 +314,7 @@ défaut) et sont réappliquées aux actualités déjà collectées.
 
 **A19. Digest « depuis le précédent ».** Une fenêtre fixe (7 jours) ferait manquer ou répéter
 des éléments selon la fréquence de génération. Formats : Markdown (webhooks, export) et HTML
-(interface). Webhooks au format le plus simple commun à Slack, Mattermost et Teams (champ
+(interface). Webhooks au format le plus simple commun à Slack et Mattermost (A59 pour Teams ; champ
 `text`), plus un JSON générique pour les intégrations.
 
 ### Sécurité
