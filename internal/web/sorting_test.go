@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"net/url"
 	"regexp"
 	"slices"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/La-Cizaille-Corp/vigil/internal/auth"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
 )
@@ -176,5 +178,129 @@ func TestSyncProgressText(t *testing.T) {
 	}
 	if got := render(done, false); !strings.Contains(got, "2 actif(s) non vérifié(s)") || strings.Contains(got, "HTTP 503") {
 		t.Errorf("failures for a reader: %s", got)
+	}
+}
+
+// The four levels classify the list; their counts follow its filters, not the
+// level chosen, and the links keep the filters and the order.
+func TestFindingLevels(t *testing.T) {
+	st, base := newServerWith(t, nil)
+	assetID, ids := seedFindings(t, st) // critical, high, low
+	ctx := context.Background()
+	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-2024-0004", Severity: "LOW", EPSS: -1, CVSS: 2})
+	st.ObserveFinding(ctx, assetID, "CVE-2024-0004", time.Now())
+	st.SetExploitSignals(ctx, "CVE-2024-0004", true, "", 0.5)
+	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-2024-0005", EPSS: -1, CVSS: -1})
+	st.ObserveFinding(ctx, assetID, "CVE-2024-0005", time.Now())
+	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-2024-0006", Severity: "HIGH", EPSS: -1, CVSS: 8})
+	st.ObserveFinding(ctx, assetID, "CVE-2024-0006", time.Now())
+	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-2024-0007", Severity: "HIGH", EPSS: -1, CVSS: 8})
+	st.ObserveFinding(ctx, assetID, "CVE-2024-0007", time.Now())
+	list, _ := st.ListFindings(ctx, store.FindingFilter{})
+	for _, f := range list {
+		switch f.VulnID {
+		case "CVE-2024-0006":
+			st.SetFindingStatus(ctx, f.ID, 0, "false_positive", "", "")
+		case "CVE-2024-0007":
+			st.SetFindingStatus(ctx, f.ID, 0, "resolved", "", "")
+		}
+	}
+	_ = ids
+	c := loginAs(t, base, "analyst", "a-strong-password")
+
+	for level, want := range map[string][]string{
+		"urgent": {"CVE-2024-0004"},
+		"plan":   {"CVE-2024-0001", "CVE-2024-0002"},
+		"watch":  {"CVE-2024-0003", "CVE-2024-0005"},
+		"aside":  {"CVE-2024-0006"},
+	} {
+		_, body := c.get("/findings?sort=vuln&level=" + level)
+		if got := findingOrder(body); !slices.Equal(got, want) {
+			t.Errorf("level %s: %v, want %v", level, got, want)
+		}
+	}
+	_, body := c.get("/findings?sort=vuln&level=nope")
+	if got := findingOrder(body); len(got) != 7 {
+		t.Errorf("unknown level: %v", got)
+	}
+
+	_, body = c.get("/findings?level=plan&sort=vuln&q=CVE-2024")
+	for _, want := range []string{
+		`<a href="/findings?level=urgent&amp;q=CVE-2024&amp;sort=vuln" >Urgentes <small>1</small></a>`,
+		`<a href="/findings?level=plan&amp;q=CVE-2024&amp;sort=vuln" class="active" aria-current="true">À planifier <small>2</small></a>`,
+		`À surveiller <small>2</small>`, `Écartées <small>1</small>`,
+		`<a href="/findings?q=CVE-2024&amp;sort=vuln" >Toutes <small>7</small></a>`,
+		`name="level" value="plan"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page misses %s", want)
+		}
+	}
+	if code, csv := c.get("/findings.csv?level=urgent"); code != 200 || strings.Count(csv, "\n") != 2 || !strings.Contains(csv, "CVE-2024-0004") {
+		t.Errorf("CSV of a level: %d\n%s", code, csv)
+	}
+}
+
+// From a search on an asset to a rule, and back.
+func TestDismissalFlow(t *testing.T) {
+	st, base := newServerWith(t, nil)
+	ctx := context.Background()
+	asset, _ := st.CreateAsset(ctx, store.Asset{Name: "linux", Kind: "os", Criticality: "high", Source: "manual"})
+	for id, summary := range map[string]string{"CVE-1": "wifi: fix", "CVE-2": "wifi: other", "CVE-3": "ipv4: fix"} {
+		st.UpsertVulnerability(ctx, store.Vulnerability{ID: id, Summary: summary, EPSS: -1, CVSS: -1})
+		st.ObserveFinding(ctx, asset, id, time.Now())
+	}
+	page := "/assets/" + strconv.FormatInt(asset, 10)
+	c := loginAs(t, base, "analyst", "a-strong-password")
+
+	_, body := c.get(page + "?q=wifi:")
+	if got := findingOrder(body); len(got) != 2 {
+		t.Errorf("search: %v", got)
+	}
+	if !strings.Contains(body, "Écarter tout ce qui correspond") || !strings.Contains(body, `name="text" value="wifi:"`) {
+		t.Errorf("no way to set them aside:\n%s", body)
+	}
+	if _, body := c.get(page); strings.Contains(body, "Écarter tout ce qui correspond") {
+		t.Error("offered without a search")
+	}
+	for _, short := range []string{"", "ab", strings.Repeat("x", 101)} {
+		if code := c.post(page+"/dismissals", url.Values{"csrf": {c.csrf()}, "text": {short}}); code != 400 {
+			t.Errorf("text %q: %d", short, code)
+		}
+	}
+	code, loc := c.postLocation(page+"/dismissals", url.Values{"csrf": {c.csrf()}, "text": {"wifi:"}})
+	if code != 303 || !strings.Contains(loc, "msg=rule-created") {
+		t.Fatalf("create: %d %s", code, loc)
+	}
+	_, body = c.get(page)
+	if !strings.Contains(body, "<code>wifi:</code>") || !strings.Contains(body, "2 écartée(s)") {
+		t.Errorf("rule not shown:\n%s", body)
+	}
+	_, body = c.get("/findings?level=aside&sort=vuln")
+	if got := findingOrder(body); !slices.Equal(got, []string{"CVE-1", "CVE-2"}) {
+		t.Errorf("set aside: %v", got)
+	}
+
+	hash, _ := auth.HashPassword("a-strong-password")
+	st.CreateUser(ctx, "lecteur", hash, auth.RoleViewer)
+	viewer := loginAs(t, base, "lecteur", "a-strong-password")
+	if code := viewer.post(page+"/dismissals", url.Values{"csrf": {viewer.csrf()}, "text": {"ipv4:"}}); code != 403 {
+		t.Errorf("a reader created a rule: %d", code)
+	}
+	if _, body := viewer.get(page + "?q=wifi:"); strings.Contains(body, "Écarter tout") || strings.Contains(body, "Supprimer la règle") || !strings.Contains(body, "<code>wifi:</code>") {
+		t.Errorf("reader's view:\n%s", body)
+	}
+
+	rules, _ := st.DismissalRules(ctx, asset)
+	rule := page + "/dismissals/" + strconv.FormatInt(rules[0].ID, 10) + "/delete"
+	if code := c.post(page+"/dismissals/999/delete", url.Values{"csrf": {c.csrf()}}); code != 404 {
+		t.Errorf("unknown rule: %d", code)
+	}
+	if code, loc := c.postLocation(rule, url.Values{"csrf": {c.csrf()}}); code != 303 || !strings.Contains(loc, "msg=rule-deleted") {
+		t.Fatalf("delete: %d %s", code, loc)
+	}
+	_, body = c.get("/findings?level=aside")
+	if got := findingOrder(body); len(got) != 0 {
+		t.Errorf("still set aside: %v", got)
 	}
 }

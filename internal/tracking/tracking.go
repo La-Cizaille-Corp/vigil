@@ -86,6 +86,8 @@ type Result struct {
 	Resolved int // auto-resolved findings
 	Skipped  int // vulnerabilities published before the tracked period of their asset
 	Failed   int // assets a source could not check: left as they were
+	// Dismissed counts the findings set aside by a dismissal rule.
+	Dismissed int
 }
 
 // Status describes the running or last synchronisation, for the UI.
@@ -316,7 +318,10 @@ func (s *Syncer) scan(ctx context.Context, assets []store.Asset) (Result, error)
 			return res, err
 		}
 	}
-	return res, nil
+	// Before the alerts: what is set aside must not be notified.
+	var err error
+	res.Dismissed, err = s.Store.ApplyDismissalRules(ctx)
+	return res, err
 }
 
 // working tells what the run is doing, for the UI.
@@ -403,8 +408,11 @@ const kernelPreamble = "In the Linux kernel, the following vulnerability has bee
 func brief(description string) string {
 	text, kernel := strings.CutPrefix(strings.TrimSpace(description), kernelPreamble)
 	text = strings.TrimSpace(text)
-	if kernel {
+	if kernel { // its title ends with the line, or with two spaces in the records of Debian
 		if i := strings.IndexAny(text, "\r\n"); i > 0 {
+			text = text[:i]
+		}
+		if i := strings.Index(text, "  "); i > 0 {
 			text = text[:i]
 		}
 	}

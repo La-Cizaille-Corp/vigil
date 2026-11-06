@@ -53,7 +53,8 @@ func TestLargePackage(t *testing.T) {
 			if body.PageToken == "" {
 				io.WriteString(w, `{"vulns":[
 					{"id":"DEBIAN-CVE-2004-0230","published":"2004-05-01T00:00:00Z","modified":"2026-01-01T00:00:00Z","upstream":["CVE-2004-0230"]},
-					{"id":"DEBIAN-CVE-2021-0001","published":"2021-05-01T00:00:00Z","modified":"2026-01-01T00:00:00Z","upstream":["CVE-2021-22555"]}
+					{"id":"DEBIAN-CVE-2021-0001","published":"2021-05-01T00:00:00Z","modified":"2026-01-01T00:00:00Z","upstream":["CVE-2021-22555"],
+					 "details":"In the Linux kernel, the following vulnerability has been resolved:  wifi: mt76: add a check  Since mt76 does this."}
 				],"next_page_token":"p2"}`)
 				return
 			}
@@ -99,6 +100,8 @@ func TestLargePackage(t *testing.T) {
 	}
 	if v, _ := st.Vulnerability(ctx, "DEBIAN-CVE-2021-0001"); !v.KEV {
 		t.Error("the upstream CVE must bring the KEV flag")
+	} else if v.Summary != "wifi: mt76: add a check" {
+		t.Errorf("summary of a Debian record: %q", v.Summary)
 	}
 	if a, _ := st.Asset(ctx, id); a.OlderVulns != 1 {
 		t.Errorf("older vulnerabilities = %d, want 1", a.OlderVulns)
@@ -277,5 +280,48 @@ func TestVersionsComparedHere(t *testing.T) {
 	}
 	if a, _ := st.Asset(ctx, recent); a.OlderVulns != 1 {
 		t.Errorf("older vulnerabilities = %d, want 1", a.OlderVulns)
+	}
+}
+
+// A dismissal rule applies to the findings of a sync, and before the alerts.
+func TestDismissalRuleAtSync(t *testing.T) {
+	ctx := context.Background()
+	st := openStore(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"vulns":[
+			{"id":"CVE-2026-1","summary":"wifi: fix","published":"2026-10-01T00:00:00Z","modified":"2026-10-02T00:00:00Z","affected":[{"package":{"name":"Kernel","ecosystem":"Linux"},"ranges":[{"type":"ECOSYSTEM","events":[{"introduced":"6.0.0"}]}]}]},
+			{"id":"CVE-2026-2","summary":"ipv4: fix","published":"2026-10-01T00:00:00Z","modified":"2026-10-02T00:00:00Z","affected":[{"package":{"name":"Kernel","ecosystem":"Linux"},"ranges":[{"type":"ECOSYSTEM","events":[{"introduced":"6.0.0"}]}]}]}]}`)
+	}))
+	defer srv.Close()
+	client := osv.New("vigil-test")
+	client.BaseURL = srv.URL
+	var atAlert []store.Finding
+	syncer := &tracking.Syncer{Store: st, OSV: client, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	syncer.Alert = func(ctx context.Context) error {
+		atAlert, _ = st.ListFindings(ctx, store.FindingFilter{Status: "in_triage"})
+		return nil
+	}
+	id, err := st.CreateAsset(ctx, store.Asset{Name: "Kernel", Ecosystem: "Linux", Version: "6.8.1", Kind: "os", Criticality: "high", Source: "manual"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateDismissalRule(ctx, id, "wifi:"); err != nil {
+		t.Fatal(err)
+	}
+	res, err := syncer.Run(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Created != 2 || res.Dismissed != 1 {
+		t.Errorf("result = %+v", res)
+	}
+	findings, _ := st.ListFindings(ctx, store.FindingFilter{AssetID: id})
+	for _, f := range findings {
+		if want := map[string]string{"CVE-2026-1": "not_affected", "CVE-2026-2": "in_triage"}[f.VulnID]; f.Status != want {
+			t.Errorf("%s: %s, want %s", f.VulnID, f.Status, want)
+		}
+	}
+	if len(atAlert) != 1 || atAlert[0].VulnID != "CVE-2026-2" {
+		t.Errorf("to analyse when the alerts are sent: %+v", atAlert)
 	}
 }

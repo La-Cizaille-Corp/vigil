@@ -109,6 +109,8 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.Handle("POST /assets/{id}/delete", s.require(auth.RoleAnalyst, s.assetDelete))
 	mux.Handle("POST /assets/{id}/scan", s.require(auth.RoleAnalyst, s.assetScan))
 	mux.Handle("POST /assets/{id}/full-history", s.require(auth.RoleAnalyst, s.assetFullHistory))
+	mux.Handle("POST /assets/{id}/dismissals", s.require(auth.RoleAnalyst, s.dismissalCreate))
+	mux.Handle("POST /assets/{id}/dismissals/{rule}/delete", s.require(auth.RoleAnalyst, s.dismissalDelete))
 	mux.Handle("GET /findings", s.require(auth.RoleViewer, s.findingList))
 	mux.Handle("GET /findings.csv", s.require(auth.RoleViewer, s.findingCSV))
 	mux.Handle("POST /findings/bulk", s.require(auth.RoleAnalyst, s.findingBulk))
@@ -303,6 +305,8 @@ var flashes = map[string]string{ // #nosec G101 -- message keys, not credentials
 	"feed-disabled":     "Flux désactivé.",
 	"feed-deleted":      "Flux supprimé.",
 	"hook-created":      "Canal de notification ajouté.",
+	"rule-created":      "Règle enregistrée : ces vulnérabilités sont écartées, les prochaines aussi.",
+	"rule-deleted":      "Règle supprimée : ses vulnérabilités sont de nouveau à analyser.",
 	"hook-test-sent":    "Message de test envoyé : vérifiez qu'il est bien arrivé.",
 	"hook-test-failed":  "Le message de test a échoué : la raison figure dans l'état du canal.",
 	"news-updated":      "Fréquence de collecte des flux enregistrée.",

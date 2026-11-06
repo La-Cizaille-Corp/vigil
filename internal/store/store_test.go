@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -167,5 +169,114 @@ func TestSameArticleInTwoFeeds(t *testing.T) {
 	}
 	if insert(first, "1", "https://site.example/article") {
 		t.Error("the same item was kept twice")
+	}
+}
+
+func TestDismissalRules(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(ctx, filepath.Join(t.TempDir(), "s.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	asset, _ := st.CreateAsset(ctx, Asset{Name: "linux", Kind: "os", Criticality: "high", Source: "manual"})
+	other, _ := st.CreateAsset(ctx, Asset{Name: "autre", Kind: "os", Criticality: "high", Source: "manual"})
+	user, _ := st.CreateUser(ctx, "ana", "x", "analyst")
+	add := func(a int64, id, summary string) int64 {
+		t.Helper()
+		st.UpsertVulnerability(ctx, Vulnerability{ID: id, Summary: summary, EPSS: -1, CVSS: -1})
+		if _, err := st.ObserveFinding(ctx, a, id, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		list, _ := st.ListFindings(ctx, FindingFilter{AssetID: a})
+		for _, f := range list {
+			if f.VulnID == id {
+				return f.ID
+			}
+		}
+		t.Fatalf("no finding for %s", id)
+		return 0
+	}
+	state := func(id int64) string {
+		t.Helper()
+		f, err := st.Finding(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return f.Status
+	}
+	wifi := add(asset, "CVE-1", "wifi: fix a leak")
+	wifiUpper := add(asset, "CVE-2", "WiFi: another one")
+	ipv4 := add(asset, "CVE-3", "ipv4: validate")
+	elsewhere := add(other, "CVE-4", "wifi: on another asset")
+	exploited := add(asset, "CVE-5", "wifi: exploited")
+	st.SetExploitSignals(ctx, "CVE-5", true, "", 0.5)
+	decided := add(asset, "CVE-6", "wifi: analysed by someone")
+	st.SetFindingStatus(ctx, decided, user, "exploitable", "", "à traiter")
+	reset := add(asset, "CVE-7", "wifi: put back by someone")
+	st.SetFindingStatus(ctx, reset, user, "in_triage", "", "")
+
+	// What a rule would set aside is what the preview lists.
+	preview, _ := st.ListFindings(ctx, FindingFilter{AssetID: asset, Matching: "WIFI:"})
+	if len(preview) != 5 {
+		t.Errorf("preview: %d findings", len(preview))
+	}
+	if err := st.CreateDismissalRule(ctx, asset, "wifi:"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateDismissalRule(ctx, asset, "wifi:"); err != nil {
+		t.Errorf("the same rule again: %v", err)
+	}
+	for id, want := range map[int64]string{wifi: "not_affected", wifiUpper: "not_affected", ipv4: "in_triage", elsewhere: "in_triage",
+		exploited: "in_triage", decided: "exploitable", reset: "in_triage"} {
+		if got := state(id); got != want {
+			t.Errorf("finding %d: %s, want %s", id, got, want)
+		}
+	}
+	f, _ := st.Finding(ctx, wifi)
+	if f.Justification != "code_not_present" || !strings.Contains(f.Comment, "wifi:") {
+		t.Errorf("set aside: %+v", f)
+	}
+	if events, _ := st.FindingEvents(ctx, wifi); len(events) == 0 || events[len(events)-1].NewStatus != "not_affected" {
+		t.Errorf("history: %+v", events)
+	}
+
+	// The next ones too, at the next sync.
+	next := add(asset, "CVE-8", "wifi: a new one")
+	if n, err := st.ApplyDismissalRules(ctx); err != nil || n != 1 || state(next) != "not_affected" {
+		t.Errorf("next one: %d, %v, %s", n, err, state(next))
+	}
+	rules, _ := st.DismissalRules(ctx, asset)
+	if len(rules) != 1 || rules[0].Text != "wifi:" || rules[0].Findings != 3 {
+		t.Fatalf("rules: %+v", rules)
+	}
+
+	// Known to be exploited later: back to analyse, and not set aside again.
+	st.SetExploitSignals(ctx, "CVE-2", true, "", 0.5)
+	if _, err := st.ApplyDismissalRules(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := state(wifiUpper); got != "in_triage" {
+		t.Errorf("exploited later: %s", got)
+	}
+
+	// A decision taken by someone is theirs: the rule no longer touches it.
+	st.SetFindingStatus(ctx, next, user, "exploitable", "", "finalement si")
+
+	if err := st.DeleteDismissalRule(ctx, other, rules[0].ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("rule of another asset: %v", err)
+	}
+	if err := st.DeleteDismissalRule(ctx, asset, rules[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	f, _ = st.Finding(ctx, wifi)
+	if f.Status != "in_triage" || f.Justification != "" || f.Comment != "" {
+		t.Errorf("restored: %+v", f)
+	}
+	if got := state(next); got != "exploitable" {
+		t.Errorf("a decision was undone: %s", got)
+	}
+	if rules, _ := st.DismissalRules(ctx, asset); len(rules) != 0 {
+		t.Errorf("rules left: %+v", rules)
 	}
 }

@@ -51,7 +51,7 @@
   <a href="/sync">suivre l'avancement</a>.
 {{- else if not .Finished.IsZero -}}
   Dernière synchronisation{{with .Asset}} (actif {{.}}){{end}} le {{date .Finished}} :
-  {{if .Err}}<span class="danger-link">échec{{if .Details}} ({{.Err}}){{end}}.</span>{{else}}{{.Result.Created}} nouvelle(s), {{.Result.Reopened}} rouverte(s), {{.Result.Resolved}} corrigée(s) automatiquement{{if .Result.Skipped}}, {{.Result.Skipped}} ignorée(s) car publiée(s) avant la période de suivi{{end}}.{{if .Result.Failed}}
+  {{if .Err}}<span class="danger-link">échec{{if .Details}} ({{.Err}}){{end}}.</span>{{else}}{{.Result.Created}} nouvelle(s), {{.Result.Reopened}} rouverte(s), {{.Result.Resolved}} corrigée(s) automatiquement{{if .Result.Skipped}}, {{.Result.Skipped}} ignorée(s) car publiée(s) avant la période de suivi{{end}}{{if .Result.Dismissed}}, {{.Result.Dismissed}} écartée(s) par une règle{{end}}.{{if .Result.Failed}}
   <span class="danger-link">{{.Result.Failed}} actif(s) non vérifié(s){{if .Details}} : {{join .Failures " ; "}}{{end}}.</span>{{end}}{{end}}
 {{- else -}}
   Aucune synchronisation depuis le démarrage du serveur.

@@ -109,6 +109,40 @@ func Band(f store.Finding) string {
 	return s
 }
 
+// The levels findings are classified in, for every product alike.
+const (
+	LevelUrgent = "urgent" // exploited (KEV) or likely to be (EPSS >= 10 %)
+	LevelPlan   = "plan"   // critical or high severity
+	LevelWatch  = "watch"  // the rest, without a score included
+	LevelAside  = "aside"  // decided not to concern the asset
+)
+
+// Levels are the levels of a finding, labelled in French, most urgent first.
+var Levels = []inventory.Option{
+	{Value: LevelUrgent, Label: "Urgentes"},
+	{Value: LevelPlan, Label: "À planifier"},
+	{Value: LevelWatch, Label: "À surveiller"},
+	{Value: LevelAside, Label: "Écartées"},
+}
+
+// Level classifies a finding, as store.AlertClass does for the alerts; it is ""
+// for a fixed one, which has no level left.
+func Level(f store.Finding) string {
+	switch f.Status {
+	case "resolved":
+		return ""
+	case "not_affected", "false_positive":
+		return LevelAside
+	}
+	if f.KEV || f.EPSS >= likelyEPSS {
+		return LevelUrgent
+	}
+	if b := Band(f); b == "CRITICAL" || b == "HIGH" || f.CVSS >= 7 {
+		return LevelPlan
+	}
+	return LevelWatch
+}
+
 // Breakdown is a set of findings by vendor, the most exposed vendor first.
 type Breakdown struct {
 	Total  Group // every finding, most severe first
