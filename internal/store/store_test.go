@@ -280,3 +280,17 @@ func TestDismissalRules(t *testing.T) {
 		t.Errorf("rules left: %+v", rules)
 	}
 }
+
+// No temporary file: the file system of the container is read-only.
+func TestTemporaryDataInMemory(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(ctx, filepath.Join(t.TempDir(), "s.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	var mode int
+	if err := st.db.QueryRowContext(ctx, `PRAGMA temp_store`).Scan(&mode); err != nil || mode != 2 {
+		t.Errorf("temp_store = %d, %v", mode, err)
+	}
+}

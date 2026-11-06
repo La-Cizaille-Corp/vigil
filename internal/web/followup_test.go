@@ -2,12 +2,14 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/La-Cizaille-Corp/vigil/internal/sources/osv"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
 
@@ -168,5 +170,19 @@ func TestFixLines(t *testing.T) {
 	lines = fixLines(nvdRelease, store.Asset{Name: "Connect Secure", Version: "22.7R2.3", Kind: "product"})
 	if len(lines) != 2 || !lines[0].Yours || lines[0].Text != "connect_secure : version 22.7 r2.3 citée comme affectée, sans version corrigée indiquée" || lines[1].Yours {
 		t.Errorf("release named: %+v", lines)
+	}
+}
+
+// What the database keeps of an advisory is enough to tell the versions fixing it.
+func TestFixLinesAfterCompact(t *testing.T) {
+	var v osv.Vuln
+	if err := json.Unmarshal([]byte(`{"id":"UBUNTU-CVE-1","affected":[{"package":{"name":"linux","ecosystem":"Ubuntu:22.04:LTS"},
+		"versions":["5.15.0-1.1"],"ecosystem_specific":{"binaries":[]},
+		"ranges":[{"type":"ECOSYSTEM","events":[{"introduced":"0"},{"fixed":"5.15.0-3.3"}]}]}]}`), &v); err != nil {
+		t.Fatal(err)
+	}
+	lines := fixLines(string(v.Compact()), store.Asset{Name: "linux", Ecosystem: "Ubuntu:22.04:LTS", Version: "5.15.0-2.2"})
+	if len(lines) != 1 || !lines[0].Yours || !strings.Contains(lines[0].Text, "5.15.0-3.3") {
+		t.Errorf("lines = %+v", lines)
 	}
 }

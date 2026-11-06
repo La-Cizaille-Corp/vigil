@@ -90,8 +90,37 @@ type Vuln struct {
 	// Upstream names the advisories this one derives from: the CVE of a
 	// DEBIAN-CVE-… record, which has no alias.
 	Upstream []string `json:"upstream"`
+}
 
-	Raw json.RawMessage `json:"-"`
+// Compact returns the advisory as it is kept: the ranges of its packages, which
+// tell the versions fixing it. Everything else is in the columns of the database,
+// or never read: a UBUNTU-CVE-… weighs 600 KB, for 257 packages with their
+// binaries and versions, so 2 GB for the 3 000 advisories of a kernel.
+func (v Vuln) Compact() []byte {
+	type entry struct {
+		Package Package `json:"package"`
+		Ranges  []Range `json:"ranges,omitempty"`
+	}
+	doc := struct {
+		ID       string  `json:"id"`
+		Affected []entry `json:"affected,omitempty"`
+	}{ID: v.ID}
+	for _, a := range v.Affected {
+		e := entry{Package: a.Package}
+		for _, r := range a.Ranges {
+			if r.Type != "GIT" { // commits, never compared
+				e.Ranges = append(e.Ranges, r)
+			}
+		}
+		if len(e.Ranges) > 0 {
+			doc.Affected = append(doc.Affected, e)
+		}
+	}
+	out, err := json.Marshal(doc)
+	if err != nil { // strings and lists only: cannot happen
+		return nil
+	}
+	return out
 }
 
 // OtherIDs returns the identifiers of the same vulnerability elsewhere: its
@@ -554,10 +583,7 @@ func (a *Advisories) openPage(ctx context.Context) error {
 
 func (a *Advisories) decodeVuln() error {
 	var v Vuln
-	if err := a.dec.Decode(&v.Raw); err != nil {
-		return fmt.Errorf("osv /v1/query: decode: %w", err)
-	}
-	if err := json.Unmarshal(v.Raw, &v); err != nil {
+	if err := a.dec.Decode(&v); err != nil {
 		return fmt.Errorf("osv /v1/query: decode: %w", err)
 	}
 	a.vuln = v
@@ -600,15 +626,10 @@ func (a *Advisories) expect(delim json.Delim) error {
 
 // Vuln fetches the full record of a vulnerability.
 func (c *Client) Vuln(ctx context.Context, id string) (Vuln, error) {
-	var raw json.RawMessage
-	if err := c.do(ctx, http.MethodGet, "/v1/vulns/"+url.PathEscape(id), nil, &raw); err != nil {
+	var v Vuln
+	if err := c.do(ctx, http.MethodGet, "/v1/vulns/"+url.PathEscape(id), nil, &v); err != nil {
 		return Vuln{}, err
 	}
-	var v Vuln
-	if err := json.Unmarshal(raw, &v); err != nil {
-		return Vuln{}, fmt.Errorf("decode osv vuln %s: %w", id, err)
-	}
-	v.Raw = raw
 	return v, nil
 }
 

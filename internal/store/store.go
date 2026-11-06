@@ -56,7 +56,9 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		}
 	}
 
-	dsn := path + "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
+	// Temporary data stays in memory: no temporary file to write, as the file
+	// system of the container is read-only (see deploy/docker-compose.yml).
+	dsn := path + "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=temp_store(2)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
