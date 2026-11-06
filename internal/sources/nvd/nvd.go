@@ -218,7 +218,33 @@ func (c *Client) pages(ctx context.Context, q url.Values) ([]CVE, error) {
 	}
 }
 
+// retryDelays are the waits before asking again after a temporary failure:
+// the NVD often answers 503 for a moment, and one failed request out of the
+// several of an asset would leave it unchecked.
+var retryDelays = []time.Duration{10 * time.Second, 30 * time.Second}
+
+// errTemporary marks a failure worth trying again.
+var errTemporary = errors.New("temporarily unavailable")
+
 func (c *Client) get(ctx context.Context, q url.Values) ([]CVE, int, error) {
+	for attempt := 0; ; attempt++ {
+		list, total, err := c.fetch(ctx, q)
+		if err == nil || !errors.Is(err, errTemporary) || attempt == len(retryDelays) || ctx.Err() != nil {
+			return list, total, err
+		}
+		delay := retryDelays[attempt]
+		if c.URL != DefaultURL && c.URL != "" {
+			delay = 0 // tests and mirrors
+		}
+		select {
+		case <-ctx.Done():
+			return nil, 0, ctx.Err()
+		case <-time.After(delay):
+		}
+	}
+}
+
+func (c *Client) fetch(ctx context.Context, q url.Values) ([]CVE, int, error) {
 	if err := c.wait(ctx); err != nil {
 		return nil, 0, err
 	}
@@ -232,18 +258,20 @@ func (c *Client) get(ctx context.Context, q url.Values) ([]CVE, int, error) {
 	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return nil, 0, fmt.Errorf("nvd: %w", err)
+		return nil, 0, fmt.Errorf("nvd: %w: %w", errTemporary, err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNotFound {
+	switch {
+	case resp.StatusCode == http.StatusNotFound:
 		return nil, 0, nil // unknown CPE name
-	}
-	if resp.StatusCode != http.StatusOK {
+	case resp.StatusCode == http.StatusForbidden, resp.StatusCode == http.StatusTooManyRequests, resp.StatusCode >= 500:
+		return nil, 0, fmt.Errorf("nvd: HTTP %d: %w", resp.StatusCode, errTemporary) // 403: its rate limit
+	case resp.StatusCode != http.StatusOK:
 		return nil, 0, fmt.Errorf("nvd: HTTP %d", resp.StatusCode)
 	}
 	data, err := netsafe.ReadLimited(resp.Body, maxBody)
 	if err != nil {
-		return nil, 0, fmt.Errorf("nvd: %w", err)
+		return nil, 0, fmt.Errorf("nvd: %w: %w", errTemporary, err)
 	}
 	return parse(data)
 }

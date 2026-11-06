@@ -289,22 +289,24 @@ func Generate(ctx context.Context, st *store.Store) (store.Digest, error) {
 // first, then likely exploited (EPSS >= 10 %), then severity, then EPSS score,
 // newest first on ties.
 func SortByPriority(fs []store.Finding) {
-	sort.SliceStable(fs, func(i, j int) bool {
-		a, b := fs[i], fs[j]
-		if a.KEV != b.KEV {
-			return a.KEV
-		}
-		if la, lb := a.EPSS >= likelyEPSS, b.EPSS >= likelyEPSS; la != lb {
-			return la
-		}
-		if ra, rb := severityRank(a.Severity), severityRank(b.Severity); ra != rb {
-			return ra > rb
-		}
-		if a.EPSS != b.EPSS {
-			return a.EPSS > b.EPSS
-		}
-		return a.FirstSeen.After(b.FirstSeen)
-	})
+	sort.SliceStable(fs, func(i, j int) bool { return MoreUrgent(fs[i], fs[j]) })
+}
+
+// MoreUrgent reports whether a comes before b in SortByPriority.
+func MoreUrgent(a, b store.Finding) bool {
+	if a.KEV != b.KEV {
+		return a.KEV
+	}
+	if la, lb := a.EPSS >= likelyEPSS, b.EPSS >= likelyEPSS; la != lb {
+		return la
+	}
+	if ra, rb := severityRank(a.Severity), severityRank(b.Severity); ra != rb {
+		return ra > rb
+	}
+	if a.EPSS != b.EPSS {
+		return a.EPSS > b.EPSS
+	}
+	return a.FirstSeen.After(b.FirstSeen)
 }
 
 // SortBySeverity orders findings by severity band, then known exploited

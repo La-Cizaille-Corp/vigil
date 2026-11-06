@@ -90,10 +90,10 @@ func TestOSV(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res) != 2 || len(res[0]) != 1 || len(res[1]) != 0 {
+	if len(res) != 2 || len(res[0].Vulns) != 1 || len(res[1].Vulns) != 0 {
 		t.Fatalf("results = %+v", res)
 	}
-	v, err := c.Vuln(ctx, res[0][0].ID)
+	v, err := c.Vuln(ctx, res[0].Vulns[0].ID)
 	if err != nil {
 		t.Fatal(err)
 	}

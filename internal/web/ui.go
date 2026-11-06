@@ -117,13 +117,17 @@ func (s *Server) syncStatus() tracking.Status {
 	return s.Syncer.Status()
 }
 
+// syncTimeout bounds a run started from the UI. Every request is bounded on
+// its own: without an NVD key an asset takes about a minute, a kernel more.
+const syncTimeout = 2 * time.Hour
+
 // runSync matches the inventory against vulnerability sources in the
 // background; it is a no-op when a sync is already running.
 func (s *Server) runSync() {
 	if s.Syncer == nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(s.background(), 15*time.Minute)
+	ctx, cancel := context.WithTimeout(s.background(), syncTimeout)
 	defer cancel()
 	if _, err := s.Syncer.Run(ctx); err != nil && !errors.Is(err, tracking.ErrRunning) {
 		s.Log.Error("sync failed", "err", err)
@@ -137,7 +141,7 @@ func (s *Server) runAssetSync(id int64) {
 	if s.Syncer == nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(s.background(), 15*time.Minute)
+	ctx, cancel := context.WithTimeout(s.background(), syncTimeout)
 	defer cancel()
 	for {
 		_, err := s.Syncer.RunAsset(ctx, id)

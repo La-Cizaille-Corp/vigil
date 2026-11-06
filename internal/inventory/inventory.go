@@ -32,8 +32,12 @@ var Criticalities = []Option{
 
 // Ecosystems supported by OSV.dev (subset, the most common ones).
 var Ecosystems = []string{
-	"npm", "PyPI", "Go", "Maven", "NuGet", "crates.io", "RubyGems", "Packagist",
-	"Pub", "Hex", "Debian", "Ubuntu", "Alpine", "Rocky Linux", "AlmaLinux", "Red Hat",
+	"npm", "PyPI", "Go", "Maven", "NuGet", "crates.io", "RubyGems", "Packagist", "Pub", "Hex",
+	"Debian:11", "Debian:12", "Debian:13", "Debian:14", "Debian",
+	"Ubuntu:20.04:LTS", "Ubuntu:22.04:LTS", "Ubuntu:24.04:LTS", "Ubuntu:26.04:LTS", "Ubuntu",
+	"Alpine:v3.20", "Alpine:v3.21", "Alpine:v3.22", "Alpine:v3.23", "Alpine",
+	"Rocky Linux:8", "Rocky Linux:9", "Rocky Linux:10", "Rocky Linux",
+	"AlmaLinux:8", "AlmaLinux:9", "AlmaLinux:10", "AlmaLinux", "Red Hat", "Linux",
 }
 
 // CPEModes are the versions of a CPE-only asset tracked in the NVD. With
@@ -159,9 +163,27 @@ func Queryable(a store.Asset) bool {
 // Package is the package an asset designates in OSV, whatever its version.
 func Package(a store.Asset) osv.Package {
 	if a.PURL != "" {
-		return osv.Package{PURL: osv.WithoutVersion(a.PURL)}
+		p := osv.PURLQuery(a.PURL, "").Package
+		p.PURL = osv.WithoutVersion(p.PURL)
+		return p
 	}
-	return osv.Package{Name: a.Name, Ecosystem: a.Ecosystem}
+	return osv.Package{Name: osv.SourceName(a.Name, a.Ecosystem), Ecosystem: a.Ecosystem}
+}
+
+// WholeDistribution reports whether an asset names a distribution without its
+// release: OSV then compares its version with the advisories of all of them,
+// where any version of Debian 12 is below the fix of Debian 14.
+func WholeDistribution(a store.Asset) bool {
+	if !Queryable(a) {
+		return false
+	}
+	p := Package(a)
+	switch p.Ecosystem {
+	case "Debian", "Ubuntu", "Alpine", "Rocky Linux", "AlmaLinux":
+		return true
+	}
+	return strings.HasPrefix(p.PURL, "pkg:deb/") || strings.HasPrefix(p.PURL, "pkg:apk/") ||
+		strings.HasPrefix(p.PURL, "pkg:rpm/rocky/") || strings.HasPrefix(p.PURL, "pkg:rpm/almalinux/")
 }
 
 // ByName reports whether an asset is checked by searching its name in the

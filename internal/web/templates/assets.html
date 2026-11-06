@@ -7,22 +7,29 @@
   ils reviennent tels quels si un prochain SBOM les liste. <a href="/assets">← Inventaire</a></p>
 {{end}}
 {{if or .Data.Projects .Data.Tags}}
-<nav class="filters">
-  <a href="/assets" {{if not (or .Data.Project .Data.Tag)}}class="active"{{end}}>Tous les actifs</a>
-  {{range .Data.Projects}}<a href="/assets?project={{.}}" {{if eq . $.Data.Project}}class="active"{{end}}>{{.}}</a>{{end}}
-  {{with .Data.Project}}<span class="muted">— <a href="/findings?project={{.}}">vulnérabilités de ce projet</a></span>{{end}}
-</nav>
-{{end}}
-{{if .Data.Tags}}
-<nav class="filters tag-filters" aria-label="Étiquettes">
-  <span class="muted small">Étiquettes :</span>
-  {{range .Data.Tags}}<a href="/assets?tag={{.Tag}}" {{if eq .Tag $.Data.Tag}}class="active"{{end}}>{{.Tag}} <small>{{.N}}</small></a>{{end}}
-  {{with .Data.Tag}}<span class="muted">— <a href="/findings?tag={{.}}">vulnérabilités de ces actifs</a></span>{{end}}
-</nav>
+<form method="get" action="/assets" class="filter-bar">
+  {{if .Data.RetiredView}}<input type="hidden" name="retired" value="1">{{end}}
+  {{with .Data.Sort}}<input type="hidden" name="sort" value="{{.}}">{{end}}
+  {{with .Data.Dir}}<input type="hidden" name="dir" value="{{.}}">{{end}}
+  {{if .Data.Projects}}<label>Projet
+    <select name="project"><option value="">Tous</option>
+      {{range .Data.Projects}}<option {{if eq . $.Data.Project}}selected{{end}}>{{.}}</option>{{end}}
+    </select>
+  </label>{{end}}
+  {{if .Data.Tags}}<label>Étiquette
+    <select name="tag"><option value="">Toutes</option>
+      {{range .Data.Tags}}<option value="{{.Tag}}" {{if eq .Tag $.Data.Tag}}selected{{end}}>{{.Tag}} ({{.N}})</option>{{end}}
+    </select>
+  </label>{{end}}
+  <button type="submit">Filtrer</button>
+  {{if or .Data.Project .Data.Tag}}<a href="/assets">Réinitialiser</a>{{end}}
+  {{with .Data.Project}}<a href="/findings?project={{.}}">Vulnérabilités de ce projet</a>{{end}}
+  {{with .Data.Tag}}<a href="/findings?tag={{.}}">Vulnérabilités de ces actifs</a>{{end}}
+</form>
 {{end}}
 {{if .Data.Assets}}
-<table class="cards">
-<thead><tr><th>Nom</th><th>Éditeur</th><th>Version</th><th>Type</th><th>Identifiant (purl, CPE ou écosystème)</th><th>Projet</th><th>Criticité</th><th>Responsable</th><th>Détection</th></tr></thead>
+<table class="cards sortable">
+<thead><tr>{{range .Data.Head}}{{template "sortHead" .}}{{end}}</tr></thead>
 <tbody>
 {{range .Data.Assets}}
 <tr>

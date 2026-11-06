@@ -313,7 +313,7 @@ func TestAssetTags(t *testing.T) {
 	}
 	// Inventory filtered by tag, with the tags in use offered.
 	_, body := c.get("/assets?tag=prod")
-	if !strings.Contains(body, ">nginx</a>") || strings.Contains(body, ">redis</a>") || !strings.Contains(body, "recette <small>1</small>") {
+	if !strings.Contains(body, ">nginx</a>") || strings.Contains(body, ">redis</a>") || !strings.Contains(body, "recette (1)") {
 		t.Errorf("inventory filtered by tag:\n%s", body)
 	}
 	// Vulnerabilities filtered by the tag of their asset.

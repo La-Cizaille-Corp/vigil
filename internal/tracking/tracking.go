@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -84,6 +85,7 @@ type Result struct {
 	Reopened int
 	Resolved int // auto-resolved findings
 	Skipped  int // vulnerabilities published before the tracked period of their asset
+	Failed   int // assets a source could not check: left as they were
 }
 
 // Status describes the running or last synchronisation, for the UI.
@@ -94,7 +96,16 @@ type Status struct {
 	Finished time.Time
 	Result   Result
 	Err      string
+	// Progress of the run: assets to check, assets done, and what it is doing.
+	Total   int
+	Done    int
+	Current string
+	// Failures tells why assets could not be checked, the first few of them.
+	Failures []string
 }
+
+// maxFailures bounds the failures kept for the UI; the logs have them all.
+const maxFailures = 10
 
 // Syncer queries sources for the inventory. It is safe for concurrent use;
 // only one run happens at a time.
@@ -165,7 +176,7 @@ func (s *Syncer) run(ctx context.Context, assetID int64) (res Result, err error)
 	})
 	defer func() {
 		s.setStatus(func(st *Status) {
-			st.Running, st.Finished, st.Result = false, time.Now(), res
+			st.Running, st.Finished, st.Result, st.Current = false, time.Now(), res, ""
 			if err != nil {
 				st.Err = err.Error()
 			}
@@ -197,12 +208,18 @@ func (s *Syncer) scan(ctx context.Context, assets []store.Asset) (Result, error)
 	var res Result
 	start := time.Now().UTC().Truncate(time.Second)
 
-	var targets, latestTargets, cpeTargets, nameTargets []store.Asset
+	var targets, cpeTargets, nameTargets []store.Asset
 	var queries []osv.Query
+	var packages []osv.Package // read whole, once each, for the assets in byPackage
+	byPackage := map[osv.Package][]store.Asset{}
 	for _, a := range assets {
 		switch {
-		case inventory.Queryable(a) && inventory.IsLatest(a):
-			latestTargets = append(latestTargets, a)
+		case inventory.Queryable(a) && (inventory.IsLatest(a) || !osv.ComparesVersions(a.Ecosystem)):
+			pkg := inventory.Package(a)
+			if byPackage[pkg] == nil {
+				packages = append(packages, pkg)
+			}
+			byPackage[pkg] = append(byPackage[pkg], a)
 		case inventory.Queryable(a):
 			targets = append(targets, a)
 			queries = append(queries, toQuery(a))
@@ -212,74 +229,64 @@ func (s *Syncer) scan(ctx context.Context, assets []store.Asset) (Result, error)
 			nameTargets = append(nameTargets, a)
 		}
 	}
-	res.Assets = len(targets) + len(latestTargets) + len(cpeTargets) + len(nameTargets)
+	res.Assets = len(targets) + len(cpeTargets) + len(nameTargets)
+	for _, list := range byPackage {
+		res.Assets += len(list)
+	}
 	if res.Assets == 0 {
 		return res, nil
 	}
+	s.setStatus(func(st *Status) { st.Total = res.Assets })
 
-	// 1. Ask the sources and store the advisories.
+	// 1. Ask the sources and store the advisories. An asset that cannot be
+	// checked must not block the others: it is reported, its findings kept.
 	var seen []observation
+	exploited := sync.OnceValue(func() map[string]bool { return s.exploitedCVEs(ctx) })
 	if len(targets) > 0 {
+		s.working("interrogation d'OSV")
 		results, err := s.OSV.QueryBatch(ctx, queries)
 		if err != nil {
 			return res, err
 		}
 		for i, a := range targets {
-			var reported []string
-			for _, ref := range results[i] {
-				reported = append(reported, ref.ID)
-				if err := s.refreshVuln(ctx, ref); err != nil {
-					return res, err
-				}
-			}
-			seen = append(seen, observation{a, reported})
-		}
-	}
-	// At its latest release, a package is affected by the advisories that
-	// have no fixed version yet: all of them are read, then sorted.
-	for _, a := range latestTargets {
-		pkg := inventory.Package(a)
-		vulns, err := s.OSV.Query(ctx, pkg)
-		if err != nil {
-			// One unknown package must not block the others.
-			s.Log.Warn("OSV", "asset", a.Name, "err", err)
-			continue
-		}
-		var reported []string
-		for _, v := range vulns {
-			if !v.Unfixed(pkg) {
+			s.working(a.Name)
+			reported, err := s.readAdvisories(ctx, a, queries[i], results[i], exploited)
+			if err != nil {
+				s.failed(&res, a, err)
 				continue
 			}
-			reported = append(reported, v.ID)
-			if err := s.storeOSV(ctx, v, false); err != nil {
-				return res, err
-			}
+			seen = append(seen, observation{a, reported})
+			s.checked()
 		}
-		seen = append(seen, observation{a, reported})
+	}
+	for _, pkg := range packages {
+		list := byPackage[pkg]
+		s.working(list[0].Name)
+		reported, err := s.readPackage(ctx, pkg, list, exploited)
+		for _, a := range list {
+			if err != nil {
+				s.failed(&res, a, err)
+				continue
+			}
+			seen = append(seen, observation{a, reported[a.ID]})
+			s.checked()
+		}
 	}
 	for _, a := range cpeTargets {
-		q := nvd.Query{CPE: a.CPE, Version: a.Version, Mode: a.CPEMode, From: a.CPEFrom, Since: inventory.SinceTime(a)}
-		keep := func(nvd.CVE) bool { return true }
-		if a.CPEMode == "" && inventory.IsLatest(a) {
-			q.Version, q.Mode = "", "all"
-			keep = func(c nvd.CVE) bool { return nvd.UnfixedFor(c, a.CPE) }
-		}
-		cves, err := s.NVD.ForCPE(ctx, q)
+		s.working(a.Name)
+		reported, err := s.readCPE(ctx, a)
 		if err != nil {
-			// One unreachable or invalid CPE must not block the others.
-			s.Log.Warn("NVD", "asset", a.Name, "err", err)
+			s.failed(&res, a, err)
 			continue
 		}
-		o, err := s.storeNVD(ctx, a, cves, keep)
-		if err != nil {
-			return res, err
-		}
-		seen = append(seen, o)
+		seen = append(seen, observation{a, reported})
+		s.checked()
 	}
 	for _, a := range nameTargets {
+		s.working(a.Name)
 		cves, err := s.NVD.ForKeyword(ctx, a.Name, inventory.SinceTime(a))
 		if err != nil {
-			s.Log.Warn("NVD", "asset", a.Name, "err", err)
+			s.failed(&res, a, err)
 			continue
 		}
 		o, err := s.storeNVD(ctx, a, cves, func(c nvd.CVE) bool {
@@ -289,11 +296,13 @@ func (s *Syncer) scan(ctx context.Context, assets []store.Asset) (Result, error)
 			return res, err
 		}
 		seen = append(seen, o)
+		s.checked()
 	}
 
 	// 2. Exploitation signals before the findings: an old vulnerability is
 	// kept outside the tracked period unless it is known to be exploited.
 	if s.HTTP != nil {
+		s.working("scores d'exploitation (KEV, EPSS)")
 		// Enrichment failures are logged but do not fail the sync.
 		if err := s.enrich(ctx); err != nil {
 			s.Log.Warn("enrichissement KEV/EPSS", "err", err)
@@ -301,12 +310,36 @@ func (s *Syncer) scan(ctx context.Context, assets []store.Asset) (Result, error)
 	}
 
 	// 3. Findings.
+	s.working("enregistrement des vulnérabilités")
 	for _, o := range seen {
 		if err := s.record(ctx, &res, o.asset, o.reported, start); err != nil {
 			return res, err
 		}
 	}
 	return res, nil
+}
+
+// working tells what the run is doing, for the UI.
+func (s *Syncer) working(current string) {
+	s.setStatus(func(st *Status) { st.Current = current })
+}
+
+// checked counts an asset as done, for the UI.
+func (s *Syncer) checked() {
+	s.setStatus(func(st *Status) { st.Done++ })
+}
+
+// failed reports an asset the sources could not check: its findings stay as
+// they were, as the next run may check it.
+func (s *Syncer) failed(res *Result, a store.Asset, err error) {
+	s.Log.Warn("actif non vérifié", "asset", a.Name, "err", err)
+	res.Failed++
+	s.setStatus(func(st *Status) {
+		st.Done++
+		if len(st.Failures) < maxFailures {
+			st.Failures = append(st.Failures, a.Name+" : "+err.Error())
+		}
+	})
 }
 
 // record creates or reopens the findings of an asset and auto-resolves the
@@ -362,17 +395,136 @@ func (s *Syncer) storeNVD(ctx context.Context, a store.Asset, cves []nvd.CVE, ke
 	return o, nil
 }
 
-func nvdVuln(c nvd.CVE) store.Vulnerability {
-	summary := c.Description
-	if i := strings.Index(summary, ". "); i > 0 && i < 300 {
-		summary = summary[:i+1]
-	} else if len(summary) > 300 {
-		summary = summary[:300] + "…"
+// kernelPreamble opens the description of every CVE of the Linux kernel.
+const kernelPreamble = "In the Linux kernel, the following vulnerability has been resolved:"
+
+// brief returns the start of a description, for lists: its title for a kernel
+// CVE, otherwise its first sentence.
+func brief(description string) string {
+	text, kernel := strings.CutPrefix(strings.TrimSpace(description), kernelPreamble)
+	text = strings.TrimSpace(text)
+	if kernel {
+		if i := strings.IndexAny(text, "\r\n"); i > 0 {
+			text = text[:i]
+		}
 	}
+	if i := strings.Index(text, ". "); i > 0 && i < 300 {
+		return text[:i+1]
+	}
+	if len(text) > 300 {
+		return text[:300] + "…"
+	}
+	return text
+}
+
+func nvdVuln(c nvd.CVE) store.Vulnerability {
 	return store.Vulnerability{
-		ID: c.ID, Summary: summary, Details: c.Description, Severity: c.Severity, CVSS: c.CVSS,
+		ID: c.ID, Summary: brief(c.Description), Details: c.Description, Severity: c.Severity, CVSS: c.CVSS,
 		Published: c.Published, Modified: c.Modified, Refs: c.Refs, Raw: string(c.Raw),
 	}
+}
+
+// readCPE stores the CVEs of an asset found by its CPE and returns their ids.
+func (s *Syncer) readCPE(ctx context.Context, a store.Asset) ([]string, error) {
+	q := nvd.Query{CPE: a.CPE, Version: a.Version, Mode: a.CPEMode, From: a.CPEFrom, Since: inventory.SinceTime(a)}
+	keep := func(nvd.CVE) bool { return true }
+	if a.CPEMode == "" && inventory.IsLatest(a) {
+		q.Version, q.Mode = "", "all"
+		keep = func(c nvd.CVE) bool { return nvd.UnfixedFor(c, a.CPE) }
+	}
+	cves, err := s.NVD.ForCPE(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	o, err := s.storeNVD(ctx, a, cves, keep)
+	return o.reported, err
+}
+
+// readPackage reads the advisories of a whole package, once for all the assets
+// that designate it, and returns their ids by asset. The ranges of each one are
+// compared here: at its latest release an asset is affected by those without a
+// fixed version, and OSV does not compare versions in every ecosystem.
+func (s *Syncer) readPackage(ctx context.Context, pkg osv.Package, assets []store.Asset, exploited func() map[string]bool) (map[int64][]string, error) {
+	reported := make(map[int64][]string, len(assets))
+	err := s.OSV.Each(ctx, osv.Query{Package: pkg}, func(v osv.Vuln) error {
+		keep := false
+		for _, a := range assets {
+			affected := v.Affects(pkg, a.Version)
+			if inventory.IsLatest(a) {
+				affected = v.Unfixed(pkg)
+			}
+			if affected {
+				reported[a.ID] = append(reported[a.ID], v.ID)
+				keep = keep || reportable(a, v, exploited)
+			}
+		}
+		if !keep {
+			return nil
+		}
+		return s.storeOSV(ctx, v, false)
+	})
+	return reported, err
+}
+
+// reportable reports whether an asset can report an advisory: published in
+// its tracked period, or known to be exploited.
+func reportable(a store.Asset, v osv.Vuln, exploited func() map[string]bool) bool {
+	if a.TrackSince == "" || v.Published == "" || v.Published[:min(len(v.Published), 10)] >= a.TrackSince {
+		return true
+	}
+	known := exploited()
+	return known[v.ID] || slices.ContainsFunc(v.OtherIDs(), func(id string) bool { return known[id] })
+}
+
+// readAdvisories stores the advisories found for an asset and returns their ids.
+func (s *Syncer) readAdvisories(ctx context.Context, a store.Asset, q osv.Query, found osv.BatchResult, exploited func() map[string]bool) ([]string, error) {
+	if found.More {
+		return s.readLargePackage(ctx, a, q, exploited)
+	}
+	reported := make([]string, 0, len(found.Vulns))
+	for _, ref := range found.Vulns {
+		reported = append(reported, ref.ID)
+		if err := s.refreshVuln(ctx, ref); err != nil {
+			return nil, err
+		}
+	}
+	return reported, nil
+}
+
+// readLargePackage reads a package whose advisories do not fit in a batch
+// answer. A kernel has thousands, listed from the oldest: without the last
+// pages, none would be in the tracked period. They come in full from the query,
+// not one request each, and only those the asset can report are stored; the
+// others are still reported, to count them as older.
+func (s *Syncer) readLargePackage(ctx context.Context, a store.Asset, q osv.Query, exploited func() map[string]bool) ([]string, error) {
+	var reported []string
+	err := s.OSV.Each(ctx, q, func(v osv.Vuln) error {
+		reported = append(reported, v.ID)
+		if !reportable(a, v, exploited) {
+			return nil
+		}
+		return s.storeOSV(ctx, v, false)
+	})
+	return reported, err
+}
+
+// exploitedCVEs returns the CVEs of the KEV catalogue. Without it, only the
+// exploited vulnerabilities older than the tracked period would be missed: the
+// failure is logged and the sync goes on.
+func (s *Syncer) exploitedCVEs(ctx context.Context) map[string]bool {
+	if s.HTTP == nil {
+		return nil
+	}
+	catalogue, err := kev.Fetch(ctx, s.HTTP, cmp.Or(s.KEVURL, kev.DefaultURL), s.UserAgent)
+	if err != nil {
+		s.Log.Warn("catalogue KEV", "err", err)
+		return nil
+	}
+	out := make(map[string]bool, len(catalogue))
+	for cve := range catalogue {
+		out[cve] = true
+	}
+	return out
 }
 
 // refreshVuln downloads the advisory if unknown or modified since last fetch.
@@ -408,8 +560,8 @@ func (s *Syncer) storeOSV(ctx context.Context, v osv.Vuln, changed bool) error {
 	}
 	return s.Store.UpsertVulnerability(ctx, store.Vulnerability{
 		ID:        v.ID,
-		Aliases:   v.Aliases,
-		Summary:   v.Summary,
+		Aliases:   v.OtherIDs(),
+		Summary:   cmp.Or(v.Summary, brief(v.Details)), // a DEBIAN-CVE record has no summary
 		Details:   v.Details,
 		Severity:  v.SeverityLabel(),
 		CVSS:      v.CVSSScore(),
@@ -457,11 +609,7 @@ func (s *Syncer) enrich(ctx context.Context) error {
 
 func toQuery(a store.Asset) osv.Query {
 	if a.PURL != "" {
-		// A purl that already carries a version must not be sent with "version".
-		if strings.Contains(a.PURL, "@") || a.Version == "" {
-			return osv.Query{Package: osv.Package{PURL: a.PURL}}
-		}
-		return osv.Query{Package: osv.Package{PURL: a.PURL}, Version: a.Version}
+		return osv.PURLQuery(a.PURL, a.Version)
 	}
-	return osv.Query{Package: osv.Package{Name: a.Name, Ecosystem: a.Ecosystem}, Version: a.Version}
+	return osv.Query{Package: inventory.Package(a), Version: a.Version}
 }
