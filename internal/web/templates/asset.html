@@ -35,6 +35,34 @@
     <button type="submit" class="link">Suivre tout l'historique</button>
   </form>{{end}}</div>
 {{end}}
+<form method="get" action="/assets/{{$a.ID}}" class="delivery">
+  <label>Chercher dans ces vulnérabilités
+    <input type="search" name="q" value="{{.Data.Query}}" maxlength="100" placeholder="wifi:, CVE-2026-…"></label>
+  <button type="submit">Chercher</button>
+  {{if .Data.Query}}<a href="/assets/{{$a.ID}}">Tout afficher</a>{{end}}
+</form>
+{{if and .Data.Query (can .User.Role "analyst")}}
+<div class="notice">{{len .Data.Findings}} vulnérabilité(s) contiennent « {{.Data.Query}} ».
+  Si ce composant n'est pas présent, vous pouvez les écarter : elles passent en « Non affecté – code vulnérable absent », les prochaines aussi.
+  Les vulnérabilités exploitées ou probables restent visibles, et ce que quelqu'un a déjà décidé ne change pas.
+  <form method="post" action="/assets/{{$a.ID}}/dismissals" class="inline">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <input type="hidden" name="text" value="{{.Data.Query}}">
+    <button type="submit">Écarter tout ce qui correspond sur cet actif</button>
+  </form>
+</div>
+{{end}}
+{{with .Data.Rules}}
+<h3>Règles d'écart</h3>
+<ul class="rules">
+  {{range .}}<li><code>{{.Text}}</code> <span class="muted small">{{.Findings}} écartée(s)</span>
+    {{if can $.User.Role "analyst"}}<form method="post" action="/assets/{{$a.ID}}/dismissals/{{.ID}}/delete" class="inline">
+      <input type="hidden" name="csrf" value="{{$.CSRF}}">
+      <button type="submit" class="link">Supprimer la règle</button>
+    </form>{{end}}</li>
+  {{end}}
+</ul>
+{{end}}
 {{template "findingTable" (findingRows .Data.Findings false)}}
 
 {{if can .User.Role "analyst"}}

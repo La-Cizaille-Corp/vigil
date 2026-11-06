@@ -134,3 +134,27 @@ func TestListedBound(t *testing.T) {
 		t.Errorf("listed %d, unlisted %d, first %s", len(g.Listed()), g.Unlisted(), g.Listed()[0].Severity)
 	}
 }
+
+func TestLevel(t *testing.T) {
+	cases := []struct {
+		f    store.Finding
+		want string
+	}{
+		{store.Finding{Status: "in_triage", KEV: true, Severity: "LOW", EPSS: -1, CVSS: -1}, LevelUrgent},
+		{store.Finding{Status: "exploitable", EPSS: 0.1, CVSS: -1}, LevelUrgent},
+		{store.Finding{Status: "in_triage", Severity: "CRITICAL", EPSS: 0.01, CVSS: -1}, LevelPlan},
+		{store.Finding{Status: "in_triage", Severity: "HIGH", EPSS: -1, CVSS: -1}, LevelPlan},
+		{store.Finding{Status: "in_triage", Severity: "MEDIUM", EPSS: -1, CVSS: 7.5}, LevelPlan},
+		{store.Finding{Status: "in_triage", EPSS: -1, CVSS: 8}, LevelPlan},
+		{store.Finding{Status: "in_triage", Severity: "MEDIUM", EPSS: -1, CVSS: 5}, LevelWatch},
+		{store.Finding{Status: "in_triage", EPSS: -1, CVSS: -1}, LevelWatch},
+		{store.Finding{Status: "not_affected", KEV: true, CVSS: 9.8}, LevelAside},
+		{store.Finding{Status: "false_positive", CVSS: 9.8}, LevelAside},
+		{store.Finding{Status: "resolved", KEV: true}, ""},
+	}
+	for _, c := range cases {
+		if got := Level(c.f); got != c.want {
+			t.Errorf("Level(%+v) = %q, want %q", c.f, got, c.want)
+		}
+	}
+}

@@ -80,6 +80,7 @@ type FindingFilter struct {
 	MinEPSS    float64  // 0 = any
 	Overdue    bool     // open and past the remediation deadline
 	Search     string   // substring of the vulnerability id, aliases, summary or asset name
+	Matching   string   // text a dismissal rule would look for (see previewMatchExpr)
 	Sort       string   // "cvss", "epss", "recent" (default) or "" handled by the caller
 }
 
@@ -333,6 +334,10 @@ func (s *Store) ListFindings(ctx context.Context, f FindingFilter) ([]Finding, e
 		term := "%" + likeEscaper.Replace(f.Search) + "%"
 		args = append(args, term, term, term, term)
 	}
+	if f.Matching != "" {
+		where = append(where, previewMatchExpr)
+		args = append(args, f.Matching, f.Matching, f.Matching)
+	}
 	q := findingSelect
 	if len(where) > 0 {
 		// Only fixed column expressions are joined here; values stay parameterised.
@@ -428,7 +433,7 @@ func (s *Store) SetFindingStatus(ctx context.Context, id, userID int64, status, 
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `
-			UPDATE findings SET status = ?, justification = ?, comment = ?, auto_resolved = 0, updated_at = ?
+			UPDATE findings SET status = ?, justification = ?, comment = ?, auto_resolved = 0, dismissed_by = 0, updated_at = ?
 			WHERE id = ?`, status, justification, comment, ts, id); err != nil {
 			return err
 		}
@@ -454,7 +459,7 @@ func (s *Store) SetFindingsStatus(ctx context.Context, ids []int64, userID int64
 				return err
 			}
 			if _, err := tx.ExecContext(ctx, `
-				UPDATE findings SET status = ?, justification = ?, auto_resolved = 0, updated_at = ?,
+				UPDATE findings SET status = ?, justification = ?, auto_resolved = 0, dismissed_by = 0, updated_at = ?,
 				       comment = CASE WHEN ? = '' THEN comment ELSE ? END
 				WHERE id = ?`, status, justification, ts, comment, comment, id); err != nil {
 				return err

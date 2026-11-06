@@ -277,6 +277,25 @@ avec la raison pour qui peut agir, et gardent leurs vulnérabilités. La limite 
 lancée depuis l'interface passe de 15 minutes à 2 heures : sans clé NVD, une vingtaine d'actifs suivis
 par CPE ou par nom la dépassaient, et tout le résultat était perdu.
 
+**A60. Un seul classement, en quatre niveaux.** Les raccourcis (non traitées, prioritaires, critiques
+et hautes, hors délai) se recouvraient et ne disaient pas où commencer, surtout sur les volumes d'un noyau.
+Quatre niveaux exclusifs les remplacent, calculés pour tout produit : Urgentes, À planifier, À surveiller,
+Écartées, avec leur nombre. Ce sont les classes des alertes (A37) : une alerte et un niveau disent la même
+chose. Le CVSS seul ne trie pas : sur le noyau Debian 6.12.60-1, 90 % des CVE notées sont à 7 ou plus, plus de la
+moitié ne sont pas notées, et les 4 exploitées ne sont pas à 9. *Conséquence* : le niveau À planifier reste
+gros sur un vieux noyau ; c'est la mise à jour qui le réduit, pas le classement. Les délais de traitement et
+le filtre « Hors délai » restent, dans les filtres.
+
+**A61. Écarter par un texte, pas par une notion de composant.** Une version ne dit pas si un composant est
+présent : sur un serveur sans ces matériels, `drm`, `wifi` ou `bluetooth` pèsent au moins un quart des CVE du
+noyau, qui sont de vrais faux positifs. Une première idée les regroupait par composant, en analysant le début
+des descriptions : c'était propre au noyau, et approximatif. Le mécanisme retenu vaut pour tout produit : un texte
+cherché dans l'identifiant et le résumé (ce que l'analyste voit), sur un actif. On voit la liste avant d'écarter.
+Elles passent en « Non affecté – code vulnérable absent », avec la règle dans leur historique, donc dans le
+VEX ; la règle s'applique aux suivantes, avant les alertes. Trois garde-fous : une vulnérabilité exploitée ou
+probable reste visible et revient si elle le devient, une décision prise par quelqu'un n'est jamais changée, et
+supprimer la règle défait ce qu'elle a fait.
+
 **A13. Statuts CycloneDX / VEX.** Des statuts maison auraient été plus « parlants » mais non
 interopérables. Les états VEX (`in_triage`, `exploitable`, `resolved`, `not_affected` +
 justification, `false_positive`) sont libellés en français dans l'interface, et l'export /

@@ -173,6 +173,15 @@ en cas de téléphone perdu, un administrateur la retire dans Paramètres → Ut
   relance, « Synchroniser l'inventaire » relance tout. L'avancement (actifs vérifiés, barre) et le
   résultat de la dernière synchronisation sont affichés à côté, avec les actifs qui n'ont pas pu être
   vérifiés : ils gardent leurs vulnérabilités jusqu'à la prochaine.
+- **Classement des vulnérabilités**, le même pour tous les produits : **Urgentes** (exploitées d'après
+  CISA KEV, ou probables d'après EPSS ≥ 10 %), **À planifier** (sévérité critique ou haute), **À surveiller**
+  (le reste, y compris sans score) et **Écartées** (non affecté ou faux positif). Les corrigées sortent du
+  classement. Ce sont les mêmes seuils que les alertes.
+- **Écarter ce qui ne vous concerne pas** : sur la page d'un actif, cherchez un texte (`wifi:` sur un
+  serveur sans Wi-Fi), vérifiez la liste, puis « Écarter tout ce qui correspond sur cet actif ». Elles passent
+  en « Non affecté », les prochaines aussi. Les vulnérabilités exploitées ou probables restent visibles, et
+  y reviennent si elles le deviennent ; une décision prise par quelqu'un n'est jamais changée. Supprimer
+  la règle remet ses vulnérabilités à analyser.
 - Les tableaux de l'inventaire et des vulnérabilités se **trient en cliquant sur le titre d'une
   colonne**, qui inverse l'ordre au second clic ; l'export CSV des vulnérabilités suit le même ordre.
 - **Sans purl ni CPE**, Vigil cherche le **nom de l'actif** dans les descriptions des CVE de la NVD

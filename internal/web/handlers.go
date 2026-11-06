@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
 	"github.com/La-Cizaille-Corp/vigil/internal/digest"
@@ -360,13 +361,80 @@ func (s *Server) assetEdit(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	findings, err := s.Store.ListFindings(r.Context(), store.FindingFilter{AssetID: a.ID})
+	s.renderAsset(w, r, http.StatusOK, a, a, "")
+}
+
+// renderAsset shows an asset with its vulnerabilities, those holding the text
+// searched in the query string if any, and its dismissal rules. The form shows
+// values not saved yet when they were refused.
+func (s *Server) renderAsset(w http.ResponseWriter, r *http.Request, status int, a, form store.Asset, formErr string) {
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	if len(query) > maxRuleText {
+		query = query[:maxRuleText]
+	}
+	findings, err := s.Store.ListFindings(r.Context(), store.FindingFilter{AssetID: a.ID, Matching: query})
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
-	s.render(w, r, http.StatusOK, "asset", page{Title: inventory.Describe(a),
-		Data: map[string]any{"Form": a, "Findings": findings}})
+	rules, err := s.Store.DismissalRules(r.Context(), a.ID)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	s.render(w, r, status, "asset", page{Title: inventory.Describe(a), Error: formErr,
+		Data: map[string]any{"Form": form, "Findings": findings, "Query": query, "Rules": rules, "RuleMinimum": minRuleText}})
+}
+
+// A rule text is short, and long enough not to set aside everything by mistake.
+const (
+	minRuleText = 3
+	maxRuleText = 100
+)
+
+// dismissalCreate sets aside the vulnerabilities of an asset holding a text.
+func (s *Server) dismissalCreate(w http.ResponseWriter, r *http.Request) {
+	a, ok := s.loadAsset(w, r)
+	if !ok {
+		return
+	}
+	text := strings.TrimSpace(r.PostFormValue("text"))
+	if n := utf8.RuneCountInString(text); n < minRuleText || len(text) > maxRuleText {
+		s.renderAsset(w, r, http.StatusBadRequest, a, a, fmt.Sprintf("Indiquez un texte de %d à %d caractères.", minRuleText, maxRuleText))
+		return
+	}
+	if err := s.Store.CreateDismissalRule(r.Context(), a.ID, text); err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	sess, _ := sessionFrom(r.Context())
+	s.audit(r, sess.User.ID, "dismissal_create", strconv.FormatInt(a.ID, 10)+" "+truncate(text, maxRuleText))
+	redirect(w, r, "/assets/"+strconv.FormatInt(a.ID, 10), "rule-created")
+}
+
+// dismissalDelete removes a rule: what it set aside is to analyse again.
+func (s *Server) dismissalDelete(w http.ResponseWriter, r *http.Request) {
+	a, ok := s.loadAsset(w, r)
+	if !ok {
+		return
+	}
+	id, err := strconv.ParseInt(r.PathValue("rule"), 10, 64)
+	if err != nil {
+		s.notFound(w)
+		return
+	}
+	err = s.Store.DeleteDismissalRule(r.Context(), a.ID, id)
+	if errors.Is(err, store.ErrNotFound) {
+		s.notFound(w)
+		return
+	}
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	sess, _ := sessionFrom(r.Context())
+	s.audit(r, sess.User.ID, "dismissal_delete", strconv.FormatInt(a.ID, 10))
+	redirect(w, r, "/assets/"+strconv.FormatInt(a.ID, 10), "rule-deleted")
 }
 
 func (s *Server) assetUpdate(w http.ResponseWriter, r *http.Request) {
@@ -377,13 +445,7 @@ func (s *Server) assetUpdate(w http.ResponseWriter, r *http.Request) {
 	a := assetFromForm(r)
 	a.ID = old.ID
 	if err := inventory.Validate(a); err != nil {
-		findings, ferr := s.Store.ListFindings(r.Context(), store.FindingFilter{AssetID: a.ID})
-		if ferr != nil {
-			s.serverError(w, r, ferr)
-			return
-		}
-		s.render(w, r, http.StatusBadRequest, "asset", page{Title: inventory.Describe(old), Error: err.Error(),
-			Data: map[string]any{"Form": a, "Findings": findings}})
+		s.renderAsset(w, r, http.StatusBadRequest, old, a, err.Error())
 		return
 	}
 	if err := s.Store.UpdateAsset(r.Context(), a); err != nil {
@@ -459,6 +521,8 @@ func (s *Server) renderFindings(w http.ResponseWriter, r *http.Request, status i
 		s.serverError(w, r, err)
 		return
 	}
+	levels := levelLinks(findings, q)
+	findings = keepLevel(findings, q.Get("level"))
 	order := orderFrom(q, findingColumnList, defaultFindingOrder)
 	sortRows(findings, findingColumnList, order)
 	projects, err := s.Store.ListProjects(r.Context())
@@ -475,6 +539,7 @@ func (s *Server) renderFindings(w http.ResponseWriter, r *http.Request, status i
 		"Findings": findings, "Filter": f, "Projects": projects, "Tags": tags, "Query": r.URL.RawQuery,
 		"MinEPSSPercent": f.MinEPSS * 100, "Next": "/findings?" + q.Encode(),
 		"Sort": q.Get("sort"), "Dir": q.Get("dir"), "Head": sortHeaders(findingColumnList, "/findings", q, order),
+		"Levels": levels, "Level": q.Get("level"),
 		// Re-encoded from the parsed query: a safe relative link with the same filters.
 		"CSVLink": template.URL("/findings.csv?" + q.Encode()), // #nosec G203 -- fixed path, encoded values
 	}})
@@ -488,6 +553,7 @@ func (s *Server) findingCSV(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
+	findings = keepLevel(findings, q.Get("level"))
 	sortRows(findings, findingColumnList, orderFrom(q, findingColumnList, defaultFindingOrder))
 	cw := csvDownload(w, "vigil-vulnerabilites")
 	_ = cw.Write([]string{"id", "vulnerabilite", "alias", "severite", "cvss", "epss", "exploitee_kev", "actif", "version",

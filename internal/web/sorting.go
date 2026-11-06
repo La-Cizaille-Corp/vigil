@@ -204,3 +204,56 @@ var findingColumnList = []column[store.Finding]{
 
 // defaultFindingOrder is the column of a vulnerability list without a choice.
 const defaultFindingOrder = "priority"
+
+// levelLink is a level of the vulnerability list, with what it holds.
+type levelLink struct {
+	Label  string
+	Href   string
+	N      int
+	Active bool
+}
+
+// levelLinks returns the links to the levels of a list and to the whole of it;
+// they keep its filters and its order.
+func levelLinks(findings []store.Finding, q url.Values) []levelLink {
+	counts := map[string]int{}
+	for _, f := range findings {
+		counts[digest.Level(f)]++
+	}
+	current := q.Get("level")
+	if !isLevel(current) {
+		current = ""
+	}
+	link := func(level string) string {
+		kept := url.Values{}
+		for k, v := range q {
+			if k != "msg" && k != "level" {
+				kept[k] = v
+			}
+		}
+		if level != "" {
+			kept.Set("level", level)
+		}
+		if len(kept) == 0 {
+			return "/findings"
+		}
+		return "/findings?" + kept.Encode()
+	}
+	out := make([]levelLink, 0, len(digest.Levels)+1)
+	for _, l := range digest.Levels {
+		out = append(out, levelLink{Label: l.Label, Href: link(l.Value), N: counts[l.Value], Active: l.Value == current})
+	}
+	return append(out, levelLink{Label: "Toutes", Href: link(""), N: len(findings), Active: current == ""})
+}
+
+func isLevel(v string) bool {
+	return slices.ContainsFunc(digest.Levels, func(o inventory.Option) bool { return o.Value == v })
+}
+
+// keepLevel keeps the findings of a level; an unknown level keeps them all.
+func keepLevel(findings []store.Finding, level string) []store.Finding {
+	if !isLevel(level) {
+		return findings
+	}
+	return slices.DeleteFunc(findings, func(f store.Finding) bool { return digest.Level(f) != level })
+}

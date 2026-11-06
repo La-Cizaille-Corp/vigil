@@ -123,7 +123,6 @@ details.confirm[open] { display: block; }
 .toolbar form.inline { margin: 0; }
 .form-actions { margin: .5rem 0 0; }
 .form-actions .filters { margin: 0; }
-.shortcuts { display: flex; flex-wrap: wrap; gap: .25rem .85rem; margin-left: auto; }
 form.filter-bar { display: flex; flex-wrap: wrap; gap: .5rem .85rem; align-items: flex-end; margin-bottom: .85rem; }
 form.filter-bar label { margin: 0; }
 form.filter-bar select { width: auto; min-width: 9rem; max-width: 20rem; }
@@ -166,6 +165,11 @@ form.inline-search label { flex: 1 1 22rem; }
 .cpe-old { opacity: .75; }
 form.delivery { display: flex; flex-wrap: wrap; gap: .4rem .6rem; align-items: center; }
 form.delivery select { width: auto; max-width: 18rem; font-size: .85rem; }
+form.delivery label { margin: 0; }
+form.delivery input[type="search"] { width: auto; min-width: 15rem; }
+ul.rules { list-style: none; padding: 0; margin: .25rem 0 1rem; }
+ul.rules li { display: flex; flex-wrap: wrap; gap: .25rem .75rem; align-items: center; }
+ul.rules form.inline { margin: 0; }
 
 /* --- dashboard ----------------------------------------------------------- */
 .kpis { display: grid; grid-template-columns: 1.5fr repeat(5, minmax(0, 1fr)); gap: .85rem; margin-bottom: 1.25rem; }
