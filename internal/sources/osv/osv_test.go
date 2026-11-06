@@ -3,7 +3,6 @@ package osv
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -56,20 +55,22 @@ func TestWithoutVersion(t *testing.T) {
 	}
 }
 
-// query collects what Each visits.
+// query collects the advisories of a query.
 func query(t *testing.T, c *Client, q Query) []Vuln {
 	t.Helper()
+	list := c.Advisories(q)
+	defer list.Close()
 	var out []Vuln
-	if err := c.Each(context.Background(), q, func(v Vuln) error {
-		out = append(out, v)
-		return nil
-	}); err != nil {
+	for list.Next(context.Background()) {
+		out = append(out, list.Vuln())
+	}
+	if err := list.Err(); err != nil {
 		t.Fatal(err)
 	}
 	return out
 }
 
-// Each reads every page, without a version, and keeps each record whole.
+// Advisories reads every page, without a version, and keeps each record whole.
 func TestQueryPages(t *testing.T) {
 	var bodies []map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -247,9 +248,9 @@ func TestIntervals(t *testing.T) {
 	}
 }
 
-// A page is read advisory by advisory, whatever the order of its fields, and a
-// visitor can stop the reading.
-func TestEachStreams(t *testing.T) {
+// A page is read advisory by advisory, whatever the order of its fields, and
+// the reading can stop at any moment.
+func TestAdvisoriesStream(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"next_page_token":"","other":[1,{"a":2}],"vulns":[{"id":"A"},{"id":"B"}]}`))
 	}))
@@ -259,21 +260,40 @@ func TestEachStreams(t *testing.T) {
 	if got := query(t, c, Query{}); len(got) != 2 || got[1].ID != "B" || string(got[1].Raw) != `{"id":"B"}` {
 		t.Errorf("advisories = %+v", got)
 	}
-	stop := errors.New("stop")
-	seen := 0
-	if err := c.Each(context.Background(), Query{}, func(Vuln) error {
-		seen++
-		return stop
-	}); !errors.Is(err, stop) || seen != 1 {
-		t.Errorf("stopping: %d, %v", seen, err)
+	list := c.Advisories(Query{})
+	if !list.Next(context.Background()) || list.Vuln().ID != "A" {
+		t.Errorf("first advisory = %+v, %v", list.Vuln(), list.Err())
 	}
-	for name, doc := range map[string]string{"truncated": `{"vulns":[{"id":"A"}`, "not an object": `[`} {
+	list.Close() // before the end: nothing left open
+	list.Close()
+	for name, doc := range map[string]string{"truncated": `{"vulns":[{"id":"A"}`, "cut after the list": `{"vulns":[{"id":"A"}]`, "not an object": `[]`, "not a list": `{"vulns":3}`, "empty": ``} {
 		bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(doc)) }))
 		c.BaseURL = bad.URL
-		if err := c.Each(context.Background(), Query{}, func(Vuln) error { return nil }); err == nil {
+		list := c.Advisories(Query{})
+		for list.Next(context.Background()) {
+		}
+		if list.Err() == nil {
 			t.Errorf("%s: no error", name)
 		}
 		bad.Close()
+	}
+}
+
+// A reply that never ends is cut.
+func TestAdvisoriesPagesBound(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Write([]byte(`{"next_page_token":"more"}`))
+	}))
+	defer srv.Close()
+	c := New("test")
+	c.BaseURL = srv.URL
+	list := c.Advisories(Query{})
+	for list.Next(context.Background()) {
+	}
+	if list.Err() == nil || calls != maxQueryPages {
+		t.Errorf("%d calls, %v", calls, list.Err())
 	}
 }
 

@@ -426,7 +426,7 @@ func (v Vuln) SeverityLabel() string {
 
 // BatchResult answers one query of a batch: the first page of its
 // vulnerabilities. With More, there are others, and OSV lists from the oldest:
-// read them all with Each.
+// read them all with Advisories.
 type BatchResult struct {
 	Vulns []VulnRef
 	More  bool
@@ -461,81 +461,141 @@ func (c *Client) QueryBatch(ctx context.Context, queries []Query) ([]BatchResult
 // in many pages, sometimes empty (more than twenty for the Ubuntu kernel).
 const maxQueryPages = 200
 
-// Each calls visit for every advisory matching q, in full: those of a version,
-// or of the whole package without one. They are not kept: the Linux kernel has
-// 150 MB of them.
-func (c *Client) Each(ctx context.Context, q Query, visit func(Vuln) error) error {
-	token := ""
-	for range maxQueryPages {
-		body := map[string]any{"package": q.Package}
-		if q.Version != "" {
-			body["version"] = q.Version
-		}
-		if token != "" {
-			body["page_token"] = token
-		}
-		var err error
-		if token, err = c.queryPage(ctx, body, visit); err != nil {
-			return err
-		}
-		if token == "" {
-			return nil
-		}
-	}
-	return fmt.Errorf("osv query: more than %d pages of results", maxQueryPages)
+// Advisories reads every advisory matching a query, in full, one at a time and
+// without keeping them: the Linux kernel has 150 MB of them. It takes no
+// callback, so that this package never calls the code of its users.
+//
+//	list := client.Advisories(q)
+//	defer list.Close()
+//	for list.Next(ctx) {
+//		use(list.Vuln())
+//	}
+//	err := list.Err()
+type Advisories struct {
+	client  *Client
+	query   Query
+	token   string // of the next page
+	pages   int
+	done    bool
+	body    io.Closer // of the page being read
+	dec     *json.Decoder
+	inVulns bool
+	vuln    Vuln
+	err     error
 }
 
-// queryPage reads a page of /v1/query, advisory by advisory, and returns the
-// token of the next one.
-func (c *Client) queryPage(ctx context.Context, body any, visit func(Vuln) error) (next string, err error) {
-	resp, err := c.send(ctx, http.MethodPost, "/v1/query", body)
+// Advisories returns the advisories matching q: those of a version, or of the
+// whole package without one.
+func (c *Client) Advisories(q Query) *Advisories { return &Advisories{client: c, query: q} }
+
+// Vuln returns the advisory Next moved to.
+func (a *Advisories) Vuln() Vuln { return a.vuln }
+
+// Err returns the failure that ended the reading, if any.
+func (a *Advisories) Err() error { return a.err }
+
+// Close releases the page being read, for a reading stopped before the end.
+func (a *Advisories) Close() {
+	if a.body != nil {
+		_ = a.body.Close() // only read from: nothing to lose
+		a.body, a.dec = nil, nil
+	}
+}
+
+// Next moves to the next advisory; false at the end or after a failure.
+func (a *Advisories) Next(ctx context.Context) bool {
+	for a.err == nil && !a.done {
+		switch {
+		case a.dec == nil:
+			a.err = a.openPage(ctx)
+		case a.inVulns && a.dec.More():
+			if a.err = a.decodeVuln(); a.err == nil {
+				return true
+			}
+		case a.inVulns:
+			a.inVulns = false
+			a.err = a.expect(']')
+		case a.dec.More():
+			a.err = a.readField()
+		default: // end of the page
+			if a.err = a.expect('}'); a.err == nil {
+				a.Close()
+				a.done = a.token == ""
+			}
+		}
+	}
+	a.Close()
+	return false
+}
+
+// openPage asks for the next page and enters its object.
+func (a *Advisories) openPage(ctx context.Context) error {
+	if a.pages == maxQueryPages {
+		return fmt.Errorf("osv query: more than %d pages of results", maxQueryPages)
+	}
+	a.pages++
+	body := map[string]any{"package": a.query.Package}
+	if a.query.Version != "" {
+		body["version"] = a.query.Version
+	}
+	if a.token != "" {
+		body["page_token"] = a.token
+	}
+	a.token = ""
+	resp, err := a.client.send(ctx, http.MethodPost, "/v1/query", body)
 	if err != nil {
-		return "", err
+		return err
 	}
-	defer resp.Body.Close()
+	a.body = resp.Body
 	// SECURITY: never read an unbounded response from the network.
-	dec := json.NewDecoder(io.LimitReader(resp.Body, maxPage))
-	fail := func(err error) (string, error) { return "", fmt.Errorf("osv /v1/query: decode: %w", err) }
-	if _, err := dec.Token(); err != nil { // {
-		return fail(err)
+	a.dec = json.NewDecoder(io.LimitReader(resp.Body, maxPage))
+	return a.expect('{')
+}
+
+func (a *Advisories) decodeVuln() error {
+	var v Vuln
+	if err := a.dec.Decode(&v.Raw); err != nil {
+		return fmt.Errorf("osv /v1/query: decode: %w", err)
 	}
-	for dec.More() {
-		key, err := dec.Token()
-		if err != nil {
-			return fail(err)
-		}
-		switch key {
-		case "vulns":
-			if _, err := dec.Token(); err != nil { // [
-				return fail(err)
-			}
-			for dec.More() {
-				var v Vuln
-				if err := dec.Decode(&v.Raw); err != nil {
-					return fail(err)
-				}
-				if err := json.Unmarshal(v.Raw, &v); err != nil {
-					return fail(err)
-				}
-				if err := visit(v); err != nil {
-					return "", err
-				}
-			}
-			if _, err := dec.Token(); err != nil { // ]
-				return fail(err)
-			}
-		case "next_page_token":
-			if err := dec.Decode(&next); err != nil {
-				return fail(err)
-			}
-		default:
-			var skipped json.RawMessage
-			if err := dec.Decode(&skipped); err != nil {
-				return fail(err)
-			}
-		}
+	if err := json.Unmarshal(v.Raw, &v); err != nil {
+		return fmt.Errorf("osv /v1/query: decode: %w", err)
 	}
-	return next, nil
+	a.vuln = v
+	return nil
+}
+
+// readField reads a field of the page, up to the first advisory of its list.
+func (a *Advisories) readField() error {
+	key, err := a.dec.Token()
+	if err != nil {
+		return fmt.Errorf("osv /v1/query: decode: %w", err)
+	}
+	switch key {
+	case "vulns":
+		a.inVulns = true
+		return a.expect('[')
+	case "next_page_token":
+		err = a.dec.Decode(&a.token)
+	default:
+		var skipped json.RawMessage
+		err = a.dec.Decode(&skipped)
+	}
+	if err != nil {
+		return fmt.Errorf("osv /v1/query: decode: %w", err)
+	}
+	return nil
+}
+
+// expect reads a delimiter of the page, which must be the one given.
+func (a *Advisories) expect(delim json.Delim) error {
+	token, err := a.dec.Token()
+	if err != nil {
+		return fmt.Errorf("osv /v1/query: decode: %w", err)
+	}
+	if token != delim {
+		return fmt.Errorf("osv /v1/query: decode: %v instead of %v", token, delim)
+	}
+	return nil
 }
 
 // Vuln fetches the full record of a vulnerability.

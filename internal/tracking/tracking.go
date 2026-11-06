@@ -446,7 +446,10 @@ func (s *Syncer) readCPE(ctx context.Context, a store.Asset) ([]string, error) {
 // fixed version, and OSV does not compare versions in every ecosystem.
 func (s *Syncer) readPackage(ctx context.Context, pkg osv.Package, assets []store.Asset, exploited func() map[string]bool) (map[int64][]string, error) {
 	reported := make(map[int64][]string, len(assets))
-	err := s.OSV.Each(ctx, osv.Query{Package: pkg}, func(v osv.Vuln) error {
+	list := s.OSV.Advisories(osv.Query{Package: pkg})
+	defer list.Close()
+	for list.Next(ctx) {
+		v := list.Vuln()
 		keep := false
 		for _, a := range assets {
 			affected := v.Affects(pkg, a.Version)
@@ -458,12 +461,13 @@ func (s *Syncer) readPackage(ctx context.Context, pkg osv.Package, assets []stor
 				keep = keep || reportable(a, v, exploited)
 			}
 		}
-		if !keep {
-			return nil
+		if keep {
+			if err := s.storeOSV(ctx, v, false); err != nil {
+				return nil, err
+			}
 		}
-		return s.storeOSV(ctx, v, false)
-	})
-	return reported, err
+	}
+	return reported, list.Err()
 }
 
 // reportable reports whether an asset can report an advisory: published in
@@ -498,14 +502,18 @@ func (s *Syncer) readAdvisories(ctx context.Context, a store.Asset, q osv.Query,
 // others are still reported, to count them as older.
 func (s *Syncer) readLargePackage(ctx context.Context, a store.Asset, q osv.Query, exploited func() map[string]bool) ([]string, error) {
 	var reported []string
-	err := s.OSV.Each(ctx, q, func(v osv.Vuln) error {
+	list := s.OSV.Advisories(q)
+	defer list.Close()
+	for list.Next(ctx) {
+		v := list.Vuln()
 		reported = append(reported, v.ID)
-		if !reportable(a, v, exploited) {
-			return nil
+		if reportable(a, v, exploited) {
+			if err := s.storeOSV(ctx, v, false); err != nil {
+				return nil, err
+			}
 		}
-		return s.storeOSV(ctx, v, false)
-	})
-	return reported, err
+	}
+	return reported, list.Err()
 }
 
 // exploitedCVEs returns the CVEs of the KEV catalogue. Without it, only the
