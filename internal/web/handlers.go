@@ -80,7 +80,7 @@ func (s *Server) setupSubmit(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	s.audit(r, id, "setup", "compte administrateur initial créé")
+	s.auditAs(r, id, "setup", "compte administrateur initial créé")
 	s.startSession(w, r, id)
 }
 
@@ -137,14 +137,14 @@ func (s *Server) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !valid {
-		s.audit(r, 0, "login_failed", "ip="+ip+" user="+clip.Text(username, 64))
+		s.audit(r, "login_failed", "ip="+ip+" user="+clip.Text(username, 64))
 		// SECURITY: same message whether the user exists or not.
 		s.render(w, r, http.StatusUnauthorized, "login", page{Title: "Connexion", Error: "Identifiants invalides."})
 		return
 	}
 	s.limiter.Forgive(ipKey)
 	s.accounts.Reset(userKey)
-	s.audit(r, user.ID, "login", "ip="+ip)
+	s.auditAs(r, user.ID, "login", "ip="+ip)
 	s.startSession(w, r, user.ID)
 }
 
@@ -333,8 +333,7 @@ func (s *Server) assetCreate(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	sess, _ := sessionFrom(r.Context())
-	s.audit(r, sess.User.ID, "asset_create", strconv.FormatInt(id, 10))
+	s.audit(r, "asset_create", strconv.FormatInt(id, 10))
 	go s.runAssetSync(id)
 	redirect(w, r, "/assets/"+strconv.FormatInt(id, 10), "asset-created")
 }
@@ -406,8 +405,7 @@ func (s *Server) dismissalCreate(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	sess, _ := sessionFrom(r.Context())
-	s.audit(r, sess.User.ID, "dismissal_create", strconv.FormatInt(a.ID, 10)+" "+text)
+	s.audit(r, "dismissal_create", strconv.FormatInt(a.ID, 10)+" "+text)
 	redirect(w, r, "/assets/"+strconv.FormatInt(a.ID, 10), "rule-created")
 }
 
@@ -431,8 +429,7 @@ func (s *Server) dismissalDelete(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	sess, _ := sessionFrom(r.Context())
-	s.audit(r, sess.User.ID, "dismissal_delete", strconv.FormatInt(a.ID, 10))
+	s.audit(r, "dismissal_delete", strconv.FormatInt(a.ID, 10))
 	redirect(w, r, "/assets/"+strconv.FormatInt(a.ID, 10), "rule-deleted")
 }
 
@@ -452,8 +449,7 @@ func (s *Server) assetUpdate(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	sess, _ := sessionFrom(r.Context())
-	s.audit(r, sess.User.ID, "asset_update", strconv.FormatInt(a.ID, 10))
+	s.audit(r, "asset_update", strconv.FormatInt(a.ID, 10))
 	go s.runAssetSync(a.ID)
 	redirect(w, r, "/assets/"+strconv.FormatInt(a.ID, 10), "asset-updated")
 }
@@ -470,8 +466,7 @@ func (s *Server) assetFullHistory(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	sess, _ := sessionFrom(r.Context())
-	s.audit(r, sess.User.ID, "asset_update", strconv.FormatInt(a.ID, 10)+" historique complet")
+	s.audit(r, "asset_update", strconv.FormatInt(a.ID, 10)+" historique complet")
 	go s.runAssetSync(a.ID)
 	redirect(w, r, "/assets/"+strconv.FormatInt(a.ID, 10), "asset-updated")
 }
@@ -485,8 +480,7 @@ func (s *Server) assetScan(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, "/assets/"+strconv.FormatInt(a.ID, 10), "")
 		return
 	}
-	sess, _ := sessionFrom(r.Context())
-	s.audit(r, sess.User.ID, "asset_scan", strconv.FormatInt(a.ID, 10))
+	s.audit(r, "asset_scan", strconv.FormatInt(a.ID, 10))
 	go s.runAssetSync(a.ID)
 	redirect(w, r, "/assets/"+strconv.FormatInt(a.ID, 10), "scan-started")
 }
@@ -500,8 +494,7 @@ func (s *Server) assetDelete(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	sess, _ := sessionFrom(r.Context())
-	s.audit(r, sess.User.ID, "asset_delete", inventory.Describe(a))
+	s.audit(r, "asset_delete", inventory.Describe(a))
 	redirect(w, r, "/assets", "asset-deleted")
 }
 
@@ -637,7 +630,7 @@ func (s *Server) findingBulk(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	s.audit(r, sess.User.ID, "finding_bulk", fmt.Sprintf("%d → %s", done, status))
+	s.audit(r, "finding_bulk", fmt.Sprintf("%d → %s", done, status))
 	sep := "&"
 	if !strings.Contains(next, "?") {
 		sep = "?"
@@ -764,6 +757,7 @@ func (s *Server) findingUpdate(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
+	s.audit(r, "finding_update", fmt.Sprintf("%d → %s", f.ID, status))
 	redirect(w, r, "/findings/"+strconv.FormatInt(f.ID, 10), "status-updated")
 }
 
@@ -778,8 +772,7 @@ func (s *Server) syncNow(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, back, "sync-running")
 		return
 	}
-	sess, _ := sessionFrom(r.Context())
-	s.audit(r, sess.User.ID, "sync", "manuel")
+	s.audit(r, "sync", "manuel")
 	go s.runSync()
 	redirect(w, r, back, "sync-started")
 }
@@ -806,6 +799,7 @@ func (s *Server) digestCreate(w http.ResponseWriter, r *http.Request) {
 			msg = "digest-webhook"
 		}
 	}
+	s.audit(r, "digest_create", strconv.FormatInt(d.ID, 10))
 	redirect(w, r, "/digests/"+strconv.FormatInt(d.ID, 10), msg)
 }
 

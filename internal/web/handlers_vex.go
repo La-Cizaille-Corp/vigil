@@ -61,6 +61,6 @@ func (s *Server) vexImport(w http.ResponseWriter, r *http.Request) {
 		}
 		applied++
 	}
-	s.audit(r, sess.User.ID, "vex_import", fmt.Sprintf("%d appliquées, %d ignorées", applied, ignored))
+	s.audit(r, "vex_import", fmt.Sprintf("%d appliquées, %d ignorées", applied, ignored))
 	redirect(w, r, "/findings", "vex-imported")
 }

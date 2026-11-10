@@ -87,6 +87,44 @@ func TestFeedErrorKeepsTheURLSecret(t *testing.T) {
 	}
 }
 
+// The audit names the signed-in user itself; a status change, a manual feed
+// collection and a manual digest were not recorded.
+func TestActionsAreAudited(t *testing.T) {
+	st, base := newServerWith(t, func(s *Server) {
+		s.CTI = &cti.Collector{Store: s.Store, HTTP: netsafe.NewClient(time.Second, false), UserAgent: "test", Log: s.Log}
+	})
+	ctx := context.Background()
+	feeds, _ := st.ListFeeds(ctx)
+	for _, f := range feeds { // no network in this test
+		st.SetFeedEnabled(ctx, f.ID, false)
+	}
+	_, ids := seedFindings(t, st)
+	c := loginAs(t, base, "analyst", "a-strong-password")
+	for path, form := range map[string]url.Values{
+		fmt.Sprintf("/findings/%d", ids[0]): {"status": {"false_positive"}, "comment": {"test"}},
+		"/cti/refresh":                      {},
+		"/digests":                          {},
+	} {
+		form.Set("csrf", c.csrf())
+		if code := c.post(path, form); code != http.StatusSeeOther {
+			t.Fatalf("%s: %d", path, code)
+		}
+	}
+	entries, err := st.ListAudit(ctx, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]string{}
+	for _, e := range entries {
+		seen[e.Action] = e.Username
+	}
+	for _, action := range []string{"finding_update", "cti_refresh", "digest_create", "login"} {
+		if seen[action] != "analyst" {
+			t.Errorf("%s: recorded for %q", action, seen[action])
+		}
+	}
+}
+
 // S2: the account forms counted a failure after the slow check, so parallel
 // requests all got through. Each attempt is now counted before it.
 func TestAccountLimitersHoldInParallel(t *testing.T) {

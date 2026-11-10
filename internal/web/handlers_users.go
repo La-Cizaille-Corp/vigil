@@ -48,8 +48,7 @@ func (s *Server) userTOTPPolicy(w http.ResponseWriter, r *http.Request) {
 		s.renderUsers(w, r, http.StatusBadRequest, "Choix inconnu.", nil)
 		return
 	}
-	sess, _ := sessionFrom(r.Context())
-	s.audit(r, sess.User.ID, "totp_policy", "required="+policy)
+	s.audit(r, "totp_policy", "required="+policy)
 	redirect(w, r, "/settings/users", "totp-policy-saved")
 }
 
@@ -74,8 +73,7 @@ func (s *Server) userCreate(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	sess, _ := sessionFrom(r.Context())
-	s.audit(r, sess.User.ID, "user_create", "id="+strconv.FormatInt(id, 10)+" "+username+" role="+role)
+	s.audit(r, "user_create", "id="+strconv.FormatInt(id, 10)+" "+username+" role="+role)
 	// SECURITY: the password is displayed once, on the page this redirects to.
 	s.keepOnce(r, &newPassword{Username: username, Password: password})
 	redirect(w, r, "/settings/users", "user-created")
@@ -164,7 +162,7 @@ func (s *Server) userAction(w http.ResponseWriter, r *http.Request, action, deta
 		s.serverError(w, r, err)
 		return false
 	}
-	s.audit(r, sess.User.ID, action, strings.TrimSpace("id="+strconv.FormatInt(id, 10)+" "+detail))
+	s.audit(r, action, strings.TrimSpace("id="+strconv.FormatInt(id, 10)+" "+detail))
 	if msg != "" {
 		redirect(w, r, "/settings/users", msg)
 	}

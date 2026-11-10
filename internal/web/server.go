@@ -413,7 +413,16 @@ func (s *Server) background() context.Context {
 
 // audit records an action in the audit log; a failure is logged, never
 // silently ignored, but does not fail the user's request.
-func (s *Server) audit(r *http.Request, userID int64, action, detail string) {
+// audit records an action of the signed-in user, or of the system (user 0)
+// for a request without a session: the API, a failed login.
+func (s *Server) audit(r *http.Request, action, detail string) {
+	sess, _ := sessionFrom(r.Context())
+	s.auditAs(r, sess.User.ID, action, detail)
+}
+
+// auditAs records an action of a user whose session does not exist yet: the
+// first setup, a login.
+func (s *Server) auditAs(r *http.Request, userID int64, action, detail string) {
 	// The journal keeps a copy outside the database: shipped to a log server,
 	// it survives a lost or altered database. SECURITY: the detail may hold a
 	// typed username or feed name; line breaks are removed so that it cannot

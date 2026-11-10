@@ -61,7 +61,7 @@ func (s *Server) apiSBOM(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusInternalServerError, "erreur interne")
 		return
 	}
-	s.audit(r, 0, "sbom_import_api", fmt.Sprintf("%s (jeton %q): %s +%d =%d -%d (%d ignorés)",
+	s.audit(r, "sbom_import_api", fmt.Sprintf("%s (jeton %q): %s +%d =%d -%d (%d ignorés)",
 		project, tok.Name, doc.Format, res.Added, res.Kept, res.Removed, doc.Skipped))
 	if s.Syncer != nil {
 		go s.runSync()
@@ -104,7 +104,7 @@ func (s *Server) tokenCreate(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	s.audit(r, sess.User.ID, "api_token_create", t.Name+" → "+t.Project)
+	s.audit(r, "api_token_create", t.Name+" → "+t.Project)
 	// SECURITY: the secret is displayed once, on the page this redirects to.
 	s.keepOnce(r, secret)
 	redirect(w, r, "/settings", "token-created")

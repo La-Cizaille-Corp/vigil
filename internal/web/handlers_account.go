@@ -117,7 +117,7 @@ func (s *Server) totpConfirm(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	s.audit(r, sess.User.ID, "totp_enable", "")
+	s.audit(r, "totp_enable", "")
 	redirect(w, r, "/account", "totp-enabled")
 }
 
@@ -146,7 +146,7 @@ func (s *Server) totpDisable(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	s.audit(r, sess.User.ID, "totp_disable", "")
+	s.audit(r, "totp_disable", "")
 	redirect(w, r, "/account", "totp-disabled")
 }
 
@@ -215,6 +215,6 @@ func (s *Server) passwordChange(w http.ResponseWriter, r *http.Request) {
 	if err := s.endOtherSessions(r, user.ID); err != nil {
 		s.Log.Warn("end other sessions", "err", err)
 	}
-	s.audit(r, user.ID, "password_change", "")
+	s.audit(r, "password_change", "")
 	redirect(w, r, "/account", "password-changed")
 }
