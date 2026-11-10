@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/nvd"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
@@ -66,9 +67,7 @@ const (
 func (s *Server) cpeSearch(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	data := map[string]any{"Query": q}
-	if len(q) > 100 {
-		q = q[:100]
-	}
+	q = clip.Prefix(q, 100)
 	if q != "" {
 		if s.Syncer == nil || s.Syncer.NVD == nil {
 			s.render(w, r, http.StatusServiceUnavailable, "cpe", page{Title: "Trouver un CPE",

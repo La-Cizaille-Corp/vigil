@@ -11,9 +11,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
+	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 	"github.com/La-Cizaille-Corp/vigil/internal/digest"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
@@ -102,7 +102,7 @@ func (s *Server) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	// addresses does not help. A success only cancels its own attempt.
 	// The name is cut to the longest valid username, so that the limiter's
 	// memory stays bounded whatever is posted.
-	ipKey, userKey := limitKey(ip), "user:"+strings.ToLower(truncate(username, 64))
+	ipKey, userKey := limitKey(ip), "user:"+strings.ToLower(clip.Text(username, 64))
 	if !s.limiter.Take(ipKey) {
 		s.render(w, r, http.StatusTooManyRequests, "login", page{Title: "Connexion",
 			Error: "Trop de tentatives. Réessayez dans quelques minutes."})
@@ -137,7 +137,7 @@ func (s *Server) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !valid {
-		s.audit(r, 0, "login_failed", "ip="+ip+" user="+truncate(username, 64))
+		s.audit(r, 0, "login_failed", "ip="+ip+" user="+clip.Text(username, 64))
 		// SECURITY: same message whether the user exists or not.
 		s.render(w, r, http.StatusUnauthorized, "login", page{Title: "Connexion", Error: "Identifiants invalides."})
 		return
@@ -369,10 +369,7 @@ func (s *Server) assetEdit(w http.ResponseWriter, r *http.Request) {
 // searched in the query string if any, and its dismissal rules. The edit form
 // is folded; it opens on the values refused when there are some (form != a).
 func (s *Server) renderAsset(w http.ResponseWriter, r *http.Request, status int, a, form store.Asset, formErr string) {
-	query := strings.TrimSpace(r.URL.Query().Get("q"))
-	if len(query) > maxRuleText {
-		query = query[:maxRuleText]
-	}
+	query := clip.Prefix(strings.TrimSpace(r.URL.Query().Get("q")), maxRuleText)
 	findings, err := s.Store.ListFindings(r.Context(), store.FindingFilter{AssetID: a.ID, Matching: query})
 	if err != nil {
 		s.serverError(w, r, err)
@@ -401,7 +398,7 @@ func (s *Server) dismissalCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	text := strings.TrimSpace(r.PostFormValue("text"))
-	if n := utf8.RuneCountInString(text); n < minRuleText || len(text) > maxRuleText {
+	if clip.Fits(text, minRuleText-1) || !clip.Fits(text, maxRuleText) {
 		s.renderAsset(w, r, http.StatusBadRequest, a, a, fmt.Sprintf("Indiquez un texte de %d à %d caractères.", minRuleText, maxRuleText))
 		return
 	}
@@ -410,7 +407,7 @@ func (s *Server) dismissalCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess, _ := sessionFrom(r.Context())
-	s.audit(r, sess.User.ID, "dismissal_create", strconv.FormatInt(a.ID, 10)+" "+truncate(text, maxRuleText))
+	s.audit(r, sess.User.ID, "dismissal_create", strconv.FormatInt(a.ID, 10)+" "+text)
 	redirect(w, r, "/assets/"+strconv.FormatInt(a.ID, 10), "rule-created")
 }
 
@@ -691,9 +688,7 @@ func findingFilterFrom(q url.Values) store.FindingFilter {
 	if len(f.Tag) > 100 {
 		f.Tag = ""
 	}
-	if len(f.Search) > 200 {
-		f.Search = f.Search[:200]
-	}
+	f.Search = clip.Prefix(f.Search, 200)
 	return f
 }
 

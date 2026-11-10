@@ -11,6 +11,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
@@ -122,7 +123,7 @@ func Parse(r io.Reader) ([]Statement, error) {
 				return nil, fmt.Errorf("fichier VEX trop volumineux (plus de %d analyses)", maxStatements)
 			}
 			out = append(out, Statement{VulnID: v.ID, Ref: a.Ref, State: state,
-				Justification: v.Analysis.Justification, Detail: truncate(v.Analysis.Detail, 4000)})
+				Justification: v.Analysis.Justification, Detail: clip.Text(v.Analysis.Detail, 4000)})
 		}
 	}
 	if len(out) == 0 {
@@ -150,11 +151,4 @@ func trimBOM(b []byte) []byte {
 		return b[3:]
 	}
 	return b
-}
-
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return fmt.Sprintf("%.*s…", n, s)
 }

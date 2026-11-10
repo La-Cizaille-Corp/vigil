@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // These tests pin the behaviour of the storage layer independently of the
@@ -40,6 +41,24 @@ func TestAssetCRUD(t *testing.T) {
 	}
 	if err := st.DeleteAsset(ctx, id); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("second delete: %v", err)
+	}
+}
+
+// The error kept for a channel is cut by characters: a French message was cut
+// by bytes, possibly in the middle of one.
+func TestWebhookErrorStaysValidUTF8(t *testing.T) {
+	st := openTest(t)
+	ctx := context.Background()
+	id, err := st.CreateWebhook(ctx, Webhook{Name: "w", Kind: "generic", URL: "https://example.org/hook", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordWebhookResult(ctx, id, errors.New(strings.Repeat("a", 299)+"é et la suite")); err != nil {
+		t.Fatal(err)
+	}
+	hooks, _ := st.ListWebhooks(ctx)
+	if got := hooks[0].LastError; !utf8.ValidString(got) || got != strings.Repeat("a", 299)+"…" {
+		t.Errorf("last_error = %q", got)
 	}
 }
 

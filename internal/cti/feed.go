@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
 )
 
@@ -124,9 +125,9 @@ func Parse(data []byte) ([]Item, error) {
 	now := time.Now().UTC()
 	for i := range items {
 		it := &items[i]
-		it.Title = truncate(cleanText(it.Title), 500)
-		it.Summary = truncate(cleanText(it.Summary), 2000)
-		it.GUID = truncate(strings.TrimSpace(it.GUID), 500)
+		it.Title = clip.Text(cleanText(it.Title), 500)
+		it.Summary = clip.Text(cleanText(it.Summary), 2000)
+		it.GUID = clip.Text(strings.TrimSpace(it.GUID), 500)
 		it.Link = strings.TrimSpace(it.Link)
 		// SECURITY: only keep http(s) links; a javascript: URL would be
 		// neutralised by html/template anyway, but we do not store it.
@@ -169,14 +170,6 @@ func cleanText(s string) string {
 	}
 	s = tagRe.ReplaceAllString(s, " ")
 	return strings.Join(strings.Fields(s), " ")
-}
-
-func truncate(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n-1]) + "…"
 }
 
 func firstNonEmpty(values ...string) string {

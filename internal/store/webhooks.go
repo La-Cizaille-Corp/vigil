@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 )
 
 // Webhook is a chat or HTTP endpoint receiving digests.
@@ -64,7 +66,7 @@ func (s *Store) DeleteWebhook(ctx context.Context, id int64) error {
 func (s *Store) RecordWebhookResult(ctx context.Context, id int64, deliveryErr error) error {
 	msg := ""
 	if deliveryErr != nil {
-		msg = truncateString(deliveryErr.Error(), 300)
+		msg = clip.Text(deliveryErr.Error(), 300)
 	}
 	_, err := s.db.ExecContext(ctx, `UPDATE webhooks SET last_error = ? WHERE id = ?`, msg, id)
 	return err

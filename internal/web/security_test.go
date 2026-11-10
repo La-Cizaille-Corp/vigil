@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
+	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
 
@@ -104,7 +105,7 @@ func TestLimitKeys(t *testing.T) {
 	if k := limitKey("203.0.113.9"); k != "203.0.113.9" {
 		t.Errorf("IPv4 key = %s", k)
 	}
-	if n := len([]rune(truncate(strings.Repeat("a", 70000), 64))); n != 65 {
+	if n := len([]rune(clip.Text(strings.Repeat("a", 70000), 64))); n != 64 {
 		t.Errorf("account key length = %d", n)
 	}
 }
