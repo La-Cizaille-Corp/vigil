@@ -12,7 +12,8 @@ Outil open source de **veille de sécurité** léger : un seul binaire, aucune i
   signalées). Elles sont enrichies par
   [CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) (exploitation avérée) et
   [FIRST EPSS](https://www.first.org/epss/) (probabilité d'exploitation), puis classées en quatre
-  niveaux : Urgentes, À planifier, À surveiller, Écartées. Les tableaux se trient par colonne.
+  niveaux : Urgentes, À planifier, À surveiller, Écartées. La liste s'ouvre sur ce qui reste à traiter, et
+  les tableaux se trient par colonne.
 - **Suivi** du traitement avec les statuts CycloneDX / VEX et un historique, triage par lot ;
   **règles pour écarter** ce qui ne concerne pas un actif (`wifi:` sur un serveur sans Wi-Fi) ;
   **délais de traitement** par sévérité avec indicateur « hors délai » ; résolution et réouverture

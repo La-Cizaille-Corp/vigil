@@ -7,7 +7,7 @@ repérables dans le code par le commentaire `SECURITY:`.
 
 - **L'inventaire et les vulnérabilités** : ils révèlent la surface d'attaque de l'organisation
   (versions vulnérables non corrigées). C'est la donnée la plus sensible.
-- **Les secrets** : mots de passe (hachés), sessions, jetons d'API, secrets TOTP, URL de webhooks.
+- **Les secrets** : mots de passe (hachés), sessions, jetons d'API, secrets TOTP, URL de webhooks et de flux (qui peuvent porter une clé).
 - **L'intégrité du suivi** : statuts, justifications VEX, journal d'audit.
 
 ## Modes et frontières de confiance
@@ -40,7 +40,7 @@ API externes (OSV, NVD, KEV, EPSS), requêtes de l'API CI.
 | E-mail | Serveur SMTP fixé par l'exploitant ; STARTTLS exigé par défaut, sans repli en clair ; pas de mot de passe envoyé sans TLS (sauf à la machine locale) ; destinataires validés (pas d'injection d'en-têtes). |
 | Fichiers malveillants (SBOM, VEX, flux) | Taille bornée, pas d'entités XML externes, BOM UTF-8 retiré, validation des champs ; 500 actualités par collecte d'un flux, dates futures ramenées à aujourd'hui, 20 000 analyses par document VEX, 50 pages par requête NVD, scores EPSS hors de 0..1 ignorés. Un SBOM sans composant exploitable est refusé (il effacerait l'historique de triage du projet). |
 | Exposition en clair | Refus d'écouter hors `127.0.0.1` sans TLS ou `-behind-proxy`. |
-| Fuite de secrets | URL de webhook masquées dans l'interface et les erreurs, jetons affichés une seule fois, erreurs génériques côté client et détails dans les journaux. |
+| Fuite de secrets | URL de webhook et de flux masquées dans l'interface et retirées des erreurs (`netsafe.WithoutURL`), jetons affichés une seule fois, erreurs génériques côté client et détails dans les journaux. |
 | Chaîne d'approvisionnement | 3 dépendances directes (voir DEPENDENCIES.md). En CI : govulncheck, gosec, staticcheck, CodeQL, revue des dépendances, recherche de secrets (gitleaks, tout l'historique), scan de l'image (Trivy), SBOM ; actions épinglées par SHA et images de base par digest, mises à jour par Dependabot. Builds reproductibles, checksums, SBOM et attestation de provenance signée pour chaque release. |
 | Sources compromises ou erronées | Les sources externes peuvent créer de faux positifs ou en omettre : le triage humain reste la référence, et l'historique conserve chaque changement. |
 
