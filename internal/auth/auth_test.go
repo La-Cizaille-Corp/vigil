@@ -43,8 +43,10 @@ func TestRoleAtLeast(t *testing.T) {
 
 func TestLimiter(t *testing.T) {
 	l := NewLimiter(2, time.Minute)
-	if !l.Take("ip") || !l.Take("ip") {
-		t.Fatal("blocked too early")
+	for i := range 2 {
+		if !l.Take("ip") {
+			t.Fatalf("attempt %d blocked too early", i+1)
+		}
 	}
 	if l.Take("ip") {
 		t.Fatal("not blocked after max attempts")
