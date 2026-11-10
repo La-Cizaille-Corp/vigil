@@ -31,15 +31,16 @@ type Item struct {
 
 // Fetch downloads and parses a feed.
 func Fetch(ctx context.Context, client *http.Client, url, userAgent string) ([]Item, error) {
+	// The URL of a feed may carry an access key: errors leave it out.
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, err
+		return nil, netsafe.WithoutURL(err)
 	}
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Accept", "application/rss+xml, application/atom+xml, application/xml, text/xml")
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, netsafe.WithoutURL(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {

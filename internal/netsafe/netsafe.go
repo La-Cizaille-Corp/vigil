@@ -194,6 +194,17 @@ func Public(ip net.IP) bool {
 	return true
 }
 
+// WithoutURL drops the address from a request error: *url.Error quotes the
+// whole URL, and an URL may carry a secret (a webhook token, a feed key).
+// SECURITY: such errors are logged and shown in the settings page.
+func WithoutURL(err error) error {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		return ue.Err
+	}
+	return err
+}
+
 // ReadLimited reads at most max bytes of r and fails if there is more.
 func ReadLimited(r io.Reader, max int64) ([]byte, error) {
 	b, err := io.ReadAll(io.LimitReader(r, max+1))

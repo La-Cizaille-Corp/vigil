@@ -21,23 +21,24 @@ const tokenPrefix = "vgl_"
 //	Authorization: Bearer vgl_...
 //	body: CycloneDX or SPDX JSON
 func (s *Server) apiSBOM(w http.ResponseWriter, r *http.Request) {
+	// SECURITY: the attempt is counted before the token check, as for a login;
+	// a valid token takes it back.
 	ip := "api:" + s.clientIP(r)
-	if !s.limiter.Allowed(ip) {
+	if !s.limiter.Take(ip) {
 		apiError(w, http.StatusTooManyRequests, "trop de tentatives, réessayez plus tard")
 		return
 	}
 	secret, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !ok || !strings.HasPrefix(secret, tokenPrefix) {
-		s.limiter.Fail(ip)
 		apiError(w, http.StatusUnauthorized, "jeton manquant")
 		return
 	}
 	tok, err := s.Store.APITokenByHash(r.Context(), auth.HashToken(secret))
 	if errors.Is(err, store.ErrNotFound) {
-		s.limiter.Fail(ip)
 		apiError(w, http.StatusUnauthorized, "jeton invalide")
 		return
 	}
+	s.limiter.Forgive(ip)
 	if err != nil {
 		s.Log.Error("api token lookup", "err", err)
 		apiError(w, http.StatusInternalServerError, "erreur interne")

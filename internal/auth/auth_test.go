@@ -43,16 +43,14 @@ func TestRoleAtLeast(t *testing.T) {
 
 func TestLimiter(t *testing.T) {
 	l := NewLimiter(2, time.Minute)
-	l.Fail("ip")
-	if !l.Allowed("ip") {
+	if !l.Take("ip") || !l.Take("ip") {
 		t.Fatal("blocked too early")
 	}
-	l.Fail("ip")
-	if l.Allowed("ip") {
-		t.Fatal("not blocked after max failures")
+	if l.Take("ip") {
+		t.Fatal("not blocked after max attempts")
 	}
 	l.Reset("ip")
-	if !l.Allowed("ip") {
+	if !l.Take("ip") {
 		t.Fatal("still blocked after reset")
 	}
 }
@@ -61,8 +59,8 @@ func TestLimiter(t *testing.T) {
 // that attempt, never earlier failures.
 func TestLimiterTakeForgive(t *testing.T) {
 	l := NewLimiter(3, time.Minute)
-	l.Fail("ip")
-	l.Fail("ip")
+	l.Take("ip")
+	l.Take("ip")
 	if !l.Take("ip") {
 		t.Fatal("third attempt refused")
 	}
@@ -78,7 +76,7 @@ func TestLimiterEviction(t *testing.T) {
 	for i := range maxTrackedKeys {
 		l.failures[fmt.Sprint(i)] = []time.Time{time.Now()}
 	}
-	l.Fail("new")
+	l.Take("new")
 	if n := len(l.failures); n < maxTrackedKeys*8/10 || n >= maxTrackedKeys {
 		t.Errorf("%d keys after eviction", n)
 	}

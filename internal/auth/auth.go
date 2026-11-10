@@ -175,17 +175,10 @@ func NewLimiter(max int, window time.Duration) *Limiter {
 	return &Limiter{MaxFailures: max, Window: window, failures: map[string][]time.Time{}}
 }
 
-// Allowed reports whether key may attempt a login now.
-func (l *Limiter) Allowed(key string) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return len(l.recent(key)) < l.MaxFailures
-}
-
-// Take records an attempt for key and reports whether it was allowed. Unlike
-// Allowed followed by Fail, it counts the attempt before the (slow) password
-// check, so that concurrent requests cannot all pass. Forgive takes it back
-// when the attempt succeeds.
+// Take records an attempt for key and reports whether it was allowed. The
+// attempt is counted before the (slow) check, so that concurrent requests
+// cannot all pass. Forgive takes it back when the attempt succeeds, Reset
+// forgets every attempt.
 func (l *Limiter) Take(key string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -211,13 +204,6 @@ func (l *Limiter) Forgive(key string) {
 // swept and, if still full, a tenth of the keys is dropped at random. A
 // flood of new addresses thus frees only some counters, never all of them.
 const maxTrackedKeys = 100_000
-
-// Fail records a failed attempt.
-func (l *Limiter) Fail(key string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.add(key)
-}
 
 func (l *Limiter) add(key string) {
 	if len(l.failures) >= maxTrackedKeys {

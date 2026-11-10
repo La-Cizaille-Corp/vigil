@@ -288,12 +288,7 @@ func (n *Notifier) send(ctx context.Context, h store.Webhook, m message) error {
 	req.Header.Set("User-Agent", n.UserAgent)
 	resp, err := n.HTTP.Do(req)
 	if err != nil {
-		// SECURITY: *url.Error embeds the full URL, which holds the webhook secret.
-		var ue *url.Error
-		if errors.As(err, &ue) {
-			return ue.Err
-		}
-		return err
+		return netsafe.WithoutURL(err) // the URL holds the webhook secret
 	}
 	defer resp.Body.Close()
 	reply, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10)) // also drains for connection reuse
