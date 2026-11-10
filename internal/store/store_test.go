@@ -94,8 +94,8 @@ func TestRetiredComponentsKeepHistory(t *testing.T) {
 	}
 	st.UpsertVulnerability(ctx, Vulnerability{ID: "V-OPEN", Severity: "HIGH"})
 	st.UpsertVulnerability(ctx, Vulnerability{ID: "V-DECIDED", Severity: "LOW"})
-	st.ObserveFinding(ctx, ids["b"], "V-OPEN", time.Now())
-	st.ObserveFinding(ctx, ids["b"], "V-DECIDED", time.Now())
+	st.ObserveFinding(ctx, ids["b"], "V-OPEN", "", time.Now())
+	st.ObserveFinding(ctx, ids["b"], "V-DECIDED", "", time.Now())
 	findings, _ := st.ListFindings(ctx, FindingFilter{AssetID: ids["b"]})
 	var open, decided int64
 	for _, f := range findings {
@@ -185,7 +185,7 @@ func TestDismissalRules(t *testing.T) {
 	add := func(a int64, id, summary string) int64 {
 		t.Helper()
 		st.UpsertVulnerability(ctx, Vulnerability{ID: id, Summary: summary, EPSS: -1, CVSS: -1})
-		if _, err := st.ObserveFinding(ctx, a, id, time.Now()); err != nil {
+		if _, err := st.ObserveFinding(ctx, a, id, "", time.Now()); err != nil {
 			t.Fatal(err)
 		}
 		list, _ := st.ListFindings(ctx, FindingFilter{AssetID: a})

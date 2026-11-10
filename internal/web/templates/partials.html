@@ -13,6 +13,7 @@
   <td data-label="EPSS">{{with epss .EPSS}}{{.}}{{else}}<span class="muted">—</span>{{end}}</td>
   <td data-label="Vulnérabilité"><a href="/findings/{{.ID}}">{{.VulnID}}</a>{{if .Aliases}}<br><small>{{join .Aliases ", "}}</small>{{end}}</td>
   <td data-label="Actif"><a href="/assets/{{.AssetID}}">{{.AssetName}} {{.AssetVersion}}</a>{{with .AssetProject}}<br><small class="muted">projet {{.}}</small>{{end}}</td>
+  <td data-label="Corrigée en">{{.FixedIn}}</td>
   <td data-label="Statut">{{statusLabel .Status}}</td>
   <td data-label="Détectée le">{{date .FirstSeen}}</td>
   <td data-label="Échéance">{{if .Late}}<span class="late">Hors délai</span><br><small>{{.Due.Format "02/01/2006"}}</small>{{else if and (not .Due.IsZero) (or (eq .Status "in_triage") (eq .Status "exploitable"))}}{{.Due.Format "02/01/2006"}}{{else}}<span class="muted">—</span>{{end}}</td>

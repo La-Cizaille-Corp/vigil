@@ -192,6 +192,8 @@ var findingColumnList = []column[store.Finding]{
 	{key: "asset", label: "Actif", compare: func(a, b store.Finding) int {
 		return cmp.Or(compareText(a.AssetName, b.AssetName), versions.Compare(a.AssetVersion, b.AssetVersion))
 	}},
+	{key: "fixed", label: "Corrigée en", empty: func(f store.Finding) bool { return f.FixedIn == "" },
+		compare: func(a, b store.Finding) int { return versions.Compare(a.FixedIn, b.FixedIn) }},
 	{key: "status", label: "Statut", compare: func(a, b store.Finding) int {
 		return cmp.Compare(optionRank(tracking.Statuses, a.Status), optionRank(tracking.Statuses, b.Status))
 	}},

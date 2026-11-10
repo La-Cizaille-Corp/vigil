@@ -101,6 +101,54 @@ func TestAssetUpdateVersionAndPURL(t *testing.T) {
 	}
 }
 
+// An asset page tells what the asset is before its vulnerabilities; the edit
+// form stays folded until values are refused. Each vulnerability shows the
+// versions fixing it for the asset, in the page and in the export.
+func TestAssetPageLayout(t *testing.T) {
+	st, base := newTestServer(t)
+	ctx := context.Background()
+	hash, _ := auth.HashPassword("a-strong-password")
+	st.CreateUser(ctx, "admin", hash, auth.RoleAdmin)
+	st.CreateUser(ctx, "reader", hash, auth.RoleViewer)
+	id, err := st.CreateAsset(ctx, store.Asset{Name: "lodash", Kind: "package", Criticality: "high",
+		Source: "manual", PURL: "pkg:npm/lodash", Version: "4.17.15"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "GHSA-fix", Severity: "HIGH", Modified: "m"})
+	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "GHSA-open", Severity: "LOW", Modified: "m"})
+	st.ObserveFinding(ctx, id, "GHSA-fix", "4.17.21", time.Now())
+	st.ObserveFinding(ctx, id, "GHSA-open", "", time.Now())
+	path := "/assets/" + strconv.FormatInt(id, 10)
+
+	admin := loginAs(t, base, "admin", "a-strong-password")
+	_, page := admin.get(path)
+	details, vulns := strings.Index(page, "<h2>Détails</h2>"), strings.Index(page, "<h2>Vulnérabilités de cet actif</h2>")
+	if details < 0 || vulns < 0 || details > vulns || !strings.Contains(page, `<details class="card edit">`) {
+		t.Fatalf("details at %d, vulnerabilities at %d, folded form: %v", details, vulns, strings.Contains(page, `<details class="card edit">`))
+	}
+	if !strings.Contains(page, `<td data-label="Corrigée en">4.17.21</td>`) || !strings.Contains(page, `<td data-label="Corrigée en"></td>`) {
+		t.Error("fixed versions missing, or a placeholder where none is known")
+	}
+
+	// Refused values: the form opens on them, the details keep what is saved.
+	code, page := admin.postBody(path, url.Values{"csrf": {admin.csrf()}, "name": {"lodash"}, "kind": {"package"},
+		"criticality": {"high"}, "purl": {"npm/lodash"}, "version": {"4.17.15"}})
+	if code != http.StatusBadRequest || !strings.Contains(page, `<details class="card edit" open>`) ||
+		!strings.Contains(page, `value="npm/lodash"`) || !strings.Contains(page, "<code>pkg:npm/lodash</code>") {
+		t.Errorf("refused form: %d, open %v", code, strings.Contains(page, `<details class="card edit" open>`))
+	}
+
+	reader := loginAs(t, base, "reader", "a-strong-password")
+	if _, page := reader.get(path); !strings.Contains(page, "<h2>Détails</h2>") || strings.Contains(page, "Modifier l'actif") {
+		t.Error("a viewer sees the details only")
+	}
+	_, csv := admin.get("/findings.csv")
+	if lines := strings.Split(csv, "\n"); !strings.Contains(lines[0], ";version;corrigee_en;projet;") || !strings.Contains(csv, ";4.17.15;4.17.21;") {
+		t.Errorf("export: %q", lines[0])
+	}
+}
+
 func TestFeedTags(t *testing.T) {
 	st, base := newTestServer(t)
 	ctx := context.Background()

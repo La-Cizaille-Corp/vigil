@@ -59,7 +59,7 @@ func TestDashboardPage(t *testing.T) {
 	id, _ := st.CreateAsset(ctx, store.Asset{Name: "fortios", Kind: "os", Criticality: "high", Source: "manual"})
 	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-1", Severity: "CRITICAL", EPSS: -1, CVSS: -1})
 	st.SetExploitSignals(ctx, "CVE-1", true, "", 0.5)
-	st.ObserveFinding(ctx, id, "CVE-1", time.Now())
+	st.ObserveFinding(ctx, id, "CVE-1", "", time.Now())
 
 	c := loginAs(t, base, "viewer", "a-strong-password")
 	code, body := c.get("/")

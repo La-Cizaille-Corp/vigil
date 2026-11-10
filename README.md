@@ -16,7 +16,8 @@ Outil open source de **veille de sécurité** léger : un seul binaire, aucune i
 - **Suivi** du traitement avec les statuts CycloneDX / VEX et un historique, triage par lot ;
   **règles pour écarter** ce qui ne concerne pas un actif (`wifi:` sur un serveur sans Wi-Fi) ;
   **délais de traitement** par sévérité avec indicateur « hors délai » ; résolution et réouverture
-  automatiques quand une version change ; **version corrigée** indiquée sur chaque vulnérabilité ;
+  automatiques quand une version change ; **version corrigée** indiquée sur chaque vulnérabilité, en
+  colonne des tableaux comme dans l'export CSV ;
   **export et import VEX** CycloneDX, export CSV. Un composant absent d'un nouveau SBOM est retiré
   sans perdre son historique.
 - **Veille CTI** : flux RSS/Atom (CERT-FR, CISA, presse spécialisée… modifiables), étiquetés par

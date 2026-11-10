@@ -363,7 +363,11 @@ func (s *Syncer) record(ctx context.Context, res *Result, a store.Asset, reporte
 			older++
 			continue
 		}
-		touch, err := s.Store.ObserveFinding(ctx, a.ID, id, seen)
+		fixed, err := s.fixedIn(ctx, a, id)
+		if err != nil {
+			return err
+		}
+		touch, err := s.Store.ObserveFinding(ctx, a.ID, id, fixed, seen)
 		if err != nil {
 			return err
 		}
@@ -383,6 +387,20 @@ func (s *Syncer) record(ctx context.Context, res *Result, a store.Asset, reporte
 		return s.Store.SetOlderVulns(ctx, a.ID, older)
 	}
 	return nil
+}
+
+// fixedIn reads in the stored advisory the versions fixing it for the asset.
+// They are kept with the finding: reading them again for each row of a list
+// would take about a second for the thousands of a kernel.
+func (s *Syncer) fixedIn(ctx context.Context, a store.Asset, id string) (string, error) {
+	v, err := s.Store.Vulnerability(ctx, id)
+	if errors.Is(err, store.ErrNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return FixedIn(v.Raw, a), nil
 }
 
 // storeNVD stores the CVEs kept for an asset and returns them as observed.

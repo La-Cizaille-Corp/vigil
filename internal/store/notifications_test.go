@@ -17,7 +17,7 @@ func TestPendingAlerts(t *testing.T) {
 		{ID: "CVE-KEV", Severity: "MEDIUM", EPSS: -1, CVSS: 5},
 	} {
 		st.UpsertVulnerability(ctx, v)
-		st.ObserveFinding(ctx, assetID, v.ID, time.Now())
+		st.ObserveFinding(ctx, assetID, v.ID, "", time.Now())
 	}
 	st.SetExploitSignals(ctx, "CVE-KEV", true, "", 0.02)
 
@@ -67,7 +67,7 @@ func TestCTIMentions(t *testing.T) {
 	feeds, _ := st.ListFeeds(ctx)
 	assetID, _ := st.CreateAsset(ctx, Asset{Name: "log4j", Kind: "package", Criticality: "high", Source: "manual"})
 	st.UpsertVulnerability(ctx, Vulnerability{ID: "GHSA-jfh8-c2jp-5v3q", Aliases: []string{"CVE-2021-44228"}, EPSS: -1, CVSS: -1})
-	st.ObserveFinding(ctx, assetID, "GHSA-jfh8-c2jp-5v3q", time.Now())
+	st.ObserveFinding(ctx, assetID, "GHSA-jfh8-c2jp-5v3q", "", time.Now())
 	for i, title := range []string{"Log4Shell CVE-2021-44228 activement exploitée", "Rien à voir CVE-2020-0001", "Sans CVE"} {
 		if _, err := st.InsertCTIItem(ctx, feeds[0].ID, CTIItem{GUID: title, Title: title, Published: time.Now().Add(-time.Duration(i) * time.Hour)}); err != nil {
 			t.Fatal(err)

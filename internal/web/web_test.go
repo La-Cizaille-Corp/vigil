@@ -229,7 +229,7 @@ func TestFindingFilters(t *testing.T) {
 			t.Fatal(err)
 		}
 		st.UpsertVulnerability(ctx, store.Vulnerability{ID: vuln, Summary: "summary of " + vuln, Severity: sev, CVSS: score})
-		if _, err := st.ObserveFinding(ctx, id, vuln, time.Now()); err != nil {
+		if _, err := st.ObserveFinding(ctx, id, vuln, "", time.Now()); err != nil {
 			t.Fatal(err)
 		}
 	}

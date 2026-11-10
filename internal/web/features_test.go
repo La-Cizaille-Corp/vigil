@@ -82,7 +82,7 @@ func seedFindings(t *testing.T, st *store.Store) (assetID int64, ids []int64) {
 		{ID: "CVE-2024-0003", Severity: "LOW", EPSS: -1, CVSS: 2},
 	} {
 		st.UpsertVulnerability(ctx, v)
-		st.ObserveFinding(ctx, assetID, v.ID, time.Now().Add(-time.Duration(i*20)*24*time.Hour))
+		st.ObserveFinding(ctx, assetID, v.ID, "", time.Now().Add(-time.Duration(i*20)*24*time.Hour))
 	}
 	list, _ := st.ListFindings(ctx, store.FindingFilter{})
 	for _, f := range list {
@@ -319,8 +319,8 @@ func TestAssetTags(t *testing.T) {
 	// Vulnerabilities filtered by the tag of their asset.
 	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-1", Severity: "HIGH", EPSS: -1, CVSS: -1})
 	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-2", Severity: "HIGH", EPSS: -1, CVSS: -1})
-	st.ObserveFinding(ctx, nginx.ID, "CVE-1", time.Now())
-	st.ObserveFinding(ctx, other, "CVE-2", time.Now())
+	st.ObserveFinding(ctx, nginx.ID, "CVE-1", "", time.Now())
+	st.ObserveFinding(ctx, other, "CVE-2", "", time.Now())
 	list, _ := st.ListFindings(ctx, store.FindingFilter{Tag: "équipe web"})
 	if len(list) != 1 || list[0].VulnID != "CVE-1" {
 		t.Errorf("findings with tag: %+v", list)

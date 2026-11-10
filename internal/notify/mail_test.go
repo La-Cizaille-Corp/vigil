@@ -199,8 +199,8 @@ func TestSendAlerts(t *testing.T) {
 	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-KEV", Severity: "CRITICAL", Summary: "Contournement d'authentification", EPSS: -1, CVSS: 9.8})
 	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-HIGH", Severity: "HIGH", EPSS: -1, CVSS: 7.5})
 	st.SetExploitSignals(ctx, "CVE-KEV", true, "", 0.9)
-	st.ObserveFinding(ctx, assetID, "CVE-KEV", time.Now())
-	st.ObserveFinding(ctx, assetID, "CVE-HIGH", time.Now())
+	st.ObserveFinding(ctx, assetID, "CVE-KEV", "", time.Now())
+	st.ObserveFinding(ctx, assetID, "CVE-HIGH", "", time.Now())
 
 	n := &Notifier{Store: st, HTTP: web.Client(), Mail: mailer, BaseURL: "https://vigil.example.org/",
 		UserAgent: "test", Log: slog.New(slog.NewTextHandler(io.Discard, nil))}

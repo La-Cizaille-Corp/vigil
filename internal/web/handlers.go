@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -364,9 +365,9 @@ func (s *Server) assetEdit(w http.ResponseWriter, r *http.Request) {
 	s.renderAsset(w, r, http.StatusOK, a, a, "")
 }
 
-// renderAsset shows an asset with its vulnerabilities, those holding the text
-// searched in the query string if any, and its dismissal rules. The form shows
-// values not saved yet when they were refused.
+// renderAsset shows an asset, then its vulnerabilities, those holding the text
+// searched in the query string if any, and its dismissal rules. The edit form
+// is folded; it opens on the values refused when there are some (form != a).
 func (s *Server) renderAsset(w http.ResponseWriter, r *http.Request, status int, a, form store.Asset, formErr string) {
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	if len(query) > maxRuleText {
@@ -383,7 +384,8 @@ func (s *Server) renderAsset(w http.ResponseWriter, r *http.Request, status int,
 		return
 	}
 	s.render(w, r, status, "asset", page{Title: inventory.Describe(a), Error: formErr,
-		Data: map[string]any{"Form": form, "Findings": findings, "Query": query, "Rules": rules, "RuleMinimum": minRuleText}})
+		Data: map[string]any{"Asset": a, "Form": form, "Editing": !reflect.DeepEqual(form, a),
+			"Findings": findings, "Query": query, "Rules": rules, "RuleMinimum": minRuleText}})
 }
 
 // A rule text is short, and long enough not to set aside everything by mistake.
@@ -558,7 +560,7 @@ func (s *Server) findingCSV(w http.ResponseWriter, r *http.Request) {
 	sortRows(findings, findingColumnList, orderFrom(q, findingColumnList, defaultFindingOrder))
 	cw := csvDownload(w, "vigil-vulnerabilites")
 	_ = cw.Write([]string{"id", "vulnerabilite", "alias", "severite", "cvss", "epss", "exploitee_kev", "actif", "version",
-		"projet", "statut", "justification", "commentaire", "detectee_le", "echeance", "hors_delai", "resume", "lien"})
+		"corrigee_en", "projet", "statut", "justification", "commentaire", "detectee_le", "echeance", "hors_delai", "resume", "lien"})
 	base := strings.TrimRight(s.BaseURL, "/")
 	for _, fd := range findings {
 		due, link := "", ""
@@ -570,7 +572,7 @@ func (s *Server) findingCSV(w http.ResponseWriter, r *http.Request) {
 		}
 		row := []string{strconv.FormatInt(fd.ID, 10), fd.VulnID, strings.Join(fd.Aliases, " "),
 			tracking.SeverityLabel(fd.Severity), formatScore(fd.CVSS, 1), formatScore(fd.EPSS*100, 1),
-			yesNo(fd.KEV), fd.AssetName, fd.AssetVersion, fd.AssetProject,
+			yesNo(fd.KEV), fd.AssetName, fd.AssetVersion, fd.FixedIn, fd.AssetProject,
 			inventory.Label(tracking.Statuses, fd.Status), inventory.Label(tracking.Justifications, fd.Justification),
 			fd.Comment, fd.FirstSeen.Format(time.DateOnly), due, yesNo(fd.Late), fd.Summary, link}
 		for i := range row {
@@ -744,7 +746,7 @@ func (s *Server) renderFinding(w http.ResponseWriter, r *http.Request, status in
 		return
 	}
 	s.render(w, r, status, "finding", page{Title: findingTitle(f), Error: formErr,
-		Data: map[string]any{"Finding": f, "Vuln": v, "Events": events, "Mentions": mentions, "Fixes": fixLines(v.Raw, asset),
+		Data: map[string]any{"Finding": f, "Vuln": v, "Events": events, "Mentions": mentions, "Fixes": tracking.Fixes(v.Raw, asset),
 			"ByName": inventory.ByName(asset), "Latest": inventory.IsLatest(asset)}})
 }
 

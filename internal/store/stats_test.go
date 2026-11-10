@@ -36,7 +36,7 @@ func TestDashboardStats(t *testing.T) {
 		case 2:
 			seen = now.Add(-40 * 24 * time.Hour) // waiting for triage for too long
 		}
-		if _, err := st.ObserveFinding(ctx, assetID, v.ID, seen); err != nil {
+		if _, err := st.ObserveFinding(ctx, assetID, v.ID, "", seen); err != nil {
 			t.Fatal(err)
 		}
 	}
