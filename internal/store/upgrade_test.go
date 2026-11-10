@@ -37,6 +37,8 @@ var releasedMigrations = map[string]string{
 	// 0.4.0
 	"013_vulnerability_news.sql": "2db704d262cde0239048081ae1ab11842ad1fc4ad03207473b4d21ea810aa393",
 	"014_dismissal_rules.sql":    "cde67f593e03fc9a8eb357fd0075f2d963a181fab50837e044eb487bf4d32dbb",
+	// 0.4.1
+	"015_finding_fixed_in.sql": "d17b3ba0ad9efc6d3c878e991fcad3d8ffe66e3fe2a3888bad4de8d549b6ec42",
 }
 
 func TestMigrationsFrozen(t *testing.T) {
