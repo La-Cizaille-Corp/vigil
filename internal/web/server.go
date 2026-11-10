@@ -172,6 +172,7 @@ func (s *Server) parseTemplates() error {
 		"vendorOf":    inventory.VendorName,
 		"wholeVendor": inventory.WholeVendor,
 		"knownTags":   s.knownTags,
+		"aliases":     aliasList,
 		"syncStatus":  s.syncStatus,
 		"tags":        splitTags,
 		"dict3": func(countries, sectors, regulations []string) tagSelection {

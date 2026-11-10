@@ -239,7 +239,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		"Stats": stats, "Counts": counts, "Severe": stats.OpenBySeverity["CRITICAL"] + stats.OpenBySeverity["HIGH"], "Recent": recent, "RecentTotal": recentTotal,
 		"Assets": len(assets), "Tracked": tracked, "ByName": byName, "Coverage": coverage,
 		"Donut": newDonut(stats.OpenBySeverity), "Weekly": newWeeklyChart(stats.Weeks),
-		"TopAssets": newAssetChart(stats.TopAssets), "OpenQuery": openFindings, "SLA": sla,
+		"TopAssets": newAssetChart(stats.TopAssets), "SLA": sla,
 	}})
 }
 
@@ -524,8 +524,9 @@ func (s *Server) renderFindings(w http.ResponseWriter, r *http.Request, status i
 		s.serverError(w, r, err)
 		return
 	}
-	levels := levelLinks(findings, q)
-	findings = keepLevel(findings, q.Get("level"))
+	level := listLevel(q)
+	levels := levelLinks(findings, q, level)
+	findings = keepLevel(findings, level)
 	order := orderFrom(q, findingColumnList, defaultFindingOrder)
 	sortRows(findings, findingColumnList, order)
 	projects, err := s.Store.ListProjects(r.Context())
@@ -556,7 +557,7 @@ func (s *Server) findingCSV(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	findings = keepLevel(findings, q.Get("level"))
+	findings = keepLevel(findings, listLevel(q)) // what the page shows
 	sortRows(findings, findingColumnList, orderFrom(q, findingColumnList, defaultFindingOrder))
 	cw := csvDownload(w, "vigil-vulnerabilites")
 	_ = cw.Write([]string{"id", "vulnerabilite", "alias", "severite", "cvss", "epss", "exploitee_kev", "actif", "version",

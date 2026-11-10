@@ -11,7 +11,7 @@
   <td data-label="Priorité">{{if .KEV}}<span class="kev">Exploitée</span><br>{{end}}<span class="sev sev-{{.Severity}}">{{sevLabel .Severity}}</span></td>
   <td data-label="CVSS">{{with cvss .CVSS}}{{.}}{{else}}<span class="muted">—</span>{{end}}</td>
   <td data-label="EPSS">{{with epss .EPSS}}{{.}}{{else}}<span class="muted">—</span>{{end}}</td>
-  <td data-label="Vulnérabilité"><a href="/findings/{{.ID}}">{{.VulnID}}</a>{{if .Aliases}}<br><small>{{join .Aliases ", "}}</small>{{end}}</td>
+  <td data-label="Vulnérabilité"><a href="/findings/{{.ID}}">{{.VulnID}}</a>{{if .Aliases}}<br><small>{{aliases .Aliases}}</small>{{end}}</td>
   <td data-label="Actif"><a href="/assets/{{.AssetID}}">{{.AssetName}} {{.AssetVersion}}</a>{{with .AssetProject}}<br><small class="muted">projet {{.}}</small>{{end}}</td>
   <td data-label="Corrigée en">{{.FixedIn}}</td>
   <td data-label="Statut">{{statusLabel .Status}}</td>
