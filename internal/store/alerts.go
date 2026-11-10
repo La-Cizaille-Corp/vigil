@@ -35,9 +35,9 @@ func (s *Store) PendingAlerts(ctx context.Context) ([]Alert, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT `+findingColumns+`, `+alertClassExpr+`, f.alerted`+findingFrom+`
+	rows, err := s.db.QueryContext(ctx, `SELECT `+findingColumns+`, `+alertClassExpr+` AS alert_class, f.alerted`+findingFrom+`
 		WHERE f.status IN `+openStatuses+` AND `+alertClassExpr+` > f.alerted
-		ORDER BY 21 DESC, v.cvss DESC, f.id`, sla.args()...)
+		ORDER BY alert_class DESC, v.cvss DESC, f.id`, sla.args()...)
 	if err != nil {
 		return nil, fmt.Errorf("pending alerts: %w", err)
 	}

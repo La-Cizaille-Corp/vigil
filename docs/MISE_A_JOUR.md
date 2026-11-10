@@ -25,12 +25,17 @@ Les commandes de chaque cas sont plus bas :
 
 ## De la 0.4.0 à la 0.4.1
 
-Version corrective : la procédure est la même et la base est conservée. Son schéma ne change pas
-(14), donc **Vigil n'écrit pas de copie `.bak`** : votre sauvegarde est la seule copie d'avant la mise à
-jour. Pour revenir en arrière, il suffit de remettre le programme de la 0.4.0.
+La procédure est la même, et **la base est conservée**. Au premier démarrage, elle passe du schéma 14
+au schéma 15 : une colonne pour la version qui corrige chaque vulnérabilité. Rien n'est supprimé. La 0.4.0
+refuse ensuite cette base : pour y revenir, remettez la base d'avant ([revenir en arrière](#revenir-en-arrière)).
 
 - **Fichiers de déploiement** : rien à reprendre. Sous Docker, l'image `0.4` passe d'elle-même à la
   0.4.1 : suivez la procédure de votre cas sans changer le tag.
+- **Colonne « Corrigée en »** : les tableaux de vulnérabilités et l'export CSV indiquent la version qui
+  corrige chacune pour l'actif. Elle se remplit à la première synchronisation ; les vulnérabilités déjà
+  corrigées avant la mise à jour restent vides.
+- **Page d'un actif** : ses détails viennent avant ses vulnérabilités, et le formulaire de modification
+  est replié juste en dessous.
 - **Le champ Version fait foi.** Si le purl d'un actif porte une autre version que ce champ, c'est
   désormais le champ qui est vérifié. Dès la première synchronisation, ces actifs peuvent changer de
   résultat : des vulnérabilités passent à « Corrigé », d'autres apparaissent. Un SBOM qui sépare

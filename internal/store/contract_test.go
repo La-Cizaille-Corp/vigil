@@ -50,14 +50,14 @@ func TestFindingLifecycle(t *testing.T) {
 	userID, _ := st.CreateUser(ctx, "ana", "hash", "analyst")
 	st.UpsertVulnerability(ctx, Vulnerability{ID: "GHSA-1", Aliases: []string{"CVE-1"}, Severity: "HIGH", CVSS: 7.5, Modified: "m1"})
 
-	if touch, _ := st.ObserveFinding(ctx, assetID, "GHSA-1", time.Now()); touch != TouchCreated {
+	if touch, _ := st.ObserveFinding(ctx, assetID, "GHSA-1", "4.17.19", time.Now()); touch != TouchCreated {
 		t.Fatalf("first observation: %v", touch)
 	}
-	if touch, _ := st.ObserveFinding(ctx, assetID, "GHSA-1", time.Now()); touch != TouchExisting {
+	if touch, _ := st.ObserveFinding(ctx, assetID, "GHSA-1", "4.17.21", time.Now()); touch != TouchExisting {
 		t.Fatalf("second observation: %v", touch)
 	}
 	fs, _ := st.ListFindings(ctx, FindingFilter{})
-	if len(fs) != 1 || fs[0].CVSS != 7.5 || fs[0].Aliases[0] != "CVE-1" || fs[0].Status != "in_triage" {
+	if len(fs) != 1 || fs[0].CVSS != 7.5 || fs[0].Aliases[0] != "CVE-1" || fs[0].Status != "in_triage" || fs[0].FixedIn != "4.17.21" {
 		t.Fatalf("findings = %+v", fs)
 	}
 	if err := st.SetFindingStatus(ctx, fs[0].ID, userID, "not_affected", "code_not_reachable", "ok"); err != nil {
@@ -71,8 +71,14 @@ func TestFindingLifecycle(t *testing.T) {
 	if n, _ := st.AutoResolveStale(ctx, assetID, nil, ""); n != 1 {
 		t.Fatalf("auto-resolved = %d", n)
 	}
-	if touch, _ := st.ObserveFinding(ctx, assetID, "GHSA-1", time.Now()); touch != TouchReopened {
+	if f, _ := st.Finding(ctx, fs[0].ID); f.FixedIn != "4.17.21" {
+		t.Errorf("fixed version after the resolution: %q", f.FixedIn)
+	}
+	if touch, _ := st.ObserveFinding(ctx, assetID, "GHSA-1", "", time.Now()); touch != TouchReopened {
 		t.Fatalf("reopen: %v", touch)
+	}
+	if f, _ := st.Finding(ctx, fs[0].ID); f.FixedIn != "" {
+		t.Errorf("fixed version once the source names none: %q", f.FixedIn)
 	}
 	events, _ := st.FindingEvents(ctx, fs[0].ID)
 	if len(events) < 3 || events[0].Username != "ana" {

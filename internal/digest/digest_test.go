@@ -22,7 +22,7 @@ func TestGenerate(t *testing.T) {
 		PURL: "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1"})
 	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "GHSA-jfh8", Aliases: []string{"CVE-2021-44228"},
 		Summary: "Log4Shell <script>", Severity: "CRITICAL", CVSS: 10})
-	st.ObserveFinding(ctx, id, "GHSA-jfh8", time.Now().Add(-20*24*time.Hour)) // past the 15-day critical deadline
+	st.ObserveFinding(ctx, id, "GHSA-jfh8", "", time.Now().Add(-20*24*time.Hour)) // past the 15-day critical deadline
 	feed, _ := st.CreateFeed(ctx, store.Feed{Name: "CERT-FR", URL: "https://example.org/feed", Country: "FR", Enabled: true})
 	st.InsertCTIItem(ctx, feed, store.CTIItem{GUID: "1", Title: "Campagne contre les hôpitaux", Link: "https://example.org/1",
 		Published: time.Now(), Countries: []string{"FR"}, Sectors: []string{"health"}})

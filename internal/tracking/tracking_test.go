@@ -41,6 +41,7 @@ func fakeOSV(t *testing.T) *httptest.Server {
 		case r.URL.Path == "/v1/vulns/GHSA-test":
 			io.WriteString(w, `{"id":"GHSA-test","summary":"Prototype pollution","aliases":["CVE-2020-8203"],
 				"modified":"2026-01-01T00:00:00Z","database_specific":{"severity":"HIGH"},
+				"affected":[{"package":{"purl":"pkg:npm/lodash"},"ranges":[{"type":"SEMVER","events":[{"introduced":"0"},{"fixed":"4.17.19"}]}]}],
 				"references":[{"type":"WEB","url":"https://example.org/advisory"}]}`)
 		case r.URL.Path == "/v1/vulns/GHSA-old":
 			io.WriteString(w, `{"id":"GHSA-old","aliases":["CVE-2019-0001"],"published":"2019-01-01T00:00:00Z","modified":"2019-01-01T00:00:00Z"}`)
@@ -163,6 +164,9 @@ func TestVersionFieldOverridesThePURL(t *testing.T) {
 	}
 	if res, err := syncer.Run(ctx); err != nil || res.Created != 1 {
 		t.Fatalf("created = %d, err = %v", res.Created, err)
+	}
+	if fs, _ := st.ListFindings(ctx, store.FindingFilter{AssetID: asset.ID}); len(fs) != 1 || fs[0].FixedIn != "4.17.19" {
+		t.Fatalf("fixed version kept by the sync: %+v", fs)
 	}
 
 	asset.Version = "4.17.21"

@@ -47,6 +47,7 @@ type Finding struct {
 	Status        string
 	Justification string
 	Comment       string
+	FixedIn       string // versions fixing it for the asset, "" when unknown (see tracking.FixedIn)
 	FirstSeen     time.Time
 	UpdatedAt     time.Time
 	Due           time.Time // remediation deadline (see SLA), zero without one
@@ -160,8 +161,9 @@ const (
 	TouchReopened                    // was auto-resolved, reported again
 )
 
-// ObserveFinding records that a source reports vulnID for assetID at time seen.
-func (s *Store) ObserveFinding(ctx context.Context, assetID int64, vulnID string, seen time.Time) (TouchResult, error) {
+// ObserveFinding records that a source reports vulnID for assetID at time
+// seen, fixed in the versions given ("" when unknown).
+func (s *Store) ObserveFinding(ctx context.Context, assetID int64, vulnID, fixedIn string, seen time.Time) (TouchResult, error) {
 	ts := formatTime(seen)
 	result := TouchExisting
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
@@ -174,8 +176,8 @@ func (s *Store) ObserveFinding(ctx context.Context, assetID int64, vulnID string
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
 			_, err = tx.ExecContext(ctx, `
-				INSERT INTO findings (asset_id, vuln_id, first_seen, last_seen, updated_at)
-				VALUES (?, ?, ?, ?, ?)`, assetID, vulnID, ts, ts, ts)
+				INSERT INTO findings (asset_id, vuln_id, fixed_in, first_seen, last_seen, updated_at)
+				VALUES (?, ?, ?, ?, ?, ?)`, assetID, vulnID, fixedIn, ts, ts, ts)
 			result = TouchCreated
 			return err
 		case err != nil:
@@ -184,13 +186,13 @@ func (s *Store) ObserveFinding(ctx context.Context, assetID int64, vulnID string
 		if auto == 1 && status == "resolved" {
 			result = TouchReopened
 			if _, err := tx.ExecContext(ctx, `
-				UPDATE findings SET status = 'in_triage', auto_resolved = 0, last_seen = ?, updated_at = ?
-				WHERE id = ?`, ts, ts, id); err != nil {
+				UPDATE findings SET status = 'in_triage', auto_resolved = 0, fixed_in = ?, last_seen = ?, updated_at = ?
+				WHERE id = ?`, fixedIn, ts, ts, id); err != nil {
 				return err
 			}
 			return insertEvent(ctx, tx, id, 0, status, "in_triage", "signalée à nouveau par la source", ts)
 		}
-		_, err = tx.ExecContext(ctx, `UPDATE findings SET last_seen = ? WHERE id = ?`, ts, id)
+		_, err = tx.ExecContext(ctx, `UPDATE findings SET fixed_in = ?, last_seen = ? WHERE id = ?`, fixedIn, ts, id)
 		return err
 	})
 	if err != nil {
@@ -388,7 +390,7 @@ const openStatuses = `('in_triage', 'exploitable')`
 // vulnerability; the deadline column takes the SLA arguments first.
 const (
 	findingColumns = `f.id, f.asset_id, a.name, a.version, a.purl, a.cpe, a.project, f.vuln_id, v.aliases, v.summary, v.severity,
-	       v.cvss, v.kev, v.epss, f.status, f.justification, f.comment, f.first_seen, f.updated_at, ` + dueExpr
+	       v.cvss, v.kev, v.epss, f.status, f.justification, f.comment, f.fixed_in, f.first_seen, f.updated_at, ` + dueExpr
 	findingFrom = `
 	FROM findings f
 	JOIN assets a ON a.id = f.asset_id
@@ -403,7 +405,7 @@ func scanFinding(row interface{ Scan(...any) error }, extra ...any) (Finding, er
 	var due sql.NullString
 	dest := append([]any{&fd.ID, &fd.AssetID, &fd.AssetName, &fd.AssetVersion,
 		&fd.AssetPURL, &fd.AssetCPE, &fd.AssetProject, &fd.VulnID, &aliases,
-		&fd.Summary, &fd.Severity, &fd.CVSS, &fd.KEV, &fd.EPSS, &fd.Status, &fd.Justification, &fd.Comment, &first, &updated,
+		&fd.Summary, &fd.Severity, &fd.CVSS, &fd.KEV, &fd.EPSS, &fd.Status, &fd.Justification, &fd.Comment, &fd.FixedIn, &first, &updated,
 		&due}, extra...)
 	if err := row.Scan(dest...); err != nil {
 		return fd, err

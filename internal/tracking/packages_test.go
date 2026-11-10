@@ -189,7 +189,7 @@ func TestFailedAssetAndProgress(t *testing.T) {
 	}
 	down, up := add("panne"), add("marche")
 	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-1", EPSS: -1, CVSS: -1})
-	st.ObserveFinding(ctx, down, "CVE-1", time.Now())
+	st.ObserveFinding(ctx, down, "CVE-1", "", time.Now())
 
 	res, err := syncer.Run(ctx)
 	if err != nil {
