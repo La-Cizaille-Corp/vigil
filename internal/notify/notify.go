@@ -16,9 +16,9 @@ import (
 	"net/url"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/chattext"
+	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
 	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
@@ -113,7 +113,7 @@ func (n *Notifier) SendDigest(ctx context.Context, d store.Digest, link string) 
 	text := d.Markdown
 	if len(text)+len(tail) > maxText {
 		note := "\n\n… (tronqué, voir le digest complet dans Vigil)"
-		text = truncate(text, maxText-len(tail)-len(note)-len("…")) + note
+		text = clip.Bytes(text, maxText-len(tail)-len(note)-len("…")) + note
 	}
 	text += tail
 	day := d.CreatedAt
@@ -185,7 +185,7 @@ func (n *Notifier) alertMessage(alerts []store.Alert) message {
 			fmt.Fprintf(&b, "- **%s** (%s) — %s", chattext.Text(a.VulnID), reason,
 				chattext.Text(strings.TrimSpace(a.AssetName+" "+a.AssetVersion)))
 			if a.Summary != "" {
-				fmt.Fprintf(&b, " : %s", chattext.Text(truncate(a.Summary, 140)))
+				fmt.Fprintf(&b, " : %s", chattext.Text(clip.Bytes(a.Summary, 140)))
 			}
 			if link != "" {
 				fmt.Fprintf(&b, " — %s", link)
@@ -274,7 +274,7 @@ func (n *Notifier) send(ctx context.Context, h store.Webhook, m message) error {
 		payload = teamsCard(m.Text)
 	default:
 		// Slack and Mattermost accept a Markdown "text" field on incoming webhooks.
-		payload = map[string]string{"text": truncate(m.Text, maxText)}
+		payload = map[string]string{"text": clip.Bytes(m.Text, maxText)}
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -288,12 +288,7 @@ func (n *Notifier) send(ctx context.Context, h store.Webhook, m message) error {
 	req.Header.Set("User-Agent", n.UserAgent)
 	resp, err := n.HTTP.Do(req)
 	if err != nil {
-		// SECURITY: *url.Error embeds the full URL, which holds the webhook secret.
-		var ue *url.Error
-		if errors.As(err, &ue) {
-			return ue.Err
-		}
-		return err
+		return netsafe.WithoutURL(err) // the URL holds the webhook secret
 	}
 	defer resp.Body.Close()
 	reply, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10)) // also drains for connection reuse
@@ -327,7 +322,7 @@ func teamsCard(text string) map[string]any {
 			"type":    "AdaptiveCard",
 			"version": "1.4",
 			"msteams": map[string]string{"width": "Full"},
-			"body":    []map[string]any{{"type": "TextBlock", "text": truncate(text, maxTeamsText), "wrap": true}},
+			"body":    []map[string]any{{"type": "TextBlock", "text": clip.Bytes(text, maxTeamsText), "wrap": true}},
 		},
 	}}}
 }
@@ -366,16 +361,5 @@ func replyReason(reply []byte) string {
 	if text == "" || strings.ContainsAny(text, "<>\n") || strings.Contains(text, "://") || strings.Contains(text, "sig=") {
 		return ""
 	}
-	return truncate(text, 200)
-}
-
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	cut := n
-	for cut > 0 && !utf8.RuneStart(s[cut]) {
-		cut--
-	}
-	return s[:cut] + "…"
+	return clip.Bytes(text, 200)
 }

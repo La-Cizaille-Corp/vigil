@@ -327,6 +327,19 @@ synchronisation après la mise à jour ; une vulnérabilité que la source ne si
 valeur connue, et celles déjà corrigées avant la mise à jour restent vides. Un actif à sa dernière version
 (`latest`) n'en a pas : ses plages sont les ouvertes.
 
+**A65. Un texte se mesure en caractères, et ne se coupe jamais au milieu d'un.** Neuf fonctions
+raccourcissaient un texte, en octets ou en caractères ; trois coupaient au milieu d'un caractère accentué et
+laissaient de l'UTF-8 invalide en base, et une analyse VEX accentuée, coupée à 4 000 caractères, était refusée
+à 4 000 octets. Le paquet `clip` les remplace : les limites sur ce qu'écrivent les utilisateurs et les sources
+comptent des caractères (`Text`, `Prefix`, `Fits`) ; seul le budget d'un message envoyé ailleurs reste en
+octets (`Bytes`). *Conséquence* : les limites de saisie déjà comptées en octets (nom d'utilisateur, projet)
+restent à harmoniser.
+
+**A66. La liste des vulnérabilités s'ouvre sur ce qui reste à traiter.** Elle montrait tout par défaut, y
+compris les corrigées, et les nombres des niveaux ne faisaient pas son total. Elle s'ouvre désormais sur les
+ouvertes, la somme des trois premiers niveaux ; les corrigées ont leur onglet, « Toutes » réunit tout. Un filtre
+de statut garde la liste entière, pour qu'un statut demandé (« Corrigé ») soit montré. L'export suit la page.
+
 **A13. Statuts CycloneDX / VEX.** Des statuts maison auraient été plus « parlants » mais non
 interopérables. Les états VEX (`in_triage`, `exploitable`, `resolved`, `not_affected` +
 justification, `false_positive`) sont libellés en français dans l'interface, et l'export /

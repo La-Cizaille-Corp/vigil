@@ -85,12 +85,20 @@ func findingTitle(f store.Finding) string {
 	return f.VulnID
 }
 
-// truncate shortens s to at most n characters.
-func truncate(s string, n int) string {
-	if utf8.RuneCountInString(s) <= n {
-		return s
+// maxAliases bounds the aliases named in a list row: an Ubuntu notice can
+// have nearly two thousand.
+const maxAliases = 3
+
+// aliasList names the first aliases of a vulnerability, then how many more.
+func aliasList(aliases []string) string {
+	if len(aliases) <= maxAliases {
+		return strings.Join(aliases, ", ")
 	}
-	return string([]rune(s)[:n]) + "…"
+	more, word := len(aliases)-maxAliases, "autres"
+	if more == 1 {
+		word = "autre"
+	}
+	return strings.Join(aliases[:maxAliases], ", ") + " et " + strconv.Itoa(more) + " " + word
 }
 
 // syncView is the data of the "syncText" template: error details (source

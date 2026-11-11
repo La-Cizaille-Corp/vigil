@@ -121,7 +121,7 @@ func TestSortFindings(t *testing.T) {
 			st.SetFindingStatus(ctx, f.ID, 0, "resolved", "", "")
 		}
 	}
-	_, body := c.get("/findings?sort=status&dir=desc")
+	_, body := c.get("/findings?level=all&sort=status&dir=desc")
 	if got := findingOrder(body); got[0] != high {
 		t.Errorf("by status: %v", got)
 	}
@@ -181,8 +181,9 @@ func TestSyncProgressText(t *testing.T) {
 	}
 }
 
-// The four levels classify the list; their counts follow its filters, not the
-// level chosen, and the links keep the filters and the order.
+// The four levels classify the list, which shows the open ones by default and
+// the fixed ones apart; the counts follow its filters, not the level chosen,
+// and the links keep the filters and the order.
 func TestFindingLevels(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	assetID, ids := seedFindings(t, st) // critical, high, low
@@ -219,17 +220,33 @@ func TestFindingLevels(t *testing.T) {
 			t.Errorf("level %s: %v, want %v", level, got, want)
 		}
 	}
-	_, body := c.get("/findings?sort=vuln&level=nope")
-	if got := findingOrder(body); len(got) != 7 {
-		t.Errorf("unknown level: %v", got)
+	open := []string{"CVE-2024-0001", "CVE-2024-0002", "CVE-2024-0003", "CVE-2024-0004", "CVE-2024-0005"}
+	for query, want := range map[string][]string{
+		"":                 {"CVE-2024-0001", "CVE-2024-0002", "CVE-2024-0003", "CVE-2024-0004", "CVE-2024-0005"},
+		"&level=nope":      open, // an unknown level: the default
+		"&level=open":      open,
+		"&level=fixed":     {"CVE-2024-0007"},
+		"&level=all":       {"CVE-2024-0001", "CVE-2024-0002", "CVE-2024-0003", "CVE-2024-0004", "CVE-2024-0005", "CVE-2024-0006", "CVE-2024-0007"},
+		"&status=resolved": {"CVE-2024-0007"}, // a status asked for is shown
+		"&priority=1":      {"CVE-2024-0004"}, // the dashboard card and the alerts
+	} {
+		_, body := c.get("/findings?sort=vuln" + query)
+		if got := findingOrder(body); !slices.Equal(got, want) {
+			t.Errorf("%q: %v, want %v", query, got, want)
+		}
+	}
+	if _, csv := c.get("/findings.csv"); strings.Count(csv, "\n") != 6 || strings.Contains(csv, "CVE-2024-0007") {
+		t.Errorf("the export differs from the default list:\n%s", csv)
 	}
 
-	_, body = c.get("/findings?level=plan&sort=vuln&q=CVE-2024")
+	_, body := c.get("/findings?level=plan&sort=vuln&q=CVE-2024")
 	for _, want := range []string{
+		`<a href="/findings?level=open&amp;q=CVE-2024&amp;sort=vuln" >Ouvertes <small>5</small></a>`,
 		`<a href="/findings?level=urgent&amp;q=CVE-2024&amp;sort=vuln" >Urgentes <small>1</small></a>`,
 		`<a href="/findings?level=plan&amp;q=CVE-2024&amp;sort=vuln" class="active" aria-current="true">À planifier <small>2</small></a>`,
 		`À surveiller <small>2</small>`, `Écartées <small>1</small>`,
-		`<a href="/findings?q=CVE-2024&amp;sort=vuln" >Toutes <small>7</small></a>`,
+		`<a href="/findings?level=fixed&amp;q=CVE-2024&amp;sort=vuln" >Corrigées <small>1</small></a>`,
+		`<a href="/findings?level=all&amp;q=CVE-2024&amp;sort=vuln" >Toutes <small>7</small></a>`,
 		`name="level" value="plan"`,
 	} {
 		if !strings.Contains(body, want) {

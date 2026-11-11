@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 )
 
 // Feed is a CTI RSS/Atom source.
@@ -95,7 +97,7 @@ func (s *Store) DeleteFeed(ctx context.Context, id int64) error {
 func (s *Store) RecordFeedFetch(ctx context.Context, id int64, fetchErr error) error {
 	msg := ""
 	if fetchErr != nil {
-		msg = truncateString(fetchErr.Error(), 300)
+		msg = clip.Text(fetchErr.Error(), 300)
 	}
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE cti_feeds SET last_fetched = ?, last_error = ? WHERE id = ?`, now(), msg, id)
@@ -386,13 +388,6 @@ func expectRow(res sql.Result, err error) error {
 		return ErrNotFound
 	}
 	return nil
-}
-
-func truncateString(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n]
 }
 
 // UpdateFeedTags replaces the tags a feed applies to its items.

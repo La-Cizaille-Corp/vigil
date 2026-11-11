@@ -65,6 +65,7 @@ func (s *Server) ctiRefresh(w http.ResponseWriter, r *http.Request) {
 			s.Log.Error("cti failed", "err", err)
 		}
 	}()
+	s.audit(r, "cti_refresh", "manuel")
 	redirect(w, r, "/cti", "cti-started")
 }
 
@@ -140,8 +141,7 @@ func (s *Server) saveWatch(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	sess, _ := sessionFrom(r.Context())
-	s.audit(r, sess.User.ID, "watch_update", strings.Join(append(append(r.PostForm["country"], r.PostForm["sector"]...), r.PostForm["regulation"]...), ","))
+	s.audit(r, "watch_update", strings.Join(append(append(r.PostForm["country"], r.PostForm["sector"]...), r.PostForm["regulation"]...), ","))
 	redirect(w, r, "/settings", "watch-saved")
 }
 
@@ -176,8 +176,7 @@ func (s *Server) feedCreate(w http.ResponseWriter, r *http.Request) {
 		s.renderSettings(w, r, http.StatusBadRequest, "Ce flux existe déjà.")
 		return
 	}
-	sess, _ := sessionFrom(r.Context())
-	s.audit(r, sess.User.ID, "feed_create", f.Name+" "+maskURL(f.URL))
+	s.audit(r, "feed_create", f.Name+" "+maskURL(f.URL))
 	redirect(w, r, "/settings", "feed-created")
 }
 
@@ -199,8 +198,7 @@ func (s *Server) feedUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, f := range feeds {
 			if f.ID == id {
-				sess, _ := sessionFrom(r.Context())
-				s.audit(r, sess.User.ID, "feed_update", f.Name+" "+maskURL(f.URL))
+				s.audit(r, "feed_update", f.Name+" "+maskURL(f.URL))
 				return cti.Retag(r.Context(), s.Store, f)
 			}
 		}
@@ -246,9 +244,8 @@ func (s *Server) webhookCreate(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	sess, _ := sessionFrom(r.Context())
 	// SECURITY: a webhook URL is a secret, only its host is audited.
-	s.audit(r, sess.User.ID, "webhook_create", notify.Target(h))
+	s.audit(r, "webhook_create", notify.Target(h))
 	redirect(w, r, "/settings", "hook-created")
 }
 
@@ -274,8 +271,7 @@ func (s *Server) newsFrequency(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	sess, _ := sessionFrom(r.Context())
-	s.audit(r, sess.User.ID, "news_frequency", strconv.Itoa(n))
+	s.audit(r, "news_frequency", strconv.Itoa(n))
 	redirect(w, r, "/settings", "news-updated")
 }
 
@@ -297,8 +293,7 @@ func (s *Server) webhookTest(w http.ResponseWriter, r *http.Request) {
 		s.notFound(w)
 		return
 	}
-	sess, _ := sessionFrom(r.Context())
-	s.audit(r, sess.User.ID, "webhook_test", notify.Target(hooks[i]))
+	s.audit(r, "webhook_test", notify.Target(hooks[i]))
 	msg := "hook-test-sent"
 	if err := s.Notifier.SendTest(r.Context(), hooks[i]); err != nil {
 		msg = "hook-test-failed"
@@ -337,8 +332,7 @@ func (s *Server) slaSave(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	sess, _ := sessionFrom(r.Context())
-	s.audit(r, sess.User.ID, "sla_update", l.String())
+	s.audit(r, "sla_update", l.String())
 	redirect(w, r, "/settings", "sla-saved")
 }
 
@@ -364,8 +358,7 @@ func (s *Server) audited(r *http.Request, action, detail string, change func(int
 		if err := change(id); err != nil {
 			return err
 		}
-		sess, _ := sessionFrom(r.Context())
-		s.audit(r, sess.User.ID, action, strings.TrimSpace(fmt.Sprintf("id=%d %s", id, detail)))
+		s.audit(r, action, strings.TrimSpace(fmt.Sprintf("id=%d %s", id, detail)))
 		return nil
 	}
 }
@@ -426,8 +419,7 @@ func (s *Server) sbomImport(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	sess, _ := sessionFrom(r.Context())
-	s.audit(r, sess.User.ID, "sbom_import", fmt.Sprintf("%s: %s +%d =%d retirés %d (%d ignorés)",
+	s.audit(r, "sbom_import", fmt.Sprintf("%s: %s +%d =%d retirés %d (%d ignorés)",
 		project, doc.Format, res.Added, res.Kept, res.Removed, doc.Skipped))
 	go s.runSync()
 	redirect(w, r, "/assets?project="+url.QueryEscape(project), "sbom-imported")

@@ -21,23 +21,24 @@ const tokenPrefix = "vgl_"
 //	Authorization: Bearer vgl_...
 //	body: CycloneDX or SPDX JSON
 func (s *Server) apiSBOM(w http.ResponseWriter, r *http.Request) {
+	// SECURITY: the attempt is counted before the token check, as for a login;
+	// a valid token takes it back.
 	ip := "api:" + s.clientIP(r)
-	if !s.limiter.Allowed(ip) {
+	if !s.limiter.Take(ip) {
 		apiError(w, http.StatusTooManyRequests, "trop de tentatives, réessayez plus tard")
 		return
 	}
 	secret, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !ok || !strings.HasPrefix(secret, tokenPrefix) {
-		s.limiter.Fail(ip)
 		apiError(w, http.StatusUnauthorized, "jeton manquant")
 		return
 	}
 	tok, err := s.Store.APITokenByHash(r.Context(), auth.HashToken(secret))
 	if errors.Is(err, store.ErrNotFound) {
-		s.limiter.Fail(ip)
 		apiError(w, http.StatusUnauthorized, "jeton invalide")
 		return
 	}
+	s.limiter.Forgive(ip)
 	if err != nil {
 		s.Log.Error("api token lookup", "err", err)
 		apiError(w, http.StatusInternalServerError, "erreur interne")
@@ -60,7 +61,7 @@ func (s *Server) apiSBOM(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusInternalServerError, "erreur interne")
 		return
 	}
-	s.audit(r, 0, "sbom_import_api", fmt.Sprintf("%s (jeton %q): %s +%d =%d -%d (%d ignorés)",
+	s.audit(r, "sbom_import_api", fmt.Sprintf("%s (jeton %q): %s +%d =%d -%d (%d ignorés)",
 		project, tok.Name, doc.Format, res.Added, res.Kept, res.Removed, doc.Skipped))
 	if s.Syncer != nil {
 		go s.runSync()
@@ -103,7 +104,7 @@ func (s *Server) tokenCreate(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	s.audit(r, sess.User.ID, "api_token_create", t.Name+" → "+t.Project)
+	s.audit(r, "api_token_create", t.Name+" → "+t.Project)
 	// SECURITY: the secret is displayed once, on the page this redirects to.
 	s.keepOnce(r, secret)
 	redirect(w, r, "/settings", "token-created")

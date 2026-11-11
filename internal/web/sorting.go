@@ -215,16 +215,39 @@ type levelLink struct {
 	Active bool
 }
 
-// levelLinks returns the links to the levels of a list and to the whole of it;
-// they keep its filters and its order.
-func levelLinks(findings []store.Finding, q url.Values) []levelLink {
+// Levels of a vulnerability list beside digest.Levels: the open ones (the
+// first three levels, shown by default), the fixed ones, and all of them.
+const (
+	levelOpen  = "open"
+	levelFixed = "fixed"
+	levelAll   = "all"
+)
+
+// listLevel is the level a vulnerability list shows: the one asked for; else
+// the open ones, or everything when statuses are filtered, so that a status
+// asked for is shown.
+func listLevel(q url.Values) string {
+	switch l := q.Get("level"); {
+	case l == levelOpen || l == levelFixed || l == levelAll || isLevel(l):
+		return l
+	case len(q["status"]) > 0:
+		return levelAll
+	}
+	return levelOpen
+}
+
+// levelLinks returns the links to the levels of a list showing current; they
+// keep its filters and its order.
+func levelLinks(findings []store.Finding, q url.Values, current string) []levelLink {
 	counts := map[string]int{}
 	for _, f := range findings {
+		switch {
+		case isOpen(f):
+			counts[levelOpen]++
+		case f.Status == "resolved":
+			counts[levelFixed]++
+		}
 		counts[digest.Level(f)]++
-	}
-	current := q.Get("level")
-	if !isLevel(current) {
-		current = ""
 	}
 	link := func(level string) string {
 		kept := url.Values{}
@@ -241,21 +264,33 @@ func levelLinks(findings []store.Finding, q url.Values) []levelLink {
 		}
 		return "/findings?" + kept.Encode()
 	}
-	out := make([]levelLink, 0, len(digest.Levels)+1)
-	for _, l := range digest.Levels {
-		out = append(out, levelLink{Label: l.Label, Href: link(l.Value), N: counts[l.Value], Active: l.Value == current})
+	tab := func(level, label string, n int) levelLink {
+		return levelLink{Label: label, Href: link(level), N: n, Active: level == current}
 	}
-	return append(out, levelLink{Label: "Toutes", Href: link(""), N: len(findings), Active: current == ""})
+	out := []levelLink{tab(levelOpen, "Ouvertes", counts[levelOpen])}
+	for _, l := range digest.Levels {
+		out = append(out, tab(l.Value, l.Label, counts[l.Value]))
+	}
+	return append(out, tab(levelFixed, "Corrigées", counts[levelFixed]), tab(levelAll, "Toutes", len(findings)))
 }
 
 func isLevel(v string) bool {
 	return slices.ContainsFunc(digest.Levels, func(o inventory.Option) bool { return o.Value == v })
 }
 
-// keepLevel keeps the findings of a level; an unknown level keeps them all.
+// keepLevel keeps the findings of a level (see listLevel); an unknown level
+// keeps them all.
 func keepLevel(findings []store.Finding, level string) []store.Finding {
-	if !isLevel(level) {
+	var keep func(store.Finding) bool
+	switch {
+	case level == levelOpen:
+		keep = isOpen
+	case level == levelFixed:
+		keep = func(f store.Finding) bool { return f.Status == "resolved" }
+	case isLevel(level):
+		keep = func(f store.Finding) bool { return digest.Level(f) == level }
+	default:
 		return findings
 	}
-	return slices.DeleteFunc(findings, func(f store.Finding) bool { return digest.Level(f) != level })
+	return slices.DeleteFunc(findings, func(f store.Finding) bool { return !keep(f) })
 }

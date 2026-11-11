@@ -11,9 +11,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
+	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 	"github.com/La-Cizaille-Corp/vigil/internal/digest"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
@@ -80,7 +80,7 @@ func (s *Server) setupSubmit(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	s.audit(r, id, "setup", "compte administrateur initial créé")
+	s.auditAs(r, id, "setup", "compte administrateur initial créé")
 	s.startSession(w, r, id)
 }
 
@@ -102,7 +102,7 @@ func (s *Server) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	// addresses does not help. A success only cancels its own attempt.
 	// The name is cut to the longest valid username, so that the limiter's
 	// memory stays bounded whatever is posted.
-	ipKey, userKey := limitKey(ip), "user:"+strings.ToLower(truncate(username, 64))
+	ipKey, userKey := limitKey(ip), "user:"+strings.ToLower(clip.Text(username, 64))
 	if !s.limiter.Take(ipKey) {
 		s.render(w, r, http.StatusTooManyRequests, "login", page{Title: "Connexion",
 			Error: "Trop de tentatives. Réessayez dans quelques minutes."})
@@ -137,14 +137,14 @@ func (s *Server) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !valid {
-		s.audit(r, 0, "login_failed", "ip="+ip+" user="+truncate(username, 64))
+		s.audit(r, "login_failed", "ip="+ip+" user="+clip.Text(username, 64))
 		// SECURITY: same message whether the user exists or not.
 		s.render(w, r, http.StatusUnauthorized, "login", page{Title: "Connexion", Error: "Identifiants invalides."})
 		return
 	}
 	s.limiter.Forgive(ipKey)
 	s.accounts.Reset(userKey)
-	s.audit(r, user.ID, "login", "ip="+ip)
+	s.auditAs(r, user.ID, "login", "ip="+ip)
 	s.startSession(w, r, user.ID)
 }
 
@@ -239,7 +239,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		"Stats": stats, "Counts": counts, "Severe": stats.OpenBySeverity["CRITICAL"] + stats.OpenBySeverity["HIGH"], "Recent": recent, "RecentTotal": recentTotal,
 		"Assets": len(assets), "Tracked": tracked, "ByName": byName, "Coverage": coverage,
 		"Donut": newDonut(stats.OpenBySeverity), "Weekly": newWeeklyChart(stats.Weeks),
-		"TopAssets": newAssetChart(stats.TopAssets), "OpenQuery": openFindings, "SLA": sla,
+		"TopAssets": newAssetChart(stats.TopAssets), "SLA": sla,
 	}})
 }
 
@@ -333,8 +333,7 @@ func (s *Server) assetCreate(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	sess, _ := sessionFrom(r.Context())
-	s.audit(r, sess.User.ID, "asset_create", strconv.FormatInt(id, 10))
+	s.audit(r, "asset_create", strconv.FormatInt(id, 10))
 	go s.runAssetSync(id)
 	redirect(w, r, "/assets/"+strconv.FormatInt(id, 10), "asset-created")
 }
@@ -369,10 +368,7 @@ func (s *Server) assetEdit(w http.ResponseWriter, r *http.Request) {
 // searched in the query string if any, and its dismissal rules. The edit form
 // is folded; it opens on the values refused when there are some (form != a).
 func (s *Server) renderAsset(w http.ResponseWriter, r *http.Request, status int, a, form store.Asset, formErr string) {
-	query := strings.TrimSpace(r.URL.Query().Get("q"))
-	if len(query) > maxRuleText {
-		query = query[:maxRuleText]
-	}
+	query := clip.Prefix(strings.TrimSpace(r.URL.Query().Get("q")), maxRuleText)
 	findings, err := s.Store.ListFindings(r.Context(), store.FindingFilter{AssetID: a.ID, Matching: query})
 	if err != nil {
 		s.serverError(w, r, err)
@@ -401,7 +397,7 @@ func (s *Server) dismissalCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	text := strings.TrimSpace(r.PostFormValue("text"))
-	if n := utf8.RuneCountInString(text); n < minRuleText || len(text) > maxRuleText {
+	if clip.Fits(text, minRuleText-1) || !clip.Fits(text, maxRuleText) {
 		s.renderAsset(w, r, http.StatusBadRequest, a, a, fmt.Sprintf("Indiquez un texte de %d à %d caractères.", minRuleText, maxRuleText))
 		return
 	}
@@ -409,8 +405,7 @@ func (s *Server) dismissalCreate(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	sess, _ := sessionFrom(r.Context())
-	s.audit(r, sess.User.ID, "dismissal_create", strconv.FormatInt(a.ID, 10)+" "+truncate(text, maxRuleText))
+	s.audit(r, "dismissal_create", strconv.FormatInt(a.ID, 10)+" "+text)
 	redirect(w, r, "/assets/"+strconv.FormatInt(a.ID, 10), "rule-created")
 }
 
@@ -434,8 +429,7 @@ func (s *Server) dismissalDelete(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	sess, _ := sessionFrom(r.Context())
-	s.audit(r, sess.User.ID, "dismissal_delete", strconv.FormatInt(a.ID, 10))
+	s.audit(r, "dismissal_delete", strconv.FormatInt(a.ID, 10))
 	redirect(w, r, "/assets/"+strconv.FormatInt(a.ID, 10), "rule-deleted")
 }
 
@@ -455,8 +449,7 @@ func (s *Server) assetUpdate(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	sess, _ := sessionFrom(r.Context())
-	s.audit(r, sess.User.ID, "asset_update", strconv.FormatInt(a.ID, 10))
+	s.audit(r, "asset_update", strconv.FormatInt(a.ID, 10))
 	go s.runAssetSync(a.ID)
 	redirect(w, r, "/assets/"+strconv.FormatInt(a.ID, 10), "asset-updated")
 }
@@ -473,8 +466,7 @@ func (s *Server) assetFullHistory(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	sess, _ := sessionFrom(r.Context())
-	s.audit(r, sess.User.ID, "asset_update", strconv.FormatInt(a.ID, 10)+" historique complet")
+	s.audit(r, "asset_update", strconv.FormatInt(a.ID, 10)+" historique complet")
 	go s.runAssetSync(a.ID)
 	redirect(w, r, "/assets/"+strconv.FormatInt(a.ID, 10), "asset-updated")
 }
@@ -488,8 +480,7 @@ func (s *Server) assetScan(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, "/assets/"+strconv.FormatInt(a.ID, 10), "")
 		return
 	}
-	sess, _ := sessionFrom(r.Context())
-	s.audit(r, sess.User.ID, "asset_scan", strconv.FormatInt(a.ID, 10))
+	s.audit(r, "asset_scan", strconv.FormatInt(a.ID, 10))
 	go s.runAssetSync(a.ID)
 	redirect(w, r, "/assets/"+strconv.FormatInt(a.ID, 10), "scan-started")
 }
@@ -503,8 +494,7 @@ func (s *Server) assetDelete(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	sess, _ := sessionFrom(r.Context())
-	s.audit(r, sess.User.ID, "asset_delete", inventory.Describe(a))
+	s.audit(r, "asset_delete", inventory.Describe(a))
 	redirect(w, r, "/assets", "asset-deleted")
 }
 
@@ -524,8 +514,9 @@ func (s *Server) renderFindings(w http.ResponseWriter, r *http.Request, status i
 		s.serverError(w, r, err)
 		return
 	}
-	levels := levelLinks(findings, q)
-	findings = keepLevel(findings, q.Get("level"))
+	level := listLevel(q)
+	levels := levelLinks(findings, q, level)
+	findings = keepLevel(findings, level)
 	order := orderFrom(q, findingColumnList, defaultFindingOrder)
 	sortRows(findings, findingColumnList, order)
 	projects, err := s.Store.ListProjects(r.Context())
@@ -556,7 +547,7 @@ func (s *Server) findingCSV(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	findings = keepLevel(findings, q.Get("level"))
+	findings = keepLevel(findings, listLevel(q)) // what the page shows
 	sortRows(findings, findingColumnList, orderFrom(q, findingColumnList, defaultFindingOrder))
 	cw := csvDownload(w, "vigil-vulnerabilites")
 	_ = cw.Write([]string{"id", "vulnerabilite", "alias", "severite", "cvss", "epss", "exploitee_kev", "actif", "version",
@@ -639,7 +630,7 @@ func (s *Server) findingBulk(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	s.audit(r, sess.User.ID, "finding_bulk", fmt.Sprintf("%d → %s", done, status))
+	s.audit(r, "finding_bulk", fmt.Sprintf("%d → %s", done, status))
 	sep := "&"
 	if !strings.Contains(next, "?") {
 		sep = "?"
@@ -690,9 +681,7 @@ func findingFilterFrom(q url.Values) store.FindingFilter {
 	if len(f.Tag) > 100 {
 		f.Tag = ""
 	}
-	if len(f.Search) > 200 {
-		f.Search = f.Search[:200]
-	}
+	f.Search = clip.Prefix(f.Search, 200)
 	return f
 }
 
@@ -768,6 +757,7 @@ func (s *Server) findingUpdate(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
+	s.audit(r, "finding_update", fmt.Sprintf("%d → %s", f.ID, status))
 	redirect(w, r, "/findings/"+strconv.FormatInt(f.ID, 10), "status-updated")
 }
 
@@ -782,8 +772,7 @@ func (s *Server) syncNow(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, back, "sync-running")
 		return
 	}
-	sess, _ := sessionFrom(r.Context())
-	s.audit(r, sess.User.ID, "sync", "manuel")
+	s.audit(r, "sync", "manuel")
 	go s.runSync()
 	redirect(w, r, back, "sync-started")
 }
@@ -810,6 +799,7 @@ func (s *Server) digestCreate(w http.ResponseWriter, r *http.Request) {
 			msg = "digest-webhook"
 		}
 	}
+	s.audit(r, "digest_create", strconv.FormatInt(d.ID, 10))
 	redirect(w, r, "/digests/"+strconv.FormatInt(d.ID, 10), msg)
 }
 

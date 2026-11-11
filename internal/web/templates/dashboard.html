@@ -1,5 +1,5 @@
 {{define "content"}}
-{{$s := .Data.Stats}}{{$open := .Data.OpenQuery}}
+{{$s := .Data.Stats}}
 {{template "syncBar" .}}
 {{if not .Data.Assets}}
 <section class="card">
@@ -15,12 +15,12 @@
 {{end}}
 
 <section class="kpis" aria-label="Indicateurs clés">
-  <a class="kpi kpi-hero" href="/findings?{{$open}}&amp;priority=1">
+  <a class="kpi kpi-hero" href="/findings?priority=1">
     <span class="kpi-label">À traiter en priorité</span>
     <span class="kpi-value">{{$s.Priority}}</span>
     <span class="kpi-note">dont {{$s.OpenKEV}} exploitée(s) (CISA KEV), les autres probables (EPSS ≥ 10 %)</span>
   </a>
-  <a class="kpi" href="/findings?{{$open}}">
+  <a class="kpi" href="/findings">
     <span class="kpi-label">Vulnérabilités ouvertes</span>
     <span class="kpi-value">{{$s.Open}}</span>
     <span class="kpi-note">dont {{.Data.Severe}} critique(s) ou haute(s)</span>

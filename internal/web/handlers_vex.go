@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
 	"github.com/La-Cizaille-Corp/vigil/internal/vex"
@@ -46,20 +47,20 @@ func (s *Server) vexImport(w http.ResponseWriter, r *http.Request) {
 	applied, ignored := 0, 0
 	for _, st := range statements {
 		f, ok := vex.Match(st, findings)
-		if !ok || tracking.ValidateStatus(st.State, st.Justification, st.Detail) != nil {
+		comment := clip.Text("Import VEX : "+st.Detail, tracking.MaxComment)
+		if !ok || tracking.ValidateStatus(st.State, st.Justification, comment) != nil {
 			ignored++
 			continue
 		}
 		if f.Status == st.State && f.Justification == st.Justification {
 			continue
 		}
-		if err := s.Store.SetFindingStatus(r.Context(), f.ID, sess.User.ID, st.State, st.Justification,
-			"Import VEX : "+st.Detail); err != nil {
+		if err := s.Store.SetFindingStatus(r.Context(), f.ID, sess.User.ID, st.State, st.Justification, comment); err != nil {
 			s.serverError(w, r, err)
 			return
 		}
 		applied++
 	}
-	s.audit(r, sess.User.ID, "vex_import", fmt.Sprintf("%d appliquées, %d ignorées", applied, ignored))
+	s.audit(r, "vex_import", fmt.Sprintf("%d appliquées, %d ignorées", applied, ignored))
 	redirect(w, r, "/findings", "vex-imported")
 }

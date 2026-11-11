@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/epss"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/kev"
@@ -58,6 +59,9 @@ var Justifications = []inventory.Option{
 	{Value: "protected_by_mitigating_control", Label: "Protégé par une mesure compensatoire"},
 }
 
+// MaxComment is the longest comment of a status change, in characters.
+const MaxComment = 4000
+
 // ValidateStatus checks a status change submitted by a user.
 func ValidateStatus(status, justification, comment string) error {
 	if inventory.Label(Statuses, status) == status {
@@ -69,7 +73,7 @@ func ValidateStatus(status, justification, comment string) error {
 	if status == "not_affected" && justification == "" {
 		return errors.New("une justification est requise pour « Non affecté »")
 	}
-	if len(comment) > 4000 {
+	if !clip.Fits(comment, MaxComment) {
 		return errors.New("commentaire trop long")
 	}
 	return nil
@@ -437,10 +441,7 @@ func brief(description string) string {
 	if i := strings.Index(text, ". "); i > 0 && i < 300 {
 		return text[:i+1]
 	}
-	if len(text) > 300 {
-		return text[:300] + "…"
-	}
-	return text
+	return clip.Text(text, 300)
 }
 
 func nvdVuln(c nvd.CVE) store.Vulnerability {

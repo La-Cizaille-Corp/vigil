@@ -149,6 +149,34 @@ func TestAssetPageLayout(t *testing.T) {
 	}
 }
 
+// The dashboard cards open the list they count: their query was escaped as a
+// whole by html/template (status%3din_triage…), so the list ignored it.
+func TestDashboardCardsLinkToTheirList(t *testing.T) {
+	st, base := newServerWith(t, nil)
+	seedFindings(t, st)
+	c := loginAs(t, base, "analyst", "a-strong-password")
+	_, page := c.get("/")
+	if !strings.Contains(page, `<a class="kpi kpi-hero" href="/findings?priority=1">`) ||
+		!strings.Contains(page, `<a class="kpi" href="/findings">`) || strings.Contains(page, "%3d") {
+		t.Error("dashboard cards do not link to the open findings")
+	}
+}
+
+// A list row names three aliases at most; the finding page keeps them all.
+func TestAliasList(t *testing.T) {
+	for n, want := range map[int]string{
+		0: "", 1: "A0", 3: "A0, A1, A2", 4: "A0, A1, A2 et 1 autre", 1902: "A0, A1, A2 et 1899 autres",
+	} {
+		list := make([]string, n)
+		for i := range list {
+			list[i] = "A" + strconv.Itoa(i)
+		}
+		if got := aliasList(list); got != want {
+			t.Errorf("%d aliases: %q, want %q", n, got, want)
+		}
+	}
+}
+
 func TestFeedTags(t *testing.T) {
 	st, base := newTestServer(t)
 	ctx := context.Background()

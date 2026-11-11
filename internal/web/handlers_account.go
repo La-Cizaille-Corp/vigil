@@ -26,9 +26,11 @@ func (s *Server) checkTOTP(r *http.Request, userID int64, code string) (bool, er
 
 // totpAttempt applies the login limiter to second-factor checks made from an
 // existing session, keyed by user: a stolen session cannot brute-force codes.
+// SECURITY: the attempt is counted before the check, so that parallel
+// requests cannot all get through; a success resets the key.
 func (s *Server) totpAttempt(w http.ResponseWriter, r *http.Request, userID int64) (string, bool) {
 	key := fmt.Sprintf("totp:%d", userID)
-	if !s.limiter.Allowed(key) {
+	if !s.limiter.Take(key) {
 		s.renderAccount(w, r, http.StatusTooManyRequests, "Trop de codes invalides. Réessayez dans quelques minutes.")
 		return key, false
 	}
@@ -98,12 +100,11 @@ func (s *Server) totpConfirm(w http.ResponseWriter, r *http.Request) {
 	}
 	// SECURITY: enabling the second factor takes the password, so that a
 	// stolen session cannot lock the owner out with the thief's authenticator.
-	if !s.passwordMatches(w, r, sess.User.Username, key) {
+	if !s.passwordMatches(w, r, sess.User.Username) {
 		return
 	}
 	step, ok := auth.VerifyTOTP(pending, r.PostFormValue("code"), time.Now(), 0)
 	if pending == "" || !ok {
-		s.limiter.Fail(key)
 		s.renderAccount(w, r, http.StatusBadRequest, "Code invalide : vérifiez l'heure de votre téléphone et réessayez.")
 		return
 	}
@@ -116,7 +117,7 @@ func (s *Server) totpConfirm(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	s.audit(r, sess.User.ID, "totp_enable", "")
+	s.audit(r, "totp_enable", "")
 	redirect(w, r, "/account", "totp-enabled")
 }
 
@@ -133,7 +134,6 @@ func (s *Server) totpDisable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ok {
-		s.limiter.Fail(key)
 		s.renderAccount(w, r, http.StatusBadRequest, "Code invalide.")
 		return
 	}
@@ -146,13 +146,13 @@ func (s *Server) totpDisable(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	s.audit(r, sess.User.ID, "totp_disable", "")
+	s.audit(r, "totp_disable", "")
 	redirect(w, r, "/account", "totp-disabled")
 }
 
 // passwordMatches checks the "password" field against the signed-in user's
-// password, counting a failure against key; it renders the error itself.
-func (s *Server) passwordMatches(w http.ResponseWriter, r *http.Request, username, key string) bool {
+// password, an attempt already counted by the caller; it renders the error.
+func (s *Server) passwordMatches(w http.ResponseWriter, r *http.Request, username string) bool {
 	password := r.PostFormValue("password")
 	if len(password) > maxPasswordBytes {
 		s.renderAccount(w, r, http.StatusBadRequest, "Mot de passe trop long.")
@@ -164,7 +164,6 @@ func (s *Server) passwordMatches(w http.ResponseWriter, r *http.Request, usernam
 		return false
 	}
 	if ok, err := auth.VerifyPassword(password, user.PasswordHash); err != nil || !ok {
-		s.limiter.Fail(key)
 		s.renderAccount(w, r, http.StatusBadRequest, "Mot de passe incorrect.")
 		return false
 	}
@@ -175,26 +174,30 @@ func (s *Server) passwordMatches(w http.ResponseWriter, r *http.Request, usernam
 // the current one, and closes the user's other sessions.
 func (s *Server) passwordChange(w http.ResponseWriter, r *http.Request) {
 	sess, _ := sessionFrom(r.Context())
-	key := fmt.Sprintf("password:%d", sess.User.ID)
-	if !s.limiter.Allowed(key) {
-		s.renderAccount(w, r, http.StatusTooManyRequests, "Trop de tentatives. Réessayez dans quelques minutes.")
-		return
-	}
 	current, next := r.PostFormValue("current"), r.PostFormValue("new")
 	if len(current) > maxPasswordBytes || len(next) > maxPasswordBytes {
 		s.renderAccount(w, r, http.StatusBadRequest, "Mot de passe trop long.")
 		return
 	}
+	// SECURITY: the guess is counted before the slow check, so that parallel
+	// requests cannot all get through. A right current password takes it back:
+	// a typo in the new one is no guess.
+	key := fmt.Sprintf("password:%d", sess.User.ID)
+	if !s.limiter.Take(key) {
+		s.renderAccount(w, r, http.StatusTooManyRequests, "Trop de tentatives. Réessayez dans quelques minutes.")
+		return
+	}
 	user, err := s.Store.UserByName(r.Context(), sess.User.Username)
 	if err != nil {
+		s.limiter.Forgive(key)
 		s.serverError(w, r, err)
 		return
 	}
 	if ok, err := auth.VerifyPassword(current, user.PasswordHash); err != nil || !ok {
-		s.limiter.Fail(key)
 		s.renderAccount(w, r, http.StatusBadRequest, "Mot de passe actuel incorrect.")
 		return
 	}
+	s.limiter.Forgive(key)
 	if next != r.PostFormValue("confirm") {
 		s.renderAccount(w, r, http.StatusBadRequest, "Les deux nouveaux mots de passe ne correspondent pas.")
 		return
@@ -212,6 +215,6 @@ func (s *Server) passwordChange(w http.ResponseWriter, r *http.Request) {
 	if err := s.endOtherSessions(r, user.ID); err != nil {
 		s.Log.Warn("end other sessions", "err", err)
 	}
-	s.audit(r, user.ID, "password_change", "")
+	s.audit(r, "password_change", "")
 	redirect(w, r, "/account", "password-changed")
 }
