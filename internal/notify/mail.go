@@ -15,6 +15,7 @@ import (
 	"net/smtp"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // TLS modes of the SMTP connection.
@@ -71,7 +72,25 @@ func (m *Mailer) Cleartext() bool {
 	return host != "localhost" && (ip == nil || !ip.IsLoopback())
 }
 
-// ParseRecipients reads a comma- or semicolon-separated list of addresses.
+// addressSpecials may not appear in a recipient address itself; its display
+// name may hold them.
+const addressSpecials = `<>()[],;:\"`
+
+// plainAddress reports whether an address, as net/mail returns it, holds
+// neither addressSpecials nor a space or control character.
+//
+// SECURITY: net/mail unquotes a quoted local part: "x> NOTIFY=NEVER"@example.com
+// becomes x> NOTIFY=NEVER@example.com, written as is into RCPT TO:<…> and the
+// To header, where '>' and the spaces add SMTP parameters. A plain address
+// never needs these characters.
+func plainAddress(a string) bool {
+	return !strings.ContainsAny(a, addressSpecials) &&
+		!strings.ContainsFunc(a, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) })
+}
+
+// ParseRecipients reads a comma- or semicolon-separated list of addresses,
+// with or without a display name ("Équipe <soc@example.org>"). It returns the
+// addresses alone.
 func ParseRecipients(list string) ([]string, error) {
 	parsed, err := mail.ParseAddressList(strings.ReplaceAll(list, ";", ","))
 	if err != nil || len(parsed) == 0 {
@@ -82,6 +101,9 @@ func ParseRecipients(list string) ([]string, error) {
 	}
 	out := make([]string, len(parsed))
 	for i, a := range parsed {
+		if !plainAddress(a.Address) {
+			return nil, fmt.Errorf("adresse e-mail refusée : %q (ni espace ni caractère %s dans l'adresse)", a.Address, addressSpecials)
+		}
 		out[i] = a.Address
 	}
 	return out, nil
