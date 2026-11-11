@@ -253,32 +253,32 @@ func Generate(ctx context.Context, st *store.Store) (store.Digest, error) {
 	}
 
 	d := Data{Since: since, GeneratedAt: now}
-	news, err := st.ListFindings(ctx, store.FindingFilter{Since: since})
+	news, err := st.ListFindings(ctx, store.Everything, store.FindingFilter{Since: since})
 	if err != nil {
 		return store.Digest{}, err
 	}
 	d.New = ByVendor(news)
 	var open []store.Finding
 	for _, status := range []string{"exploitable", "in_triage"} {
-		fs, err := st.ListFindings(ctx, store.FindingFilter{Status: status})
+		fs, err := st.ListFindings(ctx, store.Everything, store.FindingFilter{Status: status})
 		if err != nil {
 			return store.Digest{}, err
 		}
 		open = append(open, fs...)
 	}
 	d.Open = ByVendor(open)
-	counts, err := st.CountFindingsByStatus(ctx)
+	counts, err := st.CountFindingsByStatus(ctx, store.Everything)
 	if err != nil {
 		return store.Digest{}, err
 	}
 	for _, s := range tracking.Statuses {
 		d.Counts = append(d.Counts, Count{Status: s.Value, N: counts[s.Value]})
 	}
-	if d.Overdue, err = st.ListFindings(ctx, store.FindingFilter{Overdue: true}); err != nil {
+	if d.Overdue, err = st.ListFindings(ctx, store.Everything, store.FindingFilter{Overdue: true}); err != nil {
 		return store.Digest{}, err
 	}
 	SortBySeverity(d.Overdue)
-	if d.Concerning, err = st.ListCTIItems(ctx, store.CTIFilter{Concerning: true, Since: since, Limit: maxCTIItems}); err != nil {
+	if d.Concerning, err = st.ListCTIItems(ctx, store.Everything, store.CTIFilter{Concerning: true, Since: since, Limit: maxCTIItems}); err != nil {
 		return store.Digest{}, err
 	}
 
@@ -287,7 +287,7 @@ func Generate(ctx context.Context, st *store.Store) (store.Digest, error) {
 		return store.Digest{}, err
 	}
 	filter.Since, filter.Limit = since, maxCTIItems
-	if d.CTI, err = st.ListCTIItems(ctx, filter); err != nil {
+	if d.CTI, err = st.ListCTIItems(ctx, store.Everything, filter); err != nil {
 		return store.Digest{}, err
 	}
 	d.CTIScope = describeScope(filter)
@@ -297,7 +297,7 @@ func Generate(ctx context.Context, st *store.Store) (store.Digest, error) {
 		return store.Digest{}, err
 	}
 	regs.Since, regs.Limit = since, maxCTIItems
-	if d.Regulatory, err = st.ListCTIItems(ctx, regs); err != nil {
+	if d.Regulatory, err = st.ListCTIItems(ctx, store.Everything, regs); err != nil {
 		return store.Digest{}, err
 	}
 	d.RegScope = "toutes les réglementations et normes"

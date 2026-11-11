@@ -194,17 +194,17 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	now := time.Now()
-	stats, err := s.Store.DashboardStats(ctx, now)
+	stats, err := s.Store.DashboardStats(ctx, readScope(r), now)
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
-	counts, err := s.Store.CountFindingsByStatus(ctx)
+	counts, err := s.Store.CountFindingsByStatus(ctx, readScope(r))
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
-	recent, err := s.Store.ListFindings(ctx, store.FindingFilter{Since: now.Add(-7 * 24 * time.Hour)})
+	recent, err := s.Store.ListFindings(ctx, readScope(r), store.FindingFilter{Since: now.Add(-7 * 24 * time.Hour)})
 	if err != nil {
 		s.serverError(w, r, err)
 		return
@@ -212,7 +212,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	digest.SortByPriority(recent)
 	recentTotal := len(recent)
 	recent = recent[:min(len(recent), 10)]
-	assets, err := s.Store.ListAssets(ctx)
+	assets, err := s.Store.ListAssets(ctx, readScope(r))
 	if err != nil {
 		s.serverError(w, r, err)
 		return
@@ -271,14 +271,14 @@ func assetFromForm(r *http.Request) store.Asset {
 func (s *Server) assetList(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	retiredView := r.URL.Query().Get("retired") == "1"
-	retired, err := s.Store.ListRetiredAssets(ctx)
+	retired, err := s.Store.ListRetiredAssets(ctx, readScope(r))
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
 	assets := retired
 	if !retiredView {
-		if assets, err = s.Store.ListAssets(ctx); err != nil {
+		if assets, err = s.Store.ListAssets(ctx, readScope(r)); err != nil {
 			s.serverError(w, r, err)
 			return
 		}
@@ -296,12 +296,12 @@ func (s *Server) assetList(w http.ResponseWriter, r *http.Request) {
 	}
 	order := orderFrom(q, assetColumnList, "")
 	sortRows(assets, assetColumnList, order)
-	projects, err := s.Store.ListProjects(r.Context())
+	projects, err := s.Store.ListProjects(r.Context(), readScope(r))
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
-	tags, err := s.Store.AssetTags(r.Context())
+	tags, err := s.Store.AssetTags(r.Context(), readScope(r))
 	if err != nil {
 		s.serverError(w, r, err)
 		return
@@ -319,7 +319,7 @@ func (s *Server) assetNew(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) renderNewAsset(w http.ResponseWriter, r *http.Request, status int, form store.Asset, formErr string) {
-	s.render(w, r, status, "asset_new", page{Title: "Ajouter des actifs", Error: formErr, Data: map[string]any{"Form": form}})
+	s.render(w, r, status, "asset_new", page{Title: "Ajouter des actifs", Error: formErr, Data: map[string]any{"Form": s.newAssetForm(r, form)}})
 }
 
 func (s *Server) assetCreate(w http.ResponseWriter, r *http.Request) {
@@ -328,7 +328,7 @@ func (s *Server) assetCreate(w http.ResponseWriter, r *http.Request) {
 		s.renderNewAsset(w, r, http.StatusBadRequest, a, err.Error())
 		return
 	}
-	id, err := s.Store.CreateAsset(r.Context(), a)
+	id, err := s.Store.CreateAsset(r.Context(), writeScope(r), a)
 	if err != nil {
 		s.serverError(w, r, err)
 		return
@@ -344,7 +344,7 @@ func (s *Server) loadAsset(w http.ResponseWriter, r *http.Request) (store.Asset,
 		s.notFound(w)
 		return store.Asset{}, false
 	}
-	a, err := s.Store.Asset(r.Context(), id)
+	a, err := s.Store.Asset(r.Context(), requestScope(r), id)
 	if errors.Is(err, store.ErrNotFound) {
 		s.notFound(w)
 		return a, false
@@ -369,18 +369,18 @@ func (s *Server) assetEdit(w http.ResponseWriter, r *http.Request) {
 // is folded; it opens on the values refused when there are some (form != a).
 func (s *Server) renderAsset(w http.ResponseWriter, r *http.Request, status int, a, form store.Asset, formErr string) {
 	query := clip.Prefix(strings.TrimSpace(r.URL.Query().Get("q")), maxRuleText)
-	findings, err := s.Store.ListFindings(r.Context(), store.FindingFilter{AssetID: a.ID, Matching: query})
+	findings, err := s.Store.ListFindings(r.Context(), readScope(r), store.FindingFilter{AssetID: a.ID, Matching: query})
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
-	rules, err := s.Store.DismissalRules(r.Context(), a.ID)
+	rules, err := s.Store.DismissalRules(r.Context(), readScope(r), a.ID)
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
 	s.render(w, r, status, "asset", page{Title: inventory.Describe(a), Error: formErr,
-		Data: map[string]any{"Asset": a, "Form": form, "Editing": !reflect.DeepEqual(form, a),
+		Data: map[string]any{"Asset": a, "Form": s.newAssetForm(r, form), "Editing": !reflect.DeepEqual(form, a),
 			"Findings": findings, "Query": query, "Rules": rules, "RuleMinimum": minRuleText}})
 }
 
@@ -401,7 +401,7 @@ func (s *Server) dismissalCreate(w http.ResponseWriter, r *http.Request) {
 		s.renderAsset(w, r, http.StatusBadRequest, a, a, fmt.Sprintf("Indiquez un texte de %d à %d caractères.", minRuleText, maxRuleText))
 		return
 	}
-	if err := s.Store.CreateDismissalRule(r.Context(), a.ID, text); err != nil {
+	if err := s.Store.CreateDismissalRule(r.Context(), writeScope(r), a.ID, text); err != nil {
 		s.serverError(w, r, err)
 		return
 	}
@@ -420,7 +420,7 @@ func (s *Server) dismissalDelete(w http.ResponseWriter, r *http.Request) {
 		s.notFound(w)
 		return
 	}
-	err = s.Store.DeleteDismissalRule(r.Context(), a.ID, id)
+	err = s.Store.DeleteDismissalRule(r.Context(), writeScope(r), a.ID, id)
 	if errors.Is(err, store.ErrNotFound) {
 		s.notFound(w)
 		return
@@ -445,7 +445,7 @@ func (s *Server) assetUpdate(w http.ResponseWriter, r *http.Request) {
 		s.renderAsset(w, r, http.StatusBadRequest, old, a, err.Error())
 		return
 	}
-	if err := s.Store.UpdateAsset(r.Context(), a); err != nil {
+	if err := s.Store.UpdateAsset(r.Context(), writeScope(r), a); err != nil {
 		s.serverError(w, r, err)
 		return
 	}
@@ -462,7 +462,7 @@ func (s *Server) assetFullHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.TrackSince = ""
-	if err := s.Store.UpdateAsset(r.Context(), a); err != nil {
+	if err := s.Store.UpdateAsset(r.Context(), writeScope(r), a); err != nil {
 		s.serverError(w, r, err)
 		return
 	}
@@ -490,7 +490,7 @@ func (s *Server) assetDelete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := s.Store.DeleteAsset(r.Context(), a.ID); err != nil {
+	if err := s.Store.DeleteAsset(r.Context(), writeScope(r), a.ID); err != nil {
 		s.serverError(w, r, err)
 		return
 	}
@@ -509,7 +509,7 @@ func (s *Server) findingList(w http.ResponseWriter, r *http.Request) {
 func (s *Server) renderFindings(w http.ResponseWriter, r *http.Request, status int, formErr string) {
 	q := r.URL.Query()
 	f := findingFilterFrom(q)
-	findings, err := s.Store.ListFindings(r.Context(), f)
+	findings, err := s.Store.ListFindings(r.Context(), readScope(r), f)
 	if err != nil {
 		s.serverError(w, r, err)
 		return
@@ -519,12 +519,12 @@ func (s *Server) renderFindings(w http.ResponseWriter, r *http.Request, status i
 	findings = keepLevel(findings, level)
 	order := orderFrom(q, findingColumnList, defaultFindingOrder)
 	sortRows(findings, findingColumnList, order)
-	projects, err := s.Store.ListProjects(r.Context())
+	projects, err := s.Store.ListProjects(r.Context(), readScope(r))
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
-	tags, err := s.Store.AssetTags(r.Context())
+	tags, err := s.Store.AssetTags(r.Context(), readScope(r))
 	if err != nil {
 		s.serverError(w, r, err)
 		return
@@ -542,7 +542,7 @@ func (s *Server) renderFindings(w http.ResponseWriter, r *http.Request, status i
 // findingCSV exports the filtered vulnerability list for spreadsheets.
 func (s *Server) findingCSV(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	findings, err := s.Store.ListFindings(r.Context(), findingFilterFrom(q))
+	findings, err := s.Store.ListFindings(r.Context(), readScope(r), findingFilterFrom(q))
 	if err != nil {
 		s.serverError(w, r, err)
 		return
@@ -625,7 +625,7 @@ func (s *Server) findingBulk(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sess, _ := sessionFrom(r.Context())
-	done, err := s.Store.SetFindingsStatus(r.Context(), list, sess.User.ID, status, justif, comment)
+	done, err := s.Store.SetFindingsStatus(r.Context(), writeScope(r), list, sess.User.ID, status, justif, comment)
 	if err != nil {
 		s.serverError(w, r, err)
 		return
@@ -693,7 +693,7 @@ func (s *Server) loadFinding(w http.ResponseWriter, r *http.Request) (store.Find
 		s.notFound(w)
 		return store.Finding{}, false
 	}
-	f, err := s.Store.Finding(r.Context(), id)
+	f, err := s.Store.Finding(r.Context(), requestScope(r), id)
 	if errors.Is(err, store.ErrNotFound) {
 		s.notFound(w)
 		return f, false
@@ -719,7 +719,7 @@ func (s *Server) renderFinding(w http.ResponseWriter, r *http.Request, status in
 		s.serverError(w, r, err)
 		return
 	}
-	events, err := s.Store.FindingEvents(r.Context(), f.ID)
+	events, err := s.Store.FindingEvents(r.Context(), readScope(r), f.ID)
 	if err != nil {
 		s.serverError(w, r, err)
 		return
@@ -729,7 +729,7 @@ func (s *Server) renderFinding(w http.ResponseWriter, r *http.Request, status in
 		s.serverError(w, r, err)
 		return
 	}
-	asset, err := s.Store.Asset(r.Context(), f.AssetID)
+	asset, err := s.Store.Asset(r.Context(), readScope(r), f.AssetID)
 	if err != nil {
 		s.serverError(w, r, err)
 		return
@@ -753,7 +753,7 @@ func (s *Server) findingUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess, _ := sessionFrom(r.Context())
-	if err := s.Store.SetFindingStatus(r.Context(), f.ID, sess.User.ID, status, justif, comment); err != nil {
+	if err := s.Store.SetFindingStatus(r.Context(), writeScope(r), f.ID, sess.User.ID, status, justif, comment); err != nil {
 		s.serverError(w, r, err)
 		return
 	}
@@ -778,7 +778,7 @@ func (s *Server) syncNow(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) digestList(w http.ResponseWriter, r *http.Request) {
-	list, err := s.Store.ListDigests(r.Context())
+	list, err := s.Store.ListDigests(r.Context(), readScope(r))
 	if err != nil {
 		s.serverError(w, r, err)
 		return
@@ -809,7 +809,7 @@ func (s *Server) loadDigest(w http.ResponseWriter, r *http.Request) (store.Diges
 		s.notFound(w)
 		return store.Digest{}, false
 	}
-	d, err := s.Store.Digest(r.Context(), id)
+	d, err := s.Store.Digest(r.Context(), readScope(r), id)
 	if errors.Is(err, store.ErrNotFound) {
 		s.notFound(w)
 		return d, false

@@ -13,7 +13,7 @@ import (
 // vexExport downloads every analysis (or one project's) as CycloneDX VEX.
 func (s *Server) vexExport(w http.ResponseWriter, r *http.Request) {
 	project := r.URL.Query().Get("project")
-	findings, err := s.Store.ListFindings(r.Context(), store.FindingFilter{Project: project})
+	findings, err := s.Store.ListFindings(r.Context(), readScope(r), store.FindingFilter{Project: project})
 	if err != nil {
 		s.serverError(w, r, err)
 		return
@@ -38,7 +38,7 @@ func (s *Server) vexImport(w http.ResponseWriter, r *http.Request) {
 		s.renderFindings(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
-	findings, err := s.Store.ListFindings(r.Context(), store.FindingFilter{})
+	findings, err := s.Store.ListFindings(r.Context(), writeScope(r), store.FindingFilter{})
 	if err != nil {
 		s.serverError(w, r, err)
 		return
@@ -55,7 +55,7 @@ func (s *Server) vexImport(w http.ResponseWriter, r *http.Request) {
 		if f.Status == st.State && f.Justification == st.Justification {
 			continue
 		}
-		if err := s.Store.SetFindingStatus(r.Context(), f.ID, sess.User.ID, st.State, st.Justification, comment); err != nil {
+		if err := s.Store.SetFindingStatus(r.Context(), writeScope(r), f.ID, sess.User.ID, st.State, st.Justification, comment); err != nil {
 			s.serverError(w, r, err)
 			return
 		}

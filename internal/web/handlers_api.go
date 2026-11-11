@@ -55,7 +55,7 @@ func (s *Server) apiSBOM(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	res, err := s.Store.ReplaceProjectAssets(r.Context(), project, doc.Assets)
+	res, err := s.Store.ReplaceProjectAssets(r.Context(), tokenScope(tok), project, doc.Assets)
 	if err != nil {
 		s.Log.Error("api sbom import", "err", err)
 		apiError(w, http.StatusInternalServerError, "erreur interne")

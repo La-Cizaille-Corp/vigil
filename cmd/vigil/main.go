@@ -429,7 +429,7 @@ func runImportSBOM(ctx context.Context, args []string) error {
 		return err
 	}
 	defer st.Close()
-	res, err := st.ReplaceProjectAssets(ctx, name, doc.Assets)
+	res, err := st.ReplaceProjectAssets(ctx, store.Everything, name, doc.Assets)
 	if err != nil {
 		return err
 	}

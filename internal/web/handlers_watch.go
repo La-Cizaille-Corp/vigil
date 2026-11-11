@@ -42,7 +42,7 @@ func (s *Server) ctiList(w http.ResponseWriter, r *http.Request) {
 		watched = len(filter.Countries) > 0 || len(filter.Sectors) > 0
 	}
 	filter.Concerning = q.Get("concerning") == "1"
-	items, err := s.Store.ListCTIItems(r.Context(), filter)
+	items, err := s.Store.ListCTIItems(r.Context(), readScope(r), filter)
 	if err != nil {
 		s.serverError(w, r, err)
 		return
@@ -414,7 +414,7 @@ func (s *Server) sbomImport(w http.ResponseWriter, r *http.Request) {
 		s.renderNewAsset(w, r, http.StatusBadRequest, defaultAssetForm(), "Indiquez un nom de projet.")
 		return
 	}
-	res, err := s.Store.ReplaceProjectAssets(r.Context(), project, doc.Assets)
+	res, err := s.Store.ReplaceProjectAssets(r.Context(), writeScope(r), project, doc.Assets)
 	if err != nil {
 		s.serverError(w, r, err)
 		return

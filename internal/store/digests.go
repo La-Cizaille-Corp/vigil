@@ -28,12 +28,12 @@ func (s *Store) CreateDigest(ctx context.Context, d Digest) (int64, error) {
 	return res.LastInsertId()
 }
 
-// Digest returns one digest.
-func (s *Store) Digest(ctx context.Context, id int64) (Digest, error) {
+// Digest returns one digest of the scope: ErrNotFound outside of it.
+func (s *Store) Digest(ctx context.Context, sc Scope, id int64) (Digest, error) {
 	var d Digest
 	var since, created string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, since, created_at, markdown, html FROM digests WHERE id = ?`, id).
+		`SELECT id, since, created_at, markdown, html FROM digests WHERE id = ? AND `+sc.digestCond(), id).
 		Scan(&d.ID, &since, &created, &d.Markdown, &d.HTML)
 	if errors.Is(err, sql.ErrNoRows) {
 		return d, ErrNotFound
@@ -42,9 +42,11 @@ func (s *Store) Digest(ctx context.Context, id int64) (Digest, error) {
 	return d, err
 }
 
-// ListDigests returns digests without their content, most recent first.
-func (s *Store) ListDigests(ctx context.Context) ([]Digest, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, since, created_at FROM digests ORDER BY id DESC`)
+// ListDigests returns the digests of the scope without their content, most
+// recent first.
+func (s *Store) ListDigests(ctx context.Context, sc Scope) ([]Digest, error) {
+	// #nosec G202 -- digestCond is a fixed expression.
+	rows, err := s.db.QueryContext(ctx, `SELECT id, since, created_at FROM digests WHERE `+sc.digestCond()+` ORDER BY id DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("list digests: %w", err)
 	}

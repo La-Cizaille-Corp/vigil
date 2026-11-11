@@ -165,10 +165,10 @@ func (s *Syncer) run(ctx context.Context, assetID int64) (res Result, err error)
 	var assets []store.Asset
 	name := ""
 	if assetID == 0 {
-		assets, err = s.Store.ListAssets(ctx)
+		assets, err = s.Store.ListAssets(ctx, store.Everything)
 	} else {
 		var a store.Asset
-		a, err = s.Store.Asset(ctx, assetID)
+		a, err = s.Store.Asset(ctx, store.Everything, assetID)
 		assets, name = []store.Asset{a}, a.Name
 		if !a.Retired.IsZero() { // dropped from its SBOM: checking it would reopen its findings
 			assets = nil

@@ -197,13 +197,19 @@ func formatDays(d float64) string {
 	return strconv.FormatFloat(d, 'f', 0, 64) + " j"
 }
 
-// knownTags lists the asset tags in use, as hints under the tags field.
-func (s *Server) knownTags() []store.TagCount {
-	ctx, cancel := context.WithTimeout(s.background(), 5*time.Second)
-	defer cancel()
-	tags, err := s.Store.AssetTags(ctx)
+// assetForm is an asset shown in its form, with the tags in use as hints under
+// the tags field.
+type assetForm struct {
+	store.Asset
+	KnownTags []store.TagCount
+}
+
+// newAssetForm prepares the form of a: the hints are the tags the account may
+// see, a failure only loses them.
+func (s *Server) newAssetForm(r *http.Request, a store.Asset) assetForm {
+	tags, err := s.Store.AssetTags(r.Context(), readScope(r))
 	if err != nil {
 		s.Log.Warn("asset tags", "err", err)
 	}
-	return tags
+	return assetForm{Asset: a, KnownTags: tags}
 }

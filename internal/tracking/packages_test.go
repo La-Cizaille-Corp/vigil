@@ -75,7 +75,7 @@ func TestLargePackage(t *testing.T) {
 	syncer := &tracking.Syncer{Store: st, OSV: client, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		HTTP: srv.Client(), KEVURL: srv.URL + "/kev", EPSSURL: srv.URL + "/epss"}
 
-	id, err := st.CreateAsset(ctx, store.Asset{Name: "linux", Kind: "os", Ecosystem: "Debian:12", Version: "6.1.76-1",
+	id, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "linux", Kind: "os", Ecosystem: "Debian:12", Version: "6.1.76-1",
 		Criticality: "high", Source: "manual", TrackSince: "2026-06-01"})
 	if err != nil {
 		t.Fatal(err)
@@ -103,7 +103,7 @@ func TestLargePackage(t *testing.T) {
 	} else if v.Summary != "wifi: mt76: add a check" {
 		t.Errorf("summary of a Debian record: %q", v.Summary)
 	}
-	if a, _ := st.Asset(ctx, id); a.OlderVulns != 1 {
+	if a, _ := st.Asset(ctx, store.Everything, id); a.OlderVulns != 1 {
 		t.Errorf("older vulnerabilities = %d, want 1", a.OlderVulns)
 	}
 	if queries != 2 || advisories != 0 {
@@ -141,7 +141,7 @@ func TestPURLQualifiers(t *testing.T) {
 		"pkg:deb/debian/linux-image-6.1.0-13-amd64@6.1.55-1?arch=amd64&distro=debian-12",
 		"pkg:npm/lodash@4.17.15?foo=bar",
 	} {
-		if _, err := st.CreateAsset(ctx, store.Asset{Name: purl, Kind: "package", PURL: purl, Criticality: "low", Source: "sbom", Project: "app"}); err != nil {
+		if _, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: purl, Kind: "package", PURL: purl, Criticality: "low", Source: "sbom", Project: "app"}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -181,7 +181,7 @@ func TestFailedAssetAndProgress(t *testing.T) {
 		return nil
 	}
 	add := func(name string) int64 {
-		id, err := st.CreateAsset(ctx, store.Asset{Name: name, Kind: "product", Criticality: "low", Source: "manual"})
+		id, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: name, Kind: "product", Criticality: "low", Source: "manual"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -247,7 +247,7 @@ func TestVersionsComparedHere(t *testing.T) {
 	syncer := &tracking.Syncer{Store: st, OSV: client, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 
 	add := func(version string) int64 {
-		id, err := st.CreateAsset(ctx, store.Asset{Name: "Linux Kernel", Ecosystem: "Linux", Version: version, Kind: "os",
+		id, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "Linux Kernel", Ecosystem: "Linux", Version: version, Kind: "os",
 			Criticality: "high", Source: "manual", TrackSince: "2026-06-01"})
 		if err != nil {
 			t.Fatal(err)
@@ -278,7 +278,7 @@ func TestVersionsComparedHere(t *testing.T) {
 	if _, err := st.Vulnerability(ctx, "CVE-2022-2004"); err == nil {
 		t.Error("an advisory older than the tracked period was stored")
 	}
-	if a, _ := st.Asset(ctx, recent); a.OlderVulns != 1 {
+	if a, _ := st.Asset(ctx, store.Everything, recent); a.OlderVulns != 1 {
 		t.Errorf("older vulnerabilities = %d, want 1", a.OlderVulns)
 	}
 }
@@ -298,14 +298,14 @@ func TestDismissalRuleAtSync(t *testing.T) {
 	var atAlert []store.Finding
 	syncer := &tracking.Syncer{Store: st, OSV: client, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	syncer.Alert = func(ctx context.Context) error {
-		atAlert, _ = st.ListFindings(ctx, store.FindingFilter{Status: "in_triage"})
+		atAlert, _ = st.ListFindings(ctx, store.Everything, store.FindingFilter{Status: "in_triage"})
 		return nil
 	}
-	id, err := st.CreateAsset(ctx, store.Asset{Name: "Kernel", Ecosystem: "Linux", Version: "6.8.1", Kind: "os", Criticality: "high", Source: "manual"})
+	id, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "Kernel", Ecosystem: "Linux", Version: "6.8.1", Kind: "os", Criticality: "high", Source: "manual"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.CreateDismissalRule(ctx, id, "wifi:"); err != nil {
+	if err := st.CreateDismissalRule(ctx, store.Everything, id, "wifi:"); err != nil {
 		t.Fatal(err)
 	}
 	res, err := syncer.Run(ctx)
@@ -315,7 +315,7 @@ func TestDismissalRuleAtSync(t *testing.T) {
 	if res.Created != 2 || res.Dismissed != 1 {
 		t.Errorf("result = %+v", res)
 	}
-	findings, _ := st.ListFindings(ctx, store.FindingFilter{AssetID: id})
+	findings, _ := st.ListFindings(ctx, store.Everything, store.FindingFilter{AssetID: id})
 	for _, f := range findings {
 		if want := map[string]string{"CVE-2026-1": "not_affected", "CVE-2026-2": "in_triage"}[f.VulnID]; f.Status != want {
 			t.Errorf("%s: %s, want %s", f.VulnID, f.Status, want)

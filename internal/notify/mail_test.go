@@ -195,7 +195,7 @@ func TestSendAlerts(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	assetID, _ := st.CreateAsset(ctx, store.Asset{Name: "fortios", Version: "7.2.4", Kind: "os", Criticality: "high", Source: "manual"})
+	assetID, _ := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "fortios", Version: "7.2.4", Kind: "os", Criticality: "high", Source: "manual"})
 	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-KEV", Severity: "CRITICAL", Summary: "Contournement d'authentification", EPSS: -1, CVSS: 9.8})
 	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-HIGH", Severity: "HIGH", EPSS: -1, CVSS: 7.5})
 	st.SetExploitSignals(ctx, "CVE-KEV", true, "", 0.9)

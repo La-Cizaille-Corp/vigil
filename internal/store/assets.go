@@ -50,8 +50,12 @@ func scanAsset(row interface{ Scan(...any) error }) (Asset, error) {
 	return a, err
 }
 
-// CreateAsset inserts an asset and returns its id.
-func (s *Store) CreateAsset(ctx context.Context, a Asset) (int64, error) {
+// CreateAsset inserts an asset and returns its id; the asset must land inside
+// the scope (ErrOutsideGroups).
+func (s *Store) CreateAsset(ctx context.Context, sc Scope, a Asset) (int64, error) {
+	if err := sc.writable(); err != nil {
+		return 0, err
+	}
 	ts := now()
 	res, err := s.db.ExecContext(ctx, `
 		INSERT INTO assets (name, kind, ecosystem, version, purl, cpe, cpe_mode, cpe_from, track_since, criticality, owner, notes, source, project, tags, created_at, updated_at)
@@ -64,14 +68,16 @@ func (s *Store) CreateAsset(ctx context.Context, a Asset) (int64, error) {
 	return res.LastInsertId()
 }
 
-// UpdateAsset replaces the editable fields of an asset.
-func (s *Store) UpdateAsset(ctx context.Context, a Asset) error {
+// UpdateAsset replaces the editable fields of an asset of the scope.
+func (s *Store) UpdateAsset(ctx context.Context, sc Scope, a Asset) error {
+	cond, args := sc.cond("a")
+	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
 	res, err := s.db.ExecContext(ctx, `
-		UPDATE assets SET name = ?, kind = ?, ecosystem = ?, version = ?, purl = ?, cpe = ?, cpe_mode = ?, cpe_from = ?, track_since = ?,
+		UPDATE assets AS a SET name = ?, kind = ?, ecosystem = ?, version = ?, purl = ?, cpe = ?, cpe_mode = ?, cpe_from = ?, track_since = ?,
 		       criticality = ?, owner = ?, notes = ?, project = ?, tags = ?, updated_at = ?
-		WHERE id = ?`,
-		a.Name, a.Kind, a.Ecosystem, a.Version, a.PURL, a.CPE, a.CPEMode, a.CPEFrom, a.TrackSince, a.Criticality, a.Owner, a.Notes, a.Project,
-		joinTags(a.Tags), now(), a.ID)
+		WHERE a.id = ? AND `+cond,
+		append([]any{a.Name, a.Kind, a.Ecosystem, a.Version, a.PURL, a.CPE, a.CPEMode, a.CPEFrom, a.TrackSince, a.Criticality, a.Owner, a.Notes, a.Project,
+			joinTags(a.Tags), now(), a.ID}, args...)...)
 	if err != nil {
 		return fmt.Errorf("update asset: %w", err)
 	}
@@ -81,33 +87,39 @@ func (s *Store) UpdateAsset(ctx context.Context, a Asset) error {
 	return nil
 }
 
-// Asset returns one asset.
-func (s *Store) Asset(ctx context.Context, id int64) (Asset, error) {
-	a, err := scanAsset(s.db.QueryRowContext(ctx, `SELECT `+assetColumns+` FROM assets WHERE id = ?`, id))
+// Asset returns one asset of the scope: ErrNotFound outside of it, as for an
+// asset that does not exist, so that a guessed id tells nothing.
+func (s *Store) Asset(ctx context.Context, sc Scope, id int64) (Asset, error) {
+	cond, args := sc.cond("a")
+	a, err := scanAsset(s.db.QueryRowContext(ctx, `SELECT `+assetColumns+` FROM assets a WHERE a.id = ? AND `+cond,
+		append([]any{id}, args...)...))
 	if errors.Is(err, sql.ErrNoRows) {
 		return a, ErrNotFound
 	}
 	return a, err
 }
 
-// ListAssets returns the active assets ordered by name: retired ones (see
-// ReplaceProjectAssets) are neither listed nor checked.
-func (s *Store) ListAssets(ctx context.Context) ([]Asset, error) {
-	return s.listAssets(ctx, false)
+// ListAssets returns the active assets of the scope ordered by name: retired
+// ones (see ReplaceProjectAssets) are neither listed nor checked.
+func (s *Store) ListAssets(ctx context.Context, sc Scope) ([]Asset, error) {
+	return s.listAssets(ctx, sc, false)
 }
 
-// ListRetiredAssets returns the components dropped from their project's SBOM.
-func (s *Store) ListRetiredAssets(ctx context.Context) ([]Asset, error) {
-	return s.listAssets(ctx, true)
+// ListRetiredAssets returns the components of the scope dropped from their
+// project's SBOM.
+func (s *Store) ListRetiredAssets(ctx context.Context, sc Scope) ([]Asset, error) {
+	return s.listAssets(ctx, sc, true)
 }
 
-func (s *Store) listAssets(ctx context.Context, retired bool) ([]Asset, error) {
-	cond := "retired_at = ''"
+func (s *Store) listAssets(ctx context.Context, sc Scope, retired bool) ([]Asset, error) {
+	state := "a.retired_at = ''"
 	if retired {
-		cond = "retired_at <> ''"
+		state = "a.retired_at <> ''"
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT `+assetColumns+` FROM assets WHERE `+cond+`
-		ORDER BY project COLLATE NOCASE, name COLLATE NOCASE, version`)
+	cond, args := sc.cond("a")
+	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
+	rows, err := s.db.QueryContext(ctx, `SELECT `+assetColumns+` FROM assets a WHERE `+state+` AND `+cond+`
+		ORDER BY a.project COLLATE NOCASE, a.name COLLATE NOCASE, a.version`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list assets: %w", err)
 	}
@@ -123,10 +135,12 @@ func (s *Store) listAssets(ctx context.Context, retired bool) ([]Asset, error) {
 	return out, rows.Err()
 }
 
-// AssetTags returns every tag in use, with the number of assets carrying it,
-// in alphabetical order.
-func (s *Store) AssetTags(ctx context.Context) ([]TagCount, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT tags FROM assets WHERE tags <> '' AND retired_at = ''`)
+// AssetTags returns every tag in use in the scope, with the number of assets
+// carrying it, in alphabetical order.
+func (s *Store) AssetTags(ctx context.Context, sc Scope) ([]TagCount, error) {
+	cond, args := sc.cond("a")
+	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
+	rows, err := s.db.QueryContext(ctx, `SELECT a.tags FROM assets a WHERE a.tags <> '' AND a.retired_at = '' AND `+cond, args...)
 	if err != nil {
 		return nil, fmt.Errorf("asset tags: %w", err)
 	}
@@ -162,9 +176,11 @@ func (s *Store) SetOlderVulns(ctx context.Context, id int64, n int) error {
 	return err
 }
 
-// DeleteAsset removes an asset and, by cascade, its findings.
-func (s *Store) DeleteAsset(ctx context.Context, id int64) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM assets WHERE id = ?`, id)
+// DeleteAsset removes an asset of the scope and, by cascade, its findings.
+func (s *Store) DeleteAsset(ctx context.Context, sc Scope, id int64) error {
+	cond, args := sc.cond("a")
+	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
+	res, err := s.db.ExecContext(ctx, `DELETE FROM assets AS a WHERE a.id = ? AND `+cond, append([]any{id}, args...)...)
 	if err != nil {
 		return fmt.Errorf("delete asset: %w", err)
 	}

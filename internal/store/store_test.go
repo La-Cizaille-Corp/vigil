@@ -23,26 +23,26 @@ func TestReplaceProjectAssets(t *testing.T) {
 	ctx := context.Background()
 	st := openTest(t)
 	manual := Asset{Name: "nginx", Kind: "technology", Criticality: "high", Source: "manual", Project: "app"}
-	if _, err := st.CreateAsset(ctx, manual); err != nil {
+	if _, err := st.CreateAsset(ctx, Everything, manual); err != nil {
 		t.Fatal(err)
 	}
 	a := Asset{Name: "a", Kind: "package", PURL: "pkg:npm/a@1"}
 	b := Asset{Name: "b", Kind: "package", PURL: "pkg:npm/b@1"}
 	c := Asset{Name: "c", Kind: "package", PURL: "pkg:npm/c@1"}
 
-	res, err := st.ReplaceProjectAssets(ctx, "app", []Asset{a, b, b})
+	res, err := st.ReplaceProjectAssets(ctx, Everything, "app", []Asset{a, b, b})
 	if err != nil || res.Added != 2 {
 		t.Fatalf("first import: %+v %v", res, err)
 	}
-	res, err = st.ReplaceProjectAssets(ctx, "app", []Asset{b, c})
+	res, err = st.ReplaceProjectAssets(ctx, Everything, "app", []Asset{b, c})
 	if err != nil || res.Added != 1 || res.Kept != 1 || res.Removed != 1 {
 		t.Fatalf("second import: %+v %v", res, err)
 	}
-	assets, _ := st.ListAssets(ctx)
+	assets, _ := st.ListAssets(ctx, Everything)
 	if len(assets) != 3 { // nginx (manual, untouched), b, c
 		t.Fatalf("assets = %d, want 3", len(assets))
 	}
-	projects, _ := st.ListProjects(ctx)
+	projects, _ := st.ListProjects(ctx, Everything)
 	if len(projects) != 1 || projects[0] != "app" {
 		t.Fatalf("projects = %v", projects)
 	}
@@ -68,11 +68,11 @@ func TestCTIItemsFilter(t *testing.T) {
 	if isNew, _ := st.InsertCTIItem(ctx, id, items[0]); isNew {
 		t.Fatal("duplicate item inserted")
 	}
-	got, _ := st.ListCTIItems(ctx, CTIFilter{Countries: []string{"FR", "US"}, Sectors: []string{"finance"}})
+	got, _ := st.ListCTIItems(ctx, Everything, CTIFilter{Countries: []string{"FR", "US"}, Sectors: []string{"finance"}})
 	if len(got) != 1 || got[0].GUID != "2" {
 		t.Fatalf("filtered items = %+v", got)
 	}
-	all, _ := st.ListCTIItems(ctx, CTIFilter{})
+	all, _ := st.ListCTIItems(ctx, Everything, CTIFilter{})
 	if len(all) != 3 {
 		t.Fatalf("all items = %d", len(all))
 	}
@@ -86,8 +86,8 @@ func TestRetiredComponentsKeepHistory(t *testing.T) {
 	st := openTest(t)
 	a := Asset{Name: "a", Kind: "package", PURL: "pkg:npm/a@1"}
 	b := Asset{Name: "b", Kind: "package", PURL: "pkg:npm/b@1"}
-	st.ReplaceProjectAssets(ctx, "app", []Asset{a, b})
-	assets, _ := st.ListAssets(ctx)
+	st.ReplaceProjectAssets(ctx, Everything, "app", []Asset{a, b})
+	assets, _ := st.ListAssets(ctx, Everything)
 	ids := map[string]int64{}
 	for _, x := range assets {
 		ids[x.Name] = x.ID
@@ -96,7 +96,7 @@ func TestRetiredComponentsKeepHistory(t *testing.T) {
 	st.UpsertVulnerability(ctx, Vulnerability{ID: "V-DECIDED", Severity: "LOW"})
 	st.ObserveFinding(ctx, ids["b"], "V-OPEN", "", time.Now())
 	st.ObserveFinding(ctx, ids["b"], "V-DECIDED", "", time.Now())
-	findings, _ := st.ListFindings(ctx, FindingFilter{AssetID: ids["b"]})
+	findings, _ := st.ListFindings(ctx, Everything, FindingFilter{AssetID: ids["b"]})
 	var open, decided int64
 	for _, f := range findings {
 		if f.VulnID == "V-OPEN" {
@@ -105,33 +105,33 @@ func TestRetiredComponentsKeepHistory(t *testing.T) {
 			decided = f.ID
 		}
 	}
-	st.SetFindingStatus(ctx, decided, 0, "not_affected", "code_not_present", "vérifié")
+	st.SetFindingStatus(ctx, Everything, decided, 0, "not_affected", "code_not_present", "vérifié")
 
-	if res, err := st.ReplaceProjectAssets(ctx, "app", []Asset{a}); err != nil || res.Removed != 1 {
+	if res, err := st.ReplaceProjectAssets(ctx, Everything, "app", []Asset{a}); err != nil || res.Removed != 1 {
 		t.Fatalf("import without b: %+v %v", res, err)
 	}
-	if active, _ := st.ListAssets(ctx); len(active) != 1 {
+	if active, _ := st.ListAssets(ctx, Everything); len(active) != 1 {
 		t.Errorf("active assets = %d, want 1", len(active))
 	}
-	retired, _ := st.ListRetiredAssets(ctx)
+	retired, _ := st.ListRetiredAssets(ctx, Everything)
 	if len(retired) != 1 || retired[0].Retired.IsZero() {
 		t.Fatalf("retired = %+v", retired)
 	}
-	got, _ := st.Finding(ctx, open)
+	got, _ := st.Finding(ctx, Everything, open)
 	if got.Status != "resolved" {
 		t.Errorf("open finding of a retired component: %s", got.Status)
 	}
-	if events, _ := st.FindingEvents(ctx, open); len(events) == 0 || events[len(events)-1].NewStatus != "resolved" {
+	if events, _ := st.FindingEvents(ctx, Everything, open); len(events) == 0 || events[len(events)-1].NewStatus != "resolved" {
 		t.Errorf("no history event: %+v", events)
 	}
-	if got, _ := st.Finding(ctx, decided); got.Status != "not_affected" || got.Comment != "vérifié" {
+	if got, _ := st.Finding(ctx, Everything, decided); got.Status != "not_affected" || got.Comment != "vérifié" {
 		t.Errorf("decision lost: %+v", got)
 	}
 
-	if res, err := st.ReplaceProjectAssets(ctx, "app", []Asset{a, b}); err != nil || res.Kept != 2 || res.Added != 0 {
+	if res, err := st.ReplaceProjectAssets(ctx, Everything, "app", []Asset{a, b}); err != nil || res.Kept != 2 || res.Added != 0 {
 		t.Fatalf("b listed again: %+v %v", res, err)
 	}
-	if retired, _ := st.ListRetiredAssets(ctx); len(retired) != 0 {
+	if retired, _ := st.ListRetiredAssets(ctx, Everything); len(retired) != 0 {
 		t.Error("b still retired")
 	}
 }
@@ -179,8 +179,8 @@ func TestDismissalRules(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	asset, _ := st.CreateAsset(ctx, Asset{Name: "linux", Kind: "os", Criticality: "high", Source: "manual"})
-	other, _ := st.CreateAsset(ctx, Asset{Name: "autre", Kind: "os", Criticality: "high", Source: "manual"})
+	asset, _ := st.CreateAsset(ctx, Everything, Asset{Name: "linux", Kind: "os", Criticality: "high", Source: "manual"})
+	other, _ := st.CreateAsset(ctx, Everything, Asset{Name: "autre", Kind: "os", Criticality: "high", Source: "manual"})
 	user, _ := st.CreateUser(ctx, "ana", "x", "analyst")
 	add := func(a int64, id, summary string) int64 {
 		t.Helper()
@@ -188,7 +188,7 @@ func TestDismissalRules(t *testing.T) {
 		if _, err := st.ObserveFinding(ctx, a, id, "", time.Now()); err != nil {
 			t.Fatal(err)
 		}
-		list, _ := st.ListFindings(ctx, FindingFilter{AssetID: a})
+		list, _ := st.ListFindings(ctx, Everything, FindingFilter{AssetID: a})
 		for _, f := range list {
 			if f.VulnID == id {
 				return f.ID
@@ -199,7 +199,7 @@ func TestDismissalRules(t *testing.T) {
 	}
 	state := func(id int64) string {
 		t.Helper()
-		f, err := st.Finding(ctx, id)
+		f, err := st.Finding(ctx, Everything, id)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -212,19 +212,19 @@ func TestDismissalRules(t *testing.T) {
 	exploited := add(asset, "CVE-5", "wifi: exploited")
 	st.SetExploitSignals(ctx, "CVE-5", true, "", 0.5)
 	decided := add(asset, "CVE-6", "wifi: analysed by someone")
-	st.SetFindingStatus(ctx, decided, user, "exploitable", "", "à traiter")
+	st.SetFindingStatus(ctx, Everything, decided, user, "exploitable", "", "à traiter")
 	reset := add(asset, "CVE-7", "wifi: put back by someone")
-	st.SetFindingStatus(ctx, reset, user, "in_triage", "", "")
+	st.SetFindingStatus(ctx, Everything, reset, user, "in_triage", "", "")
 
 	// What a rule would set aside is what the preview lists.
-	preview, _ := st.ListFindings(ctx, FindingFilter{AssetID: asset, Matching: "WIFI:"})
+	preview, _ := st.ListFindings(ctx, Everything, FindingFilter{AssetID: asset, Matching: "WIFI:"})
 	if len(preview) != 5 {
 		t.Errorf("preview: %d findings", len(preview))
 	}
-	if err := st.CreateDismissalRule(ctx, asset, "wifi:"); err != nil {
+	if err := st.CreateDismissalRule(ctx, Everything, asset, "wifi:"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.CreateDismissalRule(ctx, asset, "wifi:"); err != nil {
+	if err := st.CreateDismissalRule(ctx, Everything, asset, "wifi:"); err != nil {
 		t.Errorf("the same rule again: %v", err)
 	}
 	for id, want := range map[int64]string{wifi: "not_affected", wifiUpper: "not_affected", ipv4: "in_triage", elsewhere: "in_triage",
@@ -233,11 +233,11 @@ func TestDismissalRules(t *testing.T) {
 			t.Errorf("finding %d: %s, want %s", id, got, want)
 		}
 	}
-	f, _ := st.Finding(ctx, wifi)
+	f, _ := st.Finding(ctx, Everything, wifi)
 	if f.Justification != "code_not_present" || !strings.Contains(f.Comment, "wifi:") {
 		t.Errorf("set aside: %+v", f)
 	}
-	if events, _ := st.FindingEvents(ctx, wifi); len(events) == 0 || events[len(events)-1].NewStatus != "not_affected" {
+	if events, _ := st.FindingEvents(ctx, Everything, wifi); len(events) == 0 || events[len(events)-1].NewStatus != "not_affected" {
 		t.Errorf("history: %+v", events)
 	}
 
@@ -246,7 +246,7 @@ func TestDismissalRules(t *testing.T) {
 	if n, err := st.ApplyDismissalRules(ctx); err != nil || n != 1 || state(next) != "not_affected" {
 		t.Errorf("next one: %d, %v, %s", n, err, state(next))
 	}
-	rules, _ := st.DismissalRules(ctx, asset)
+	rules, _ := st.DismissalRules(ctx, Everything, asset)
 	if len(rules) != 1 || rules[0].Text != "wifi:" || rules[0].Findings != 3 {
 		t.Fatalf("rules: %+v", rules)
 	}
@@ -261,22 +261,22 @@ func TestDismissalRules(t *testing.T) {
 	}
 
 	// A decision taken by someone is theirs: the rule no longer touches it.
-	st.SetFindingStatus(ctx, next, user, "exploitable", "", "finalement si")
+	st.SetFindingStatus(ctx, Everything, next, user, "exploitable", "", "finalement si")
 
-	if err := st.DeleteDismissalRule(ctx, other, rules[0].ID); !errors.Is(err, ErrNotFound) {
+	if err := st.DeleteDismissalRule(ctx, Everything, other, rules[0].ID); !errors.Is(err, ErrNotFound) {
 		t.Errorf("rule of another asset: %v", err)
 	}
-	if err := st.DeleteDismissalRule(ctx, asset, rules[0].ID); err != nil {
+	if err := st.DeleteDismissalRule(ctx, Everything, asset, rules[0].ID); err != nil {
 		t.Fatal(err)
 	}
-	f, _ = st.Finding(ctx, wifi)
+	f, _ = st.Finding(ctx, Everything, wifi)
 	if f.Status != "in_triage" || f.Justification != "" || f.Comment != "" {
 		t.Errorf("restored: %+v", f)
 	}
 	if got := state(next); got != "exploitable" {
 		t.Errorf("a decision was undone: %s", got)
 	}
-	if rules, _ := st.DismissalRules(ctx, asset); len(rules) != 0 {
+	if rules, _ := st.DismissalRules(ctx, Everything, asset); len(rules) != 0 {
 		t.Errorf("rules left: %+v", rules)
 	}
 }

@@ -57,28 +57,30 @@ const severityExpr = `CASE WHEN v.severity IN ('CRITICAL', 'HIGH', 'MEDIUM', 'LO
 // closedStatuses are the statuses that end the follow-up of a finding.
 const closedStatuses = `('resolved', 'not_affected', 'false_positive')`
 
-// DashboardStats computes the dashboard indicators at time now.
-func (s *Store) DashboardStats(ctx context.Context, now time.Time) (Stats, error) {
+// DashboardStats computes the dashboard indicators of the scope at time now.
+func (s *Store) DashboardStats(ctx context.Context, sc Scope, now time.Time) (Stats, error) {
 	st := Stats{OpenBySeverity: map[string]int{}, MeanDaysToFix: -1}
-	steps := []func(context.Context, time.Time, *Stats) error{
+	steps := []func(context.Context, Scope, time.Time, *Stats) error{
 		s.openStats, s.closedStats, s.weeklyStats, s.topAssets, s.ctiStats,
 	}
 	for _, step := range steps {
-		if err := step(ctx, now, &st); err != nil {
+		if err := step(ctx, sc, now, &st); err != nil {
 			return st, fmt.Errorf("dashboard stats: %w", err)
 		}
 	}
 	return st, nil
 }
 
-func (s *Store) openStats(ctx context.Context, now time.Time, st *Stats) error {
+func (s *Store) openStats(ctx context.Context, sc Scope, now time.Time, st *Stats) error {
 	sla, err := s.SLA(ctx)
 	if err != nil {
 		return err
 	}
 	today := now.UTC().Format(time.DateOnly)
+	cond, condArgs := sc.cond("a")
 	args := append(append(sla.args(), today), sla.args()...)
-	args = append(args, today, formatTime(now.Add(-StaleAfter)))
+	args = append(append(args, today, formatTime(now.Add(-StaleAfter))), condArgs...)
+	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+severityExpr+`, COUNT(*),
 		       SUM(v.kev OR v.epss >= 0.1),
@@ -87,8 +89,8 @@ func (s *Store) openStats(ctx context.Context, now time.Time, st *Stats) error {
 		       SUM(v.kev AND COALESCE(`+dueExpr+` < ?, 0)),
 		       SUM(f.status = 'in_triage'),
 		       SUM(f.status = 'in_triage' AND f.first_seen < ?)
-		FROM findings f JOIN vulnerabilities v ON v.id = f.vuln_id
-		WHERE f.status IN `+openStatuses+`
+		FROM findings f JOIN vulnerabilities v ON v.id = f.vuln_id JOIN assets a ON a.id = f.asset_id
+		WHERE f.status IN `+openStatuses+` AND `+cond+`
 		GROUP BY 1`, args...)
 	if err != nil {
 		return err
@@ -114,15 +116,16 @@ func (s *Store) openStats(ctx context.Context, now time.Time, st *Stats) error {
 
 // closedStats measures the time to close findings, from their detection to
 // their last closing event, over the last 90 days.
-func (s *Store) closedStats(ctx context.Context, now time.Time, st *Stats) error {
+func (s *Store) closedStats(ctx context.Context, sc Scope, now time.Time, st *Stats) error {
 	var mean sql.NullFloat64
+	cond, args := sc.cond("a")
 	err := s.db.QueryRowContext(ctx, `
 		SELECT COUNT(*), AVG(julianday(c.closed_at) - julianday(f.first_seen))
-		FROM findings f
+		FROM findings f JOIN assets a ON a.id = f.asset_id
 		JOIN (SELECT finding_id, MAX(created_at) AS closed_at FROM finding_events
 		      WHERE new_status IN `+closedStatuses+` GROUP BY finding_id) c ON c.finding_id = f.id
-		WHERE f.status IN `+closedStatuses+` AND c.closed_at >= ?`,
-		formatTime(now.Add(-90*24*time.Hour))).Scan(&st.Closed90, &mean)
+		WHERE f.status IN `+closedStatuses+` AND c.closed_at >= ? AND `+cond,
+		append([]any{formatTime(now.Add(-90 * 24 * time.Hour))}, args...)...).Scan(&st.Closed90, &mean)
 	if err != nil {
 		return err
 	}
@@ -134,7 +137,7 @@ func (s *Store) closedStats(ctx context.Context, now time.Time, st *Stats) error
 
 // weeklyStats counts detections and closings over the last weeks, weeks
 // starting on Monday.
-func (s *Store) weeklyStats(ctx context.Context, now time.Time, st *Stats) error {
+func (s *Store) weeklyStats(ctx context.Context, sc Scope, now time.Time, st *Stats) error {
 	day := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	monday := day.AddDate(0, 0, -(int(day.Weekday())+6)%7)
 	start := monday.AddDate(0, 0, -7*(statsWeeks-1))
@@ -149,8 +152,10 @@ func (s *Store) weeklyStats(ctx context.Context, now time.Time, st *Stats) error
 		}
 		return min(int(t.Sub(start)/(7*24*time.Hour)), statsWeeks-1)
 	}
+	cond, condArgs := sc.cond("a")
+	args := append([]any{formatTime(start)}, condArgs...)
 	count := func(query string, add func(*WeekCount)) error {
-		rows, err := s.db.QueryContext(ctx, query, formatTime(start))
+		rows, err := s.db.QueryContext(ctx, query, args...)
 		if err != nil {
 			return err
 		}
@@ -166,25 +171,33 @@ func (s *Store) weeklyStats(ctx context.Context, now time.Time, st *Stats) error
 		}
 		return rows.Err()
 	}
-	if err := count(`SELECT first_seen FROM findings WHERE first_seen >= ?`,
+	if err := count(`SELECT f.first_seen FROM findings f JOIN assets a ON a.id = f.asset_id
+		WHERE f.first_seen >= ? AND `+cond,
 		func(w *WeekCount) { w.New++ }); err != nil {
 		return err
 	}
-	return count(`SELECT MAX(created_at) FROM finding_events WHERE new_status IN `+closedStatuses+`
-		GROUP BY finding_id HAVING MAX(created_at) >= ?`,
+	// The latest closing of each finding, then the scope: the start of the
+	// period comes first here too, as in the query above.
+	return count(`SELECT c.closed_at FROM (
+		    SELECT MAX(e.created_at) AS closed_at, e.finding_id FROM finding_events e
+		    WHERE e.new_status IN `+closedStatuses+` GROUP BY e.finding_id) c
+		JOIN findings f ON f.id = c.finding_id JOIN assets a ON a.id = f.asset_id
+		WHERE c.closed_at >= ? AND `+cond,
 		func(w *WeekCount) { w.Closed++ })
 }
 
-func (s *Store) topAssets(ctx context.Context, _ time.Time, st *Stats) error {
+func (s *Store) topAssets(ctx context.Context, sc Scope, _ time.Time, st *Stats) error {
+	cond, args := sc.cond("a")
+	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT a.id, a.name, a.version,
 		       SUM(v.severity = 'CRITICAL'), SUM(v.severity = 'HIGH'), SUM(v.severity = 'MEDIUM'),
 		       SUM(v.severity NOT IN ('CRITICAL', 'HIGH', 'MEDIUM'))
 		FROM findings f JOIN assets a ON a.id = f.asset_id JOIN vulnerabilities v ON v.id = f.vuln_id
-		WHERE f.status IN ('in_triage', 'exploitable')
+		WHERE f.status IN ('in_triage', 'exploitable') AND `+cond+`
 		GROUP BY a.id
 		ORDER BY 4 DESC, 5 DESC, COUNT(*) DESC, a.name
-		LIMIT ?`, topAssets)
+		LIMIT ?`, append(args, topAssets)...)
 	if err != nil {
 		return err
 	}
@@ -199,12 +212,13 @@ func (s *Store) topAssets(ctx context.Context, _ time.Time, st *Stats) error {
 	return rows.Err()
 }
 
-func (s *Store) ctiStats(ctx context.Context, now time.Time, st *Stats) error {
+func (s *Store) ctiStats(ctx context.Context, sc Scope, now time.Time, st *Stats) error {
 	month := formatTime(now.Add(-30 * 24 * time.Hour))
-	return s.db.QueryRowContext(ctx, `
+	with, args := openCVEs(sc)
+	return s.db.QueryRowContext(ctx, with+`
 		SELECT COALESCE(SUM(published >= ?), 0), COALESCE(SUM(regulations <> '' AND published >= ?), 0),
 		       COALESCE(SUM(published >= ? AND EXISTS (SELECT 1 FROM cti_mentions m
-		                    WHERE m.item_id = i.id AND m.cve IN (`+openCVEs+`))), 0)
+		                    WHERE m.item_id = i.id AND m.cve IN (SELECT cve FROM open_cves))), 0)
 		FROM cti_items i`,
-		formatTime(now.Add(-7*24*time.Hour)), month, month).Scan(&st.CTIWeek, &st.Regulatory30, &st.Concerning30)
+		append(args, formatTime(now.Add(-7*24*time.Hour)), month, month)...).Scan(&st.CTIWeek, &st.Regulatory30, &st.Concerning30)
 }

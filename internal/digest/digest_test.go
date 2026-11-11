@@ -18,7 +18,7 @@ func TestGenerate(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	id, _ := st.CreateAsset(ctx, store.Asset{Name: "log4j-core", Version: "2.14.1", Kind: "package", Criticality: "high", Source: "manual",
+	id, _ := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "log4j-core", Version: "2.14.1", Kind: "package", Criticality: "high", Source: "manual",
 		PURL: "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1"})
 	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "GHSA-jfh8", Aliases: []string{"CVE-2021-44228"},
 		Summary: "Log4Shell <script>", Severity: "CRITICAL", CVSS: 10})
