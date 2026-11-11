@@ -516,7 +516,12 @@ bibliothèque standard suffit (aucune dépendance) ; le serveur est fixé par l'
 `-smtp-*`), les destinataires par l'administrateur, comme un webhook. STARTTLS est exigé par défaut
 (pas de repli en clair si le serveur ne le propose pas), `net/smtp` refuse d'envoyer un mot de
 passe sans TLS sauf vers la machine locale. Messages en texte (le Markdown du digest se lit tel
-quel), en-tête `Auto-Submitted` contre les réponses automatiques.
+quel), en-tête `Auto-Submitted` contre les réponses automatiques. Les destinataires sont des
+adresses simples : `net/mail` retire les guillemets d'une partie locale, et
+`"x> NOTIFY=NEVER"@example.com` arrivait tel quel dans `RCPT TO:<…>`, où `>` et les espaces
+ajoutent des paramètres SMTP. Une adresse qui contient une espace ou l'un de `<>()[],;:\"` est donc
+refusée, adresse IP entre crochets comprise ; un nom affiché (`Équipe <soc@example.org>`) reste
+accepté, et seule l'adresse est utilisée.
 
 **A39. Délais de traitement calculés à partir de la détection, par sévérité.** DefectDojo et les
 politiques internes (NIS2 : traitement « dans des délais appropriés ») suivent des échéances.
