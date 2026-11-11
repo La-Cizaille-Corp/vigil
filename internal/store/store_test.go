@@ -78,6 +78,46 @@ func TestCTIItemsFilter(t *testing.T) {
 	}
 }
 
+// A tag is matched literally: "_" is a LIKE wildcard, and "pci_dss" must not
+// match "pcixdss", in the news tags as in the tags of assets (see hasTag).
+func TestTagFilterIsLiteral(t *testing.T) {
+	ctx := context.Background()
+	st := openTest(t)
+	feed, err := st.CreateFeed(ctx, Feed{Name: "test", URL: "https://example.org/feed", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, it := range []CTIItem{
+		{GUID: "1", Title: "pci", Published: time.Now(), Regulations: []string{"pci_dss"}},
+		{GUID: "2", Title: "other", Published: time.Now(), Regulations: []string{"pcixdss"}},
+	} {
+		if _, err := st.InsertCTIItem(ctx, feed, it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := st.ListCTIItems(ctx, CTIFilter{Regulations: []string{"pci_dss"}})
+	if err != nil || len(got) != 1 || got[0].GUID != "1" {
+		t.Errorf("news tagged pci_dss = %+v, %v", got, err)
+	}
+
+	if err := st.UpsertVulnerability(ctx, Vulnerability{ID: "GHSA-1"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, tag := range []string{"web_app", "webxapp"} {
+		id, err := st.CreateAsset(ctx, Asset{Name: tag, Kind: "technology", Criticality: "high", Tags: []string{tag}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.ObserveFinding(ctx, id, "GHSA-1", "", time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	found, err := st.ListFindings(ctx, FindingFilter{Tag: "web_app"})
+	if err != nil || len(found) != 1 || found[0].AssetName != "web_app" {
+		t.Errorf("findings tagged web_app = %+v, %v", found, err)
+	}
+}
+
 // A component dropped from an SBOM is retired, not deleted: open findings
 // are resolved with an event, decisions are kept, and the component comes
 // back with its history when a later SBOM lists it again.

@@ -72,7 +72,7 @@ func TestSyncLifecycle(t *testing.T) {
 
 	srv := fakeOSV(t)
 	defer srv.Close()
-	client := osv.New("vigil-test")
+	client := osv.New(http.DefaultClient, "vigil-test")
 	client.BaseURL = srv.URL
 	syncer := &tracking.Syncer{Store: st, OSV: client, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		HTTP: srv.Client(), KEVURL: srv.URL + "/kev", EPSSURL: srv.URL + "/epss"}
@@ -152,7 +152,7 @@ func TestVersionFieldOverridesThePURL(t *testing.T) {
 	defer st.Close()
 	srv := fakeOSV(t)
 	defer srv.Close()
-	client := osv.New("vigil-test")
+	client := osv.New(http.DefaultClient, "vigil-test")
 	client.BaseURL = srv.URL
 	syncer := &tracking.Syncer{Store: st, OSV: client, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		HTTP: srv.Client(), KEVURL: srv.URL + "/kev", EPSSURL: srv.URL + "/epss"}
@@ -197,7 +197,7 @@ func TestTrackedPeriod(t *testing.T) {
 	defer st.Close()
 	srv := fakeOSV(t)
 	defer srv.Close()
-	client := osv.New("vigil-test")
+	client := osv.New(http.DefaultClient, "vigil-test")
 	client.BaseURL = srv.URL
 	syncer := &tracking.Syncer{Store: st, OSV: client, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		HTTP: srv.Client(), KEVURL: srv.URL + "/kev", EPSSURL: srv.URL + "/epss"}

@@ -652,13 +652,13 @@ func (s *Server) renderFindingsAt(w http.ResponseWriter, r *http.Request, next, 
 	s.renderFindings(w, r, http.StatusBadRequest, formErr)
 }
 
-// findingFilterFrom reads the filter form. Unknown values are dropped, so a
-// crafted URL can only narrow the list.
+// findingFilterFrom reads the filter form. Unknown values and duplicates are
+// dropped, so a crafted URL can only narrow the list (see cti.KnownOnly).
 func findingFilterFrom(q url.Values) store.FindingFilter {
 	keep := func(values []string, allowed []inventory.Option) []string {
 		var out []string
 		for _, v := range values {
-			if inventory.Label(allowed, v) != v {
+			if inventory.Label(allowed, v) != v && !slices.Contains(out, v) {
 				out = append(out, v)
 			}
 		}

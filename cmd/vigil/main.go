@@ -155,13 +155,14 @@ func smtpFlags(fs *flag.FlagSet) func() (*notify.Mailer, error) {
 }
 
 func newServices(st *store.Store, log *slog.Logger, allowPrivate bool, mail *notify.Mailer, baseURL string) services {
-	// OSV, NVD, KEV, EPSS: fixed public hosts.
-	fixed := &http.Client{Timeout: 60 * time.Second, CheckRedirect: safeRedirect}
+	// OSV, NVD, KEV, EPSS: fixed public hosts, reached in HTTPS only.
+	// SECURITY: the NVD key is dropped if a redirect changes host.
+	fixed := &http.Client{Timeout: 60 * time.Second, CheckRedirect: netsafe.CheckRedirect("apiKey")}
 	// SECURITY: feeds and webhooks are user-supplied URLs, guarded against SSRF.
 	userURLs := netsafe.NewClient(60*time.Second, allowPrivate)
 	ua := userAgent()
 	sv := services{
-		syncer: &tracking.Syncer{Store: st, OSV: osv.New(ua), Log: log, HTTP: fixed, UserAgent: ua,
+		syncer: &tracking.Syncer{Store: st, OSV: osv.New(fixed, ua), Log: log, HTTP: fixed, UserAgent: ua,
 			// The optional key (free, https://nvd.nist.gov/developers/request-an-api-key) raises the rate limit.
 			NVD: &nvd.Client{URL: nvd.DefaultURL, HTTP: fixed, UserAgent: ua, APIKey: os.Getenv("VIGIL_NVD_API_KEY")}},
 		cti:      &cti.Collector{Store: st, HTTP: userURLs, UserAgent: ua, Log: log},
@@ -169,22 +170,6 @@ func newServices(st *store.Store, log *slog.Logger, allowPrivate bool, mail *not
 	}
 	sv.syncer.Alert = sv.notifier.SendAlerts
 	return sv
-}
-
-// safeRedirect follows at most 5 redirects, in HTTPS only. SECURITY: Go
-// forwards custom headers on redirect; the NVD key is dropped when the host
-// changes, so that it cannot leak to another site.
-func safeRedirect(req *http.Request, via []*http.Request) error {
-	if len(via) >= 5 {
-		return errors.New("trop de redirections")
-	}
-	if req.URL.Scheme != "https" {
-		return fmt.Errorf("redirection refusée vers %s://%s", req.URL.Scheme, req.URL.Host)
-	}
-	if req.URL.Host != via[0].URL.Host {
-		req.Header.Del("apiKey")
-	}
-	return nil
 }
 
 func runServe(ctx context.Context, log *slog.Logger, args []string) error {
