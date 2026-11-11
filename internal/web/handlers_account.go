@@ -154,7 +154,7 @@ func (s *Server) totpDisable(w http.ResponseWriter, r *http.Request) {
 // password, an attempt already counted by the caller; it renders the error.
 func (s *Server) passwordMatches(w http.ResponseWriter, r *http.Request, username string) bool {
 	password := r.PostFormValue("password")
-	if len(password) > maxPasswordBytes {
+	if len(password) > auth.MaxPasswordBytes {
 		s.renderAccount(w, r, http.StatusBadRequest, "Mot de passe trop long.")
 		return false
 	}
@@ -175,7 +175,7 @@ func (s *Server) passwordMatches(w http.ResponseWriter, r *http.Request, usernam
 func (s *Server) passwordChange(w http.ResponseWriter, r *http.Request) {
 	sess, _ := sessionFrom(r.Context())
 	current, next := r.PostFormValue("current"), r.PostFormValue("new")
-	if len(current) > maxPasswordBytes || len(next) > maxPasswordBytes {
+	if len(current) > auth.MaxPasswordBytes || len(next) > auth.MaxPasswordBytes {
 		s.renderAccount(w, r, http.StatusBadRequest, "Mot de passe trop long.")
 		return
 	}

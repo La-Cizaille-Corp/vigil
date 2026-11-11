@@ -88,6 +88,14 @@ func TestPasswordPolicyAndGenerator(t *testing.T) {
 	if _, err := HashPassword("éééééé"); err == nil { // 12 bytes, 6 characters
 		t.Error("6-character password accepted")
 	}
+	// S14: every account is created through HashPassword (setup, vigil user
+	// add and reset-password), so none gets a password it cannot sign in with.
+	if _, err := HashPassword(strings.Repeat("a", 1025)); err == nil {
+		t.Error("1,025-byte password accepted")
+	}
+	if _, err := HashPassword(strings.Repeat("é", 512)); err != nil { // 1,024 bytes
+		t.Errorf("1,024-byte password refused: %v", err)
+	}
 	p, err := NewPassword()
 	if err != nil || len(p) != 23 || strings.ContainsAny(p, "0O1lI") {
 		t.Errorf("generated password %q: %v", p, err)

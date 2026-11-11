@@ -8,8 +8,8 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode/utf8"
 
+	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/osv"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
@@ -114,6 +114,10 @@ const (
 	maxTagLen = 40
 )
 
+// MaxProjectLen is the longest project name, in characters, wherever a
+// project is named: asset, SBOM import, API token.
+const MaxProjectLen = 200
+
 // ParseTags reads tags typed in one field, separated by commas or semicolons.
 func ParseTags(field string) []string {
 	return NormalizeTags(strings.FieldsFunc(field, func(r rune) bool { return r == ',' || r == ';' }))
@@ -143,18 +147,18 @@ func Validate(a store.Asset) error {
 	check(a.Name != "", "le nom est obligatoire")
 	check(len(a.Tags) <= MaxTags, fmt.Sprintf("%d étiquettes au plus", MaxTags))
 	for _, t := range a.Tags {
-		check(maxLen(t, maxTagLen) && !strings.ContainsAny(t, ",;\x00"),
+		check(clip.Fits(t, maxTagLen) && !strings.ContainsAny(t, ",;\x00"),
 			fmt.Sprintf("étiquette « %s » : %d caractères au plus, sans virgule", t, maxTagLen))
 	}
-	check(maxLen(a.Name, 200) && maxLen(a.Version, 100) && maxLen(a.Owner, 200) && maxLen(a.Project, 200) &&
-		maxLen(a.PURL, 500) && maxLen(a.CPE, 500) && maxLen(a.Notes, 4000), "un champ dépasse la longueur maximale")
+	check(clip.Fits(a.Name, 200) && clip.Fits(a.Version, 100) && clip.Fits(a.Owner, 200) && clip.Fits(a.Project, MaxProjectLen) &&
+		clip.Fits(a.PURL, 500) && clip.Fits(a.CPE, 500) && clip.Fits(a.Notes, 4000), "un champ dépasse la longueur maximale")
 	check(isOption(Kinds, a.Kind), "type d'actif invalide")
 	check(isOption(Criticalities, a.Criticality), "criticité invalide")
 	check(a.Ecosystem == "" || contains(Ecosystems, a.Ecosystem), "écosystème non supporté")
 	check(a.PURL == "" || strings.HasPrefix(a.PURL, "pkg:"), "un purl doit commencer par « pkg: »")
 	check(a.CPE == "" || strings.HasPrefix(a.CPE, "cpe:2.3:"), "un CPE doit commencer par « cpe:2.3: »")
 	check(isOption(CPEModes, a.CPEMode), "mode de suivi NVD invalide")
-	check(a.CPEMode != "from" || (a.CPEFrom != "" && maxLen(a.CPEFrom, 100) && !strings.ContainsAny(a.CPEFrom, ":*?")),
+	check(a.CPEMode != "from" || (a.CPEFrom != "" && clip.Fits(a.CPEFrom, 100) && !strings.ContainsAny(a.CPEFrom, ":*?")),
 		"indiquez la version de départ du suivi")
 	_, dateErr := time.Parse(dateLayout, a.TrackSince)
 	check(a.TrackSince == "" || dateErr == nil, "date de début du suivi invalide")
@@ -214,8 +218,6 @@ func Label(opts []Option, value string) string {
 	}
 	return value
 }
-
-func maxLen(s string, n int) bool { return utf8.RuneCountInString(s) <= n }
 
 func isOption(opts []Option, v string) bool {
 	for _, o := range opts {

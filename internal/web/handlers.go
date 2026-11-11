@@ -62,7 +62,7 @@ func (s *Server) setupSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxFormBytes)
 	username, password := r.PostFormValue("username"), r.PostFormValue("password")
-	if username == "" || len(username) > 64 {
+	if username == "" || !clip.Fits(username, auth.MaxUsernameLength) {
 		s.render(w, r, http.StatusBadRequest, "setup", page{Title: "Première configuration", Error: "Nom d'utilisateur invalide."})
 		return
 	}
@@ -96,13 +96,19 @@ func (s *Server) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	ip := s.clientIP(r)
 	r.Body = http.MaxBytesReader(w, r.Body, maxFormBytes)
 	username, password := r.PostFormValue("username"), r.PostFormValue("password")
+	// SECURITY: no account has a longer password (see auth.HashPassword):
+	// it is refused before argon2 runs, so it costs nothing to check.
+	if len(password) > auth.MaxPasswordBytes {
+		s.render(w, r, http.StatusBadRequest, "login", page{Title: "Connexion", Error: "Mot de passe trop long."})
+		return
+	}
 	// SECURITY: the attempt is counted before the slow password check, so
 	// that parallel requests cannot all get through, per address and per
 	// account name (existing or not), so that spreading guesses over many
 	// addresses does not help. A success only cancels its own attempt.
 	// The name is cut to the longest valid username, so that the limiter's
 	// memory stays bounded whatever is posted.
-	ipKey, userKey := limitKey(ip), "user:"+strings.ToLower(clip.Text(username, 64))
+	ipKey, userKey := s.clientKey(r, "login"), "user:"+strings.ToLower(clip.Text(username, auth.MaxUsernameLength))
 	if !s.limiter.Take(ipKey) {
 		s.render(w, r, http.StatusTooManyRequests, "login", page{Title: "Connexion",
 			Error: "Trop de tentatives. Réessayez dans quelques minutes."})
@@ -137,7 +143,7 @@ func (s *Server) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !valid {
-		s.audit(r, "login_failed", "ip="+ip+" user="+clip.Text(username, 64))
+		s.audit(r, "login_failed", "ip="+ip+" user="+clip.Text(username, auth.MaxUsernameLength))
 		// SECURITY: same message whether the user exists or not.
 		s.render(w, r, http.StatusUnauthorized, "login", page{Title: "Connexion", Error: "Identifiants invalides."})
 		return
@@ -678,7 +684,7 @@ func findingFilterFrom(q url.Values) store.FindingFilter {
 		Tag:        strings.ToLower(strings.TrimSpace(q.Get("tag"))),
 		Search:     strings.TrimSpace(q.Get("q")),
 	}
-	if len(f.Tag) > 100 {
+	if !clip.Fits(f.Tag, 100) {
 		f.Tag = ""
 	}
 	f.Search = clip.Prefix(f.Search, 200)

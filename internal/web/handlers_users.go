@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
+	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
 
@@ -55,7 +56,7 @@ func (s *Server) userTOTPPolicy(w http.ResponseWriter, r *http.Request) {
 // userCreate adds an account with a generated temporary password.
 func (s *Server) userCreate(w http.ResponseWriter, r *http.Request) {
 	username, role := strings.TrimSpace(r.PostFormValue("username")), r.PostFormValue("role")
-	if username == "" || len(username) > 64 || !auth.ValidRole(role) {
+	if username == "" || !clip.Fits(username, auth.MaxUsernameLength) || !auth.ValidRole(role) {
 		s.renderUsers(w, r, http.StatusBadRequest, "Indiquez un nom (64 caractères maximum) et un rôle.", nil)
 		return
 	}

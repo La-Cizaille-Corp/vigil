@@ -21,8 +21,10 @@ import (
 	"golang.org/x/term"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
+	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 	"github.com/La-Cizaille-Corp/vigil/internal/cti"
 	"github.com/La-Cizaille-Corp/vigil/internal/digest"
+	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
 	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
 	"github.com/La-Cizaille-Corp/vigil/internal/notify"
 	"github.com/La-Cizaille-Corp/vigil/internal/sbom"
@@ -405,7 +407,7 @@ func runImportSBOM(ctx context.Context, args []string) error {
 	if name == "" {
 		name = doc.Name
 	}
-	if name == "" || len(name) > 200 {
+	if name == "" || !clip.Fits(name, inventory.MaxProjectLen) {
 		return errors.New("le SBOM ne nomme pas de composant principal : précisez -project")
 	}
 
@@ -442,8 +444,8 @@ func runUser(ctx context.Context, args []string) error {
 	role := fs.String("role", auth.RoleAnalyst, "rôle : admin, analyst ou viewer")
 	parseFlags(fs, args[1:])
 
-	if *username == "" || len(*username) > 64 {
-		return errors.New("-username est obligatoire (64 caractères max)")
+	if *username == "" || !clip.Fits(*username, auth.MaxUsernameLength) {
+		return fmt.Errorf("-username est obligatoire (%d caractères max)", auth.MaxUsernameLength)
 	}
 	if !auth.ValidRole(*role) {
 		return errors.New("rôle invalide")

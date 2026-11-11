@@ -48,6 +48,9 @@ const (
 	maxTeamsText = 20000
 	// maxAlertLines bounds the findings listed in one alert.
 	maxAlertLines = 15
+	// maxNameLen is the longest channel name, in characters, as for the
+	// feeds and API tokens of the same settings page.
+	maxNameLen = 100
 )
 
 // Notifier sends digests and alerts to every enabled channel.
@@ -62,7 +65,7 @@ type Notifier struct {
 
 // ValidateWebhook checks a channel before it is stored.
 func ValidateWebhook(w store.Webhook) error {
-	if w.Name == "" || len(w.Name) > 100 {
+	if w.Name == "" || !clip.Fits(w.Name, maxNameLen) {
 		return errors.New("nom invalide")
 	}
 	if inventory.Label(Kinds, w.Kind) == w.Kind {

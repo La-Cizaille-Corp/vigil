@@ -164,6 +164,66 @@ func TestMailerSettings(t *testing.T) {
 	if _, err := ParseRecipients(strings.Repeat("a@b.c,", 21) + "a@b.c"); err == nil {
 		t.Error("too many recipients accepted")
 	}
+	if msg, err := buildMessage("vigil@example.org", []string{"a@example.org"}, "x\r\nBcc: evil@example.org", "t", time.Now()); err != nil ||
+		strings.Contains(string(msg), "\r\nBcc:") {
+		t.Errorf("line break in the subject reached the headers: %v", err)
+	}
+}
+
+// S10 of the code audit: net/mail unquotes a quoted local part, so '>' and
+// spaces reached RCPT TO:<…> and the To header, adding SMTP parameters. An
+// address that needs quotes is refused; common addresses are still accepted.
+func TestRecipientsArePlainAddresses(t *testing.T) {
+	srv := newFakeSMTP(t, false)
+	m, err := NewMailer(srv.addr, MailNoTLS, "", "", "vigil@example.org")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, list := range []string{
+		`"x> NOTIFY=NEVER ORCPT=rfc822;boss"@example.com`, // the audit's proof
+		`rssi@example.org, "x> NOTIFY=NEVER"@example.com`, // one in a list
+		`"a b"@example.com`, "\"a\tb\"@example.com", `"a,b"@example.com`, `"a\"b"@example.com`, `"a\\b"@example.com`,
+		`"a(b)"@example.com`, `"a[b]"@example.com`, `"a:b"@example.com`, `"a<b"@example.com`, `"a b" <"c d"@example.com>`,
+		`user@[192.0.2.1]`,
+	} {
+		to, err := ParseRecipients(list)
+		if err == nil {
+			srv.mu.Lock()
+			srv.rcpts = nil
+			srv.mu.Unlock()
+			m.Send(context.Background(), to, "s", "t")
+			srv.mu.Lock()
+			t.Errorf("%s accepted as %q; the server received RCPT TO:<%s>", list, to, strings.Join(srv.rcpts, ">, <"))
+			srv.mu.Unlock()
+		}
+	}
+
+	for list, want := range map[string]string{
+		"rssi@example.org":                         "rssi@example.org",
+		"prenom.nom+vigil@soc.example.co.uk":       "prenom.nom+vigil@soc.example.co.uk",
+		"first-last_1@sub-domain.example.org":      "first-last_1@sub-domain.example.org",
+		"o'brien@example.ie; UPPER@Example.ORG":    "o'brien@example.ie,UPPER@Example.ORG",
+		"Équipe SOC <soc@example.org>":             "soc@example.org",
+		`"Dupont, Jean" <jean.dupont@example.org>`: "jean.dupont@example.org",
+		"a@b.c,d@e.f; g@h.i":                       "a@b.c,d@e.f,g@h.i",
+	} {
+		to, err := ParseRecipients(list)
+		if got := strings.Join(to, ","); err != nil || got != want {
+			t.Errorf("ParseRecipients(%q) = %q, %v; want %q", list, got, err, want)
+		}
+	}
+	to, _ := ParseRecipients(`Équipe <soc@example.org>, prenom.nom+vigil@soc.example.org`)
+	srv.mu.Lock()
+	srv.rcpts = nil
+	srv.mu.Unlock()
+	if err := m.Send(context.Background(), to, "s", "t"); err != nil {
+		t.Fatal(err)
+	}
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+	if got := strings.Join(srv.rcpts, ","); got != "soc@example.org,prenom.nom+vigil@soc.example.org" {
+		t.Errorf("the server received %q", got)
+	}
 }
 
 func TestSendAlerts(t *testing.T) {

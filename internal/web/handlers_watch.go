@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 	"github.com/La-Cizaille-Corp/vigil/internal/cti"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
 	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
@@ -160,7 +161,7 @@ func (s *Server) feedCreate(w http.ResponseWriter, r *http.Request) {
 		Enabled: true,
 	}
 	f.Country, f.Sectors, f.Regulations = feedTagsFromForm(r)
-	if f.Name == "" || len(f.Name) > 100 {
+	if f.Name == "" || !clip.Fits(f.Name, maxNameLen) {
 		s.renderSettings(w, r, http.StatusBadRequest, "Nom de flux invalide.")
 		return
 	}
@@ -406,7 +407,7 @@ func (s *Server) sbomImport(w http.ResponseWriter, r *http.Request) {
 	if project == "" {
 		project = doc.Name
 	}
-	if project == "" || len(project) > 200 {
+	if project == "" || !clip.Fits(project, inventory.MaxProjectLen) {
 		s.renderNewAsset(w, r, http.StatusBadRequest, defaultAssetForm(), "Indiquez un nom de projet.")
 		return
 	}

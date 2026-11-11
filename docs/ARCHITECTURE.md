@@ -333,7 +333,10 @@ laissaient de l'UTF-8 invalide en base, et une analyse VEX accentuée, coupée �
 à 4 000 octets. Le paquet `clip` les remplace : les limites sur ce qu'écrivent les utilisateurs et les sources
 comptent des caractères (`Text`, `Prefix`, `Fits`) ; seul le budget d'un message envoyé ailleurs reste en
 octets (`Bytes`). *Conséquence* : les limites de saisie déjà comptées en octets (nom d'utilisateur, projet)
-restent à harmoniser.
+restaient à harmoniser ; c'est fait depuis l'audit de code de novembre 2026 (nom d'utilisateur, noms de flux,
+de canal et de jeton, projet, filtre d'étiquette, dans l'interface comme en ligne de commande), avec une
+constante par limite partagée (`auth.MaxUsernameLength`, `inventory.MaxProjectLen`). Seul le mot de passe
+reste borné en octets (`auth.MaxPasswordBytes`), car la borne porte sur ce que reçoit argon2.
 
 **A66. La liste des vulnérabilités s'ouvre sur ce qui reste à traiter.** Elle montrait tout par défaut, y
 compris les corrigées, et les nombres des niveaux ne faisaient pas son total. Elle s'ouvre désormais sur les
@@ -534,7 +537,12 @@ bibliothèque standard suffit (aucune dépendance) ; le serveur est fixé par l'
 `-smtp-*`), les destinataires par l'administrateur, comme un webhook. STARTTLS est exigé par défaut
 (pas de repli en clair si le serveur ne le propose pas), `net/smtp` refuse d'envoyer un mot de
 passe sans TLS sauf vers la machine locale. Messages en texte (le Markdown du digest se lit tel
-quel), en-tête `Auto-Submitted` contre les réponses automatiques.
+quel), en-tête `Auto-Submitted` contre les réponses automatiques. Les destinataires sont des
+adresses simples : `net/mail` retire les guillemets d'une partie locale, et
+`"x> NOTIFY=NEVER"@example.com` arrivait tel quel dans `RCPT TO:<…>`, où `>` et les espaces
+ajoutent des paramètres SMTP. Une adresse qui contient une espace ou l'un de `<>()[],;:\"` est donc
+refusée, adresse IP entre crochets comprise ; un nom affiché (`Équipe <soc@example.org>`) reste
+accepté, et seule l'adresse est utilisée.
 
 **A39. Délais de traitement calculés à partir de la détection, par sévérité.** DefectDojo et les
 politiques internes (NIS2 : traitement « dans des délais appropriés ») suivent des échéances.

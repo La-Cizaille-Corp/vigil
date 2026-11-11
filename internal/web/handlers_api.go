@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
+	"github.com/La-Cizaille-Corp/vigil/internal/clip"
+	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
 	"github.com/La-Cizaille-Corp/vigil/internal/sbom"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
@@ -21,10 +23,11 @@ const tokenPrefix = "vgl_"
 //	Authorization: Bearer vgl_...
 //	body: CycloneDX or SPDX JSON
 func (s *Server) apiSBOM(w http.ResponseWriter, r *http.Request) {
-	// SECURITY: the attempt is counted before the token check, as for a login;
-	// a valid token takes it back.
-	ip := "api:" + s.clientIP(r)
-	if !s.limiter.Take(ip) {
+	// SECURITY: the attempt is counted before the token check, as for a login,
+	// and by the same key (an IPv6 /64 is one client); a valid token takes it
+	// back.
+	key := s.clientKey(r, "api")
+	if !s.limiter.Take(key) {
 		apiError(w, http.StatusTooManyRequests, "trop de tentatives, réessayez plus tard")
 		return
 	}
@@ -38,7 +41,7 @@ func (s *Server) apiSBOM(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusUnauthorized, "jeton invalide")
 		return
 	}
-	s.limiter.Forgive(ip)
+	s.limiter.Forgive(key)
 	if err != nil {
 		s.Log.Error("api token lookup", "err", err)
 		apiError(w, http.StatusInternalServerError, "erreur interne")
@@ -89,7 +92,8 @@ func (s *Server) tokenCreate(w http.ResponseWriter, r *http.Request) {
 		Name:    strings.TrimSpace(r.PostFormValue("name")),
 		Project: strings.TrimSpace(r.PostFormValue("project")),
 	}
-	if t.Name == "" || len(t.Name) > 100 || t.Project == "" || len(t.Project) > 200 || strings.ContainsAny(t.Project, "/?#") {
+	if t.Name == "" || !clip.Fits(t.Name, maxNameLen) || t.Project == "" || !clip.Fits(t.Project, inventory.MaxProjectLen) ||
+		strings.ContainsAny(t.Project, "/?#") {
 		s.renderSettings(w, r, http.StatusBadRequest, "Indiquez un nom et un projet (sans / ? #).")
 		return
 	}
