@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
 )
 
@@ -218,6 +219,15 @@ func (c *Client) pages(ctx context.Context, q url.Values) ([]CVE, error) {
 	}
 }
 
+// reason is the explanation the NVD gives of a refusal in its "message"
+// header ("Invalid apiKey."), for the error shown to the operator.
+func reason(resp *http.Response) string {
+	if m := strings.TrimSpace(resp.Header.Get("message")); m != "" {
+		return " (" + clip.Text(m, 200) + ")"
+	}
+	return ""
+}
+
 // retryDelays are the waits before asking again after a temporary failure:
 // the NVD often answers 503 for a moment, and one failed request out of the
 // several of an asset would leave it unchecked.
@@ -262,12 +272,14 @@ func (c *Client) fetch(ctx context.Context, q url.Values) ([]CVE, int, error) {
 	}
 	defer resp.Body.Close()
 	switch {
-	case resp.StatusCode == http.StatusNotFound:
-		return nil, 0, nil // unknown CPE name
 	case resp.StatusCode == http.StatusForbidden, resp.StatusCode == http.StatusTooManyRequests, resp.StatusCode >= 500:
-		return nil, 0, fmt.Errorf("nvd: HTTP %d: %w", resp.StatusCode, errTemporary) // 403: its rate limit
+		return nil, 0, fmt.Errorf("nvd: HTTP %d%s: %w", resp.StatusCode, reason(resp), errTemporary) // 403: its rate limit
 	case resp.StatusCode != http.StatusOK:
-		return nil, 0, fmt.Errorf("nvd: HTTP %d", resp.StatusCode)
+		// SECURITY: a 404 does not mean "no CVE". The NVD answers it to a
+		// refused API key ("Invalid apiKey."), while an unknown CPE name gets
+		// a 200 without results. Read as an empty answer, it would mark every
+		// open finding of the assets tracked through the NVD as fixed.
+		return nil, 0, fmt.Errorf("nvd: HTTP %d%s", resp.StatusCode, reason(resp))
 	}
 	data, err := netsafe.ReadLimited(resp.Body, maxBody)
 	if err != nil {
