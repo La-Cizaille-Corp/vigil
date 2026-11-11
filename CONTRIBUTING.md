@@ -13,6 +13,25 @@
 - Une PR Dependabot n'est pas fusionnée « parce que la CI est verte » : lire le changelog et le
   diff de la dépendance, surtout pour `modernc.org/*`.
 
+## Réutiliser avant d'écrire
+
+Le code dérive quand chaque changement ajoute sa propre variante de ce qui existe déjà : l'audit de
+la 0.4.2 a compté neuf façons de raccourcir un texte, dont trois coupaient un caractère, et
+environ 25 copies de la même boucle de lecture SQL. Avant d'écrire une fonction, chaque changement
+répond à ces questions, et sa PR dit ce qui a été réutilisé, étendu ou remplacé :
+
+1. **Une fonction fait-elle déjà cela, ou presque ?** Chercher par ce qu'elle fait (les verbes, les
+   types manipulés), pas seulement par son nom, d'abord dans les paquets communs (`clip`,
+   `netsafe`, `chattext`, `store`, `tracking`, `auth`).
+2. **Une fonction existante peut-elle évoluer** pour couvrir le nouveau cas (un paramètre, un type
+   plus général) sans devenir un fourre-tout ? Alors on l'étend et on met à jour ses appelants,
+   plutôt que d'écrire une voisine.
+3. **Le changement crée-t-il une deuxième façon de faire** la même chose (valider une URL, mesurer
+   un texte, journaliser une action, lire une requête) ? On n'en garde qu'une : la nouvelle
+   remplace l'ancienne partout, ou elle n'est pas ajoutée.
+4. **Un motif revient-il pour la troisième fois ?** Il devient une fonction commune, avec ses
+   tests, dans le même changement.
+
 ## Contrôles
 
 | Contrôle | Où | Bloquant |
@@ -28,6 +47,7 @@
 | CodeQL (Go et workflows GitHub Actions) | `codeql.yml` | alertes dans *Security* |
 | OpenSSF Scorecard | `scorecard.yml` | alertes dans *Security* |
 | Mises à jour des dépendances, actions et images | `dependabot.yml` | PR hebdomadaires, après 7 jours d'attente |
+| Revue d'optimisation et de sécurité de tout le code ([ci-dessous](#revue-des-versions-xy0)) | avant chaque tag `vX.Y.0` | oui |
 
 Les actions GitHub sont épinglées par SHA de commit, les images de base par digest et GoReleaser
 par version exacte : une étiquette compromise ne peut pas changer ce qui construit une release.
@@ -52,6 +72,27 @@ go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 Pousser un tag `vX.Y.Z` sur `main` déclenche `release.yml` : binaires (GoReleaser), SBOM par
 archive, checksums, attestations de provenance, image multi-architecture sur ghcr.io. La release
 est créée en brouillon et publiée à la main après relecture.
+
+### Revue des versions X.Y.0
+
+La CI ne voit ni la duplication ni les défauts de conception. Avant de taguer une version mineure
+ou majeure (`vX.Y.0`), tout le code de `main` est donc relu sur deux axes :
+
+- **Optimisation et rationalisation** : fonctions en double ou presque, variantes d'une même
+  opération, code mort, requêtes répétées ou sans index, tests redondants. Chaque constat propose
+  la forme commune et liste les endroits où elle s'applique, selon la règle « Réutiliser avant
+  d'écrire ».
+- **Sécurité** : authentification, rôle et jeton CSRF de chaque route ; entrées et sorties
+  (OWASP ASVS et Top 10) ; secrets dans les journaux, les erreurs et les URL ; limites de taille
+  et de débit ; SSRF ; dépendances. [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) est mis à jour.
+
+Chaque constat est corrigé avant le tag, ou consigné : décision dans le registre de
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), ou lot prévu pour une version suivante. Aucune
+version X.Y.0 ne sort avec un constat de sécurité non tranché. La PR de documentation de la version
+résume la revue : nombre de constats, corrigés, reportés et pourquoi.
+
+Une version corrective (`vX.Y.Z`, Z > 0) n'y est pas soumise : elle ne corrige que ce qui doit
+l'être, et la règle « Réutiliser avant d'écrire » s'applique à ses changements.
 
 ## Schéma de la base
 
