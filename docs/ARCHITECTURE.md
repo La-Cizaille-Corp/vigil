@@ -464,7 +464,8 @@ explicite, le serveur refuse de démarrer sur une interface réseau.
 les utilisateurs : contrôle à la connexion (après résolution DNS, contre le DNS rebinding) des
 adresses privées, locales et réservées ; redirections limitées et en HTTPS ; proxy de
 l'environnement ignoré (il masquerait la destination réelle). Les sources fixes (OSV, NVD…)
-utilisent un client ordinaire.
+utilisent un client ordinaire, avec la même règle de redirection (`netsafe.CheckRedirect` : 5 au
+plus, en HTTPS, la clé NVD retirée si l'hôte change).
 
 **A25. API par jeton limité à un projet.** Les pipelines CI poussent leur SBOM via
 `PUT /api/v1/projects/{projet}/sbom`. Un jeton n'écrit qu'un seul projet (moindre privilège),

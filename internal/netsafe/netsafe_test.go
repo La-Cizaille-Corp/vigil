@@ -68,10 +68,38 @@ func TestPublic(t *testing.T) {
 		"100.64.1.1": false, "198.18.0.1": false, "255.255.255.255": false,
 		"::ffff:10.0.0.1": false, "64:ff9b::a00:1": false, "::1": false, "fd00::1": false,
 		"0.1.2.3": false, "::7f00:1": false, "fec0::1": false, "2002:7f00:1::1": false, "2001:0:4136:e378::1": false,
+		"::ffff:0:7f00:1": false, "::ffff:0:a00:1": false, // SIIT, IPv4-translated 127.0.0.1 and 10.0.0.1
+		"192.88.99.1": false, "100::1": false, "2001:20::1": false,
 	} {
 		if got := Public(net.ParseIP(addr)); got != want {
 			t.Errorf("Public(%s) = %v, want %v", addr, got, want)
 		}
+	}
+}
+
+// TestCheckRedirect: 5 redirects at most, in HTTPS only, and the headers to
+// drop leave the request when the host changes.
+func TestCheckRedirect(t *testing.T) {
+	check := CheckRedirect("apiKey")
+	first := httptest.NewRequest(http.MethodGet, "https://a.example/x", nil)
+	hop := func(raw string) *http.Request {
+		r := httptest.NewRequest(http.MethodGet, raw, nil)
+		r.Header.Set("apiKey", "k")
+		r.Header.Set("Accept", "application/json")
+		return r
+	}
+	via := []*http.Request{first}
+	if r := hop("https://a.example/y"); check(r, via) != nil || r.Header.Get("apiKey") != "k" {
+		t.Errorf("same host: headers %v", r.Header)
+	}
+	if r := hop("https://b.example/y"); check(r, via) != nil || r.Header.Get("apiKey") != "" || r.Header.Get("Accept") == "" {
+		t.Errorf("other host: headers %v", r.Header)
+	}
+	if err := check(hop("http://a.example/y"), via); err == nil {
+		t.Error("redirect to http followed")
+	}
+	if err := check(hop("https://a.example/y"), make([]*http.Request, 5)); err == nil {
+		t.Error("sixth redirect followed")
 	}
 }
 

@@ -110,7 +110,7 @@ func TestQueryPages(t *testing.T) {
 		w.Write([]byte(`{"vulns":[{"id":"GHSA-2","affected":[{"package":{"purl":"pkg:npm/x"}}]}]}`))
 	}))
 	defer srv.Close()
-	c := New("test")
+	c := New(http.DefaultClient, "test")
 	c.BaseURL = srv.URL
 	vulns := query(t, c, Query{Package: Package{PURL: "pkg:npm/x"}})
 	if len(vulns) != 2 || vulns[0].ID != "GHSA-1" || vulns[1].ID != "GHSA-2" || len(vulns[1].Affected) != 1 {
@@ -132,7 +132,7 @@ func TestQueryBatchMore(t *testing.T) {
 		w.Write([]byte(`{"results":[{"vulns":[{"id":"DEBIAN-CVE-2004-0230"}],"next_page_token":"p2"},{"vulns":[{"id":"GHSA-1"}]},{}]}`))
 	}))
 	defer srv.Close()
-	c := New("test")
+	c := New(http.DefaultClient, "test")
 	c.BaseURL = srv.URL
 	got, err := c.QueryBatch(context.Background(), make([]Query, 3))
 	if err != nil {
@@ -290,7 +290,7 @@ func TestAdvisoriesStream(t *testing.T) {
 		w.Write([]byte(`{"next_page_token":"","other":[1,{"a":2}],"vulns":[{"id":"A"},{"id":"B"}]}`))
 	}))
 	defer srv.Close()
-	c := New("test")
+	c := New(http.DefaultClient, "test")
 	c.BaseURL = srv.URL
 	if got := query(t, c, Query{}); len(got) != 2 || got[1].ID != "B" {
 		t.Errorf("advisories = %+v", got)
@@ -322,7 +322,7 @@ func TestAdvisoriesPagesBound(t *testing.T) {
 		w.Write([]byte(`{"next_page_token":"more"}`))
 	}))
 	defer srv.Close()
-	c := New("test")
+	c := New(http.DefaultClient, "test")
 	c.BaseURL = srv.URL
 	list := c.Advisories(Query{})
 	for list.Next(context.Background()) {
@@ -350,7 +350,7 @@ func TestRetries(t *testing.T) {
 		w.Write([]byte(`{"results":[{}]}`))
 	}))
 	defer srv.Close()
-	c := New("test")
+	c := New(http.DefaultClient, "test")
 	c.BaseURL = srv.URL
 	if _, err := c.QueryBatch(context.Background(), make([]Query, 1)); err != nil || calls != 3 {
 		t.Errorf("temporary failures: %d calls, %v", calls, err)

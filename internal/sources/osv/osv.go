@@ -38,13 +38,13 @@ type Client struct {
 	UserAgent string
 }
 
-// New returns a client with safe defaults.
-func New(userAgent string) *Client {
-	return &Client{
-		BaseURL:   DefaultBaseURL,
-		HTTP:      &http.Client{Timeout: 5 * time.Minute}, // a page can take a while to read
-		UserAgent: userAgent,
-	}
+// New returns a client of the public API. Its requests go through a copy of
+// hc, with the same transport and redirect policy (that of the other sources)
+// but a longer timeout: a page can take a while to read.
+func New(hc *http.Client, userAgent string) *Client {
+	c := *hc
+	c.Timeout = 5 * time.Minute
+	return &Client{BaseURL: DefaultBaseURL, HTTP: &c, UserAgent: userAgent}
 }
 
 // Package identifies a package, either by purl or by name and ecosystem.
