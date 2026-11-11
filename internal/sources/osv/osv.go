@@ -25,7 +25,10 @@ const DefaultBaseURL = "https://api.osv.dev"
 const maxBatch = 1000
 
 // maxBody bounds every response read at once, maxPage a page of /v1/query, read
-// advisory by advisory: thousands of them, each listing many packages.
+// advisory by advisory: thousands of them, each listing many packages. A page
+// can exceed 64 MB and an Ubuntu advisory weighs 600 KB (ARCHITECTURE.md, A55
+// and A62); the heaviest page is not measured, hence the margin. One advisory
+// at a time is held in memory.
 const (
 	maxBody = 32 << 20
 	maxPage = 1 << 30
