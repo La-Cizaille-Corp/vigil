@@ -25,12 +25,26 @@ Les commandes de chaque cas sont plus bas :
 
 ## De la 0.4.2 à la 0.4.3
 
-Version corrective, sans changement de fonctionnement : le programme et l'image Docker sont
-recompilés avec Go 1.27.4, qui corrige une faille du serveur web de Go (GO-2026-6859). La procédure
-est la même, la base reste au schéma 15 et rien n'est à reprendre dans les fichiers de déploiement.
-Comme pour la 0.4.2, **Vigil n'écrit pas de copie `.bak`**, et la 0.4.2 rouvre la même base si
-vous revenez en arrière. Sous Docker, l'image `0.4` passe d'elle-même à la 0.4.3. En venant de la
-0.4.1, lisez aussi la section suivante.
+Version corrective : la procédure est la même, la base reste au schéma 15 et rien n'est à reprendre
+dans les fichiers de déploiement. Comme pour la 0.4.2, **Vigil n'écrit pas de copie `.bak`**, et la
+0.4.2 rouvre la même base si vous revenez en arrière. Sous Docker, l'image `0.4` passe d'elle-même à
+la 0.4.3. En venant de la 0.4.1, lisez aussi la section suivante.
+
+- **Go 1.27.4** : le programme et l'image Docker sont recompilés avec cette version, qui corrige une
+  faille du serveur web de Go (GO-2026-6859).
+- **Clé NVD refusée** : la NVD répond alors par une erreur 404, que Vigil lisait comme « aucune
+  vulnérabilité ». Chaque synchronisation passait donc à « Corrigé » les vulnérabilités des actifs
+  suivis par la NVD. Ces actifs restent désormais « non vérifiés », avec la raison donnée par la
+  NVD (`HTTP 404 (Invalid apiKey.)`) : corrigez alors `VIGIL_NVD_API_KEY`, ou retirez-la. Les
+  vulnérabilités fermées à tort se rouvrent, avec leur historique, à la première synchronisation où
+  la NVD répond normalement.
+- **Liens d'actualité** : un lien qui contient un saut de ligne ou des identifiants
+  (`https://site@autre-site/`) n'est plus enregistré, et le digest neutralise ceux déjà en base. Un
+  flux ne peut plus glisser une mention comme `@channel` dans une messagerie par ce biais.
+- **Interface** : les listes ne débordent plus de l'écran, sur ordinateur comme sur téléphone ; les
+  boutons rouges du thème sombre et les bordures des champs sont plus contrastés. Le panneau
+  « Traiter la sélection… » passe sous la liste et reste au bas de l'écran pendant le défilement.
+  Un lien « Aller au contenu » apparaît au premier appui sur Tab.
 
 ## De la 0.4.1 à la 0.4.2
 
