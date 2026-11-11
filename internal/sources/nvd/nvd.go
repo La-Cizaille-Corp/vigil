@@ -24,6 +24,9 @@ import (
 const DefaultURL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 
 const (
+	// maxBody bounds a page of pageSize records, read whole: a record carries
+	// its configurations, sometimes hundreds of CPE. The heaviest real page is
+	// not measured, hence the margin.
 	maxBody  = 64 << 20
 	pageSize = 2000
 	// maxDateRange is the longest publication date range the NVD accepts.

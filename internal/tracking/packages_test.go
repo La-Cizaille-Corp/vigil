@@ -70,7 +70,7 @@ func TestLargePackage(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	client := osv.New("vigil-test")
+	client := osv.New(http.DefaultClient, "vigil-test")
 	client.BaseURL = srv.URL
 	syncer := &tracking.Syncer{Store: st, OSV: client, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		HTTP: srv.Client(), KEVURL: srv.URL + "/kev", EPSSURL: srv.URL + "/epss"}
@@ -133,7 +133,7 @@ func TestPURLQualifiers(t *testing.T) {
 		io.WriteString(w, `{"results":[`+strings.Join(results, ",")+`]}`)
 	}))
 	defer srv.Close()
-	client := osv.New("vigil-test")
+	client := osv.New(http.DefaultClient, "vigil-test")
 	client.BaseURL = srv.URL
 	syncer := &tracking.Syncer{Store: st, OSV: client, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	for _, purl := range []string{
@@ -174,7 +174,7 @@ func TestFailedAssetAndProgress(t *testing.T) {
 	}))
 	defer srv.Close()
 	var seen []tracking.Status
-	syncer := &tracking.Syncer{Store: st, OSV: osv.New("vigil-test"), Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	syncer := &tracking.Syncer{Store: st, OSV: osv.New(http.DefaultClient, "vigil-test"), Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		NVD: &nvd.Client{URL: srv.URL, HTTP: srv.Client()}}
 	syncer.Alert = func(context.Context) error {
 		seen = append(seen, syncer.Status())
@@ -242,7 +242,7 @@ func TestVersionsComparedHere(t *testing.T) {
 		io.WriteString(w, `{"vulns":[`+kernelFixed+`,`+kernelOther+`,`+kernelOpen+`,`+kernelOld+`]}`)
 	}))
 	defer srv.Close()
-	client := osv.New("vigil-test")
+	client := osv.New(http.DefaultClient, "vigil-test")
 	client.BaseURL = srv.URL
 	syncer := &tracking.Syncer{Store: st, OSV: client, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 
@@ -293,7 +293,7 @@ func TestDismissalRuleAtSync(t *testing.T) {
 			{"id":"CVE-2026-2","summary":"ipv4: fix","published":"2026-10-01T00:00:00Z","modified":"2026-10-02T00:00:00Z","affected":[{"package":{"name":"Kernel","ecosystem":"Linux"},"ranges":[{"type":"ECOSYSTEM","events":[{"introduced":"6.0.0"}]}]}]}]}`)
 	}))
 	defer srv.Close()
-	client := osv.New("vigil-test")
+	client := osv.New(http.DefaultClient, "vigil-test")
 	client.BaseURL = srv.URL
 	var atAlert []store.Finding
 	syncer := &tracking.Syncer{Store: st, OSV: client, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}

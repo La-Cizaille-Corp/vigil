@@ -340,6 +340,21 @@ compris les corrigées, et les nombres des niveaux ne faisaient pas son total. E
 ouvertes, la somme des trois premiers niveaux ; les corrigées ont leur onglet, « Toutes » réunit tout. Un filtre
 de statut garde la liste entière, pour qu'un statut demandé (« Corrigé ») soit montré. L'export suit la page.
 
+**A69. Ce que les sources envoient est vérifié avant d'être stocké.** OSV et la NVD sont des hôtes fixes
+en HTTPS, mais leurs champs étaient stockés tels quels : une sévérité hors de la liste (`IMPORTANT` de
+Red Hat, `NONE`, du HTML) n'entrait dans aucun filtre, pas même « Inconnue », un score CVSS de 1e300
+dépassait tous les seuils, une description n'avait pas de taille. L'échelle d'une base est traduite à la
+source, en un seul endroit (`osv.Vuln.SeverityLabel` : `MODERATE` de GitHub en `MEDIUM`, `Important` de
+Red Hat en `HIGH`) ; une valeur inconnue y est remplacée par la sévérité du score CVSS, comme une valeur
+absente. Puis une seule fonction, `tracking.sanitize`, s'applique aux deux entrées (avis OSV, fiche NVD) :
+sévérité de la liste ou inconnue, score dans 0..10 ou absent, résumé, description, alias et références
+bornés, bien au-dessus des avis réels. L'échéance KEV, écrite à part, est vérifiée par son client, comme
+les scores EPSS. *Écarté* : stocker `UNKNOWN`, une deuxième forme de l'inconnu à côté de la sévérité vide,
+que le digest ne classerait plus d'après le score ; traduire aussi dans le digest, qui ne lit que des
+sévérités déjà traduites (aucune version publiée n'a stocké `MODERATE`). *Conséquence* : une fiche déjà
+en base est corrigée à sa prochaine écriture (chaque synchronisation pour la NVD, la prochaine
+modification de l'avis pour OSV).
+
 **A13. Statuts CycloneDX / VEX.** Des statuts maison auraient été plus « parlants » mais non
 interopérables. Les états VEX (`in_triage`, `exploitable`, `resolved`, `not_affected` +
 justification, `false_positive`) sont libellés en français dans l'interface, et l'export /
@@ -464,7 +479,8 @@ explicite, le serveur refuse de démarrer sur une interface réseau.
 les utilisateurs : contrôle à la connexion (après résolution DNS, contre le DNS rebinding) des
 adresses privées, locales et réservées ; redirections limitées et en HTTPS ; proxy de
 l'environnement ignoré (il masquerait la destination réelle). Les sources fixes (OSV, NVD…)
-utilisent un client ordinaire.
+utilisent un client ordinaire, avec la même règle de redirection (`netsafe.CheckRedirect` : 5 au
+plus, en HTTPS, la clé NVD retirée si l'hôte change).
 
 **A25. API par jeton limité à un projet.** Les pipelines CI poussent leur SBOM via
 `PUT /api/v1/projects/{projet}/sbom`. Un jeton n'écrit qu'un seul projet (moindre privilège),
@@ -522,9 +538,16 @@ de l'inventaire en virgules ou points-virgules (Excel en français), en-têtes e
 acceptés. Import tout ou rien : la moindre ligne invalide refuse le fichier, avec les numéros de
 ligne. Les exports utilisent le point-virgule et la virgule décimale, comme Excel en français.
 *Sécurité* : toute cellule commençant par `=`, `+`, `-`, `@` est préfixée d'une apostrophe
-(injection de formules à l'ouverture dans un tableur), de même qu'un tel caractère placé juste
-après un séparateur dans une valeur : un tableur qui découpe sur un autre séparateur que celui du
-fichier y commencerait une cellule.
+(injection de formules à l'ouverture dans un tableur), de même qu'un tel caractère placé dans une
+valeur après une virgule, un point-virgule, une tabulation ou un saut de ligne, éventuellement
+suivis d'espaces : un tableur qui découpe sur un autre séparateur que celui du fichier y
+commencerait une cellule, et un tableur qui retire les espaces des cellules ferait une formule de
+`prod, =1+1` (étiquettes jointes par une virgule et une espace). Une espace seule ne commence pas
+de cellule : « 2.0 - 2.5 » ou « a = b » restent intacts. Écarté : traiter l'espace comme un
+séparateur. Seul un import où l'on coche « Espace » découpe ainsi, choix manuel qui met en pièces
+chaque texte ; s'en protéger aurait abîmé tous les résumés et notes exportés. Une apostrophe déjà
+présente devant un tel caractère compte : l'import retire exactement ce que l'export ajoute, et
+un export relu redonne les valeurs exportées.
 
 **A42. Recherche de CPE dans le dictionnaire de la NVD, à la demande.** Écrire un CPE à la main
 était le principal frein au suivi des produits. La page de recherche interroge l'API CPE de la NVD

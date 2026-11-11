@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
 )
@@ -48,6 +49,11 @@ func Fetch(ctx context.Context, client *http.Client, url, userAgent string) (map
 	}
 	out := make(map[string]Entry, len(doc.Vulnerabilities))
 	for _, e := range doc.Vulnerabilities {
+		// SECURITY: the due date is stored and shown; anything but a date is
+		// dropped, the CVE stays listed.
+		if _, err := time.Parse(time.DateOnly, e.DueDate); err != nil {
+			e.DueDate = ""
+		}
 		out[e.CVE] = e
 	}
 	return out, nil
