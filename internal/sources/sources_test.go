@@ -80,7 +80,7 @@ func TestOSV(t *testing.T) {
 			http.NotFound(w, r)
 		}
 	})
-	c := osv.New("test")
+	c := osv.New(http.DefaultClient, "test")
 	c.BaseURL, c.HTTP = srv.URL, srv.Client()
 	ctx := context.Background()
 	res, err := c.QueryBatch(ctx, []osv.Query{
