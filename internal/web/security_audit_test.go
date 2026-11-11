@@ -1,6 +1,6 @@
 package web
 
-// Regression tests of the November 2026 code audit (findings S1, S2 and S8).
+// Regression tests of the November 2026 code audit (findings S1, S2, S8 and S9).
 
 import (
 	"bytes"
@@ -189,6 +189,77 @@ func TestCTIRefreshRefusedWhileRunning(t *testing.T) {
 	}
 	if refreshes != 1 || len(fetched) != 0 {
 		t.Errorf("%d collections audited, %d more fetched; want the one that ran", refreshes, len(fetched))
+	}
+}
+
+// S9: the VEX import matches through an index and writes in one transaction;
+// what it applies, skips and ignores is unchanged. It passed on the code
+// before the change too.
+func TestVEXImportResults(t *testing.T) {
+	st, base := newServerWith(t, nil)
+	ctx := context.Background()
+	const lodash, fortios = "pkg:npm/lodash@4.17.15", "cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*"
+	lib, _ := st.CreateAsset(ctx, store.Asset{Name: "lodash", Kind: "package", Criticality: "high", Source: "manual", PURL: lodash})
+	fw, _ := st.CreateAsset(ctx, store.Asset{Name: "fortios", Version: "7.2.4", Kind: "os", Criticality: "high", Source: "manual", CPE: fortios})
+	for _, v := range []struct {
+		asset int64
+		vuln  store.Vulnerability
+	}{
+		{lib, store.Vulnerability{ID: "GHSA-35jh-r3h4-6jhm", Aliases: []string{"CVE-2021-23337"}, Severity: "HIGH", Modified: "m"}},
+		{lib, store.Vulnerability{ID: "CVE-2020-8203", Severity: "HIGH", Modified: "m"}},
+		{fw, store.Vulnerability{ID: "CVE-2024-21762", Severity: "CRITICAL", Modified: "m"}},
+	} {
+		st.UpsertVulnerability(ctx, v.vuln)
+		st.ObserveFinding(ctx, v.asset, v.vuln.ID, "", time.Now())
+	}
+	finding := func(asset int64, vuln string) store.Finding {
+		t.Helper()
+		list, _ := st.ListFindings(ctx, store.FindingFilter{AssetID: asset})
+		for _, f := range list {
+			if f.VulnID == vuln {
+				return f
+			}
+		}
+		t.Fatalf("no finding %s", vuln)
+		return store.Finding{}
+	}
+	st.SetFindingStatus(ctx, finding(lib, "CVE-2020-8203").ID, 0, "exploitable", "", "à patcher")
+
+	statement := func(id, ref, state, justification, detail string) string {
+		return fmt.Sprintf(`{"id":%q,"analysis":{"state":%q,"justification":%q,"detail":%q},"affects":[{"ref":%q}]}`,
+			id, state, justification, detail, ref)
+	}
+	doc := `{"bomFormat":"CycloneDX","specVersion":"1.5","vulnerabilities":[` + strings.Join([]string{
+		statement("CVE-2021-23337", lodash, "not_affected", "code_not_reachable", "fonction non utilisée"), // through the alias
+		statement("CVE-2020-8203", lodash, "exploitable", "", "déjà décidé"),                               // same decision: skipped
+		statement("CVE-2024-21762", fortios, "resolved", "", "mis à jour"),                                 // by CPE
+		statement("CVE-2024-21762", fortios, "false_positive", "", "finalement"),                           // then again, in order
+		statement("CVE-1999-0001", lodash, "resolved", "", ""),                                             // unknown vulnerability
+		statement("CVE-2020-8203", "pkg:npm/other@1.0.0", "resolved", "", ""),                              // other component
+		statement("CVE-2020-8203", lodash, "not_affected", "", "sans justification"),                       // refused
+	}, ",") + `]}`
+	c := loginAs(t, base, "analyst", "a-strong-password")
+	if code, loc := c.upload("/findings/vex", "vex", "vex.json", doc, url.Values{"csrf": {c.csrf()}}); code != http.StatusSeeOther ||
+		loc != "/findings?msg=vex-imported" {
+		t.Fatalf("import: %d %s", code, loc)
+	}
+
+	if f := finding(lib, "GHSA-35jh-r3h4-6jhm"); f.Status != "not_affected" || f.Justification != "code_not_reachable" ||
+		f.Comment != "Import VEX : fonction non utilisée" {
+		t.Errorf("by alias: %s %s %q", f.Status, f.Justification, f.Comment)
+	}
+	if f := finding(lib, "CVE-2020-8203"); f.Status != "exploitable" || f.Comment != "à patcher" {
+		t.Errorf("unchanged decision: %s %q", f.Status, f.Comment)
+	}
+	f := finding(fw, "CVE-2024-21762")
+	events, _ := st.FindingEvents(ctx, f.ID)
+	if f.Status != "false_positive" || f.Comment != "Import VEX : finalement" || len(events) != 2 ||
+		events[0].NewStatus != "resolved" || events[1].NewStatus != "false_positive" || events[1].Username != "analyst" {
+		t.Errorf("two analyses in order: %s %q, history %+v", f.Status, f.Comment, events)
+	}
+	entries, _ := st.ListAudit(ctx, 10)
+	if len(entries) == 0 || entries[0].Action != "vex_import" || entries[0].Detail != "3 appliquées, 3 ignorées" {
+		t.Errorf("audit: %+v", entries)
 	}
 }
 

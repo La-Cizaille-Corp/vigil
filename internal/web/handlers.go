@@ -618,14 +618,14 @@ func (s *Server) findingBulk(w http.ResponseWriter, r *http.Request) {
 		s.renderFindingsAt(w, r, next, err.Error())
 		return
 	}
-	var list []int64
+	var changes []store.StatusChange
 	for _, raw := range ids {
 		if id, err := strconv.ParseInt(raw, 10, 64); err == nil {
-			list = append(list, id)
+			changes = append(changes, store.StatusChange{ID: id, Status: status, Justification: justif, Comment: comment})
 		}
 	}
 	sess, _ := sessionFrom(r.Context())
-	done, err := s.Store.SetFindingsStatus(r.Context(), list, sess.User.ID, status, justif, comment)
+	done, err := s.Store.SetFindingStatuses(r.Context(), sess.User.ID, changes)
 	if err != nil {
 		s.serverError(w, r, err)
 		return

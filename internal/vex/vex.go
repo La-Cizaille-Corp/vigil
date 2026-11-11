@@ -132,14 +132,33 @@ func Parse(r io.Reader) ([]Statement, error) {
 	return out, nil
 }
 
+// Index finds the finding a statement applies to. Scanning every finding for
+// each statement made an import quadratic (20 000 analyses against 20 000
+// findings: two seconds of matching alone); the index looks only at the
+// findings of the statement's component.
+type Index struct {
+	findings []store.Finding
+	byRef    map[string][]int // purl or CPE → positions in findings, in order
+}
+
+// NewIndex indexes findings by component reference (purl and CPE).
+func NewIndex(findings []store.Finding) Index {
+	idx := Index{findings: findings, byRef: make(map[string][]int, len(findings))}
+	for i, f := range findings {
+		idx.byRef[f.AssetPURL] = append(idx.byRef[f.AssetPURL], i)
+		if f.AssetCPE != f.AssetPURL {
+			idx.byRef[f.AssetCPE] = append(idx.byRef[f.AssetCPE], i)
+		}
+	}
+	return idx
+}
+
 // Match returns the finding a statement applies to: same component (purl or
 // CPE) and same vulnerability, directly or through an alias (CVE ↔ GHSA).
-func Match(st Statement, findings []store.Finding) (store.Finding, bool) {
-	for _, f := range findings {
-		if st.Ref != f.AssetPURL && st.Ref != f.AssetCPE {
-			continue
-		}
-		if st.VulnID == f.VulnID || slices.Contains(f.Aliases, st.VulnID) {
+// When several apply, it is the first one in the order given to NewIndex.
+func (idx Index) Match(st Statement) (store.Finding, bool) {
+	for _, i := range idx.byRef[st.Ref] {
+		if f := idx.findings[i]; st.VulnID == f.VulnID || slices.Contains(f.Aliases, st.VulnID) {
 			return f, true
 		}
 	}
