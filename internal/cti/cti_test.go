@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
 
@@ -99,6 +100,28 @@ func TestClassifyRegulations(t *testing.T) {
 	}
 }
 
+// A link that would cut the Markdown link of the digest, or hide its host
+// behind credentials, is not stored; the item is kept without it.
+func TestParseDropsUnsafeLinks(t *testing.T) {
+	feed := "<rss><channel>" +
+		"<item><guid>1</guid><title>Correctif urgent</title><link>https://evil.example/a\n@channel please read</link></item>" +
+		"<item><guid>2</guid><title>Avis</title><link>https://www.cert.example@evil.example/</link></item>" +
+		"<item><guid>3</guid><title>Bulletin</title><link> https://example.org/c </link></item>" +
+		"</channel></rss>"
+	items, err := Parse([]byte(feed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 3 {
+		t.Fatalf("got %d items", len(items))
+	}
+	for i, want := range []string{"", "", "https://example.org/c"} {
+		if items[i].Link != want {
+			t.Errorf("item %d: link %q, want %q", i+1, items[i].Link, want)
+		}
+	}
+}
+
 // A feed cannot flood the database nor pin an item at the top with a date in
 // the future.
 func TestParseLimits(t *testing.T) {
@@ -108,7 +131,7 @@ func TestParseLimits(t *testing.T) {
 		fmt.Fprintf(&b, `<item><guid>%d</guid><title>t</title><pubDate>Mon, 26 Oct 2026 10:00:00 +0000</pubDate></item>`, i)
 	}
 	fmt.Fprintf(&b, `<item><guid>future</guid><title>f</title><link>https://example.org/%s</link><pubDate>Fri, 01 Jan 2100 00:00:00 +0000</pubDate></item>`,
-		strings.Repeat("a", maxLinkLen))
+		strings.Repeat("a", netsafe.MaxURLLen))
 	b.WriteString(`</channel></rss>`)
 	items, err := Parse([]byte(b.String()))
 	if err != nil {

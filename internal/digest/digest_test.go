@@ -158,3 +158,13 @@ func TestLevel(t *testing.T) {
 		}
 	}
 }
+
+// A feed link stored with a line break (before links were checked when a feed
+// is collected) cannot cut the Markdown link and ping a channel.
+func TestLinkCannotBreakOut(t *testing.T) {
+	link := funcs["link"].(func(string, string) string)
+	got := link("Correctif urgent", "https://evil.example/a\n@channel please read")
+	if strings.ContainsAny(got, "\r\n") || got != "[Correctif urgent](https://evil.example/a%0A@channel%20please%20read)" {
+		t.Errorf("link = %q", got)
+	}
+}
