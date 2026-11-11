@@ -17,12 +17,7 @@ import (
 
 // postLocation posts a form and returns the status and redirect target.
 func (c *client) postLocation(path string, form url.Values) (int, string) {
-	resp, err := c.http.PostForm(c.base+path, form)
-	if err != nil {
-		c.t.Fatal(err)
-	}
-	resp.Body.Close()
-	return resp.StatusCode, resp.Header.Get("Location")
+	return c.send(http.MethodPost, path, form)
 }
 
 func loginAs(t *testing.T, base, username, password string) *client {
