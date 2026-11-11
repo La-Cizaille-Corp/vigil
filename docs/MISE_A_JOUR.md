@@ -23,6 +23,15 @@ Les commandes de chaque cas sont plus bas :
 | sur un serveur Windows (tâche planifiée) | [Serveur Windows](#serveur-windows-tâche-planifiée) |
 | sur un serveur avec Docker Compose | [Serveur Docker Compose](#serveur-docker-compose) |
 
+## De la 0.4.2 à la 0.4.3
+
+Version corrective, sans changement de fonctionnement : le programme et l'image Docker sont
+recompilés avec Go 1.27.4, qui corrige une faille du serveur web de Go (GO-2026-6859). La procédure
+est la même, la base reste au schéma 15 et rien n'est à reprendre dans les fichiers de déploiement.
+Comme pour la 0.4.2, **Vigil n'écrit pas de copie `.bak`**, et la 0.4.2 rouvre la même base si
+vous revenez en arrière. Sous Docker, l'image `0.4` passe d'elle-même à la 0.4.3. En venant de la
+0.4.1, lisez aussi la section suivante.
+
 ## De la 0.4.1 à la 0.4.2
 
 Version corrective : la procédure est la même, la base reste au schéma 15 et rien n'est à reprendre
@@ -99,13 +108,13 @@ Après la mise à jour :
 
 ## 2. Télécharger et vérifier la nouvelle version
 
-Remplacez `0.4.2` par la version à installer. Le programme est extrait dans un dossier à part : il
+Remplacez `0.4.3` par la version à installer. Le programme est extrait dans un dossier à part : il
 ne remplace encore rien.
 
 **Windows** (PowerShell) :
 
 ```powershell
-$v = "0.4.2"; $arch = "amd64"   # arm64 sur processeur ARM
+$v = "0.4.3"; $arch = "amd64"   # arm64 sur processeur ARM
 $zip = "vigil_${v}_windows_$arch.zip"
 $base = "https://github.com/La-Cizaille-Corp/vigil/releases/download/v$v"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -121,7 +130,7 @@ Expand-Archive $zip -DestinationPath ".\vigil-$v" -Force
 **macOS** :
 
 ```bash
-VERSION=0.4.2; ARCH=arm64   # amd64 sur Mac Intel
+VERSION=0.4.3; ARCH=arm64   # amd64 sur Mac Intel
 BASE=https://github.com/La-Cizaille-Corp/vigil/releases/download/v$VERSION
 curl -fsSLO $BASE/vigil_${VERSION}_darwin_$ARCH.tar.gz
 curl -fsSLO $BASE/checksums.txt
@@ -133,7 +142,7 @@ xattr -d com.apple.quarantine vigil-$VERSION/vigil 2>/dev/null || true
 **Linux** :
 
 ```bash
-VERSION=0.4.2; ARCH=amd64   # arm64 sur ARM
+VERSION=0.4.3; ARCH=amd64   # arm64 sur ARM
 BASE=https://github.com/La-Cizaille-Corp/vigil/releases/download/v$VERSION
 curl -fsSLO $BASE/vigil_${VERSION}_linux_$ARCH.tar.gz
 curl -fsSLO $BASE/checksums.txt
