@@ -2,6 +2,7 @@ package cti
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -10,6 +11,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -150,30 +153,97 @@ func TestParseLimits(t *testing.T) {
 	}
 }
 
-// The feeds are collected as often as the setting says, read each time.
-func TestRunIfDue(t *testing.T) {
+// newFeedCollector returns a store whose only feed is served by h, and a
+// collector of it.
+func newFeedCollector(t *testing.T, h http.HandlerFunc) (*store.Store, *Collector) {
+	t.Helper()
 	ctx := context.Background()
 	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "cti.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer st.Close()
+	t.Cleanup(func() { st.Close() })
 	feeds, _ := st.ListFeeds(ctx)
 	for _, f := range feeds {
 		if err := st.DeleteFeed(ctx, f.ID); err != nil {
 			t.Fatal(err)
 		}
 	}
-	calls := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
-		w.Write([]byte(`<rss><channel></channel></rss>`))
-	}))
-	defer srv.Close()
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
 	if _, err := st.CreateFeed(ctx, store.Feed{Name: "x", URL: srv.URL, Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	c := &Collector{Store: st, HTTP: srv.Client(), Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	return st, &Collector{Store: st, HTTP: srv.Client(), Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+}
+
+// S8 of the code audit: one collection at a time. A second request is
+// refused at once instead of waiting for the first one, then collecting
+// everything again.
+func TestRunIsExclusive(t *testing.T) {
+	var calls atomic.Int32
+	fetched, release := make(chan struct{}, 10), make(chan struct{})
+	st, c := newFeedCollector(t, func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		fetched <- struct{}{}
+		<-release
+		w.Write([]byte(`<rss><channel></channel></rss>`))
+	})
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	t.Cleanup(unblock) // before the feed server closes
+	ctx := context.Background()
+	st.SetSetting(ctx, SettingNewsPerDay, "24")
+
+	first := make(chan error, 1)
+	go func() { _, err := c.Run(ctx); first <- err }()
+	select {
+	case <-fetched:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the first collection did not start")
+	}
+	if !c.Running() {
+		t.Error("Running() = false during a collection")
+	}
+	second := make(chan error, 1)
+	go func() { _, err := c.Run(ctx); second <- err }()
+	select {
+	case err := <-second:
+		if !errors.Is(err, ErrRunning) {
+			t.Errorf("second collection: %v, want ErrRunning", err)
+		}
+		second = nil
+	case <-time.After(2 * time.Second):
+		t.Error("the second collection waits for the first one")
+	}
+	if second == nil {
+		if err := c.RunIfDue(ctx); err != nil {
+			t.Errorf("scheduled collection during a manual one: %v", err)
+		}
+	}
+	unblock()
+	if err := <-first; err != nil {
+		t.Fatal(err)
+	}
+	if second != nil { // queued behind the first one: let it end
+		<-second
+	}
+	if n := calls.Load(); n != 1 {
+		t.Errorf("%d collections, want 1", n)
+	}
+	if c.Running() {
+		t.Error("Running() = true after the collection")
+	}
+}
+
+// The feeds are collected as often as the setting says, read each time.
+func TestRunIfDue(t *testing.T) {
+	ctx := context.Background()
+	calls := 0
+	st, c := newFeedCollector(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Write([]byte(`<rss><channel></channel></rss>`))
+	})
 
 	if n, _ := NewsPerDay(ctx, st); n != DefaultNewsPerDay {
 		t.Errorf("default frequency = %d", n)

@@ -57,15 +57,21 @@ func (s *Server) ctiList(w http.ResponseWriter, r *http.Request) {
 	}})
 }
 
+// ctiRefresh starts a collection of the feeds in the background, unless one
+// is in progress: like syncNow, a second request is refused, not queued.
 func (s *Server) ctiRefresh(w http.ResponseWriter, r *http.Request) {
+	if s.CTI.Running() {
+		redirect(w, r, "/cti", "cti-running")
+		return
+	}
+	s.audit(r, "cti_refresh", "manuel")
 	go func() {
 		ctx, cancel := context.WithTimeout(s.background(), 10*time.Minute)
 		defer cancel()
-		if _, err := s.CTI.Run(ctx); err != nil {
+		if _, err := s.CTI.Run(ctx); err != nil && !errors.Is(err, cti.ErrRunning) {
 			s.Log.Error("cti failed", "err", err)
 		}
 	}()
-	s.audit(r, "cti_refresh", "manuel")
 	redirect(w, r, "/cti", "cti-started")
 }
 

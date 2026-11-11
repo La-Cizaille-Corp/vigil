@@ -1,6 +1,6 @@
 package web
 
-// Regression tests of the November 2026 code audit (findings S1, S2 and S6).
+// Regression tests of the November 2026 code audit (findings S1, S2, S6, S8 and S9).
 
 import (
 	"bytes"
@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"sync"
@@ -122,6 +123,143 @@ func TestActionsAreAudited(t *testing.T) {
 		if seen[action] != "analyst" {
 			t.Errorf("%s: recorded for %q", action, seen[action])
 		}
+	}
+}
+
+// S8: « Collecter maintenant » clicked during a collection says that one is
+// in progress, as the synchronisation does, instead of queueing another
+// whole collection behind it.
+func TestCTIRefreshRefusedWhileRunning(t *testing.T) {
+	fetched, release := make(chan struct{}, 10), make(chan struct{})
+	feed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fetched <- struct{}{}
+		<-release
+		w.Write([]byte(`<rss><channel></channel></rss>`))
+	}))
+	t.Cleanup(feed.Close)
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	t.Cleanup(unblock) // before the feed server closes
+	var collector *cti.Collector
+	st, base := newServerWith(t, func(s *Server) {
+		collector = &cti.Collector{Store: s.Store, HTTP: feed.Client(), UserAgent: "test", Log: s.Log}
+		s.CTI = collector
+	})
+	ctx := context.Background()
+	feeds, _ := st.ListFeeds(ctx)
+	for _, f := range feeds { // no network in this test
+		st.SetFeedEnabled(ctx, f.ID, false)
+	}
+	if _, err := st.CreateFeed(ctx, store.Feed{Name: "x", URL: feed.URL, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	c := loginAs(t, base, "analyst", "a-strong-password")
+	refresh := func() string {
+		_, loc := c.postLocation("/cti/refresh", url.Values{"csrf": {c.csrf()}})
+		return loc
+	}
+
+	if loc := refresh(); loc != "/cti?msg=cti-started" {
+		t.Fatalf("first click: %q", loc)
+	}
+	select {
+	case <-fetched:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the collection did not start")
+	}
+	if loc := refresh(); loc != "/cti?msg=cti-running" {
+		t.Errorf("second click during the collection: %q, want cti-running", loc)
+	}
+	if _, page := c.get("/cti?msg=cti-running"); !strings.Contains(page, "Une collecte des flux est déjà en cours") {
+		t.Error("no message on the page")
+	}
+	unblock()
+	for deadline := time.Now().Add(10 * time.Second); collector.Running() && time.Now().Before(deadline); {
+		time.Sleep(10 * time.Millisecond)
+	}
+	entries, err := st.ListAudit(ctx, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refreshes := 0
+	for _, e := range entries {
+		if e.Action == "cti_refresh" {
+			refreshes++
+		}
+	}
+	if refreshes != 1 || len(fetched) != 0 {
+		t.Errorf("%d collections audited, %d more fetched; want the one that ran", refreshes, len(fetched))
+	}
+}
+
+// S9: the VEX import matches through an index and writes in one transaction;
+// what it applies, skips and ignores is unchanged. It passed on the code
+// before the change too.
+func TestVEXImportResults(t *testing.T) {
+	st, base := newServerWith(t, nil)
+	ctx := context.Background()
+	const lodash, fortios = "pkg:npm/lodash@4.17.15", "cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*"
+	lib, _ := st.CreateAsset(ctx, store.Asset{Name: "lodash", Kind: "package", Criticality: "high", Source: "manual", PURL: lodash})
+	fw, _ := st.CreateAsset(ctx, store.Asset{Name: "fortios", Version: "7.2.4", Kind: "os", Criticality: "high", Source: "manual", CPE: fortios})
+	for _, v := range []struct {
+		asset int64
+		vuln  store.Vulnerability
+	}{
+		{lib, store.Vulnerability{ID: "GHSA-35jh-r3h4-6jhm", Aliases: []string{"CVE-2021-23337"}, Severity: "HIGH", Modified: "m"}},
+		{lib, store.Vulnerability{ID: "CVE-2020-8203", Severity: "HIGH", Modified: "m"}},
+		{fw, store.Vulnerability{ID: "CVE-2024-21762", Severity: "CRITICAL", Modified: "m"}},
+	} {
+		st.UpsertVulnerability(ctx, v.vuln)
+		st.ObserveFinding(ctx, v.asset, v.vuln.ID, "", time.Now())
+	}
+	finding := func(asset int64, vuln string) store.Finding {
+		t.Helper()
+		list, _ := st.ListFindings(ctx, store.FindingFilter{AssetID: asset})
+		for _, f := range list {
+			if f.VulnID == vuln {
+				return f
+			}
+		}
+		t.Fatalf("no finding %s", vuln)
+		return store.Finding{}
+	}
+	st.SetFindingStatus(ctx, finding(lib, "CVE-2020-8203").ID, 0, "exploitable", "", "à patcher")
+
+	statement := func(id, ref, state, justification, detail string) string {
+		return fmt.Sprintf(`{"id":%q,"analysis":{"state":%q,"justification":%q,"detail":%q},"affects":[{"ref":%q}]}`,
+			id, state, justification, detail, ref)
+	}
+	doc := `{"bomFormat":"CycloneDX","specVersion":"1.5","vulnerabilities":[` + strings.Join([]string{
+		statement("CVE-2021-23337", lodash, "not_affected", "code_not_reachable", "fonction non utilisée"), // through the alias
+		statement("CVE-2020-8203", lodash, "exploitable", "", "déjà décidé"),                               // same decision: skipped
+		statement("CVE-2024-21762", fortios, "resolved", "", "mis à jour"),                                 // by CPE
+		statement("CVE-2024-21762", fortios, "false_positive", "", "finalement"),                           // then again, in order
+		statement("CVE-1999-0001", lodash, "resolved", "", ""),                                             // unknown vulnerability
+		statement("CVE-2020-8203", "pkg:npm/other@1.0.0", "resolved", "", ""),                              // other component
+		statement("CVE-2020-8203", lodash, "not_affected", "", "sans justification"),                       // refused
+	}, ",") + `]}`
+	c := loginAs(t, base, "analyst", "a-strong-password")
+	if code, loc := c.upload("/findings/vex", "vex", "vex.json", doc, url.Values{"csrf": {c.csrf()}}); code != http.StatusSeeOther ||
+		loc != "/findings?msg=vex-imported" {
+		t.Fatalf("import: %d %s", code, loc)
+	}
+
+	if f := finding(lib, "GHSA-35jh-r3h4-6jhm"); f.Status != "not_affected" || f.Justification != "code_not_reachable" ||
+		f.Comment != "Import VEX : fonction non utilisée" {
+		t.Errorf("by alias: %s %s %q", f.Status, f.Justification, f.Comment)
+	}
+	if f := finding(lib, "CVE-2020-8203"); f.Status != "exploitable" || f.Comment != "à patcher" {
+		t.Errorf("unchanged decision: %s %q", f.Status, f.Comment)
+	}
+	f := finding(fw, "CVE-2024-21762")
+	events, _ := st.FindingEvents(ctx, f.ID)
+	if f.Status != "false_positive" || f.Comment != "Import VEX : finalement" || len(events) != 2 ||
+		events[0].NewStatus != "resolved" || events[1].NewStatus != "false_positive" || events[1].Username != "analyst" {
+		t.Errorf("two analyses in order: %s %q, history %+v", f.Status, f.Comment, events)
+	}
+	entries, _ := st.ListAudit(ctx, 10)
+	if len(entries) == 0 || entries[0].Action != "vex_import" || entries[0].Detail != "3 appliquées, 3 ignorées" {
+		t.Errorf("audit: %+v", entries)
 	}
 }
 

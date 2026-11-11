@@ -325,6 +325,7 @@ var flashes = map[string]string{ // #nosec G101 -- message keys, not credentials
 	"digest-sent":       "Digest généré et envoyé aux canaux de notification.",
 	"digest-webhook":    "Digest généré, mais au moins un canal de notification a échoué (détail dans Paramètres, visible par un administrateur).",
 	"cti-started":       "Collecte des flux lancée ; actualisez la page dans quelques instants.",
+	"cti-running":       "Une collecte des flux est déjà en cours ; actualisez la page dans quelques instants.",
 	"watch-saved":       "Filtres de veille enregistrés.",
 	"feed-created":      "Flux ajouté.",
 	"feed-updated":      "Étiquettes du flux enregistrées ; elles s'appliquent aussi aux actualités déjà collectées.",

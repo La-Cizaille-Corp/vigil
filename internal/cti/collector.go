@@ -2,12 +2,14 @@ package cti
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
@@ -52,32 +54,52 @@ type Collector struct {
 	UserAgent string
 	Log       *slog.Logger
 
-	mu   sync.Mutex
-	last time.Time // start of the last collection
+	mu      sync.Mutex // held for a whole collection
+	last    time.Time  // start of the last collection, under mu
+	running atomic.Bool
 }
 
+// ErrRunning is returned when a collection is already in progress.
+var ErrRunning = errors.New("une collecte des flux est déjà en cours")
+
 // RunIfDue collects the feeds when the time between two collections has
-// passed, according to the setting read each time: it can change at any moment.
+// passed, according to the setting read each time: it can change at any
+// moment. A collection in progress is the one due: it returns nil.
 func (c *Collector) RunIfDue(ctx context.Context) error {
 	perDay, err := NewsPerDay(ctx, c.Store)
 	if err != nil || perDay == 0 {
 		return err
 	}
-	c.mu.Lock()
-	last := c.last
-	c.mu.Unlock()
-	if !last.IsZero() && time.Since(last) < 24*time.Hour/time.Duration(perDay) {
+	_, err = c.run(ctx, 24*time.Hour/time.Duration(perDay))
+	if errors.Is(err, ErrRunning) {
 		return nil
 	}
-	_, err = c.Run(ctx)
 	return err
 }
 
 // Run fetches all enabled feeds and returns the number of new items.
-// A failing feed is recorded and skipped.
-func (c *Collector) Run(ctx context.Context) (int, error) {
-	c.mu.Lock()
+// A failing feed is recorded and skipped. It returns ErrRunning, without
+// waiting, when a collection is already in progress.
+func (c *Collector) Run(ctx context.Context) (int, error) { return c.run(ctx, 0) }
+
+// Running reports whether a collection is in progress.
+func (c *Collector) Running() bool { return c.running.Load() }
+
+// run collects the feeds, unless the last collection started less than every
+// ago (every > 0).
+func (c *Collector) run(ctx context.Context, every time.Duration) (int, error) {
+	// SECURITY: one collection at a time. Each manual request used to wait for
+	// the previous one, then run a whole collection of its own (10 minutes at
+	// most each): repeated clicks piled up goroutines and outgoing requests.
+	if !c.mu.TryLock() {
+		return 0, ErrRunning
+	}
 	defer c.mu.Unlock()
+	if every > 0 && !c.last.IsZero() && time.Since(c.last) < every {
+		return 0, nil
+	}
+	c.running.Store(true)
+	defer c.running.Store(false)
 	c.last = time.Now()
 
 	feeds, err := c.Store.ListFeeds(ctx)
