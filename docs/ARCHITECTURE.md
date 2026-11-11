@@ -333,7 +333,10 @@ laissaient de l'UTF-8 invalide en base, et une analyse VEX accentuée, coupée �
 à 4 000 octets. Le paquet `clip` les remplace : les limites sur ce qu'écrivent les utilisateurs et les sources
 comptent des caractères (`Text`, `Prefix`, `Fits`) ; seul le budget d'un message envoyé ailleurs reste en
 octets (`Bytes`). *Conséquence* : les limites de saisie déjà comptées en octets (nom d'utilisateur, projet)
-restent à harmoniser.
+restaient à harmoniser ; c'est fait depuis l'audit de code de novembre 2026 (nom d'utilisateur, noms de flux,
+de canal et de jeton, projet, filtre d'étiquette, dans l'interface comme en ligne de commande), avec une
+constante par limite partagée (`auth.MaxUsernameLength`, `inventory.MaxProjectLen`). Seul le mot de passe
+reste borné en octets (`auth.MaxPasswordBytes`), car la borne porte sur ce que reçoit argon2.
 
 **A66. La liste des vulnérabilités s'ouvre sur ce qui reste à traiter.** Elle montrait tout par défaut, y
 compris les corrigées, et les nombres des niveaux ne faisaient pas son total. Elle s'ouvre désormais sur les

@@ -28,6 +28,14 @@ const (
 // MinPasswordLength follows OWASP ASVS guidance for passwords without MFA.
 const MinPasswordLength = 12
 
+// MaxPasswordBytes bounds what argon2 is given: HashPassword refuses a longer
+// password, and every form that verifies one refuses it before the slow
+// computation (sign-in, account forms).
+const MaxPasswordBytes = 1024
+
+// MaxUsernameLength is the longest username, in characters.
+const MaxUsernameLength = 64
+
 // RoleAtLeast reports whether role grants the privileges of required.
 func RoleAtLeast(role, required string) bool {
 	rank := map[string]int{RoleViewer: 1, RoleAnalyst: 2, RoleAdmin: 3}
@@ -62,6 +70,11 @@ func idKey(password string, salt []byte, iterations, memory uint32, threads uint
 func HashPassword(password string) (string, error) {
 	if utf8.RuneCountInString(password) < MinPasswordLength {
 		return "", fmt.Errorf("le mot de passe doit contenir au moins %d caractères", MinPasswordLength)
+	}
+	// SECURITY: the same bound as at sign-in, so that no account gets a
+	// password it could not sign in with.
+	if len(password) > MaxPasswordBytes {
+		return "", fmt.Errorf("le mot de passe est trop long (%d octets au plus)", MaxPasswordBytes)
 	}
 	salt := make([]byte, 16)
 	if _, err := rand.Read(salt); err != nil {

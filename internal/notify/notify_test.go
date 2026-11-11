@@ -78,6 +78,13 @@ func TestValidateAndMask(t *testing.T) {
 	if err := ValidateWebhook(store.Webhook{Name: "x", Kind: "slack", URL: "http://example.org/h"}); err == nil {
 		t.Error("clear-text URL accepted")
 	}
+	// The name is measured in characters, as the form says (R2).
+	for n, ok := range map[int]bool{100: true, 101: false} {
+		err := ValidateWebhook(store.Webhook{Name: strings.Repeat("é", n), Kind: "slack", URL: "https://example.org/h"})
+		if (err == nil) != ok {
+			t.Errorf("name of %d accented characters: %v", n, err)
+		}
+	}
 	if got := MaskURL("https://hooks.slack.com/services/T0/B0/secret"); got != "https://hooks.slack.com/…" {
 		t.Errorf("MaskURL = %q", got)
 	}
