@@ -26,3 +26,17 @@ func TestText(t *testing.T) {
 		t.Errorf("url = %q", u)
 	}
 }
+
+// A line break or another control character cannot cut a Markdown link.
+func TestURLControlCharacters(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://evil.example/a\n@channel please": "https://evil.example/a%0A@channel%20please",
+		"https://e.example/a\r\tb\x00c\x7fd":      "https://e.example/a%0D%09b%00c%7Fd",
+		"https://e.example/[x]<y>":                "https://e.example/%5Bx%5D%3Cy%3E",
+		"https://e.example/été?q=1&r=%41":         "https://e.example/été?q=1&r=%41",
+	} {
+		if got := URL(in); got != want {
+			t.Errorf("URL(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

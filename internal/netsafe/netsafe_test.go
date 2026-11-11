@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 )
@@ -20,6 +21,27 @@ func TestValidateURL(t *testing.T) {
 	} {
 		if err := ValidateURL(raw); (err == nil) != ok {
 			t.Errorf("ValidateURL(%q) = %v", raw, err)
+		}
+	}
+}
+
+func TestWebURL(t *testing.T) {
+	for raw, want := range map[string]string{
+		"https://example.org/a":                  "https://example.org/a",
+		"  http://example.org/a?b=c#d \n":        "http://example.org/a?b=c#d",
+		"https://example.org/a\n@channel please": "", // a line break would cut a Markdown link
+		"https://example.org/a\tb":               "",
+		"https://trusted.example@evil.example/":  "", // host hidden behind credentials
+		"javascript:alert(1)":                    "",
+		"file:///etc/passwd":                     "",
+		"//example.org/a":                        "",
+		"https://":                               "",
+		"":                                       "",
+		"https://example.org/" + strings.Repeat("a", MaxURLLen): "",
+	} {
+		got, ok := WebURL(raw)
+		if got != want || ok != (want != "") {
+			t.Errorf("WebURL(%q) = %q, %t; want %q", raw, got, ok, want)
 		}
 	}
 }

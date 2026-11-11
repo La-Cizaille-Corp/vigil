@@ -16,6 +16,7 @@ import (
 
 	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
+	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/epss"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/kev"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/nvd"
@@ -589,8 +590,8 @@ func (s *Syncer) storeOSV(ctx context.Context, v osv.Vuln, changed bool) error {
 	}
 	var refs []string
 	for _, r := range v.References {
-		if strings.HasPrefix(r.URL, "https://") || strings.HasPrefix(r.URL, "http://") {
-			refs = append(refs, r.URL)
+		if u, ok := netsafe.WebURL(r.URL); ok {
+			refs = append(refs, u)
 		}
 	}
 	return s.Store.UpsertVulnerability(ctx, store.Vulnerability{

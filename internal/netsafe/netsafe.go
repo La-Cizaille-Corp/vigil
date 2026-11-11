@@ -11,12 +11,16 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"strings"
 	"syscall"
 	"time"
 )
 
 // ErrForbiddenAddress is returned when a URL resolves to a blocked address.
 var ErrForbiddenAddress = errors.New("adresse de destination interdite (réseau privé ou local)")
+
+// MaxURLLen bounds a stored URL, in bytes.
+const MaxURLLen = 2000
 
 // ValidateURL checks that raw is an absolute https URL without credentials.
 func ValidateURL(raw string) error {
@@ -30,10 +34,28 @@ func ValidateURL(raw string) error {
 	if u.Host == "" || u.User != nil {
 		return errors.New("URL invalide")
 	}
-	if len(raw) > 2000 {
+	if len(raw) > MaxURLLen {
 		return errors.New("URL trop longue")
 	}
 	return nil
+}
+
+// WebURL returns raw without surrounding spaces when it is a link to show and
+// follow: an absolute http(s) URL with a host, no credentials, at most
+// MaxURLLen bytes. SECURITY: links read from feeds and sources end up in
+// pages and chat messages; url.Parse refuses control characters, so a line
+// break cannot cut the Markdown link of a digest, and a link cannot hide its
+// host behind credentials ("https://trusted.example@evil.example/").
+func WebURL(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || len(raw) > MaxURLLen {
+		return "", false
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" && u.Scheme != "http" || u.Host == "" || u.User != nil {
+		return "", false
+	}
+	return raw, true
 }
 
 // proxyFromEnv is the proxy configuration (HTTPS_PROXY, NO_PROXY), replaced in tests.

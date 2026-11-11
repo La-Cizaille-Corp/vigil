@@ -352,8 +352,8 @@ func parse(data []byte) ([]CVE, int, error) {
 			}
 		}
 		for _, ref := range rec.References {
-			if strings.HasPrefix(ref.URL, "https://") || strings.HasPrefix(ref.URL, "http://") {
-				c.Refs = append(c.Refs, ref.URL)
+			if u, ok := netsafe.WebURL(ref.URL); ok {
+				c.Refs = append(c.Refs, u)
 			}
 		}
 		out = append(out, c)

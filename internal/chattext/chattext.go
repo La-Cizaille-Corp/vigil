@@ -33,6 +33,21 @@ func Cell(s string) string {
 
 // URL makes a validated http(s) link safe as the target of a Markdown link:
 // characters that would end the target or the link are percent-encoded.
+// SECURITY: so are spaces and control characters: a line break would cut
+// the link and start a line that the chat reads as text ("@channel"), even
+// for a link stored before links were checked on collection.
 func URL(s string) string {
-	return strings.NewReplacer(" ", "%20", "(", "%28", ")", "%29", "<", "%3C", ">", "%3E", "[", "%5B", "]", "%5D").Replace(s)
+	const hex = "0123456789ABCDEF"
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c <= ' ' || c == 0x7f || strings.IndexByte("()<>[]", c) >= 0 {
+			b.WriteByte('%')
+			b.WriteByte(hex[c>>4])
+			b.WriteByte(hex[c&0x0f])
+			continue
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
 }
