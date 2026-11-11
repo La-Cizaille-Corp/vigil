@@ -43,10 +43,19 @@ const formulaTriggers = "=+-@\t\r"
 
 // cellBreaks are the characters after which a spreadsheet may start a new
 // cell or line inside a value: the separators it may split on instead of the
-// file's (Excel in French splits on ";", the import dialogs of Excel and
-// LibreOffice offer comma, semicolon, tab and space), and line breaks. A space
-// also covers a spreadsheet that trims cells: tags are joined with ", ".
-const cellBreaks = ",;\t\r\n "
+// file's (Excel in French splits on ";", others on "," or tab), and line
+// breaks. A space is not one: splitting on it is a deliberate choice in an
+// import dialog, which cuts every text apart anyway, and treating it as one
+// would put an apostrophe in "2.0 - 2.5" or "a = b". Spaces right after a
+// cell start keep it a cell start instead (see nextCellStart).
+const cellBreaks = ",;\t\r\n"
+
+// nextCellStart reports whether the character after c may start a cell:
+// after one of cellBreaks, or after a space that follows a cell start, for a
+// spreadsheet that trims cells (tags are joined with ", ": "prod, =1+1").
+func nextCellStart(cellStart bool, c byte) bool {
+	return strings.IndexByte(cellBreaks, c) >= 0 || cellStart && c == ' '
+}
 
 // startsFormula reports whether s, past any apostrophes, starts with a
 // formula trigger: the text CSVCell puts an apostrophe in front of.
@@ -59,10 +68,11 @@ func startsFormula(s string) bool {
 //
 // SECURITY: spreadsheet software runs a cell starting with =, +, -, @, tab or
 // carriage return, so every place a cell may start (the start of the value
-// and the position after each of cellBreaks) gets an apostrophe in front of
-// such a character. Apostrophes already there before one are counted in
-// (startsFormula), so that the import can remove exactly what was added
-// (csvValue). All these characters are ASCII: walking bytes leaves UTF-8 intact.
+// and the position after each of cellBreaks, past any spaces) gets an
+// apostrophe in front of such a character. Apostrophes already there before
+// one are counted in (startsFormula), so that the import can remove exactly
+// what was added (csvValue). All these characters are ASCII: walking bytes
+// leaves UTF-8 intact.
 func CSVCell(v string) string {
 	var b strings.Builder
 	b.Grow(len(v))
@@ -72,25 +82,24 @@ func CSVCell(v string) string {
 			b.WriteByte('\'')
 		}
 		b.WriteByte(v[i])
-		cellStart = strings.IndexByte(cellBreaks, v[i]) >= 0
+		cellStart = nextCellStart(cellStart, v[i])
 	}
 	return b.String()
 }
 
-// csvValue undoes CSVCell: it removes the apostrophe CSVCell put at a cell
-// start, and only that one, so that an export read back gives the values
-// that were exported.
+// csvValue undoes CSVCell with the same walk: it removes the apostrophe
+// CSVCell put at a cell start, and only that one, so that an export read
+// back gives the values that were exported.
 func csvValue(v string) string {
 	var b strings.Builder
 	b.Grow(len(v))
 	cellStart := true
 	for i := 0; i < len(v); i++ {
 		if cellStart && v[i] == '\'' && startsFormula(v[i+1:]) {
-			cellStart = false // the character it protected is in the same cell
-			continue
+			i++ // drop the apostrophe; v[i] is the character it protects
 		}
 		b.WriteByte(v[i])
-		cellStart = strings.IndexByte(cellBreaks, v[i]) >= 0
+		cellStart = nextCellStart(cellStart, v[i])
 	}
 	return b.String()
 }

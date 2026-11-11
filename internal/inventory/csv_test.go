@@ -80,12 +80,21 @@ func TestCSVCell(t *testing.T) {
 		"a,@SUM(A1)":           "a,'@SUM(A1)",
 		"x\t+1":                "x\t'+1",
 		"a, -b":                "a, '-b", // a spreadsheet that trims cells drops the space
+		"prod, =1+1":           "prod, '=1+1",
+		"a,  -b":               "a,  '-b",
+		"x\n =1":               "x\n '=1",
+		" =1":                  " '=1",
 		"voir\n=1+1":           "voir\n'=1+1",
 		"a\r@SUM(A1)":          "a\r'@SUM(A1)",
 		"a;\t=b":               "a;'\t'=b",
 		"'=1":                  "''=1", // so that the import gives back the apostrophe
+		", '=1":                ", ''=1",
+		"2.0 - 2.5":            "2.0 - 2.5", // a space alone starts no cell
+		"a = b":                "a = b",
+		"x @y":                 "x @y",
+		"Apache - HTTP, +1":    "Apache - HTTP, '+1",
 		"l'actif 'principal'":  "l'actif 'principal'",
-		"option '--force'":     "option ''--force'",
+		"option '--force'":     "option '--force'",
 		"Überflow;=x":          "Überflow;'=x",
 	} {
 		if got := CSVCell(in); got != want {
@@ -109,12 +118,13 @@ func writeCSV(t *testing.T, rows ...[]string) string {
 	return b.String()
 }
 
-// An export opened by a spreadsheet that splits on another character than
-// the file's separator, and maybe trims cells, has no cell starting a formula.
+// An export opened by a spreadsheet that splits on another separator than
+// the file's, or on line breaks, and maybe trims cells, has no cell starting
+// a formula. Splitting on spaces is not covered (see cellBreaks).
 func TestCSVCellOtherSeparators(t *testing.T) {
-	notes := "voir ticket\n=HYPERLINK(\"https://evil.example\",\"x\")\r+1 ; -2,@3\t=4  =5"
+	notes := "voir ticket\n=HYPERLINK(\"https://evil.example\",\"x\")\r+1 ; -2,@3\t=4,  =5\n =6 2.0 - 2.5"
 	file := writeCSV(t, CSVRow(store.Asset{Name: "lodash", Notes: notes, Tags: []string{"prod", "=1+1", "-x"}}))
-	for _, sep := range []rune{',', ';', '\t', ' '} {
+	for _, sep := range []rune{',', ';', '\t'} {
 		r := csv.NewReader(strings.NewReader(file))
 		r.Comma, r.LazyQuotes, r.FieldsPerRecord, r.TrimLeadingSpace = sep, true, -1, true
 		records, err := r.ReadAll()
@@ -138,7 +148,8 @@ func TestCSVCellOtherSeparators(t *testing.T) {
 // and formulas included: the import removes exactly what the export adds.
 func TestCSVExportImportExact(t *testing.T) {
 	in := store.Asset{Name: "@scope/pkg", Kind: "package", Criticality: "medium", Owner: "équipe; -sécurité",
-		Project: "+projet", Notes: "a;-b\nvoir ticket\n=HYPERLINK(\"https://evil.example\")\n'=déjà neutralisé, l'actif 'principal', option '--force'",
+		Project: "+projet", Notes: "a;-b\nvoir ticket\n=HYPERLINK(\"https://evil.example\")\n'=déjà neutralisé, l'actif 'principal', option '--force'" +
+			"\n =1 et a,  -b, , '=2\n2.0 - 2.5, a = b, x @y",
 		Tags: []string{"prod", "=1+1", "-x", "@équipe", "'-y"}}
 	r := csv.NewReader(strings.NewReader(writeCSV(t, CSVColumns, CSVRow(in))))
 	r.Comma = ';'
