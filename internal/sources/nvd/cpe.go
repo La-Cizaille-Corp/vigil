@@ -138,8 +138,11 @@ func (c *Client) cpePage(ctx context.Context, params url.Values) ([]Product, int
 		return nil, 0, fmt.Errorf("nvd: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	switch {
+	case resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests:
 		return nil, 0, fmt.Errorf("nvd : HTTP %d (limite de requêtes atteinte ? réessayez dans 30 secondes)", resp.StatusCode)
+	case resp.StatusCode != http.StatusOK:
+		return nil, 0, fmt.Errorf("nvd : HTTP %d%s", resp.StatusCode, reason(resp))
 	}
 	data, err := netsafe.ReadLimited(resp.Body, maxCPEBody)
 	if err != nil {
