@@ -1,6 +1,6 @@
 package web
 
-// Regression tests of the November 2026 code audit (findings S1, S2, S8 and S9).
+// Regression tests of the November 2026 code audit (findings S1, S2, S6, S8 and S9).
 
 import (
 	"bytes"
@@ -321,5 +321,38 @@ func TestAccountLimitersHoldInParallel(t *testing.T) {
 		if err != nil || code != http.StatusBadRequest {
 			t.Fatalf("mistyped confirmation: %d, %v", code, err)
 		}
+	}
+}
+
+// S6: filter values were checked but not de-duplicated, and each one adds a
+// LIKE to the query: from 1,001 repeats SQLite refused the expression and
+// every reader of the news page got a 500, from a crafted URL or, lastingly,
+// from a watch saved with repeated values.
+func TestRepeatedFilterValues(t *testing.T) {
+	st, base := newServerWith(t, nil)
+	c := loginAs(t, base, "analyst", "a-strong-password")
+	repeated := strings.Repeat("country=FR&", 1001)
+	if code, _ := c.get("/cti?" + repeated); code != http.StatusOK {
+		t.Errorf("/cti with 1,001 identical countries: %d", code)
+	}
+
+	form, err := url.ParseQuery(repeated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	form.Set("csrf", c.csrf())
+	if code := c.post("/settings/watch", form); code != http.StatusSeeOther {
+		t.Fatalf("save watch: %d", code)
+	}
+	if saved, _ := st.Setting(context.Background(), cti.SettingCountries); saved != "FR" {
+		t.Errorf("watched countries stored as %.40q", saved)
+	}
+	if code, _ := c.get("/cti"); code != http.StatusOK {
+		t.Errorf("/cti on the saved watch: %d", code)
+	}
+
+	f := findingFilterFrom(url.Values{"status": {"in_triage", "in_triage", "bogus"}, "kind": {"os", "os"}})
+	if len(f.Statuses) != 1 || len(f.Kinds) != 1 {
+		t.Errorf("finding filter kept duplicates: %v %v", f.Statuses, f.Kinds)
 	}
 }
