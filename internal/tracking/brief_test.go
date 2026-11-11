@@ -40,7 +40,7 @@ func TestSanitize(t *testing.T) {
 			t.Errorf("valid data changed: %+v, want %+v", got, valid)
 		}
 	}
-	for _, severity := range []string{"<B>PWNED</B>", "UNKNOWN", "NONE", "IMPORTANT"} {
+	for _, severity := range []string{"<B>PWNED</B>", "UNKNOWN", "NONE"} {
 		if got := sanitize(store.Vulnerability{Severity: severity}).Severity; got != "" {
 			t.Errorf("severity %q stored as %q, want unknown (\"\")", severity, got)
 		}
@@ -90,5 +90,14 @@ func TestSourceDataChecked(t *testing.T) {
 	got, err := st.Vulnerability(ctx, "GHSA-bad")
 	if err != nil || got.Severity != "" || utf8.RuneCountInString(got.Summary) >= 100_000 {
 		t.Errorf("OSV: severity %q, summary of %d characters, %v", got.Severity, utf8.RuneCountInString(got.Summary), err)
+	}
+	// The scale of a database is translated before the check, not lost by it.
+	adv = osv.Vuln{ID: "RHSA-2024:0001", Modified: "2026-01-01T00:00:00Z"}
+	adv.DatabaseSpecific.Severity = "Important"
+	if err := (&Syncer{Store: st}).storeOSV(ctx, adv, true); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := st.Vulnerability(ctx, "RHSA-2024:0001"); err != nil || got.Severity != "HIGH" {
+		t.Errorf("Red Hat Important stored as %q, %v", got.Severity, err)
 	}
 }

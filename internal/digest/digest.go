@@ -97,9 +97,6 @@ var Bands = []string{"CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"}
 // the rating of its CVSS score when the advisory gives none.
 func Band(f store.Finding) string {
 	s := strings.ToUpper(f.Severity)
-	if s == "MODERATE" {
-		s = "MEDIUM"
-	}
 	if s == "" {
 		s = cvss.Severity(f.CVSS)
 	}
@@ -373,7 +370,7 @@ func severityRank(s string) int {
 		return 4
 	case "HIGH":
 		return 3
-	case "MEDIUM", "MODERATE":
+	case "MEDIUM":
 		return 2
 	case "LOW":
 		return 1

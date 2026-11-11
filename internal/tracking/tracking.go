@@ -467,7 +467,8 @@ const (
 
 // sanitize returns an advisory as it may be stored. SECURITY: the sources
 // are fixed HTTPS hosts, but what they send is counted, filtered and shown:
-// a severity outside Severities becomes unknown (""), like a missing one, a
+// a severity still outside Severities (osv.Vuln.SeverityLabel has translated
+// the scales of the databases) becomes unknown (""), like a missing one, a
 // CVSS score outside 0..10 becomes absent, texts and lists are bounded. A
 // longer alias is not an identifier: it is dropped.
 func sanitize(v store.Vulnerability) store.Vulnerability {
