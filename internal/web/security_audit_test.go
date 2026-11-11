@@ -1,6 +1,6 @@
 package web
 
-// Regression tests of the November 2026 code audit (findings S1 and S2).
+// Regression tests of the November 2026 code audit (findings S1, S2 and S8).
 
 import (
 	"bytes"
@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"sync"
@@ -122,6 +123,72 @@ func TestActionsAreAudited(t *testing.T) {
 		if seen[action] != "analyst" {
 			t.Errorf("%s: recorded for %q", action, seen[action])
 		}
+	}
+}
+
+// S8: « Collecter maintenant » clicked during a collection says that one is
+// in progress, as the synchronisation does, instead of queueing another
+// whole collection behind it.
+func TestCTIRefreshRefusedWhileRunning(t *testing.T) {
+	fetched, release := make(chan struct{}, 10), make(chan struct{})
+	feed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fetched <- struct{}{}
+		<-release
+		w.Write([]byte(`<rss><channel></channel></rss>`))
+	}))
+	t.Cleanup(feed.Close)
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	t.Cleanup(unblock) // before the feed server closes
+	var collector *cti.Collector
+	st, base := newServerWith(t, func(s *Server) {
+		collector = &cti.Collector{Store: s.Store, HTTP: feed.Client(), UserAgent: "test", Log: s.Log}
+		s.CTI = collector
+	})
+	ctx := context.Background()
+	feeds, _ := st.ListFeeds(ctx)
+	for _, f := range feeds { // no network in this test
+		st.SetFeedEnabled(ctx, f.ID, false)
+	}
+	if _, err := st.CreateFeed(ctx, store.Feed{Name: "x", URL: feed.URL, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	c := loginAs(t, base, "analyst", "a-strong-password")
+	refresh := func() string {
+		_, loc := c.postLocation("/cti/refresh", url.Values{"csrf": {c.csrf()}})
+		return loc
+	}
+
+	if loc := refresh(); loc != "/cti?msg=cti-started" {
+		t.Fatalf("first click: %q", loc)
+	}
+	select {
+	case <-fetched:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the collection did not start")
+	}
+	if loc := refresh(); loc != "/cti?msg=cti-running" {
+		t.Errorf("second click during the collection: %q, want cti-running", loc)
+	}
+	if _, page := c.get("/cti?msg=cti-running"); !strings.Contains(page, "Une collecte des flux est déjà en cours") {
+		t.Error("no message on the page")
+	}
+	unblock()
+	for deadline := time.Now().Add(10 * time.Second); collector.Running() && time.Now().Before(deadline); {
+		time.Sleep(10 * time.Millisecond)
+	}
+	entries, err := st.ListAudit(ctx, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refreshes := 0
+	for _, e := range entries {
+		if e.Action == "cti_refresh" {
+			refreshes++
+		}
+	}
+	if refreshes != 1 || len(fetched) != 0 {
+		t.Errorf("%d collections audited, %d more fetched; want the one that ran", refreshes, len(fetched))
 	}
 }
 
