@@ -25,7 +25,10 @@ const DefaultBaseURL = "https://api.osv.dev"
 const maxBatch = 1000
 
 // maxBody bounds every response read at once, maxPage a page of /v1/query, read
-// advisory by advisory: thousands of them, each listing many packages.
+// advisory by advisory: thousands of them, each listing many packages. A page
+// can exceed 64 MB and an Ubuntu advisory weighs 600 KB (ARCHITECTURE.md, A55
+// and A62); the heaviest page is not measured, hence the margin. One advisory
+// at a time is held in memory.
 const (
 	maxBody = 32 << 20
 	maxPage = 1 << 30
@@ -469,13 +472,18 @@ func (v Vuln) CVSSScore() float64 {
 	return best
 }
 
+// databaseSeverities translates the severity scales of the databases into
+// the ratings of CVSS: GitHub's MODERATE, Red Hat's Important.
+var databaseSeverities = map[string]string{
+	"CRITICAL": "CRITICAL", "HIGH": "HIGH", "IMPORTANT": "HIGH",
+	"MEDIUM": "MEDIUM", "MODERATE": "MEDIUM", "LOW": "LOW",
+}
+
 // SeverityLabel returns the advisory severity (e.g. HIGH) when the database
-// provides one, otherwise the rating of the CVSS score, otherwise "".
+// provides one on a known scale, otherwise the rating of the CVSS score,
+// otherwise "".
 func (v Vuln) SeverityLabel() string {
-	if s := strings.ToUpper(v.DatabaseSpecific.Severity); s != "" {
-		if s == "MODERATE" {
-			return "MEDIUM"
-		}
+	if s, ok := databaseSeverities[strings.ToUpper(v.DatabaseSpecific.Severity)]; ok {
 		return s
 	}
 	return cvss.Severity(v.CVSSScore())

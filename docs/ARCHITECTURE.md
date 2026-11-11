@@ -340,6 +340,21 @@ compris les corrigées, et les nombres des niveaux ne faisaient pas son total. E
 ouvertes, la somme des trois premiers niveaux ; les corrigées ont leur onglet, « Toutes » réunit tout. Un filtre
 de statut garde la liste entière, pour qu'un statut demandé (« Corrigé ») soit montré. L'export suit la page.
 
+**A69. Ce que les sources envoient est vérifié avant d'être stocké.** OSV et la NVD sont des hôtes fixes
+en HTTPS, mais leurs champs étaient stockés tels quels : une sévérité hors de la liste (`IMPORTANT` de
+Red Hat, `NONE`, du HTML) n'entrait dans aucun filtre, pas même « Inconnue », un score CVSS de 1e300
+dépassait tous les seuils, une description n'avait pas de taille. L'échelle d'une base est traduite à la
+source, en un seul endroit (`osv.Vuln.SeverityLabel` : `MODERATE` de GitHub en `MEDIUM`, `Important` de
+Red Hat en `HIGH`) ; une valeur inconnue y est remplacée par la sévérité du score CVSS, comme une valeur
+absente. Puis une seule fonction, `tracking.sanitize`, s'applique aux deux entrées (avis OSV, fiche NVD) :
+sévérité de la liste ou inconnue, score dans 0..10 ou absent, résumé, description, alias et références
+bornés, bien au-dessus des avis réels. L'échéance KEV, écrite à part, est vérifiée par son client, comme
+les scores EPSS. *Écarté* : stocker `UNKNOWN`, une deuxième forme de l'inconnu à côté de la sévérité vide,
+que le digest ne classerait plus d'après le score ; traduire aussi dans le digest, qui ne lit que des
+sévérités déjà traduites (aucune version publiée n'a stocké `MODERATE`). *Conséquence* : une fiche déjà
+en base est corrigée à sa prochaine écriture (chaque synchronisation pour la NVD, la prochaine
+modification de l'avis pour OSV).
+
 **A13. Statuts CycloneDX / VEX.** Des statuts maison auraient été plus « parlants » mais non
 interopérables. Les états VEX (`in_triage`, `exploitable`, `resolved`, `not_affected` +
 justification, `false_positive`) sont libellés en français dans l'interface, et l'export /
