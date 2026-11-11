@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/clip"
+	"github.com/La-Cizaille-Corp/vigil/internal/cvss"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
+	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/epss"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/kev"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/nvd"
@@ -445,10 +447,43 @@ func brief(description string) string {
 }
 
 func nvdVuln(c nvd.CVE) store.Vulnerability {
-	return store.Vulnerability{
+	return sanitize(store.Vulnerability{
 		ID: c.ID, Summary: brief(c.Description), Details: c.Description, Severity: c.Severity, CVSS: c.CVSS,
 		Published: c.Published, Modified: c.Modified, Refs: c.Refs, Raw: string(c.Raw),
+	})
+}
+
+// Bounds of what is stored of an advisory, set well above real ones so that
+// they only stop a faulty or hostile answer: an NVD description holds at most
+// 4 096 characters (CVE JSON 5 schema), an OSV summary is meant to be one
+// line, and the long lists (the CVE of a kernel advisory, the references of
+// an old CVE) count in hundreds.
+const (
+	maxSummary = 1000      // characters
+	maxDetails = 64 * 1024 // characters
+	maxID      = 100       // characters of an alias
+	maxList    = 2000      // aliases, references
+)
+
+// sanitize returns an advisory as it may be stored. SECURITY: the sources
+// are fixed HTTPS hosts, but what they send is counted, filtered and shown:
+// a severity still outside Severities (osv.Vuln.SeverityLabel has translated
+// the scales of the databases) becomes unknown (""), like a missing one, a
+// CVSS score outside 0..10 becomes absent, texts and lists are bounded. A
+// longer alias is not an identifier: it is dropped.
+func sanitize(v store.Vulnerability) store.Vulnerability {
+	if v.Severity == "UNKNOWN" || inventory.Label(Severities, v.Severity) == v.Severity {
+		v.Severity = ""
 	}
+	if !(v.CVSS >= 0 && v.CVSS <= 10) { // NaN included
+		v.CVSS = cvss.Unknown
+	}
+	v.Summary = clip.Text(v.Summary, maxSummary)
+	v.Details = clip.Text(v.Details, maxDetails)
+	v.Aliases = slices.DeleteFunc(slices.Clone(v.Aliases), func(id string) bool { return !clip.Fits(id, maxID) })
+	v.Aliases = v.Aliases[:min(len(v.Aliases), maxList)]
+	v.Refs = v.Refs[:min(len(v.Refs), maxList)]
+	return v
 }
 
 // readCPE stores the CVEs of an asset found by its CPE and returns their ids.
@@ -589,11 +624,11 @@ func (s *Syncer) storeOSV(ctx context.Context, v osv.Vuln, changed bool) error {
 	}
 	var refs []string
 	for _, r := range v.References {
-		if strings.HasPrefix(r.URL, "https://") || strings.HasPrefix(r.URL, "http://") {
-			refs = append(refs, r.URL)
+		if u, ok := netsafe.WebURL(r.URL); ok {
+			refs = append(refs, u)
 		}
 	}
-	return s.Store.UpsertVulnerability(ctx, store.Vulnerability{
+	return s.Store.UpsertVulnerability(ctx, sanitize(store.Vulnerability{
 		ID:        v.ID,
 		Aliases:   v.OtherIDs(),
 		Summary:   cmp.Or(v.Summary, brief(v.Details)), // a DEBIAN-CVE record has no summary
@@ -604,7 +639,7 @@ func (s *Syncer) storeOSV(ctx context.Context, v osv.Vuln, changed bool) error {
 		Modified:  v.Modified,
 		Refs:      refs,
 		Raw:       string(v.Compact()),
-	})
+	}))
 }
 
 // enrich refreshes the KEV flag and EPSS score of every stored vulnerability.

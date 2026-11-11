@@ -23,8 +23,8 @@ import (
 
 func (s *Server) ctiList(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	filter := store.CTIFilter{Countries: knownOnly(cti.Countries, q["country"]), Sectors: knownOnly(cti.Sectors, q["sector"]),
-		Regulations: knownOnly(cti.Regulations, q["regulation"])}
+	filter := store.CTIFilter{Countries: cti.KnownOnly(cti.Countries, q["country"]), Sectors: cti.KnownOnly(cti.Sectors, q["sector"]),
+		Regulations: cti.KnownOnly(cti.Regulations, q["regulation"])}
 	watched, regulatory := false, q.Get("view") == "regulatory"
 	switch {
 	case regulatory:
@@ -67,16 +67,6 @@ func (s *Server) ctiRefresh(w http.ResponseWriter, r *http.Request) {
 	}()
 	s.audit(r, "cti_refresh", "manuel")
 	redirect(w, r, "/cti", "cti-started")
-}
-
-func knownOnly(tags []cti.Tag, values []string) []string {
-	var out []string
-	for _, v := range values {
-		if cti.Known(tags, v) {
-			out = append(out, v)
-		}
-	}
-	return out
 }
 
 // --- settings -------------------------------------------------------------
@@ -148,9 +138,9 @@ func (s *Server) saveWatch(w http.ResponseWriter, r *http.Request) {
 // feedTagsFromForm reads the tags a feed applies to its items: several
 // countries, sectors and regulations each.
 func feedTagsFromForm(r *http.Request) (country, sectors, regulations string) {
-	return strings.Join(knownOnly(cti.Countries, r.PostForm["country"]), ","),
-		strings.Join(knownOnly(cti.Sectors, r.PostForm["sector"]), ","),
-		strings.Join(knownOnly(cti.Regulations, r.PostForm["regulation"]), ",")
+	return strings.Join(cti.KnownOnly(cti.Countries, r.PostForm["country"]), ","),
+		strings.Join(cti.KnownOnly(cti.Sectors, r.PostForm["sector"]), ","),
+		strings.Join(cti.KnownOnly(cti.Regulations, r.PostForm["regulation"]), ",")
 }
 
 func (s *Server) feedCreate(w http.ResponseWriter, r *http.Request) {

@@ -70,7 +70,7 @@ func TestLatestPackage(t *testing.T) {
 			 "affected":[{"package":{"purl":"pkg:npm/left"},"ranges":[{"type":"SEMVER","events":[{"introduced":"0"},{"fixed":"1.2.0"}]}]}]}]}`)
 	}))
 	defer srv.Close()
-	client := osv.New("vigil-test")
+	client := osv.New(http.DefaultClient, "vigil-test")
 	client.BaseURL = srv.URL
 	syncer := &tracking.Syncer{Store: st, OSV: client, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 
@@ -139,7 +139,7 @@ func TestByNameAndLatestCPE(t *testing.T) {
 		io.WriteString(w, `{"totalResults":4,"vulnerabilities":[`+list+`]}`)
 	}))
 	defer srv.Close()
-	syncer := &tracking.Syncer{Store: st, OSV: osv.New("vigil-test"), Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	syncer := &tracking.Syncer{Store: st, OSV: osv.New(http.DefaultClient, "vigil-test"), Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		NVD: &nvd.Client{URL: srv.URL, HTTP: srv.Client()}}
 
 	add := func(a store.Asset) int64 {

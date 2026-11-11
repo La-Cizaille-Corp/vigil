@@ -86,7 +86,7 @@ func TestSortByPriority(t *testing.T) {
 func TestByVendor(t *testing.T) {
 	const fortios = "cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*"
 	fs := []store.Finding{
-		{VulnID: "npm-medium", AssetPURL: "pkg:npm/lodash@4.17.15", Severity: "MODERATE"},
+		{VulnID: "npm-medium", AssetPURL: "pkg:npm/lodash@4.17.15", Severity: "MEDIUM"},
 		{VulnID: "forti-high", AssetCPE: fortios, Severity: "HIGH", CVSS: 8.1},
 		{VulnID: "forti-scored", AssetCPE: fortios, CVSS: 9.8}, // no advisory severity: rated by its score
 		{VulnID: "forti-kev", AssetCPE: fortios, Severity: "HIGH", CVSS: 7.5, KEV: true},
@@ -156,5 +156,15 @@ func TestLevel(t *testing.T) {
 		if got := Level(c.f); got != c.want {
 			t.Errorf("Level(%+v) = %q, want %q", c.f, got, c.want)
 		}
+	}
+}
+
+// A feed link stored with a line break (before links were checked when a feed
+// is collected) cannot cut the Markdown link and ping a channel.
+func TestLinkCannotBreakOut(t *testing.T) {
+	link := funcs["link"].(func(string, string) string)
+	got := link("Correctif urgent", "https://evil.example/a\n@channel please read")
+	if strings.ContainsAny(got, "\r\n") || got != "[Correctif urgent](https://evil.example/a%0A@channel%20please%20read)" {
+		t.Errorf("link = %q", got)
 	}
 }

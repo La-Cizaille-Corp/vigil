@@ -35,7 +35,7 @@ commande l'emporte.
 ### Télécharger et vérifier
 
 ```powershell
-$v = "0.4.2"; $arch = "amd64"   # arm64 sur processeur ARM
+$v = "0.4.3"; $arch = "amd64"   # arm64 sur processeur ARM
 $base = "https://github.com/La-Cizaille-Corp/vigil/releases/download/v$v"
 $zip = "vigil_${v}_windows_$arch.zip"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -135,7 +135,7 @@ New-NetFirewallRule -DisplayName "Vigil (HTTPS)" -Direction Inbound -Protocol TC
 ## 3. macOS (Intel et Apple Silicon)
 
 ```bash
-VERSION=0.4.2; ARCH=arm64   # amd64 sur Mac Intel
+VERSION=0.4.3; ARCH=arm64   # amd64 sur Mac Intel
 BASE=https://github.com/La-Cizaille-Corp/vigil/releases/download/v$VERSION
 curl -fsSLO $BASE/vigil_${VERSION}_darwin_$ARCH.tar.gz
 curl -fsSLO $BASE/checksums.txt
@@ -177,7 +177,7 @@ sudo /usr/libexec/ApplicationFirewall/socketfilterfw --unblockapp /usr/local/bin
 ## 4. Linux
 
 ```bash
-VERSION=0.4.2; ARCH=amd64   # arm64 sur ARM
+VERSION=0.4.3; ARCH=amd64   # arm64 sur ARM
 BASE=https://github.com/La-Cizaille-Corp/vigil/releases/download/v$VERSION
 curl -fsSLO $BASE/vigil_${VERSION}_linux_$ARCH.tar.gz
 curl -fsSLO $BASE/checksums.txt
@@ -238,7 +238,7 @@ Binaire statique sans bibliothèque externe : aucune règle SELinux ou AppArmor 
 
 Image distroless (sans shell), utilisateur non privilégié, données dans le volume `/data`.
 Fonctionne de la même façon sous Docker Desktop (Windows, macOS). Les tags suivent les versions
-(`0.4.2`, `0.4`) : fixez-en toujours un.
+(`0.4.3`, `0.4`) : fixez-en toujours un.
 
 **Poste local** :
 
@@ -255,7 +255,7 @@ ce volume nommé, Docker en crée un anonyme, et le conteneur suivant repartirai
 
 ```bash
 mkdir vigil && cd vigil
-RAW=https://raw.githubusercontent.com/La-Cizaille-Corp/vigil/v0.4.2/deploy
+RAW=https://raw.githubusercontent.com/La-Cizaille-Corp/vigil/v0.4.3/deploy
 curl -fsSLO $RAW/docker-compose.yml
 curl -fsSLO $RAW/Caddyfile
 curl -fsSL -o .env $RAW/.env.example   # renseignez VIGIL_DOMAIN ; vérifiez le tag d'image du compose
@@ -403,6 +403,7 @@ planifiée Windows, LaunchAgent macOS), sauvegarder, remplacer, relancer, vérif
 | « Origine refusée » à l'envoi d'un formulaire | Le reverse proxy ne transmet pas l'en-tête `Host` d'origine (voir [§ 6](#reverse-proxy)). |
 | Synchronisation NVD très lente | Sans clé, la NVD limite à 5 requêtes par 30 s. Clé gratuite : <https://nvd.nist.gov/developers/request-an-api-key>, dans `VIGIL_NVD_API_KEY`. |
 | « N actif(s) non vérifié(s) » après une synchronisation | Une source n'a pas répondu, même après plusieurs essais (par exemple `status 503`, panne passagère). La raison est affichée aux analystes. Ces actifs gardent leurs vulnérabilités, et la prochaine synchronisation les reprend. |
+| `nvd: HTTP 404 (Invalid apiKey.)` | La NVD refuse la clé de `VIGIL_NVD_API_KEY` (mal recopiée, ou désactivée par la NVD) : corrigez-la ou retirez la variable. Les actifs suivis par la NVD restent non vérifiés, sans qu'aucune vulnérabilité soit fermée. |
 | Inventaire vide après une mise à jour ou un changement de service | Vigil a ouvert une **autre base**, rien n'est perdu : autre compte (la base par défaut dépend de l'utilisateur), `-db` ou `VIGIL_DB` absent, conteneur sans le volume nommé. Le journal de démarrage indique le fichier ouvert (`db=…`). Arrêtez Vigil et relancez-le sur la bonne base. |
 | Canal Teams : `réponse HTTP 401` | Le workflow n'accepte que les utilisateurs du tenant (« Qui peut déclencher le flux » doit être sur « Tout le monde »), ou son adresse `logic.azure.com` n'est plus valide : recopiez l'URL du workflow. Si « Tout le monde » est interdit chez vous, utilisez un canal e-mail vers l'adresse du canal Teams. |
 | Disque plein, ou mise à jour refusée à la copie de la base | Voir [la place à prévoir](OPERATIONS.md#place-à-prévoir). |

@@ -76,34 +76,3 @@ func TestScopeWithoutSession(t *testing.T) {
 		}
 	}
 }
-
-// Every route but the sign-in, the first setup and the token API sends an
-// anonymous request to the sign-in page; the list of public routes is fixed
-// here, so that a new one is a deliberate choice.
-func TestEveryRouteNeedsASession(t *testing.T) {
-	_, base := newTestServer(t)
-	c := newClient(t, base)
-	wantPublic := []string{"GET /setup", "POST /setup", "GET /login", "POST /login", "PUT /api/v1/projects/{project}/sbom"}
-	var open []string
-	for _, rt := range (&Server{}).routes() {
-		if rt.role == public {
-			open = append(open, rt.pattern)
-			continue
-		}
-		method, path, _ := strings.Cut(rt.pattern, " ")
-		path = strings.NewReplacer("{$}", "", "{id}", "1", "{rule}", "1").Replace(path)
-		req, _ := http.NewRequest(method, base+path, strings.NewReader(""))
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		resp, err := c.http.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		resp.Body.Close()
-		if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/login" {
-			t.Errorf("%s without a session: %d to %q", rt.pattern, resp.StatusCode, resp.Header.Get("Location"))
-		}
-	}
-	if !slices.Equal(open, wantPublic) {
-		t.Errorf("public routes: %v, want %v", open, wantPublic)
-	}
-}

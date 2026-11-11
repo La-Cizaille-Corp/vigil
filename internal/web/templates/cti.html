@@ -1,10 +1,10 @@
 {{define "content"}}
 {{$f := .Data.Filter}}{{$analyst := can .User.Role "analyst"}}
-<nav class="filters">
-  <a href="/cti" {{if not (or .Data.Regulatory .Data.All)}}class="active"{{end}}>Veille menaces</a>
-  <a href="/cti?view=regulatory" {{if .Data.Regulatory}}class="active"{{end}}>Veille réglementaire</a>
-  <a href="/cti?all=1" {{if and .Data.All (not .Data.Concerning)}}class="active"{{end}}>Toutes les actualités</a>
-  <a href="/cti?all=1&amp;concerning=1" {{if .Data.Concerning}}class="active"{{end}}>Qui concernent mon inventaire</a>
+<nav class="filters" aria-label="Vues de la veille">
+  <a href="/cti" {{if not (or .Data.Regulatory .Data.All)}}class="active" aria-current="true"{{end}}>Veille menaces</a>
+  <a href="/cti?view=regulatory" {{if .Data.Regulatory}}class="active" aria-current="true"{{end}}>Veille réglementaire</a>
+  <a href="/cti?all=1" {{if and .Data.All (not .Data.Concerning)}}class="active" aria-current="true"{{end}}>Toutes les actualités</a>
+  <a href="/cti?all=1&amp;concerning=1" {{if .Data.Concerning}}class="active" aria-current="true"{{end}}>Qui concernent mon inventaire</a>
 </nav>
 {{if .Data.Concerning}}<p class="muted small">Actualités qui citent une vulnérabilité ouverte de votre inventaire (identifiant CVE dans le titre ou le résumé).</p>{{end}}
 {{if .Data.Watched}}<p class="muted small">Filtre de veille enregistré appliqué{{if $analyst}} (<a href="/settings">modifier</a>){{end}}.</p>{{end}}

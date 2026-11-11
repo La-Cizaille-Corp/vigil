@@ -17,12 +17,7 @@ import (
 
 // postLocation posts a form and returns the status and redirect target.
 func (c *client) postLocation(path string, form url.Values) (int, string) {
-	resp, err := c.http.PostForm(c.base+path, form)
-	if err != nil {
-		c.t.Fatal(err)
-	}
-	resp.Body.Close()
-	return resp.StatusCode, resp.Header.Get("Location")
+	return c.send(http.MethodPost, path, form)
 }
 
 func loginAs(t *testing.T, base, username, password string) *client {
@@ -159,6 +154,30 @@ func TestDashboardCardsLinkToTheirList(t *testing.T) {
 	if !strings.Contains(page, `<a class="kpi kpi-hero" href="/findings?priority=1">`) ||
 		!strings.Contains(page, `<a class="kpi" href="/findings">`) || strings.Contains(page, "%3d") {
 		t.Error("dashboard cards do not link to the open findings")
+	}
+}
+
+// Every page opens on a skip link to its content and names its menu; the bulk
+// panel follows the list, so that it can stick to the bottom of the screen
+// beside the boxes ticked; a summary may break anywhere, never widening the
+// list; the views of the watch say which one is shown.
+func TestLandmarksAndBulkPanel(t *testing.T) {
+	st, base := newServerWith(t, nil)
+	seedFindings(t, st)
+	c := loginAs(t, base, "analyst", "a-strong-password")
+	_, page := c.get("/findings")
+	for _, want := range []string{`<a class="skip" href="#contenu">`, `<main id="contenu">`,
+		`<nav aria-label="Navigation principale">`, `<td data-label="Résumé" class="text">`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("findings page misses %s", want)
+		}
+	}
+	if list, panel := strings.Index(page, "</table>"), strings.Index(page, `id="traiter"`); list < 0 || panel < list {
+		t.Errorf("bulk panel at %d, before the list ending at %d", panel, list)
+	}
+	if _, page := c.get("/cti"); !strings.Contains(page, `<nav class="filters" aria-label="Vues de la veille">`) ||
+		!strings.Contains(page, `class="active" aria-current="true">Veille menaces</a>`) {
+		t.Error("the views of the watch do not say which one is shown")
 	}
 }
 

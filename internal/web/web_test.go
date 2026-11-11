@@ -73,6 +73,22 @@ func (c *client) post(path string, form url.Values, headers ...string) int {
 	return resp.StatusCode
 }
 
+// send makes a form request with any method and returns its status and the
+// page it redirects to.
+func (c *client) send(method, path string, form url.Values) (int, string) {
+	req, err := http.NewRequest(method, c.base+path, strings.NewReader(form.Encode()))
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	resp.Body.Close()
+	return resp.StatusCode, resp.Header.Get("Location")
+}
+
 var csrfRe = regexp.MustCompile(`name="csrf" value="([^"]+)"`)
 
 func (c *client) csrf() string {

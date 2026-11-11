@@ -147,3 +147,32 @@ func TestWholeVendor(t *testing.T) {
 		t.Errorf("requests: %v", got)
 	}
 }
+
+// The NVD answers a refused API key with a 404 and a "message" header, for
+// every kind of query (checked against the live API in November 2026, while
+// an unknown CPE name gets a 200 without results). That is a failure, said as
+// the NVD says it, and not an empty answer.
+func TestRefusedKeyIsAnError(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("message", "Invalid apiKey.")
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+	c := &Client{URL: srv.URL, CPEURL: srv.URL, HTTP: srv.Client(), APIKey: "wrong"}
+	ctx := context.Background()
+	if cves, err := c.ForCPE(ctx, Query{CPE: "cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*"}); err == nil || !strings.Contains(err.Error(), "Invalid apiKey.") {
+		t.Errorf("ForCPE: %v, %v", cves, err)
+	}
+	if cves, err := c.ForKeyword(ctx, "FortiOS", time.Time{}); err == nil || !strings.Contains(err.Error(), "HTTP 404 (Invalid apiKey.)") {
+		t.Errorf("ForKeyword: %v, %v", cves, err)
+	}
+	if calls != 2 {
+		t.Errorf("%d calls: a refusal is not sent again", calls)
+	}
+	_, err := c.SearchCPE(ctx, "fortios")
+	if err == nil || !strings.Contains(err.Error(), "Invalid apiKey.") || strings.Contains(err.Error(), "limite de requêtes") {
+		t.Errorf("SearchCPE: %v", err)
+	}
+}

@@ -300,8 +300,9 @@ func (s *Store) ListFindings(ctx context.Context, sc Scope, f FindingFilter) ([]
 		args = append(args, f.Project)
 	}
 	if f.Tag != "" {
-		where = append(where, `a.tags LIKE ? ESCAPE '\'`)
-		args = append(args, "%,"+likeEscaper.Replace(f.Tag)+",%")
+		cond, arg := hasTag("a.tags", f.Tag)
+		where = append(where, cond)
+		args = append(args, arg)
 	}
 	if f.KEV {
 		where = append(where, "v.kev = 1")

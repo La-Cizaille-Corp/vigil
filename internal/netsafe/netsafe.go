@@ -11,12 +11,16 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"strings"
 	"syscall"
 	"time"
 )
 
 // ErrForbiddenAddress is returned when a URL resolves to a blocked address.
 var ErrForbiddenAddress = errors.New("adresse de destination interdite (réseau privé ou local)")
+
+// MaxURLLen bounds a stored URL, in bytes.
+const MaxURLLen = 2000
 
 // ValidateURL checks that raw is an absolute https URL without credentials.
 func ValidateURL(raw string) error {
@@ -30,10 +34,28 @@ func ValidateURL(raw string) error {
 	if u.Host == "" || u.User != nil {
 		return errors.New("URL invalide")
 	}
-	if len(raw) > 2000 {
+	if len(raw) > MaxURLLen {
 		return errors.New("URL trop longue")
 	}
 	return nil
+}
+
+// WebURL returns raw without surrounding spaces when it is a link to show and
+// follow: an absolute http(s) URL with a host, no credentials, at most
+// MaxURLLen bytes. SECURITY: links read from feeds and sources end up in
+// pages and chat messages; url.Parse refuses control characters, so a line
+// break cannot cut the Markdown link of a digest, and a link cannot hide its
+// host behind credentials ("https://trusted.example@evil.example/").
+func WebURL(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || len(raw) > MaxURLLen {
+		return "", false
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" && u.Scheme != "http" || u.Host == "" || u.User != nil {
+		return "", false
+	}
+	return raw, true
 }
 
 // proxyFromEnv is the proxy configuration (HTTPS_PROXY, NO_PROXY), replaced in tests.
@@ -101,18 +123,28 @@ func NewClient(timeout time.Duration, allowPrivate bool) *http.Client {
 		MaxIdleConns:          10,
 		IdleConnTimeout:       60 * time.Second,
 	}
-	return &http.Client{
-		Timeout:   timeout,
-		Transport: transport,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 5 {
-				return errors.New("trop de redirections")
+	return &http.Client{Timeout: timeout, Transport: transport, CheckRedirect: CheckRedirect()}
+}
+
+// CheckRedirect is the redirect policy of every outgoing client, for the
+// user-supplied URLs as for the fixed sources: at most 5 redirects, in HTTPS
+// only. SECURITY: Go forwards custom headers on a redirect; those named in
+// drop (an API key) are removed when the host changes, so that they cannot
+// leak to another site.
+func CheckRedirect(drop ...string) func(*http.Request, []*http.Request) error {
+	return func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 5 {
+			return errors.New("trop de redirections")
+		}
+		if req.URL.Scheme != "https" {
+			return errors.New("redirection vers une URL non https refusée")
+		}
+		if req.URL.Host != via[0].URL.Host {
+			for _, h := range drop {
+				req.Header.Del(h)
 			}
-			if req.URL.Scheme != "https" {
-				return errors.New("redirection vers une URL non https refusée")
-			}
-			return nil
-		},
+		}
+		return nil
 	}
 }
 
@@ -166,12 +198,19 @@ var nonPublic = []netip.Prefix{
 	netip.MustParsePrefix("240.0.0.0/4"),   // reserved, includes broadcast
 	netip.MustParsePrefix("64:ff9b::/96"),  // NAT64: may reach internal IPv4
 	netip.MustParsePrefix("64:ff9b:1::/48"),
+	// SECURITY: like NAT64, a SIIT translator turns ::ffff:0:a.b.c.d into
+	// a.b.c.d, internal addresses included (IPv4-translated, RFC 2765).
+	netip.MustParsePrefix("::ffff:0:0:0/96"),
 	netip.MustParsePrefix("2001:db8::/32"), // documentation
 	netip.MustParsePrefix("0.0.0.0/8"),     // "this network", reaches the host on some systems
 	netip.MustParsePrefix("::/96"),         // IPv4-compatible (deprecated), e.g. ::7f00:1
 	netip.MustParsePrefix("fec0::/10"),     // site-local (deprecated)
 	netip.MustParsePrefix("2002::/16"),     // 6to4: embeds any IPv4 address
 	netip.MustParsePrefix("2001::/32"),     // Teredo: embeds any IPv4 address
+	// Special-purpose, never a destination:
+	netip.MustParsePrefix("192.88.99.0/24"), // 6to4 relay anycast (deprecated, RFC 7526)
+	netip.MustParsePrefix("100::/64"),       // discard-only (RFC 6666)
+	netip.MustParsePrefix("2001:20::/28"),   // ORCHIDv2 (RFC 7343)
 }
 
 // Public reports whether ip is a globally routable address.

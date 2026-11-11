@@ -128,12 +128,11 @@ func Parse(data []byte) ([]Item, error) {
 		it.Title = clip.Text(cleanText(it.Title), 500)
 		it.Summary = clip.Text(cleanText(it.Summary), 2000)
 		it.GUID = clip.Text(strings.TrimSpace(it.GUID), 500)
-		it.Link = strings.TrimSpace(it.Link)
-		// SECURITY: only keep http(s) links; a javascript: URL would be
-		// neutralised by html/template anyway, but we do not store it.
-		if !strings.HasPrefix(it.Link, "https://") && !strings.HasPrefix(it.Link, "http://") || len(it.Link) > maxLinkLen {
-			it.Link = ""
-		}
+		// SECURITY: only keep plain http(s) links. A javascript: URL would be
+		// neutralised by html/template anyway, but a line break inside the
+		// link would cut the Markdown link of the digest and let the rest of
+		// it ping a whole channel: such links are not stored.
+		it.Link, _ = netsafe.WebURL(it.Link)
 		// A date in the future would keep an item at the top of every list
 		// and out of the retention purge.
 		if it.Published.IsZero() || it.Published.After(now.Add(24*time.Hour)) {
@@ -148,11 +147,8 @@ func Parse(data []byte) ([]Item, error) {
 	return items, nil
 }
 
-// Limits on what one fetch of a feed may store.
-const (
-	maxFeedItems = 500
-	maxLinkLen   = 2000
-)
+// maxFeedItems bounds what one fetch of a feed may store.
+const maxFeedItems = 500
 
 var tagRe = regexp.MustCompile(`<[^>]*>`)
 

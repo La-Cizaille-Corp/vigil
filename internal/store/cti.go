@@ -270,15 +270,15 @@ func (s *Store) MentionsOf(ctx context.Context, ids []string, limit int) ([]CTII
 func (s *Store) ListCTIItems(ctx context.Context, sc Scope, f CTIFilter) ([]CTIItem, error) {
 	var where []string
 	with, args := openCVEs(sc) // first in the query, so are its arguments
-	// Tags are stored as ",FR,US," so that LIKE '%,FR,%' matches exactly one tag.
 	anyTag := func(column string, values []string) {
 		if len(values) == 0 {
 			return
 		}
 		var ors []string
 		for _, v := range values {
-			ors = append(ors, column+" LIKE ?")
-			args = append(args, "%,"+v+",%")
+			cond, arg := hasTag(column, v)
+			ors = append(ors, cond)
+			args = append(args, arg)
 		}
 		where = append(where, "("+strings.Join(ors, " OR ")+")")
 	}
@@ -357,6 +357,8 @@ func (s *Store) SetSetting(ctx context.Context, key, value string) error {
 	return err
 }
 
+// joinTags stores a list of tags as ",FR,US,", so that hasTag can find one of
+// them with a single LIKE.
 func joinTags(tags []string) string {
 	if len(tags) == 0 {
 		return ""
@@ -372,6 +374,14 @@ func splitTags(s string) []string {
 		}
 	}
 	return out
+}
+
+// hasTag is the condition "the list stored in column (see joinTags) holds
+// tag", and its argument.
+// SECURITY: the LIKE wildcards of tag are escaped, so that "pci_dss" or a
+// user's tag never matches another one.
+func hasTag(column, tag string) (cond string, arg any) {
+	return column + ` LIKE ? ESCAPE '\'`, "%," + likeEscaper.Replace(tag) + ",%"
 }
 
 func expectRow(res sql.Result, err error) error {

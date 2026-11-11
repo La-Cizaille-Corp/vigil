@@ -80,7 +80,7 @@ func TestOSV(t *testing.T) {
 			http.NotFound(w, r)
 		}
 	})
-	c := osv.New("test")
+	c := osv.New(http.DefaultClient, "test")
 	c.BaseURL, c.HTTP = srv.URL, srv.Client()
 	ctx := context.Background()
 	res, err := c.QueryBatch(ctx, []osv.Query{
@@ -102,14 +102,29 @@ func TestOSV(t *testing.T) {
 	}
 }
 
+// The scale of a database is translated (GitHub's MODERATE, Red Hat's
+// Important); a value outside it is rated by the CVSS score, like a missing one.
 func TestOSVSeverityFallbacks(t *testing.T) {
-	var moderate, vectorOnly osv.Vuln
-	json.Unmarshal([]byte(`{"database_specific":{"severity":"MODERATE"}}`), &moderate)
-	json.Unmarshal([]byte(`{"severity":[{"type":"CVSS_V3","score":"CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"}]}`), &vectorOnly)
-	if moderate.SeverityLabel() != "MEDIUM" {
-		t.Errorf("MODERATE -> %q", moderate.SeverityLabel())
+	const vector = `"severity":[{"type":"CVSS_V3","score":"CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"}]` // 5.5
+	for doc, want := range map[string]string{
+		`{"database_specific":{"severity":"MODERATE"}}`: "MEDIUM",
+		`{` + vector + `}`: "MEDIUM",
+		`{"database_specific":{"severity":"Important"}}`:                   "HIGH",
+		`{"database_specific":{"severity":"Important"},` + vector + `}`:    "HIGH",
+		`{"database_specific":{"severity":"<b>pwned</b>"},` + vector + `}`: "MEDIUM",
+		`{"database_specific":{"severity":"<b>pwned</b>"}}`:                "",
+	} {
+		var v osv.Vuln
+		if err := json.Unmarshal([]byte(doc), &v); err != nil {
+			t.Fatal(err)
+		}
+		if got := v.SeverityLabel(); got != want {
+			t.Errorf("%s -> %q, want %q", doc, got, want)
+		}
 	}
-	if vectorOnly.SeverityLabel() != "MEDIUM" || vectorOnly.CVSSScore() != 5.5 {
-		t.Errorf("vector only -> %q %v", vectorOnly.SeverityLabel(), vectorOnly.CVSSScore())
+	var vectorOnly osv.Vuln
+	json.Unmarshal([]byte(`{`+vector+`}`), &vectorOnly)
+	if vectorOnly.CVSSScore() != 5.5 {
+		t.Errorf("vector only -> %v", vectorOnly.CVSSScore())
 	}
 }
