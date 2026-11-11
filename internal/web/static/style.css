@@ -3,6 +3,8 @@
 :root {
   color-scheme: light;
   --bg: #f4f5f7; --fg: #15191e; --muted: #5d6673; --card: #fff; --border: #dde1e7; --border-strong: #c5ccd6;
+  /* A field's edge needs 3:1 against the card and the page (WCAG 1.4.11). */
+  --field-border: #808a99;
   --accent: #1f5fbf; --accent-soft: #e8f0fc; --danger: #b42318;
   --ok-bg: #e7f4ea; --ok-fg: #14532d; --err-bg: #fdecea;
   --crit: #7a1010; --high: #c2410c; --med: #a16207; --low: #3f6212;
@@ -17,6 +19,7 @@
   :root {
     color-scheme: dark;
     --bg: #111418; --fg: #e6e9ed; --muted: #9aa4b1; --card: #1b1f25; --border: #2c323b; --border-strong: #3a424d;
+    --field-border: #6b7584;
     --accent: #7aaeff; --accent-soft: #1c2a40; --danger: #f97066;
     --ok-bg: #16301f; --ok-fg: #a7e3b8; --err-bg: #3a1a18;
     --crit: #f87171; --high: #fb923c; --med: #facc15; --low: #a3e635;
@@ -39,6 +42,10 @@ pre { overflow-x: auto; }
 pre.wrap { white-space: pre-wrap; background: var(--card); padding: .75rem; border: 1px solid var(--border); border-radius: 6px; }
 .muted { color: var(--muted); }
 .small { font-size: .85rem; }
+/* Skip link: first stop of the keyboard, shown only when focused. */
+.skip { position: absolute; left: .75rem; top: -4rem; z-index: 20; padding: .45rem .8rem; background: var(--card);
+  border: 2px solid var(--accent); border-radius: 6px; font-weight: 600; }
+.skip:focus { top: .5rem; }
 
 /* --- header -------------------------------------------------------------- */
 header { position: sticky; top: 0; z-index: 10; display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; align-items: center;
@@ -71,6 +78,10 @@ main { max-width: 1240px; margin: 0 auto; padding: 1.25rem 1.25rem 3rem; overflo
 table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--card); margin: .5rem 0 1.5rem;
   border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
 th, td { text-align: left; padding: .55rem .7rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+/* Free text from the sources (kernel summaries hold "=====…" or long function
+   names): it may break anywhere, so that it never widens its table. Other
+   cells keep their words whole. */
+td.text { overflow-wrap: anywhere; }
 tbody tr:last-child td { border-bottom: 0; }
 tbody tr:hover { background: var(--accent-soft); }
 th { font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); background: var(--bg); }
@@ -90,7 +101,7 @@ tfoot th { border-top: 1px solid var(--border-strong); border-bottom: 0; color: 
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: .5rem 1rem; }
 label { display: block; margin-bottom: .6rem; font-size: .9rem; font-weight: 500; }
 input, select, textarea { width: 100%; margin-top: .2rem; padding: .45rem .55rem; font: inherit; font-weight: 400; color: inherit;
-  background: var(--bg); border: 1px solid var(--border-strong); border-radius: 6px; }
+  background: var(--bg); border: 1px solid var(--field-border); border-radius: 6px; }
 input:focus, select:focus, textarea:focus, button:focus-visible, a:focus-visible, summary:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 1px; }
 fieldset { border: 1px solid var(--border); border-radius: 8px; max-height: 260px; overflow-y: auto; margin: 0 0 .5rem; }
@@ -105,7 +116,8 @@ a.button:hover { text-decoration: none; }
 @media (prefers-color-scheme: dark) { button, a.button { color: #0b1220; } }
 button:hover, a.button:hover { filter: brightness(1.08); }
 button:disabled { opacity: .55; cursor: default; filter: none; }
-button.danger { background: var(--danger); color: #fff; }
+/* The card color reads on --danger in both themes (6.6:1 light, 5.9:1 dark). */
+button.danger { background: var(--danger); color: var(--card); }
 button.link { background: none; color: var(--accent); padding: 0; font-weight: 500; }
 .danger-link, button.link.danger-link { color: var(--danger); }
 form.inline { display: inline-flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: .5rem 0; }
@@ -154,7 +166,10 @@ dt { color: var(--muted); } dd { margin: 0; }
 th.select, td.select { width: 2rem; text-align: center; }
 td.select input { width: 1.05rem; height: 1.05rem; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-details.bulk { margin: .5rem 0 1rem; }
+/* The bulk panel follows the list and sticks to the bottom of the screen
+   while the list scrolls: it stays within reach of the boxes ticked. */
+details.bulk { position: sticky; bottom: 0; z-index: 5; margin: .5rem 0 1rem; }
+details.bulk[open] { max-height: 70vh; overflow-y: auto; }
 details.bulk form { margin-top: .75rem; }
 form.inline-search { display: flex; flex-wrap: wrap; gap: .75rem; align-items: flex-end; }
 form.inline-search label { flex: 1 1 22rem; }
@@ -230,8 +245,9 @@ svg.donut { width: 168px; height: 168px; flex: none; }
   /* Long lists read as cards on a phone: every column stays visible. */
   table.cards { overflow: visible; border: 0; background: none; box-shadow: none; }
   table.cards thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-  table.cards tbody { display: grid; gap: .6rem; }
-  table.cards tr { display: grid; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: .35rem 0; }
+  /* minmax(0, 1fr): a card is as wide as the screen, never as its longest word. */
+  table.cards tbody { display: grid; grid-template-columns: minmax(0, 1fr); gap: .6rem; }
+  table.cards tr { display: grid; grid-template-columns: minmax(0, 1fr); background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: .35rem 0; }
   table.cards td { display: block; position: relative; border: 0; padding: .3rem .75rem .3rem 8.25rem; text-align: left; width: auto; }
   table.cards td::before { content: attr(data-label); position: absolute; left: .75rem; top: .45rem; width: 7rem;
     font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); }

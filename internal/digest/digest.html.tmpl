@@ -16,7 +16,7 @@
 <td><a href="/findings/{{.ID}}">{{.VulnID}}</a>{{if .Aliases}}<br><small>{{join .Aliases ", "}}</small>{{end}}</td>
 <td><a href="/assets/{{.AssetID}}">{{.AssetName}} {{.AssetVersion}}</a></td>
 <td>{{status .Status}}</td>
-<td>{{.Summary}}</td>
+<td class="text">{{.Summary}}</td>
 </tr>
 {{end}}
 </tbody>
