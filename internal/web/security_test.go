@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -107,6 +108,99 @@ func TestLimitKeys(t *testing.T) {
 	}
 	if n := len([]rune(clip.Text(strings.Repeat("a", 70000), 64))); n != 64 {
 		t.Errorf("account key length = %d", n)
+	}
+}
+
+// S5: the API counted bad tokens per exact address, while sign-in counts an
+// IPv6 /64 as one client: guesses spread over a /64 were never slowed down.
+// Both now take the same key, each in its own scope.
+func TestAPILimiterCountsIPv6Block(t *testing.T) {
+	_, base := newServerWith(t, func(s *Server) { s.BehindProxy = true })
+	put := func(from string) int {
+		req, _ := http.NewRequest(http.MethodPut, base+"/api/v1/projects/p/sbom", strings.NewReader("{}"))
+		req.Header.Set("Authorization", "Bearer vgl_wrong")
+		req.Header.Set("X-Forwarded-For", from)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	var codes []int
+	for i := 1; i <= 7; i++ {
+		codes = append(codes, put("2001:db8::"+strconv.Itoa(i)))
+	}
+	if want := []int{401, 401, 401, 401, 401, 429, 429}; !slices.Equal(codes, want) {
+		t.Errorf("7 bad tokens from one /64: %v, want %v", codes, want)
+	}
+	if code := put("2001:db8:0:1::1"); code != http.StatusUnauthorized {
+		t.Errorf("another /64 blocked: %d", code)
+	}
+	// The API and sign-in keep separate counts.
+	if code := newClient(t, base).post("/login", url.Values{"username": {"admin"}, "password": {"a-strong-password"}},
+		"X-Forwarded-For", "2001:db8::9"); code != http.StatusSeeOther {
+		t.Errorf("sign-in from the /64 blocked by the API: %d", code)
+	}
+}
+
+// R2: limits are counted in characters, as the forms and A65 say: a name of
+// 40 « é » (80 bytes) was refused as longer than 64.
+func TestLengthsCountCharacters(t *testing.T) {
+	_, base := newServerWith(t, nil)
+	admin := loginAs(t, base, "admin", "a-strong-password")
+	token := admin.csrf()
+	for n, want := range map[int]int{40: http.StatusSeeOther, 64: http.StatusSeeOther, 65: http.StatusBadRequest} {
+		name := strings.Repeat("é", n)
+		if code := admin.post("/settings/users", url.Values{"csrf": {token}, "username": {name}, "role": {auth.RoleViewer}}); code != want {
+			t.Errorf("username of %d accented characters: %d, want %d", n, code, want)
+		}
+	}
+	if code := admin.post("/settings/tokens", url.Values{"csrf": {token}, "name": {strings.Repeat("é", 100)},
+		"project": {strings.Repeat("é", 200)}}); code != http.StatusSeeOther {
+		t.Errorf("token of 100 and 200 accented characters: %d", code)
+	}
+	if code := admin.post("/settings/tokens", url.Values{"csrf": {token}, "name": {strings.Repeat("é", 101)},
+		"project": {"app"}}); code != http.StatusBadRequest {
+		t.Errorf("token name of 101 characters: %d", code)
+	}
+	bom := `{"bomFormat":"CycloneDX","specVersion":"1.5","components":[
+		{"type":"library","name":"lodash","version":"4.17.15","purl":"pkg:npm/lodash@4.17.15"}]}`
+	if code, _ := admin.upload("/assets/import", "sbom", "bom.json", bom,
+		url.Values{"csrf": {token}, "project": {strings.Repeat("é", 200)}}); code != http.StatusSeeOther {
+		t.Errorf("SBOM project of 200 accented characters: %d", code)
+	}
+
+	_, fresh := newTestServer(t)
+	if code := newClient(t, fresh).post("/setup", url.Values{"username": {strings.Repeat("é", 40)},
+		"password": {"a-strong-password"}}); code != http.StatusSeeOther {
+		t.Errorf("setup with a name of 40 accented characters: %d", code)
+	}
+}
+
+// S14: the 1,024-byte bound on passwords applied only to the account forms;
+// setup and sign-in took up to the whole form, and a password set at setup
+// could be one no other form accepts.
+func TestPasswordMaxBytes(t *testing.T) {
+	long := strings.Repeat("a", 1025)
+	st, fresh := newTestServer(t)
+	if code := newClient(t, fresh).post("/setup", url.Values{"username": {"root"}, "password": {long}}); code != http.StatusBadRequest {
+		t.Errorf("setup with a 1,025-byte password: %d", code)
+	}
+	if n, _ := st.CountUsers(context.Background()); n != 0 {
+		t.Errorf("%d account created", n)
+	}
+
+	_, base := newServerWith(t, nil)
+	c := newClient(t, base)
+	if code, body := c.postBody("/login", url.Values{"username": {"admin"}, "password": {long}}); code != http.StatusBadRequest ||
+		!strings.Contains(body, "Mot de passe trop long.") {
+		t.Errorf("sign-in with a 1,025-byte password: %d", code)
+	}
+	admin := loginAs(t, base, "admin", "a-strong-password")
+	if code, body := admin.postBody("/account/password", url.Values{"csrf": {admin.csrf()}, "current": {"a-strong-password"},
+		"new": {long}, "confirm": {long}}); code != http.StatusBadRequest || !strings.Contains(body, "Mot de passe trop long.") {
+		t.Errorf("password change to 1,025 bytes: %d", code)
 	}
 }
 

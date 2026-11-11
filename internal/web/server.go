@@ -39,9 +39,9 @@ const (
 	secureCookie    = "__Host-vigil_session"
 	sessionDuration = 12 * time.Hour
 	maxFormBytes    = 64 << 10
-	// maxPasswordBytes bounds the argon2 input on password change.
-	maxPasswordBytes = 1024
-	maxUploadBytes   = sbom.MaxSize + 1<<20 // file plus multipart overhead
+	maxUploadBytes  = sbom.MaxSize + 1<<20 // file plus multipart overhead
+	// maxNameLen is the longest name of a feed or an API token, in characters.
+	maxNameLen = 100
 )
 
 // Server holds the dependencies of the HTTP handlers.
@@ -70,7 +70,7 @@ type Server struct {
 
 	pages    map[string]*template.Template
 	once     onceStore     // values shown once after a redirect
-	limiter  *auth.Limiter // failed sign-ins per client address
+	limiter  *auth.Limiter // failed attempts per client (see clientKey), or per user from a session
 	accounts *auth.Limiter // failed sign-ins per account name
 }
 
@@ -396,6 +396,13 @@ func (s *Server) clientIP(r *http.Request) string {
 		}
 	}
 	return remoteHost(r)
+}
+
+// clientKey is the rate-limiting key of the client of r for one kind of
+// attempt (sign-in, API token): every limit by address goes through it.
+// SECURITY: an IPv6 client counts by /64 (see limitKey), wherever it knocks.
+func (s *Server) clientKey(r *http.Request, scope string) string {
+	return scope + ":" + limitKey(s.clientIP(r))
 }
 
 // limitKey is the rate-limiting key of a client address: an IPv6 client
