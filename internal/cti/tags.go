@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -160,6 +161,21 @@ func Known(tags []Tag, value string) bool {
 		}
 	}
 	return false
+}
+
+// KnownOnly keeps the values found in tags, each once, in the order given.
+// SECURITY: each value of a filter adds a condition to the query, and SQLite
+// refuses an expression deeper than 1000: without duplicates, a crafted URL or
+// form cannot make the news pages fail. out only holds known values, so the
+// Contains check stays cheap.
+func KnownOnly(tags []Tag, values []string) []string {
+	var out []string
+	for _, v := range values {
+		if Known(tags, v) && !slices.Contains(out, v) {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // charsetReader supports the single-byte encodings still found in old feeds.

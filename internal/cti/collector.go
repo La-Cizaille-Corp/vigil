@@ -159,17 +159,10 @@ func WatchedFilter(ctx context.Context, st *store.Store) (store.CTIFilter, error
 }
 
 // SaveWatched stores the watched countries, sectors and regulations, ignoring
-// unknown values.
+// unknown values and duplicates: the stored filter is the default view of the
+// news page (see KnownOnly).
 func SaveWatched(ctx context.Context, st *store.Store, countries, sectors, regulations []string) error {
-	keep := func(tags []Tag, values []string) string {
-		var out []string
-		for _, v := range values {
-			if Known(tags, v) {
-				out = append(out, v)
-			}
-		}
-		return strings.Join(out, ",")
-	}
+	keep := func(tags []Tag, values []string) string { return strings.Join(KnownOnly(tags, values), ",") }
 	if err := st.SetSetting(ctx, SettingCountries, keep(Countries, countries)); err != nil {
 		return err
 	}
