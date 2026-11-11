@@ -5,6 +5,7 @@ import (
 	"context"
 	"embed"
 	"errors"
+	"fmt"
 	"html/template"
 	"io/fs"
 	"log/slog"
@@ -85,78 +86,103 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux := http.NewServeMux()
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(static)))
 
-	mux.HandleFunc("GET /setup", s.setupForm)
-	mux.HandleFunc("POST /setup", s.setupSubmit)
-	mux.HandleFunc("GET /login", s.loginForm)
-	mux.HandleFunc("POST /login", s.loginSubmit)
-	mux.Handle("POST /logout", s.require(auth.RoleViewer, s.logout))
-
-	mux.Handle("GET /account", s.require(auth.RoleViewer, s.account))
-	mux.Handle("POST /account/totp/start", s.require(auth.RoleViewer, s.totpStart))
-	mux.Handle("POST /account/totp/confirm", s.require(auth.RoleViewer, s.totpConfirm))
-	mux.Handle("POST /account/totp/disable", s.require(auth.RoleViewer, s.totpDisable))
-	mux.Handle("POST /account/password", s.require(auth.RoleViewer, s.passwordChange))
-
-	mux.Handle("GET /{$}", s.require(auth.RoleViewer, s.dashboard))
-	mux.Handle("GET /assets", s.require(auth.RoleViewer, s.assetList))
-	mux.Handle("GET /assets.csv", s.require(auth.RoleViewer, s.assetCSV))
-	mux.Handle("POST /assets/import-csv", s.require(auth.RoleAnalyst, s.assetCSVImport))
-	mux.Handle("GET /assets/cpe", s.require(auth.RoleAnalyst, s.cpeSearch))
-	mux.Handle("GET /assets/new", s.require(auth.RoleAnalyst, s.assetNew))
-	mux.Handle("POST /assets", s.require(auth.RoleAnalyst, s.assetCreate))
-	mux.Handle("GET /assets/{id}", s.require(auth.RoleViewer, s.assetEdit))
-	mux.Handle("POST /assets/{id}", s.require(auth.RoleAnalyst, s.assetUpdate))
-	mux.Handle("POST /assets/{id}/delete", s.require(auth.RoleAnalyst, s.assetDelete))
-	mux.Handle("POST /assets/{id}/scan", s.require(auth.RoleAnalyst, s.assetScan))
-	mux.Handle("POST /assets/{id}/full-history", s.require(auth.RoleAnalyst, s.assetFullHistory))
-	mux.Handle("POST /assets/{id}/dismissals", s.require(auth.RoleAnalyst, s.dismissalCreate))
-	mux.Handle("POST /assets/{id}/dismissals/{rule}/delete", s.require(auth.RoleAnalyst, s.dismissalDelete))
-	mux.Handle("GET /findings", s.require(auth.RoleViewer, s.findingList))
-	mux.Handle("GET /findings.csv", s.require(auth.RoleViewer, s.findingCSV))
-	mux.Handle("POST /findings/bulk", s.require(auth.RoleAnalyst, s.findingBulk))
-	mux.Handle("GET /findings/vex", s.require(auth.RoleViewer, s.vexExport))
-	mux.Handle("POST /findings/vex", s.require(auth.RoleAnalyst, s.vexImport))
-	mux.Handle("GET /findings/{id}", s.require(auth.RoleViewer, s.findingShow))
-	mux.Handle("POST /findings/{id}", s.require(auth.RoleAnalyst, s.findingUpdate))
-	mux.Handle("POST /sync", s.require(auth.RoleAnalyst, s.syncNow))
-	mux.Handle("GET /digests", s.require(auth.RoleViewer, s.digestList))
-	mux.Handle("POST /digests", s.require(auth.RoleAnalyst, s.digestCreate))
-	mux.Handle("GET /digests/{id}", s.require(auth.RoleViewer, s.digestShow))
-	mux.Handle("GET /digests/{id}/markdown", s.require(auth.RoleViewer, s.digestMarkdown))
-
-	mux.Handle("POST /assets/import", s.require(auth.RoleAnalyst, s.sbomImport))
-	mux.Handle("GET /cti", s.require(auth.RoleViewer, s.ctiList))
-	mux.Handle("POST /cti/refresh", s.require(auth.RoleAnalyst, s.ctiRefresh))
-	mux.Handle("GET /settings", s.require(auth.RoleViewer, s.settings))
-	mux.Handle("POST /settings/watch", s.require(auth.RoleAnalyst, s.saveWatch))
-	mux.Handle("POST /settings/feeds", s.require(auth.RoleAdmin, s.feedCreate))
-	mux.Handle("POST /settings/news", s.require(auth.RoleAdmin, s.newsFrequency))
-	mux.Handle("POST /settings/feeds/{id}", s.require(auth.RoleAdmin, s.feedUpdate))
-	mux.Handle("POST /settings/feeds/{id}/toggle", s.require(auth.RoleAdmin, s.feedToggle))
-	mux.Handle("POST /settings/feeds/{id}/delete", s.require(auth.RoleAdmin, s.feedDelete))
-	mux.Handle("POST /settings/webhooks", s.require(auth.RoleAdmin, s.webhookCreate))
-	mux.Handle("POST /settings/webhooks/{id}", s.require(auth.RoleAdmin, s.webhookDelivery))
-	mux.Handle("POST /settings/webhooks/{id}/toggle", s.require(auth.RoleAdmin, s.webhookToggle))
-	mux.Handle("POST /settings/webhooks/{id}/test", s.require(auth.RoleAdmin, s.webhookTest))
-	mux.Handle("POST /settings/sla", s.require(auth.RoleAdmin, s.slaSave))
-	mux.Handle("GET /settings/audit", s.require(auth.RoleAdmin, s.auditList))
-	mux.Handle("GET /settings/users", s.require(auth.RoleAdmin, s.userList))
-	mux.Handle("POST /settings/users", s.require(auth.RoleAdmin, s.userCreate))
-	mux.Handle("POST /settings/users/{id}/role", s.require(auth.RoleAdmin, s.userRole))
-	mux.Handle("POST /settings/users/{id}/disable", s.require(auth.RoleAdmin, s.userDisable))
-	mux.Handle("POST /settings/users/{id}/enable", s.require(auth.RoleAdmin, s.userEnable))
-	mux.Handle("POST /settings/users/{id}/password", s.require(auth.RoleAdmin, s.userPassword))
-	mux.Handle("POST /settings/users/{id}/totp-reset", s.require(auth.RoleAdmin, s.userTOTPReset))
-	mux.Handle("POST /settings/users/totp-policy", s.require(auth.RoleAdmin, s.userTOTPPolicy))
-	mux.Handle("GET /sync", s.require(auth.RoleViewer, s.syncPage))
-	mux.Handle("POST /settings/webhooks/{id}/delete", s.require(auth.RoleAdmin, s.webhookDelete))
-	mux.Handle("POST /settings/tokens", s.require(auth.RoleAdmin, s.tokenCreate))
-	mux.Handle("POST /settings/tokens/{id}/delete", s.require(auth.RoleAdmin, s.tokenDelete))
-
-	// Token-authenticated API for CI pipelines (no session, no CSRF: no cookie is used).
-	mux.HandleFunc("PUT /api/v1/projects/{project}/sbom", s.apiSBOM)
+	for _, rt := range s.routes() {
+		switch {
+		case rt.role == public:
+			mux.HandleFunc(rt.pattern, rt.handler)
+		case auth.ValidRole(rt.role):
+			mux.Handle(rt.pattern, s.require(rt.role, rt.handler))
+		default: // SECURITY: a route without a known role is refused, not left open
+			return nil, fmt.Errorf("route %s: unknown role %q", rt.pattern, rt.role)
+		}
+	}
 
 	return securityHeaders(s.checkHost(sameOrigin(limitBody(mux)))), nil
+}
+
+// public marks the routes reached without a session: sign-in, first setup and
+// the token-authenticated API, which check their caller themselves.
+const public = "public"
+
+// route is one entry of the UI: its pattern, the least role it requires (or
+// public) and its handler.
+type route struct {
+	pattern string
+	role    string
+	handler http.HandlerFunc
+}
+
+// routes lists every route of the UI, so that tests can go through all of
+// them. SECURITY: the role is checked server-side on each one (see require).
+func (s *Server) routes() []route {
+	return []route{
+		{"GET /setup", public, s.setupForm},
+		{"POST /setup", public, s.setupSubmit},
+		{"GET /login", public, s.loginForm},
+		{"POST /login", public, s.loginSubmit},
+		{"POST /logout", auth.RoleViewer, s.logout},
+		{"GET /account", auth.RoleViewer, s.account},
+		{"POST /account/totp/start", auth.RoleViewer, s.totpStart},
+		{"POST /account/totp/confirm", auth.RoleViewer, s.totpConfirm},
+		{"POST /account/totp/disable", auth.RoleViewer, s.totpDisable},
+		{"POST /account/password", auth.RoleViewer, s.passwordChange},
+		{"GET /{$}", auth.RoleViewer, s.dashboard},
+		{"GET /assets", auth.RoleViewer, s.assetList},
+		{"GET /assets.csv", auth.RoleViewer, s.assetCSV},
+		{"POST /assets/import-csv", auth.RoleAnalyst, s.assetCSVImport},
+		{"GET /assets/cpe", auth.RoleAnalyst, s.cpeSearch},
+		{"GET /assets/new", auth.RoleAnalyst, s.assetNew},
+		{"POST /assets", auth.RoleAnalyst, s.assetCreate},
+		{"GET /assets/{id}", auth.RoleViewer, s.assetEdit},
+		{"POST /assets/{id}", auth.RoleAnalyst, s.assetUpdate},
+		{"POST /assets/{id}/delete", auth.RoleAnalyst, s.assetDelete},
+		{"POST /assets/{id}/scan", auth.RoleAnalyst, s.assetScan},
+		{"POST /assets/{id}/full-history", auth.RoleAnalyst, s.assetFullHistory},
+		{"POST /assets/{id}/dismissals", auth.RoleAnalyst, s.dismissalCreate},
+		{"POST /assets/{id}/dismissals/{rule}/delete", auth.RoleAnalyst, s.dismissalDelete},
+		{"GET /findings", auth.RoleViewer, s.findingList},
+		{"GET /findings.csv", auth.RoleViewer, s.findingCSV},
+		{"POST /findings/bulk", auth.RoleAnalyst, s.findingBulk},
+		{"GET /findings/vex", auth.RoleViewer, s.vexExport},
+		{"POST /findings/vex", auth.RoleAnalyst, s.vexImport},
+		{"GET /findings/{id}", auth.RoleViewer, s.findingShow},
+		{"POST /findings/{id}", auth.RoleAnalyst, s.findingUpdate},
+		{"POST /sync", auth.RoleAnalyst, s.syncNow},
+		{"GET /digests", auth.RoleViewer, s.digestList},
+		{"POST /digests", auth.RoleAnalyst, s.digestCreate},
+		{"GET /digests/{id}", auth.RoleViewer, s.digestShow},
+		{"GET /digests/{id}/markdown", auth.RoleViewer, s.digestMarkdown},
+		{"POST /assets/import", auth.RoleAnalyst, s.sbomImport},
+		{"GET /cti", auth.RoleViewer, s.ctiList},
+		{"POST /cti/refresh", auth.RoleAnalyst, s.ctiRefresh},
+		{"GET /settings", auth.RoleViewer, s.settings},
+		{"POST /settings/watch", auth.RoleAnalyst, s.saveWatch},
+		{"POST /settings/feeds", auth.RoleAdmin, s.feedCreate},
+		{"POST /settings/news", auth.RoleAdmin, s.newsFrequency},
+		{"POST /settings/feeds/{id}", auth.RoleAdmin, s.feedUpdate},
+		{"POST /settings/feeds/{id}/toggle", auth.RoleAdmin, s.feedToggle},
+		{"POST /settings/feeds/{id}/delete", auth.RoleAdmin, s.feedDelete},
+		{"POST /settings/webhooks", auth.RoleAdmin, s.webhookCreate},
+		{"POST /settings/webhooks/{id}", auth.RoleAdmin, s.webhookDelivery},
+		{"POST /settings/webhooks/{id}/toggle", auth.RoleAdmin, s.webhookToggle},
+		{"POST /settings/webhooks/{id}/test", auth.RoleAdmin, s.webhookTest},
+		{"POST /settings/sla", auth.RoleAdmin, s.slaSave},
+		{"GET /settings/audit", auth.RoleAdmin, s.auditList},
+		{"GET /settings/users", auth.RoleAdmin, s.userList},
+		{"POST /settings/users", auth.RoleAdmin, s.userCreate},
+		{"POST /settings/users/{id}/role", auth.RoleAdmin, s.userRole},
+		{"POST /settings/users/{id}/disable", auth.RoleAdmin, s.userDisable},
+		{"POST /settings/users/{id}/enable", auth.RoleAdmin, s.userEnable},
+		{"POST /settings/users/{id}/password", auth.RoleAdmin, s.userPassword},
+		{"POST /settings/users/{id}/totp-reset", auth.RoleAdmin, s.userTOTPReset},
+		{"POST /settings/users/totp-policy", auth.RoleAdmin, s.userTOTPPolicy},
+		{"GET /sync", auth.RoleViewer, s.syncPage},
+		{"POST /settings/webhooks/{id}/delete", auth.RoleAdmin, s.webhookDelete},
+		{"POST /settings/tokens", auth.RoleAdmin, s.tokenCreate},
+		{"POST /settings/tokens/{id}/delete", auth.RoleAdmin, s.tokenDelete},
+		// Token-authenticated API for CI pipelines (no session, no CSRF: no cookie is used).
+		{"PUT /api/v1/projects/{project}/sbom", public, s.apiSBOM},
+	}
 }
 
 func (s *Server) parseTemplates() error {
