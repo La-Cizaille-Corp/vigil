@@ -8,10 +8,11 @@
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+<a class="skip" href="#contenu">Aller au contenu</a>
 <header>
   <a class="brand" href="/"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="logo-shield" d="M12 2 4 5v6c0 5 3.4 9.3 8 11 4.6-1.7 8-6 8-11V5l-8-3Z"/><path class="logo-eye" d="M12 8.5c-2.6 0-4.7 1.6-5.5 3.5.8 1.9 2.9 3.5 5.5 3.5s4.7-1.6 5.5-3.5c-.8-1.9-2.9-3.5-5.5-3.5Zm0 5.5a2 2 0 1 1 0-4 2 2 0 0 1 0 4Z"/></svg>Vigil</a>
   {{if .User}}
-  <nav>
+  <nav aria-label="Navigation principale">
     <a href="/" {{if eq .Path "/"}}aria-current="page"{{end}}>Tableau de bord</a>
     <a href="/assets" {{if hasPrefix .Path "/assets"}}aria-current="page"{{end}}>Inventaire</a>
     <a href="/findings" {{if hasPrefix .Path "/findings"}}aria-current="page"{{end}}>Vulnérabilités</a>
@@ -27,7 +28,7 @@
   </form>
   {{end}}
 </header>
-<main>
+<main id="contenu">
   <h1>{{.Title}}</h1>
   {{if .Flash}}<p class="flash" role="status">{{.Flash}}</p>{{end}}
   {{if .Error}}<p class="error" role="alert">{{.Error}}</p>{{end}}

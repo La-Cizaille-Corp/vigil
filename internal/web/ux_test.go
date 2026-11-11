@@ -162,6 +162,30 @@ func TestDashboardCardsLinkToTheirList(t *testing.T) {
 	}
 }
 
+// Every page opens on a skip link to its content and names its menu; the bulk
+// panel follows the list, so that it can stick to the bottom of the screen
+// beside the boxes ticked; a summary may break anywhere, never widening the
+// list; the views of the watch say which one is shown.
+func TestLandmarksAndBulkPanel(t *testing.T) {
+	st, base := newServerWith(t, nil)
+	seedFindings(t, st)
+	c := loginAs(t, base, "analyst", "a-strong-password")
+	_, page := c.get("/findings")
+	for _, want := range []string{`<a class="skip" href="#contenu">`, `<main id="contenu">`,
+		`<nav aria-label="Navigation principale">`, `<td data-label="Résumé" class="text">`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("findings page misses %s", want)
+		}
+	}
+	if list, panel := strings.Index(page, "</table>"), strings.Index(page, `id="traiter"`); list < 0 || panel < list {
+		t.Errorf("bulk panel at %d, before the list ending at %d", panel, list)
+	}
+	if _, page := c.get("/cti"); !strings.Contains(page, `<nav class="filters" aria-label="Vues de la veille">`) ||
+		!strings.Contains(page, `class="active" aria-current="true">Veille menaces</a>`) {
+		t.Error("the views of the watch do not say which one is shown")
+	}
+}
+
 // A list row names three aliases at most; the finding page keeps them all.
 func TestAliasList(t *testing.T) {
 	for n, want := range map[int]string{
