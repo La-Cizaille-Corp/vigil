@@ -442,17 +442,24 @@ func (s *Store) SetFindingStatus(ctx context.Context, sc Scope, id, userID int64
 	})
 }
 
-// SetFindingsStatus applies one triage decision to several findings in a
-// single transaction, with an event in the history of each. An empty comment
-// keeps each finding's own comment instead of erasing it. Unknown ids, and
-// those outside the scope, are skipped: they come from a form.
-// It returns how many findings were updated.
-func (s *Store) SetFindingsStatus(ctx context.Context, sc Scope, ids []int64, userID int64, status, justification, comment string) (int, error) {
+// StatusChange is a triage decision for one finding.
+type StatusChange struct {
+	ID                             int64
+	Status, Justification, Comment string
+}
+
+// SetFindingStatuses applies triage decisions to several findings of the
+// scope, in order, in a single transaction, with an event in the history of
+// each: the same decision for a selection of findings, or one per finding for
+// a VEX import. An empty comment keeps the finding's own comment instead of
+// erasing it. Unknown ids, and those outside the scope, are skipped: they come
+// from a form or a file. It returns how many findings were updated.
+func (s *Store) SetFindingStatuses(ctx context.Context, sc Scope, userID int64, changes []StatusChange) (int, error) {
 	ts := now()
 	done := 0
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
-		for _, id := range ids {
-			old, err := findingStatus(ctx, tx, sc, id)
+		for _, c := range changes {
+			old, err := findingStatus(ctx, tx, sc, c.ID)
 			if errors.Is(err, ErrNotFound) {
 				continue
 			}
@@ -462,10 +469,10 @@ func (s *Store) SetFindingsStatus(ctx context.Context, sc Scope, ids []int64, us
 			if _, err := tx.ExecContext(ctx, `
 				UPDATE findings SET status = ?, justification = ?, auto_resolved = 0, dismissed_by = 0, updated_at = ?,
 				       comment = CASE WHEN ? = '' THEN comment ELSE ? END
-				WHERE id = ?`, status, justification, ts, comment, comment, id); err != nil {
+				WHERE id = ?`, c.Status, c.Justification, ts, c.Comment, c.Comment, c.ID); err != nil {
 				return err
 			}
-			if err := insertEvent(ctx, tx, id, userID, old, status, comment, ts); err != nil {
+			if err := insertEvent(ctx, tx, c.ID, userID, old, c.Status, c.Comment, ts); err != nil {
 				return err
 			}
 			done++
@@ -473,7 +480,7 @@ func (s *Store) SetFindingsStatus(ctx context.Context, sc Scope, ids []int64, us
 		return nil
 	})
 	if err != nil {
-		return 0, fmt.Errorf("bulk status: %w", err)
+		return 0, fmt.Errorf("set finding statuses: %w", err)
 	}
 	return done, nil
 }

@@ -43,10 +43,11 @@ func (s *Server) vexImport(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	sess, _ := sessionFrom(r.Context())
-	applied, ignored := 0, 0
+	idx := vex.NewIndex(findings)
+	var changes []store.StatusChange
+	ignored := 0
 	for _, st := range statements {
-		f, ok := vex.Match(st, findings)
+		f, ok := idx.Match(st)
 		comment := clip.Text("Import VEX : "+st.Detail, tracking.MaxComment)
 		if !ok || tracking.ValidateStatus(st.State, st.Justification, comment) != nil {
 			ignored++
@@ -55,11 +56,15 @@ func (s *Server) vexImport(w http.ResponseWriter, r *http.Request) {
 		if f.Status == st.State && f.Justification == st.Justification {
 			continue
 		}
-		if err := s.Store.SetFindingStatus(r.Context(), writeScope(r), f.ID, sess.User.ID, st.State, st.Justification, comment); err != nil {
-			s.serverError(w, r, err)
-			return
-		}
-		applied++
+		changes = append(changes, store.StatusChange{ID: f.ID, Status: st.State, Justification: st.Justification, Comment: comment})
+	}
+	// One transaction for the whole document: the analyses are applied
+	// together or not at all.
+	sess, _ := sessionFrom(r.Context())
+	applied, err := s.Store.SetFindingStatuses(r.Context(), writeScope(r), sess.User.ID, changes)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
 	}
 	s.audit(r, "vex_import", fmt.Sprintf("%d appliquées, %d ignorées", applied, ignored))
 	redirect(w, r, "/findings", "vex-imported")

@@ -359,7 +359,10 @@ modification de l'avis pour OSV).
 interopérables. Les états VEX (`in_triage`, `exploitable`, `resolved`, `not_affected` +
 justification, `false_positive`) sont libellés en français dans l'interface, et l'export /
 import VEX permet l'échange avec Dependency-Track, les clients ou les auditeurs. L'import
-rapproche par purl ou CPE et par identifiant ou alias (CVE ↔ GHSA).
+rapproche par purl ou CPE et par identifiant ou alias (CVE ↔ GHSA), à travers un index par
+composant : parcourir toutes les vulnérabilités pour chaque analyse rendait l'import quadratique
+(20 000 analyses contre 20 000 vulnérabilités : 2 s de rapprochement, 2 ms avec l'index). Les
+analyses d'un document s'écrivent en une seule transaction : toutes, ou aucune en cas d'erreur.
 
 **A14. Résolution et réouverture automatiques.** Si la source ne signale plus une vulnérabilité
 (montée de version), elle passe en `resolved` ; si elle réapparaît, elle est rouverte. Une
@@ -398,7 +401,10 @@ l'autre, en redémarrant le service. La fréquence devient un réglage (à la de
 jour), relu chaque minute, et que chaque responsable peut changer sans accès au serveur. `-sync-interval 0`
 coupe toujours les deux : c'est le moyen de ne rien appeler seul. Le flux « vulnérabilités » de The
 Hacker News rejoint les flux par défaut ; ses articles figurant aussi dans le flux général du site,
-un article déjà présent sous la même adresse n'est pas repris par un autre flux.
+un article déjà présent sous la même adresse n'est pas repris par un autre flux. Une seule collecte à
+la fois, comme pour la synchronisation : « Collecter maintenant » pendant une collecte le signale au
+lieu d'en mettre une autre en file (chaque demande attendait la précédente, puis recollectait tout),
+et la collecte planifiée tient celle en cours pour celle qui était due.
 
 **A59. Teams : carte adaptative, et raison des refus.** Les connecteurs de Microsoft ont cédé la place
 aux workflows, qui attendent une carte adaptative plutôt que le champ `text` commun à Slack et

@@ -132,8 +132,8 @@ var isolationCases = map[string]func(context.Context, *Store, Scope, scopeFixtur
 	"SetFindingStatus": func(ctx context.Context, st *Store, sc Scope, fx scopeFixture) (bool, error) {
 		return found(st.SetFindingStatus(ctx, sc, fx.open, 0, "exploitable", "", ""))
 	},
-	"SetFindingsStatus": func(ctx context.Context, st *Store, sc Scope, fx scopeFixture) (bool, error) {
-		n, err := st.SetFindingsStatus(ctx, sc, []int64{fx.open, fx.closed}, 0, "exploitable", "", "")
+	"SetFindingStatuses": func(ctx context.Context, st *Store, sc Scope, fx scopeFixture) (bool, error) {
+		n, err := st.SetFindingStatuses(ctx, sc, 0, []StatusChange{{ID: fx.open, Status: "exploitable"}, {ID: fx.closed, Status: "exploitable"}})
 		return n > 0, err
 	},
 	"CountFindingsByStatus": func(ctx context.Context, st *Store, sc Scope, _ scopeFixture) (bool, error) {

@@ -121,6 +121,56 @@ func TestFindingLifecycle(t *testing.T) {
 	}
 }
 
+// Triage decisions are applied in order, in one transaction: all of them or,
+// on an error, none.
+func TestSetFindingStatuses(t *testing.T) {
+	ctx := context.Background()
+	st := openTest(t)
+	assetID, _ := st.CreateAsset(ctx, Everything, Asset{Name: "lodash", Kind: "package", Criticality: "low", Source: "manual"})
+	userID, _ := st.CreateUser(ctx, "ana", "hash", "analyst")
+	for _, id := range []string{"CVE-1", "CVE-2"} {
+		st.UpsertVulnerability(ctx, Vulnerability{ID: id, Severity: "HIGH", Modified: "m"})
+		st.ObserveFinding(ctx, assetID, id, "", time.Now())
+	}
+	fs, _ := st.ListFindings(ctx, Everything, FindingFilter{})
+	a, b := fs[0].ID, fs[1].ID
+	st.SetFindingStatus(ctx, Everything, b, userID, "exploitable", "", "à patcher")
+
+	done, err := st.SetFindingStatuses(ctx, Everything, userID, []StatusChange{
+		{ID: a, Status: "exploitable", Comment: "d'abord"},
+		{ID: 9999, Status: "resolved"}, // unknown: skipped
+		{ID: a, Status: "not_affected", Justification: "code_not_reachable", Comment: "ensuite"},
+		{ID: b, Status: "resolved"}, // without a comment: b keeps its own
+	})
+	if err != nil || done != 3 {
+		t.Fatalf("done = %d, err = %v", done, err)
+	}
+	if f, _ := st.Finding(ctx, Everything, a); f.Status != "not_affected" || f.Justification != "code_not_reachable" || f.Comment != "ensuite" {
+		t.Errorf("a = %s %s %q", f.Status, f.Justification, f.Comment)
+	}
+	if f, _ := st.Finding(ctx, Everything, b); f.Status != "resolved" || f.Comment != "à patcher" {
+		t.Errorf("b = %s %q", f.Status, f.Comment)
+	}
+	events, _ := st.FindingEvents(ctx, Everything, a)
+	if len(events) != 2 || events[0].NewStatus != "exploitable" || events[1].OldStatus != "exploitable" ||
+		events[1].NewStatus != "not_affected" || events[1].Username != "ana" {
+		t.Errorf("history of a = %+v", events)
+	}
+
+	// A decision the database refuses cancels those before it.
+	if _, err := st.SetFindingStatuses(ctx, Everything, userID, []StatusChange{
+		{ID: a, Status: "in_triage", Comment: "annulé"}, {ID: b, Status: "bogus"},
+	}); err == nil {
+		t.Fatal("unknown status accepted")
+	}
+	if f, _ := st.Finding(ctx, Everything, a); f.Status != "not_affected" || f.Comment != "ensuite" {
+		t.Errorf("a changed by a refused batch: %s %q", f.Status, f.Comment)
+	}
+	if events, _ := st.FindingEvents(ctx, Everything, a); len(events) != 2 {
+		t.Errorf("history of a after a refused batch: %d events", len(events))
+	}
+}
+
 func TestUsersSessionsTokens(t *testing.T) {
 	ctx := context.Background()
 	st := openTest(t)
