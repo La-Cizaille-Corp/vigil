@@ -517,9 +517,12 @@ de l'inventaire en virgules ou points-virgules (Excel en français), en-têtes e
 acceptés. Import tout ou rien : la moindre ligne invalide refuse le fichier, avec les numéros de
 ligne. Les exports utilisent le point-virgule et la virgule décimale, comme Excel en français.
 *Sécurité* : toute cellule commençant par `=`, `+`, `-`, `@` est préfixée d'une apostrophe
-(injection de formules à l'ouverture dans un tableur), de même qu'un tel caractère placé juste
-après un séparateur dans une valeur : un tableur qui découpe sur un autre séparateur que celui du
-fichier y commencerait une cellule.
+(injection de formules à l'ouverture dans un tableur), de même qu'un tel caractère placé dans une
+valeur après une virgule, un point-virgule, une tabulation, un saut de ligne ou une espace : un
+tableur qui découpe sur un autre séparateur que celui du fichier, ou qui retire les espaces (les
+étiquettes sont jointes par une virgule et une espace), y commencerait une cellule. Une apostrophe
+déjà présente devant un tel caractère compte : l'import retire exactement ce que l'export
+ajoute, et un export relu redonne les valeurs exportées.
 
 **A42. Recherche de CPE dans le dictionnaire de la NVD, à la demande.** Écrire un CPE à la main
 était le principal frein au suivi des produits. La page de recherche interroge l'API CPE de la NVD

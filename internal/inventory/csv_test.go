@@ -1,6 +1,9 @@
 package inventory
 
 import (
+	"bytes"
+	"encoding/csv"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -76,10 +79,81 @@ func TestCSVCell(t *testing.T) {
 		"Overflow;=1+cmd|' /C": "Overflow;'=1+cmd|' /C",
 		"a,@SUM(A1)":           "a,'@SUM(A1)",
 		"x\t+1":                "x\t'+1",
-		"a, -b":                "a, -b", // a space before the sign: text for spreadsheets
+		"a, -b":                "a, '-b", // a spreadsheet that trims cells drops the space
+		"voir\n=1+1":           "voir\n'=1+1",
+		"a\r@SUM(A1)":          "a\r'@SUM(A1)",
+		"a;\t=b":               "a;'\t'=b",
+		"'=1":                  "''=1", // so that the import gives back the apostrophe
+		"l'actif 'principal'":  "l'actif 'principal'",
+		"option '--force'":     "option ''--force'",
+		"Überflow;=x":          "Überflow;'=x",
 	} {
 		if got := CSVCell(in); got != want {
 			t.Errorf("CSVCell(%q) = %q, want %q", in, got, want)
 		}
+		if got := csvValue(want); got != in {
+			t.Errorf("csvValue(%q) = %q, want %q", want, got, in)
+		}
+	}
+}
+
+// writeCSV writes rows as the exports do, with semicolons.
+func writeCSV(t *testing.T, rows ...[]string) string {
+	t.Helper()
+	var b bytes.Buffer
+	w := csv.NewWriter(&b)
+	w.Comma = ';'
+	if err := w.WriteAll(rows); err != nil {
+		t.Fatal(err)
+	}
+	return b.String()
+}
+
+// An export opened by a spreadsheet that splits on another character than
+// the file's separator, and maybe trims cells, has no cell starting a formula.
+func TestCSVCellOtherSeparators(t *testing.T) {
+	notes := "voir ticket\n=HYPERLINK(\"https://evil.example\",\"x\")\r+1 ; -2,@3\t=4  =5"
+	file := writeCSV(t, CSVRow(store.Asset{Name: "lodash", Notes: notes, Tags: []string{"prod", "=1+1", "-x"}}))
+	for _, sep := range []rune{',', ';', '\t', ' '} {
+		r := csv.NewReader(strings.NewReader(file))
+		r.Comma, r.LazyQuotes, r.FieldsPerRecord, r.TrimLeadingSpace = sep, true, -1, true
+		records, err := r.ReadAll()
+		if err != nil {
+			t.Fatalf("separator %q: %v", sep, err)
+		}
+		for _, rec := range records {
+			for _, cell := range rec {
+				if cell != "" && strings.ContainsRune(formulaTriggers, rune(cell[0])) {
+					t.Errorf("separator %q: cell %q starts a formula\nfile: %q", sep, cell, file)
+				}
+			}
+		}
+	}
+	if got := CSVRow(store.Asset{Tags: []string{"prod", "=1+1"}})[13]; got != "prod, '=1+1" {
+		t.Errorf("tags cell = %q", got)
+	}
+}
+
+// An export read back by the import gives the exported values, apostrophes
+// and formulas included: the import removes exactly what the export adds.
+func TestCSVExportImportExact(t *testing.T) {
+	in := store.Asset{Name: "@scope/pkg", Kind: "package", Criticality: "medium", Owner: "équipe; -sécurité",
+		Project: "+projet", Notes: "a;-b\nvoir ticket\n=HYPERLINK(\"https://evil.example\")\n'=déjà neutralisé, l'actif 'principal', option '--force'",
+		Tags: []string{"prod", "=1+1", "-x", "@équipe", "'-y"}}
+	r := csv.NewReader(strings.NewReader(writeCSV(t, CSVColumns, CSVRow(in))))
+	r.Comma = ';'
+	records, err := r.ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := AssetsFromCSV(records, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := out[0]
+	if got.Name != in.Name || got.Owner != in.Owner || got.Project != in.Project || got.Notes != in.Notes ||
+		!slices.Equal(got.Tags, in.Tags) {
+		t.Errorf("round trip:\n got %q %q %q %q %q\nwant %q %q %q %q %q", got.Name, got.Owner, got.Project, got.Notes, got.Tags,
+			in.Name, in.Owner, in.Project, in.Notes, in.Tags)
 	}
 }

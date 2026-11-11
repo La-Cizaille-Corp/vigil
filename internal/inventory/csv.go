@@ -41,29 +41,58 @@ func CSVRow(a store.Asset) []string {
 // formulaTriggers start a formula in spreadsheet software.
 const formulaTriggers = "=+-@\t\r"
 
-// midFieldFormulas neutralises a formula that would start in the middle of a
-// field: a spreadsheet that splits lines on another separator than the file's
-// (Excel in French splits on ";") starts a new cell after it.
-var midFieldFormulas = func() *strings.Replacer {
-	var pairs []string
-	for _, sep := range []string{",", ";", "\t"} {
-		for _, t := range formulaTriggers {
-			pairs = append(pairs, sep+string(t), sep+"'"+string(t))
-		}
-	}
-	return strings.NewReplacer(pairs...)
-}()
+// cellBreaks are the characters after which a spreadsheet may start a new
+// cell or line inside a value: the separators it may split on instead of the
+// file's (Excel in French splits on ";", the import dialogs of Excel and
+// LibreOffice offer comma, semicolon, tab and space), and line breaks. A space
+// also covers a spreadsheet that trims cells: tags are joined with ", ".
+const cellBreaks = ",;\t\r\n "
 
-// CSVCell protects a value against formula injection: a cell starting with
-// =, +, -, @, tab or carriage return is run by spreadsheet software, so it
-// gets a leading apostrophe; so does such a character right after a
-// separator inside the value.
+// startsFormula reports whether s, past any apostrophes, starts with a
+// formula trigger: the text CSVCell puts an apostrophe in front of.
+func startsFormula(s string) bool {
+	s = strings.TrimLeft(s, "'")
+	return s != "" && strings.IndexByte(formulaTriggers, s[0]) >= 0
+}
+
+// CSVCell protects a value against formula injection.
+//
+// SECURITY: spreadsheet software runs a cell starting with =, +, -, @, tab or
+// carriage return, so every place a cell may start (the start of the value
+// and the position after each of cellBreaks) gets an apostrophe in front of
+// such a character. Apostrophes already there before one are counted in
+// (startsFormula), so that the import can remove exactly what was added
+// (csvValue). All these characters are ASCII: walking bytes leaves UTF-8 intact.
 func CSVCell(v string) string {
-	v = midFieldFormulas.Replace(v)
-	if v != "" && strings.ContainsRune(formulaTriggers, rune(v[0])) {
-		return "'" + v
+	var b strings.Builder
+	b.Grow(len(v))
+	cellStart := true
+	for i := 0; i < len(v); i++ {
+		if cellStart && startsFormula(v[i:]) {
+			b.WriteByte('\'')
+		}
+		b.WriteByte(v[i])
+		cellStart = strings.IndexByte(cellBreaks, v[i]) >= 0
 	}
-	return v
+	return b.String()
+}
+
+// csvValue undoes CSVCell: it removes the apostrophe CSVCell put at a cell
+// start, and only that one, so that an export read back gives the values
+// that were exported.
+func csvValue(v string) string {
+	var b strings.Builder
+	b.Grow(len(v))
+	cellStart := true
+	for i := 0; i < len(v); i++ {
+		if cellStart && v[i] == '\'' && startsFormula(v[i+1:]) {
+			cellStart = false // the character it protected is in the same cell
+			continue
+		}
+		b.WriteByte(v[i])
+		cellStart = strings.IndexByte(cellBreaks, v[i]) >= 0
+	}
+	return b.String()
 }
 
 // AssetsFromCSV turns CSV records (header row first) into assets. Kinds and
@@ -97,7 +126,7 @@ func AssetsFromCSV(records [][]string, now time.Time) ([]store.Asset, error) {
 		line := n + 2
 		cell := func(col string) string {
 			if i, ok := index[col]; ok && i < len(rec) {
-				return strings.TrimPrefix(strings.TrimSpace(rec[i]), "'") // undo CSVCell
+				return strings.TrimSpace(csvValue(rec[i]))
 			}
 			return ""
 		}
