@@ -90,6 +90,26 @@ func TestFindingPageShowsFix(t *testing.T) {
 	}
 }
 
+// A severity without a CVSS score is the rating of the source (a priority of
+// Ubuntu, a GitHub rating): the finding page says so.
+func TestFindingPageSeverityWithoutScore(t *testing.T) {
+	st, base := newServerWith(t, nil)
+	ctx := context.Background()
+	id, _ := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "linux", Version: "5.15.0-100.110", Kind: "os",
+		Criticality: "high", Source: "manual", Ecosystem: "Ubuntu:22.04:LTS"})
+	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "UBUNTU-CVE-2026-1", Severity: "MEDIUM", CVSS: -1})
+	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "UBUNTU-CVE-2026-2", Severity: "HIGH", CVSS: 7.8})
+	c := loginAs(t, base, "analyst", "a-strong-password")
+	for vuln, rated := range map[string]bool{"UBUNTU-CVE-2026-1": true, "UBUNTU-CVE-2026-2": false} {
+		st.ObserveFinding(ctx, id, vuln, "", time.Now())
+		findings, _ := st.ListFindings(ctx, store.Everything, store.FindingFilter{AssetID: id, Search: vuln})
+		_, body := c.get("/findings/" + itoa(findings[0].ID))
+		if strings.Contains(body, "évaluation de la source, sans score CVSS") != rated {
+			t.Errorf("%s: source rating shown = %v, want %v", vuln, !rated, rated)
+		}
+	}
+}
+
 func TestSyncPage(t *testing.T) {
 	_, base := newServerWith(t, nil)
 	c := loginAs(t, base, "analyst", "a-strong-password")

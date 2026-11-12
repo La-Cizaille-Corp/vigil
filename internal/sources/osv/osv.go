@@ -470,20 +470,36 @@ func (v Vuln) CVSSScore() float64 {
 }
 
 // databaseSeverities translates the severity scales of the databases into
-// the ratings of CVSS: GitHub's MODERATE, Red Hat's Important.
+// the ratings of CVSS: GitHub's MODERATE, Red Hat's Important, the priorities
+// of Ubuntu (negligible to critical).
 var databaseSeverities = map[string]string{
 	"CRITICAL": "CRITICAL", "HIGH": "HIGH", "IMPORTANT": "HIGH",
-	"MEDIUM": "MEDIUM", "MODERATE": "MEDIUM", "LOW": "LOW",
+	"MEDIUM": "MEDIUM", "MODERATE": "MEDIUM", "LOW": "LOW", "NEGLIGIBLE": "LOW",
 }
+
+// distributionPriority is the severity type of OSV under which a distribution
+// gives its own priority: Ubuntu rates every CVE it tracks, including those
+// the NVD has not analysed yet.
+const distributionPriority = "Ubuntu"
 
 // SeverityLabel returns the advisory severity (e.g. HIGH) when the database
 // provides one on a known scale, otherwise the rating of the CVSS score,
-// otherwise "".
+// otherwise the priority of the distribution, otherwise "". The priority
+// comes after the score: Ubuntu rates lower than the score for most of the
+// kernel CVEs both rate, and it would class them less urgent than the others.
 func (v Vuln) SeverityLabel() string {
 	if s, ok := databaseSeverities[strings.ToUpper(v.DatabaseSpecific.Severity)]; ok {
 		return s
 	}
-	return cvss.Severity(v.CVSSScore())
+	if s := cvss.Severity(v.CVSSScore()); s != "" {
+		return s
+	}
+	for _, s := range v.Severity {
+		if s.Type == distributionPriority {
+			return databaseSeverities[strings.ToUpper(s.Score)]
+		}
+	}
+	return ""
 }
 
 // BatchResult answers one query of a batch: the first page of its

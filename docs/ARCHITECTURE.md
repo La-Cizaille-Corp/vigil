@@ -369,6 +369,24 @@ sévérités déjà traduites (aucune version publiée n'a stocké `MODERATE`). 
 en base est corrigée à sa prochaine écriture (chaque synchronisation pour la NVD, la prochaine
 modification de l'avis pour OSV).
 
+*Ordre des sources de la sévérité (novembre 2026).* Plus de la moitié des CVE des noyaux restaient sans
+sévérité : 2 354 sur 4 481 pour Debian 13, 1 663 sur 3 151 pour Ubuntu 22.04, sur la période de suivi.
+La cause est en amont : sur les 6 248 CVE de kernel.org publiées de juin à novembre, la NVD en a 4 729
+au statut « Received », jamais analysées, et kernel.org ne note pas les siennes. Prendre la sévérité de
+la NVD a été mesuré et écarté : elle en aurait noté 2 sur 4 000, pour 4 000 appels (une CVE par appel,
+7 h sans clé), et pour les CVE notées elle dit déjà ce que Vigil stocke (OSV recopie son vecteur). Ubuntu,
+en revanche, donne sa priorité à chaque CVE (type de sévérité OSV `Ubuntu`, de `negligible` à
+`critical`), présente dans les avis déjà lus : `SeverityLabel` la prend après l'échelle de la base et le
+score CVSS, jamais avant. Elle n'est d'accord avec la sévérité du score que pour 409 des 1 488 avis
+Ubuntu notés et plus basse pour 1 073 ; en premier, elle aurait fait passer un millier de lignes
+d'« À planifier » à « À surveiller ». En repli, les CVE sans sévérité du noyau Ubuntu passent de
+52,8 % à une sur 3 151 ; la page d'une vulnérabilité dit d'une sévérité sans score CVSS qu'elle est
+l'évaluation de la source. *Conséquences* : la colonne mêle deux échelles pour Ubuntu, le score quand il
+existe, la priorité sinon ; Debian ne publie ni score ni priorité pour ces CVE, qui restent « Inconnue »
+(52,5 %) ; à la première synchronisation après la mise à jour, les CVE devenues hautes ou critiques
+(125 pour un noyau Ubuntu 22.04) partent en une alerte « sévères » (A37). Le calcul du CVSS 4.0 (A16)
+reste différé : les 538 avis Ubuntu qui n'ont qu'un vecteur 4.0 ont tous une priorité.
+
 **A75. Une seule façon d'interroger une source.** Les clients d'OSV, de la NVD, de KEV et d'EPSS
 refaisaient chacun la requête, l'en-tête `User-Agent`, le contrôle du statut, la lecture bornée et le
 décodage, avec trois formes de message (`status 503`, `HTTP 503`, `nvd : HTTP 404`), deux boucles de
