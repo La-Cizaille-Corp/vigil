@@ -92,17 +92,6 @@ func trackingSource(a store.Asset) string {
 	return ""
 }
 
-// splitTags splits a comma-separated list of tags.
-func splitTags(v string) []string {
-	var out []string
-	for _, t := range strings.Split(v, ",") {
-		if t = strings.TrimSpace(t); t != "" {
-			out = append(out, t)
-		}
-	}
-	return out
-}
-
 // findingTitle names a finding by its CVE when it has one: teams and news
 // speak of CVE-2021-44228, not GHSA-jfh8-c2jp-5v3q. An advisory of several
 // CVEs keeps its own name: the first of its 1 902 CVEs does not describe

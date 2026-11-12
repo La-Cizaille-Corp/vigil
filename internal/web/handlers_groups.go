@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/clip"
+	"github.com/La-Cizaille-Corp/vigil/internal/fr"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
@@ -203,7 +204,7 @@ func (s *Server) groupDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 // ruleValues names tags and projects in a sentence: « l'étiquette « web »,
-// le projet « boutique » ou l'étiquette « prod » », joined by conj.
+// le projet « boutique » ou l'étiquette « prod » », joined by conj (fr.Join).
 func ruleValues(tags, projects []string, conj string) string {
 	var parts []string
 	for _, t := range tags {
@@ -212,10 +213,7 @@ func ruleValues(tags, projects []string, conj string) string {
 	for _, p := range projects {
 		parts = append(parts, "le projet « "+p+" »")
 	}
-	if len(parts) < 2 {
-		return strings.Join(parts, "")
-	}
-	return strings.Join(parts[:len(parts)-1], ", ") + " " + conj + " " + parts[len(parts)-1]
+	return fr.Join(parts, conj)
 }
 
 // outsideGroups explains a write refused because it would move an asset

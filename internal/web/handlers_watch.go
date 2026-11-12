@@ -146,12 +146,18 @@ func (s *Server) saveWatch(w http.ResponseWriter, r *http.Request) {
 	redirect(w, r, "/settings/watch#contenu", "watch-saved")
 }
 
-// feedTagsFromForm reads the tags a feed applies to its items, or the watched
+// tagsFromForm reads the tags a feed applies to its items, or the watched
 // ones: several countries, sectors and regulations each, known values only.
+func tagsFromForm(r *http.Request) tagSelection {
+	return tagSelection{choice.KnownOnly(cti.Countries, r.PostForm["country"]), choice.KnownOnly(cti.Sectors, r.PostForm["sector"]),
+		choice.KnownOnly(cti.Regulations, r.PostForm["regulation"])}
+}
+
+// feedTagsFromForm is tagsFromForm as a feed and the watch store them, each
+// list separated by commas (see store.SplitList).
 func feedTagsFromForm(r *http.Request) (country, sectors, regulations string) {
-	return strings.Join(choice.KnownOnly(cti.Countries, r.PostForm["country"]), ","),
-		strings.Join(choice.KnownOnly(cti.Sectors, r.PostForm["sector"]), ","),
-		strings.Join(choice.KnownOnly(cti.Regulations, r.PostForm["regulation"]), ",")
+	t := tagsFromForm(r)
+	return strings.Join(t.Countries, ","), strings.Join(t.Sectors, ","), strings.Join(t.Regulations, ",")
 }
 
 func (s *Server) feedCreate(w http.ResponseWriter, r *http.Request) {

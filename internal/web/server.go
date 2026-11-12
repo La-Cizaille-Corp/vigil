@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -223,7 +224,7 @@ func (s *Server) parseTemplates() error {
 		"tracking":    trackingSource,
 		"vendorOf":    inventory.VendorName,
 		"wholeVendor": inventory.WholeVendor,
-		"tags":        splitTags,
+		"tags":        store.SplitList,
 		"dict3": func(countries, sectors, regulations []string) tagSelection {
 			return tagSelection{countries, sectors, regulations}
 		},
@@ -265,14 +266,7 @@ func (s *Server) parseTemplates() error {
 		"findingRows": func(list []store.Finding) findingRows {
 			return findingRows{List: list, Head: plainHeaders(findingColumnList)}
 		},
-		"has": func(list []string, v string) bool {
-			for _, x := range list {
-				if x == v {
-					return true
-				}
-			}
-			return false
-		},
+		"has": slices.Contains[[]string],
 		// SECURITY: digest HTML is produced by html/template from stored data
 		// (see package digest), so it is already escaped.
 		"trustedDigest": func(s string) template.HTML { return template.HTML(s) }, // #nosec G203 -- escaped at generation

@@ -3,7 +3,6 @@ package web
 import (
 	"errors"
 	"fmt"
-	"html/template"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -771,8 +770,8 @@ func (s *Server) renderFindings(w http.ResponseWriter, r *http.Request, status i
 			Select: analyst && len(shown) > 0, Checked: b.Checked, Back: back, Reset: reset},
 		"Sort": q.Get("sort"), "Dir": q.Get("dir"),
 		"Levels": l.Levels, "Level": q.Get("level"), "Since": sinceDays(q), "More": more,
-		// Re-encoded from the parsed query: a safe relative link with the same filters, every page.
-		"CSVLink": template.URL("/findings.csv?" + without(q, "msg", "page").Encode()), // #nosec G203 -- fixed path, encoded values
+		// Re-encoded from the parsed query: a relative link with the same filters, every page.
+		"CSVLink": "/findings.csv?" + without(q, "msg", "page").Encode(),
 	}})
 }
 

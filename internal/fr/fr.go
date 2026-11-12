@@ -74,11 +74,15 @@ func Days(d float64) string {
 }
 
 // Or writes alternatives: "a", "a ou b", "a, b ou c".
-func Or(words []string) string {
+func Or(words []string) string { return Join(words, "ou") }
+
+// Join writes a list in a sentence, its last two words joined by conj ("et",
+// "ou"): "a", "a et b", "a, b et c".
+func Join(words []string, conj string) string {
 	if len(words) < 2 {
 		return strings.Join(words, "")
 	}
-	return strings.Join(words[:len(words)-1], ", ") + " ou " + words[len(words)-1]
+	return strings.Join(words[:len(words)-1], ", ") + " " + conj + " " + words[len(words)-1]
 }
 
 // Funcs returns the template functions that write dates and numbers, shared

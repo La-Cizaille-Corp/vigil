@@ -156,7 +156,7 @@ func newAssetChart(assets []store.AssetLoad) stackedChart {
 	}
 	for i, a := range assets {
 		top := rowHeight * float64(i)
-		row := stackedRow{Asset: a, LabelY: top + 12, ValueY: top + 28, Link: "/assets/" + strconv.FormatInt(a.ID, 10)}
+		row := stackedRow{Asset: a, LabelY: top + 12, ValueY: top + 28, Link: assetPath(a.ID)}
 		x := left
 		parts := []struct {
 			sev string

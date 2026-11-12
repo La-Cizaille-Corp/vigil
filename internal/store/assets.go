@@ -40,7 +40,7 @@ func scanAsset(row scanner) (Asset, error) {
 	var tags, created, retired string
 	err := row.Scan(&a.ID, &a.Name, &a.Kind, &a.Ecosystem, &a.Version, &a.PURL, &a.CPE, &a.CPEMode, &a.CPEFrom, &a.TrackSince,
 		&a.Criticality, &a.Owner, &a.Notes, &a.Source, &a.Project, &tags, &created, &retired, &a.OlderVulns)
-	a.Tags = splitTags(tags)
+	a.Tags = SplitList(tags)
 	a.CreatedAt = parseTime(created)
 	if retired != "" {
 		a.Retired = parseTime(retired)
@@ -175,7 +175,7 @@ func (s *Store) ListAssetTags(ctx context.Context, sc Scope) ([]TagCount, error)
 	}
 	counts := map[string]int{}
 	for _, tags := range lists {
-		for _, t := range splitTags(tags) {
+		for _, t := range SplitList(tags) {
 			counts[t]++
 		}
 	}

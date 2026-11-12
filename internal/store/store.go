@@ -472,10 +472,14 @@ func joinTags(tags []string) string {
 	return "," + strings.Join(tags, ",") + ","
 }
 
-func splitTags(s string) []string {
+// SplitList reads a list stored between commas (joinTags, or "fr,de" for the
+// tags of a feed): its items, spaces around each removed, empty ones dropped.
+// Every comma-separated list of Vigil is read here: tags, groups of an account,
+// countries, sectors and regulations.
+func SplitList(s string) []string {
 	var out []string
 	for _, t := range strings.Split(s, ",") {
-		if t != "" {
+		if t = strings.TrimSpace(t); t != "" {
 			out = append(out, t)
 		}
 	}

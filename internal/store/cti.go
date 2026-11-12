@@ -323,7 +323,7 @@ func scanCTIItem(row scanner) (CTIItem, error) {
 		it.Concerns = strings.Split(concerns, ",")
 	}
 	it.Published = parseTime(published)
-	it.Countries, it.Sectors, it.Regulations = splitTags(countries), splitTags(sectors), splitTags(regulations)
+	it.Countries, it.Sectors, it.Regulations = SplitList(countries), SplitList(sectors), SplitList(regulations)
 	return it, nil
 }
 

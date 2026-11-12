@@ -6,7 +6,6 @@ import (
 	"strconv"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
-	"github.com/La-Cizaille-Corp/vigil/internal/choice"
 	"github.com/La-Cizaille-Corp/vigil/internal/cti"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
@@ -162,9 +161,7 @@ type feedForm struct {
 
 // feedFormFrom reads the form of a new feed as it was typed.
 func feedFormFrom(r *http.Request) feedForm {
-	return feedForm{Name: r.PostFormValue("name"), URL: r.PostFormValue("url"), Tags: tagSelection{
-		choice.KnownOnly(cti.Countries, r.PostForm["country"]), choice.KnownOnly(cti.Sectors, r.PostForm["sector"]),
-		choice.KnownOnly(cti.Regulations, r.PostForm["regulation"])}}
+	return feedForm{Name: r.PostFormValue("name"), URL: r.PostFormValue("url"), Tags: tagsFromForm(r)}
 }
 
 func (s *Server) feedSettings(w http.ResponseWriter, r *http.Request) {
