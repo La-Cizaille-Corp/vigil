@@ -62,6 +62,24 @@ func TestFollowPURL(t *testing.T) {
 	}
 }
 
+// A purl and a Version field that disagree: the page says which one is
+// checked, the field (A63).
+func TestCheckedVersion(t *testing.T) {
+	for _, c := range []struct {
+		purl, version, want string
+	}{
+		{"pkg:deb/debian/libssl3@3.0.11-1~deb12u2", "3.0.19-1~deb12u2", "3.0.19-1~deb12u2"},
+		{"pkg:deb/debian/libssl3@3.0.19-1~deb12u2", "3.0.19-1~deb12u2", ""},
+		{"pkg:npm/%40babel/core@7.0.0", "7.0.0", ""}, // the version decoded, not the scope
+		{"pkg:npm/lodash", "4.17.15", ""},
+		{"", "4.17.15", ""},
+	} {
+		if got := CheckedVersion(store.Asset{PURL: c.purl, Version: c.version}); got != c.want {
+			t.Errorf("%s with %s: %q, want %q", c.purl, c.version, got, c.want)
+		}
+	}
+}
+
 func TestQueryable(t *testing.T) {
 	cases := []struct {
 		a    store.Asset

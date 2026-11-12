@@ -23,7 +23,7 @@
 <dl class="card">
   <dt>Type</dt><dd>{{kindLabel $a.Kind}}</dd>
   {{with $a.Version}}<dt>Version</dt><dd>{{.}}</dd>{{end}}
-  {{with $a.PURL}}<dt>purl</dt><dd><code>{{.}}</code></dd>{{end}}
+  {{with $a.PURL}}<dt>purl</dt><dd><code>{{.}}</code>{{with checkedVersion $a}}<br><small class="muted">version vérifiée : {{.}}, celle du champ Version</small>{{end}}</dd>{{end}}
   {{with $a.Ecosystem}}<dt>Écosystème</dt><dd>{{.}}</dd>{{end}}
   {{with $a.CPE}}<dt>CPE</dt><dd><code>{{.}}</code></dd>{{end}}
   <dt>Détection</dt><dd>{{with tracking $a}}{{.}}{{else}}aucune{{end}}, {{if $a.TrackSince}}vulnérabilités publiées depuis le {{isoDate $a.TrackSince}}{{else}}tout l'historique{{end}}</dd>
@@ -51,9 +51,10 @@
 </details>
 {{end}}
 
-<h2>Vulnérabilités de cet actif</h2>
+{{- $l := .Data.Levels}}{{$analyst := can .User.Role "analyst"}}
+<h2 id="vulnerabilites">Vulnérabilités de cet actif <span class="muted small">· {{$l.All.N}}</span></h2>
 <p class="muted small">{{if $a.TrackSince}}Période de suivi : vulnérabilités publiées depuis le {{isoDate $a.TrackSince}}, plus les plus anciennes
-  activement exploitées (CISA KEV).{{if can .User.Role "analyst"}} Pour voir tout l'historique, videz la date de début ci-dessous.{{end}}{{else}}Période de suivi : tout l'historique.{{end}}
+  activement exploitées (CISA KEV).{{else}}Période de suivi : tout l'historique.{{end}}
   {{if not (tracking $a)}}<strong>Aucune détection automatique</strong> : renseignez un purl ou un écosystème, avec une version
   (ou <code>latest</code>), ou un CPE.{{else if byName $a}}<strong>Détection par le nom</strong> : Vigil cherche « {{$a.Name}} » dans
   les descriptions des CVE de la NVD ; vérifiez chaque résultat. Un purl ou un CPE rend la détection exacte.{{end}}
@@ -63,41 +64,79 @@
   {{if eq $a.Version "latest"}}Version <code>latest</code> : seules les vulnérabilités sans version corrigée connue sont signalées.{{end}}</p>
 {{if and $a.OlderVulns $a.TrackSince}}
 <div class="notice">{{$a.OlderVulns}} vulnérabilité(s) connue(s) pour cette version ont été publiées avant le {{isoDate $a.TrackSince}}
-  et ne sont pas signalées ici (sauf exploitées).{{if can .User.Role "analyst"}}
-  <form method="post" action="/assets/{{$a.ID}}/full-history" class="inline">
-    {{template "csrf" .CSRF}}
-    <button type="submit" class="link">Suivre tout l'historique</button>
-  </form>{{end}}</div>
+  et ne sont pas signalées ici (sauf exploitées).{{if $analyst}}
+  {{- /* Thousands of findings and their alerts at once: confirmed first, with their number (A86). */}}
+  <details class="confirm">
+    <summary>Suivre tout l'historique…</summary>
+    <form method="post" action="/assets/{{$a.ID}}/full-history" class="inline">
+      {{template "csrf" .CSRF}}
+      <span>Ajouter les {{$a.OlderVulns}} vulnérabilité(s) publiées avant le {{isoDate $a.TrackSince}}, et les alertes qui vont avec ?</span>
+      <button type="submit">Ajouter les {{$a.OlderVulns}} vulnérabilité(s)</button>
+    </form>
+  </details>{{end}}</div>
 {{end}}
-<form method="get" action="/assets/{{$a.ID}}" class="delivery">
-  <label>Chercher dans ces vulnérabilités
-    <input type="search" name="q" value="{{.Data.Query}}" maxlength="100" placeholder="wifi:, CVE-2026-…"></label>
-  <button type="submit">Chercher</button>
-  {{if .Data.Query}}<a href="/assets/{{$a.ID}}">Tout afficher</a>{{end}}
-</form>
-{{if and .Data.Query (can .User.Role "analyst")}}
-<div class="notice">{{.Data.Pager.Total}} vulnérabilité(s) contiennent « {{.Data.Query}} ».
-  Si ce composant n'est pas présent, vous pouvez les écarter : elles passent en « Non affecté – code vulnérable absent », les prochaines aussi.
-  Les vulnérabilités exploitées ou probables restent visibles, et ce que quelqu'un a déjà décidé ne change pas.
-  <form method="post" action="/assets/{{$a.ID}}/dismissals" class="inline">
-    {{template "csrf" .CSRF}}
-    <input type="hidden" name="text" value="{{.Data.Query}}">
-    <button type="submit">Écarter tout ce qui correspond sur cet actif</button>
-  </form>
-</div>
-{{end}}
-{{with .Data.Rules}}
-<h3>Règles d'écart</h3>
-<ul class="rules">
-  {{range .}}<li><code>{{.Text}}</code> <span class="muted small">{{.Findings}} écartée(s)</span>
-    {{if can $.User.Role "analyst"}}<form method="post" action="/assets/{{$a.ID}}/dismissals/{{.ID}}/delete" class="inline">
-      {{template "csrf" $.CSRF}}
-      <button type="submit" class="link">Supprimer la règle</button>
-    </form>{{end}}</li>
+{{- /* Its vulnerabilities by level, each count a link to its list, rather than a copy of that list (A86). */}}
+<nav class="kpis levels" aria-label="Niveaux de cet actif">
+  {{range .Data.Counters}}<a class="kpi level-card-{{.Level}}" href="{{.Href}}">
+    <span class="kpi-label">{{.Label}}</span>
+    <span class="kpi-value">{{.N}}</span>
+    <span class="kpi-note">{{template "levelNote" .Level}}</span>
+  </a>
   {{end}}
-</ul>
+</nav>
+<section class="card" aria-labelledby="dabord">
+  <h3 id="dabord">À traiter d'abord</h3>
+  {{if .Data.First}}{{template "findingTable" (findingRows .Data.First)}}{{else}}<p class="muted">Aucune vulnérabilité ouverte.</p>{{end}}
+  <p class="list-nav">
+    {{- with index $l.Open 1}}{{if .N}}<a href="{{.Href}}"><strong>Voir les {{.N}} urgente(s) ›</strong></a> · {{end}}{{end}}
+    {{- with index $l.Open 0}}<a href="{{.Href}}">Toute la liste de cet actif ({{.N}} ouverte(s)) : tri, filtres, traitement par lot ›</a>{{end}}</p>
+</section>
+
+{{- /* Setting noise aside (A61), offered before any search (A86). */}}
+{{if or $analyst .Data.Rules}}
+<section class="card" id="bruit" aria-labelledby="bruit-titre">
+  <h2 id="bruit-titre">Écarter le bruit</h2>
+  {{- if $analyst}}
+  <p class="small">Un composant absent de cet actif (<code>wifi</code>, <code>bluetooth</code>, <code>drm</code> sur un serveur…) ?
+    Cherchez-le : les vulnérabilités qui le citent dans leur identifiant ou leur résumé s'affichent, puis écartez-les. Elles passent en
+    « Non affecté – code vulnérable absent », les prochaines aussi. Les vulnérabilités exploitées ou probables restent visibles, et ce que
+    quelqu'un a déjà décidé ne change pas. Réversible : supprimer la règle rétablit ces vulnérabilités.</p>
+  <form method="get" action="/assets/{{$a.ID}}#bruit" class="delivery">
+    <label>Texte cherché <input type="search" name="q" value="{{.Data.Query}}" minlength="3" maxlength="100" placeholder="wifi, bluetooth, drm…"></label>
+    <button type="submit">Voir</button>
+    {{if .Data.Query}}<a href="/assets/{{$a.ID}}#bruit">Effacer</a>{{end}}
+  </form>
+  {{- with .Data.Query}}
+  <div class="notice" role="status">{{with $.Data.Pager.Total}}{{.}} vulnérabilité(s) contiennent « {{$.Data.Query}} » (<a href="#apercu">les voir</a>).
+    {{- else}}Aucune vulnérabilité ne contient « {{.}} » maintenant : la règle vaudra pour les prochaines.{{end}}
+    <form method="post" action="/assets/{{$a.ID}}/dismissals" class="inline">
+      {{template "csrf" $.CSRF}}
+      <input type="hidden" name="text" value="{{.}}">
+      <button type="submit">Écarter tout ce qui correspond sur cet actif</button>
+    </form>
+  </div>
+  {{- end}}
+  {{- end}}
+  {{- with .Data.Rules}}
+  <h3>Règles d'écart de cet actif</h3>
+  <ul class="rules">
+    {{range .}}<li><code>{{.Text}}</code> <span class="muted small">{{.Findings}} écartée(s)</span>
+      {{if $analyst}}<form method="post" action="/assets/{{$a.ID}}/dismissals/{{.ID}}/delete" class="inline">
+        {{template "csrf" $.CSRF}}
+        <button type="submit" class="link danger-link">Supprimer la règle</button>
+      </form>{{end}}</li>
+    {{end}}
+  </ul>
+  {{- end}}
+</section>
 {{end}}
-{{- with .Data.Pager}}{{if gt .Pages 1}}<p class="muted">{{.Total}} vulnérabilité(s) · lignes {{.First}} à {{.Last}} sur {{.Total}}</p>{{end}}{{end}}
-{{template "findingTable" (findingRows .Data.Findings)}}
+{{- if and $analyst .Data.Matching}}
+<h3 id="apercu">Vulnérabilités qui contiennent « {{.Data.Query}} »</h3>
+{{- with .Data.Pager}}{{if gt .Pages 1}}<p class="muted">lignes {{.First}} à {{.Last}} sur {{.Total}}</p>{{end}}{{end}}
+{{template "findingTable" (findingRows .Data.Matching)}}
 {{template "pager" .Data.Pager}}
 {{end}}
+{{end}}
+
+{{/* levelNote: what a level holds, under its count on the page of an asset. Data: the level. */}}
+{{define "levelNote"}}{{if eq . "urgent"}}exploitées ou probables{{else if eq . "plan"}}critiques ou hautes{{else if eq . "watch"}}le reste{{else if eq . "aside"}}non affectées ou faux positifs{{else}}historique{{end}}{{end}}

@@ -308,18 +308,24 @@ func (s *Server) assetList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	q := r.URL.Query()
-	project, tag := q.Get("project"), tagParam(q)
-	if project != "" || tag != "" {
-		var filtered []store.Asset
-		for _, a := range assets {
-			if (project == "" || a.Project == project) && (tag == "" || slices.Contains(a.Tags, tag)) {
-				filtered = append(filtered, a)
-			}
+	project, tag, search := q.Get("project"), tagParam(q), clip.Prefix(strings.TrimSpace(q.Get("q")), 200)
+	loads, err := s.Store.AssetLoads(ctx, sc)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	load := map[int64]store.AssetLoad{}
+	for _, l := range loads {
+		load[l.ID] = l
+	}
+	var rows []assetRow
+	for _, a := range assets {
+		if (project == "" || a.Project == project) && (tag == "" || slices.Contains(a.Tags, tag)) && assetMatches(a, search) {
+			rows = append(rows, assetRow{Asset: a, Urgent: load[a.ID].Urgent, Open: load[a.ID].Total()})
 		}
-		assets = filtered
 	}
 	order := orderFrom(q, assetColumnList, "")
-	sortRows(assets, assetColumnList, order)
+	sortRows(rows, assetColumnList, order)
 	projects, err := s.Store.ListProjects(r.Context(), readScope(r))
 	if err != nil {
 		s.serverError(w, r, err)
@@ -336,10 +342,17 @@ func (s *Server) assetList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, r, http.StatusOK, "assets", page{Title: "Inventaire",
-		Data: map[string]any{"Assets": assets, "Projects": projects, "Project": project, "Tags": tags, "Tag": tag,
-			"Groups": groups, "Group": group,
+		Data: map[string]any{"Assets": rows, "Projects": projects, "Project": project, "Tags": tags, "Tag": tag,
+			"Groups": groups, "Group": group, "Query": search,
 			"RetiredView": retiredView, "Retired": len(retired), "Sort": q.Get("sort"), "Dir": q.Get("dir"),
 			"Head": sortHeaders(assetColumnList, "/assets", q, order)}})
+}
+
+// assetMatches tells whether the name, purl or CPE of an asset holds text,
+// any case: the search of the inventory (A86).
+func assetMatches(a store.Asset, text string) bool {
+	text = strings.ToLower(text)
+	return slices.ContainsFunc([]string{a.Name, a.PURL, a.CPE}, func(v string) bool { return strings.Contains(strings.ToLower(v), text) })
 }
 
 // assetNew shows the ways to add assets: CPE search, form, SBOM and CSV
@@ -388,16 +401,36 @@ func (s *Server) assetEdit(w http.ResponseWriter, r *http.Request) {
 	s.renderAsset(w, r, http.StatusOK, a, a, "")
 }
 
-// renderAsset shows an asset, then its vulnerabilities, those holding the text
-// searched in the query string if any, a page of them at a time (A85), and
-// its dismissal rules. The edit form is folded; it opens on the values refused
-// when there are some (form != a).
+// assetFirst is the number of open vulnerabilities the page of an asset shows,
+// the most urgent ones; its list holds them all (A86).
+const assetFirst = 10
+
+// renderAsset shows an asset, then its vulnerabilities by level, each count a
+// link to the list of the asset at that level, and the most urgent open ones
+// (A86); then its dismissal rules, with the vulnerabilities holding the text
+// searched in the query string if any, a page of them at a time (A85), to see
+// what a rule would set aside. The edit form is folded; it opens on the values
+// refused when there are some (form != a).
 func (s *Server) renderAsset(w http.ResponseWriter, r *http.Request, status int, a, form store.Asset, formErr string) {
-	query := clip.Prefix(strings.TrimSpace(r.URL.Query().Get("q")), maxRuleText)
-	findings, err := s.Store.ListFindings(r.Context(), readScope(r), store.FindingFilter{AssetID: a.ID, Matching: query})
+	q := r.URL.Query()
+	// The list of the asset as the vulnerability list reads it, so that each
+	// count is the length of the list it leads to.
+	l, err := s.listedFindings(r, url.Values{"asset": {strconv.FormatInt(a.ID, 10)}, "level": {levelAll}})
 	if err != nil {
 		s.serverError(w, r, err)
 		return
+	}
+	first := keepLevel(l.Findings, levelOpen)
+	first = first[:min(len(first), assetFirst)]
+	// What a rule of the text searched would set aside, for those who may create one.
+	query := clip.Prefix(strings.TrimSpace(q.Get("q")), maxRuleText)
+	var matching []store.Finding
+	if sess, _ := sessionFrom(r.Context()); query != "" && auth.RoleAtLeast(sess.User.Role, auth.RoleAnalyst) {
+		if matching, err = s.Store.ListFindings(r.Context(), readScope(r), store.FindingFilter{AssetID: a.ID, Matching: query}); err != nil {
+			s.serverError(w, r, err)
+			return
+		}
+		tracking.SortByPriority(matching)
 	}
 	rules, err := s.Store.ListDismissalRules(r.Context(), readScope(r), a.ID)
 	if err != nil {
@@ -414,10 +447,11 @@ func (s *Server) renderAsset(w http.ResponseWriter, r *http.Request, status int,
 		s.serverError(w, r, err)
 		return
 	}
-	shown, pages := paginate(findings, r.URL.Query(), assetPath(a.ID))
+	shown, pages := paginate(matching, q, assetPath(a.ID))
 	s.render(w, r, status, "asset", page{Title: inventory.Describe(a), Error: formErr,
 		Data: map[string]any{"Asset": a, "Form": f, "Editing": !reflect.DeepEqual(form, a),
-			"Findings": shown, "Pager": pages, "Query": query, "Rules": rules, "Groups": groups}})
+			"Levels": l.Levels, "Counters": append(slices.Clone(l.Levels.Open[1:]), l.Levels.Closed...), "First": first,
+			"Matching": shown, "Pager": pages, "Query": query, "Rules": rules, "Groups": groups}})
 }
 
 // A rule text is short, and long enough not to set aside everything by mistake.
@@ -426,6 +460,11 @@ const (
 	maxRuleText = 100
 )
 
+// fitsRule tells whether text can be the text of a dismissal rule.
+func fitsRule(text string) bool {
+	return !clip.Fits(text, minRuleText-1) && clip.Fits(text, maxRuleText)
+}
+
 // dismissalCreate sets aside the vulnerabilities of an asset holding a text.
 func (s *Server) dismissalCreate(w http.ResponseWriter, r *http.Request) {
 	a, ok := load(s, w, r, inScope(r, s.Store.Asset))
@@ -433,7 +472,7 @@ func (s *Server) dismissalCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	text := strings.TrimSpace(r.PostFormValue("text"))
-	if clip.Fits(text, minRuleText-1) || !clip.Fits(text, maxRuleText) {
+	if !fitsRule(text) {
 		s.renderAsset(w, r, http.StatusBadRequest, a, a, fmt.Sprintf("Indiquez un texte de %d à %d caractères.", minRuleText, maxRuleText))
 		return
 	}
@@ -672,9 +711,19 @@ func (s *Server) renderFindings(w http.ResponseWriter, r *http.Request, status i
 	if l.Group != 0 {
 		more++
 	}
+	asset, err := s.filteredAsset(r, f.AssetID)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	var noise noiseOffer
+	if analyst {
+		noise = noiseLinks(l.Findings, f.Search)
+	}
 	s.render(w, r, status, "findings", page{Title: "Vulnérabilités", Error: formErr, Data: map[string]any{
 		"Filter": f, "Projects": projects, "Tags": tags, "Groups": groups, "Group": l.Group, "Pager": pages, "Bulk": b, "Confirm": bulkConfirmAbove,
-		"MinEPSSPercent": f.MinEPSS * 100, "Next": back,
+		"MinEPSSPercent": f.MinEPSS * 100, "Next": back, "Asset": asset, "Noise": noise,
+		"AllAssets": listURL(without(q, "asset", "page")),
 		"Table": findingRows{List: shown, Head: sortHeaders(findingColumnList, "/findings", q, l.Order), Sortable: true,
 			Select: analyst && len(shown) > 0, Checked: b.Checked, Back: back},
 		"Sort": q.Get("sort"), "Dir": q.Get("dir"),
@@ -682,6 +731,78 @@ func (s *Server) renderFindings(w http.ResponseWriter, r *http.Request, status i
 		// Re-encoded from the parsed query: a safe relative link with the same filters, every page.
 		"CSVLink": template.URL("/findings.csv?" + without(q, "msg", "page").Encode()), // #nosec G203 -- fixed path, encoded values
 	}})
+}
+
+// assetFilter is the asset a vulnerability list is filtered by (?asset=),
+// named only when the account sees it.
+type assetFilter struct {
+	ID   int64
+	Name string // name and version, "" when not found
+}
+
+// filteredAsset reads the asset a list is filtered by in the scope of the
+// request (A86). SECURITY: an asset outside of it is not found, as one that
+// does not exist, and its list is empty, as the scope is in the query of the
+// list too: neither its name nor its vulnerabilities show.
+func (s *Server) filteredAsset(r *http.Request, id int64) (assetFilter, error) {
+	if id == 0 {
+		return assetFilter{}, nil
+	}
+	a, err := s.Store.Asset(r.Context(), readScope(r), id)
+	if errors.Is(err, store.ErrNotFound) {
+		return assetFilter{ID: id}, nil
+	}
+	if err != nil {
+		return assetFilter{}, err
+	}
+	return assetFilter{ID: id, Name: inventory.Describe(a)}, nil
+}
+
+// noiseOffer offers to set aside, asset by asset, the vulnerabilities a search
+// of the list found (A86): a link to the page of each asset, which shows what
+// the rule of that text would set aside before it is created (A61).
+type noiseOffer struct {
+	Text  string
+	Links []noiseLink
+	More  int // assets left out of Links
+}
+
+// noiseLink leads to the rule of a text on one asset.
+type noiseLink struct {
+	Asset string // name and version
+	Href  string
+	N     int // findings of the list on that asset
+}
+
+// maxNoiseLinks bounds the assets a search offers to set aside noise on.
+const maxNoiseLinks = 5
+
+// noiseLinks is the offer for the findings of a list searched for text: their
+// assets, the one with the most first, when text can be a rule. An asset
+// whose name holds the text is left out: the search found its findings by its
+// name, which a rule does not read.
+func noiseLinks(findings []store.Finding, text string) noiseOffer {
+	if !fitsRule(text) {
+		return noiseOffer{}
+	}
+	o, index, lower := noiseOffer{Text: text}, map[int64]int{}, strings.ToLower(text)
+	for _, f := range findings {
+		if strings.Contains(strings.ToLower(f.AssetName), lower) {
+			continue
+		}
+		i, ok := index[f.AssetID]
+		if !ok {
+			i, index[f.AssetID] = len(o.Links), len(o.Links)
+			o.Links = append(o.Links, noiseLink{Asset: inventory.Describe(store.Asset{Name: f.AssetName, Version: f.AssetVersion}),
+				Href: assetPath(f.AssetID) + "?q=" + url.QueryEscape(text) + "#bruit"})
+		}
+		o.Links[i].N++
+	}
+	slices.SortStableFunc(o.Links, func(a, b noiseLink) int { return b.N - a.N })
+	if len(o.Links) > maxNoiseLinks {
+		o.More, o.Links = len(o.Links)-maxNoiseLinks, o.Links[:maxNoiseLinks]
+	}
+	return o
 }
 
 // findingCSV exports the filtered vulnerability list for spreadsheets: all of
@@ -853,6 +974,7 @@ func findingFilterFrom(q url.Values) store.FindingFilter {
 		Project:    q.Get("project"),
 		Tag:        tagParam(q),
 		Search:     strings.TrimSpace(q.Get("q")),
+		AssetID:    idParam(q, "asset"),
 	}
 	if days := sinceDays(q); days > 0 {
 		f.Since = daysAgo(time.Now(), days)
@@ -963,7 +1085,10 @@ func (s *Server) renderFinding(w http.ResponseWriter, r *http.Request, status in
 		next = then // the one that followed it before it left the list (findingUpdate)
 	}
 	data := map[string]any{"Finding": f, "Vuln": v, "Events": events, "Mentions": mentions, "Fixes": tracking.Fixes(v.Raw, asset),
-		"ByName": inventory.ByName(asset), "Latest": inventory.IsLatest(asset), "Back": back, "Following": next}
+		"ByName": inventory.ByName(asset), "Latest": inventory.IsLatest(asset), "Back": back, "Following": next,
+		// The deadline CISA set, passed while the vulnerability is still open (A86).
+		"KEVLate": f.Open() && len(v.KEVDue) >= len(time.DateOnly) && v.KEVDue[:len(time.DateOnly)] < time.Now().Format(time.DateOnly),
+		"CVE":     findingCVE(f)}
 	if err := s.foldedFindings(r, f, asset, data); err != nil {
 		s.serverError(w, r, err)
 		return

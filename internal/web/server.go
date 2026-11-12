@@ -233,6 +233,7 @@ func (s *Server) parseTemplates() error {
 		"queryable":         inventory.Queryable,
 		"byName":            inventory.ByName,
 		"wholeDistribution": inventory.WholeDistribution,
+		"checkedVersion":    inventory.CheckedVersion,
 		"countryLabel":      func(v string) string { return choice.Label(cti.Countries, v) },
 		"sectorLabel":       func(v string) string { return choice.Label(cti.Sectors, v) },
 		"countries":         func() []choice.Option { return cti.Countries },

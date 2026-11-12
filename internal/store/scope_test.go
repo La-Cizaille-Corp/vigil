@@ -173,6 +173,10 @@ var isolationCases = map[string]func(context.Context, *Store, Scope, scopeFixtur
 		// Each figure that depends on the inventory, so that zero means none of them leaked.
 		return s.Open+s.Closed90+s.Concerning30+len(s.TopAssets)+weeks > 0, err
 	},
+	"AssetLoads": func(ctx context.Context, st *Store, sc Scope, _ scopeFixture) (bool, error) {
+		loads, err := st.AssetLoads(ctx, sc)
+		return len(loads) > 0, err
+	},
 	"PendingAlerts": func(ctx context.Context, st *Store, sc Scope, _ scopeFixture) (bool, error) {
 		alerts, err := st.PendingAlerts(ctx, sc)
 		return len(alerts) > 0, err

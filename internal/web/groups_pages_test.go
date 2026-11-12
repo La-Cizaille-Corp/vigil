@@ -55,6 +55,8 @@ func TestNothingOfAnotherGroupLeaks(t *testing.T) {
 			echoes[list+f] = strings.Split(f, "=")[1]
 		}
 	}
+	echoes["/assets?q=temoinb-nom"] = "temoinb-nom" // the search of the inventory (A86)
+	paths = append(paths, "/findings?level=all&asset="+id(fx.asset["b"]), "/findings.csv?level=all&asset="+id(fx.asset["b"]))
 	paths = append(paths, "/assets?retired=1", "/assets?group="+id(fx.groupB), "/assets/"+id(fx.asset["a"]),
 		"/assets/"+id(fx.asset["p"])+"?q=9002", "/findings?level=all", "/findings?level=all&q=9002",
 		"/findings?level=all&group="+id(fx.groupB), "/findings.csv?level=all", "/findings.csv?level=all&group="+id(fx.groupB),

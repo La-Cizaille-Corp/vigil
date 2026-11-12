@@ -92,6 +92,7 @@ func TestRenderSnapshots(t *testing.T) {
 		"finding-kev.html":   "/findings/1",
 		"finding-zero.html":  "/findings/3",
 		"asset.html":         "/assets/" + strconv.FormatInt(forti, 10),
+		"assets.html":        "/assets",
 		"digest.html":        digestPath,
 		"digest-markdown.md": digestPath + "/markdown",
 	} {

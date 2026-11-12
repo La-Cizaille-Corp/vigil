@@ -96,13 +96,17 @@ func TestListPages(t *testing.T) {
 		t.Error("a list of one page shows a pager")
 	}
 
-	// The page of an asset is cut the same way.
-	_, page := c.get("/assets/" + strconv.FormatInt(asset, 10) + "?page=3")
-	if got := findingOrder(page); len(got) != 50 || !strings.Contains(page, "lignes 201 à 250 sur 250") {
+	// What a rule would set aside on an asset is cut the same way; the page
+	// itself shows the ten most urgent and links to its list (A86).
+	_, page := c.get("/assets/" + strconv.FormatInt(asset, 10) + "?q=wifi&page=3")
+	if got := findingOrder(page[strings.Index(page, `id="apercu"`):]); len(got) != 50 || !strings.Contains(page, "lignes 201 à 250 sur 250") {
 		t.Errorf("asset page 3: %d rows", len(got))
 	}
-	if _, page := c.get("/assets/" + strconv.FormatInt(asset, 10) + "?q=wifi"); !strings.Contains(page, "250 vulnérabilité(s) contiennent") {
+	if !strings.Contains(page, "250 vulnérabilité(s) contiennent") {
 		t.Error("the search on an asset counts its page only")
+	}
+	if _, page := c.get("/assets/" + strconv.FormatInt(asset, 10)); len(findingOrder(page)) != assetFirst || strings.Contains(page, `class="pager"`) {
+		t.Errorf("the page of an asset lists %d vulnerabilities, want its %d most urgent", len(findingOrder(page)), assetFirst)
 	}
 }
 

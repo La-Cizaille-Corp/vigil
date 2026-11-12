@@ -468,7 +468,8 @@ d'une vulnérabilité ramenait à la liste sans ses filtres.
   rendue (`?page=`, « lignes 101 à 200 sur 3 235 », Précédente / Suivante ; un numéro hors bornes montre la page
   la plus proche). Les nombres des niveaux, l'export CSV, la décision sur toute la liste et « Suivante dans la
   liste » lisent la liste entière, par une seule fonction (`listedFindings`) ; changer d'ordre ou de niveau
-  revient à la première page. La page d'un actif est coupée de même (`paginate`, commun). La veille, plafonnée à
+  revient à la première page. La page d'un actif était coupée de même (`paginate`, commun) ; depuis A86, elle
+  ne montre plus que ses dix plus urgentes, et seul l'aperçu d'une règle d'écart y est paginé. La veille, plafonnée à
   200 actualités, reste au lot 5 de l'audit (« veille paginée et comptée »), qui pourra reprendre `paginate`.
   Mesure, copie de la base noyau, page « À planifier » (3 235 vulnérabilités), poste de développement : 2,68 Mo
   et 0,27 s avant, 0,11 Mo et 0,18 s après ; « Toutes » (7 629) : 6,43 Mo et 0,44 s avant, 0,11 Mo et 0,20 s après.
@@ -500,6 +501,62 @@ les cases cochées valent pour la page affichée (changer de page les perd, faut
 toute la liste compte comme décision humaine pour les suivantes et pour les règles d'écart ; le rechargement
 d'une liste réaffichée après refus renvoie le formulaire (comme toute réponse à un envoi), sans effet tant
 qu'il est refusé ou demande confirmation.
+
+**A86. La page d'un actif résume par niveau, sa liste détaille ; le bruit s'écarte d'où on le voit.** L'audit
+d'ergonomie de la 0.4.1 (lot 4) trouvait sur la page du noyau Debian 6.12.60-1 des milliers de lignes dans l'ordre
+des identifiants, ses 4 urgentes noyées dedans, sans nombre ni lien vers une liste triable : `/findings` n'avait
+pas de filtre par actif. L'inventaire ne disait pas quels actifs sont exposés, les règles d'écart (A61) ne se
+trouvaient qu'après une recherche sur la page d'un actif, et « Suivre tout l'historique » ajoutait d'un clic des
+milliers de vulnérabilités et leurs alertes.
+- *Filtre `asset=`* : la liste des vulnérabilités se filtre sur un actif (`FindingFilter.AssetID`, déjà là) ; ses
+  niveaux, son ordre, ses filtres, sa pagination, son export et la décision sur toute la liste le gardent, tous
+  lisant `listedFindings`. L'actif est nommé en tête (« Vulnérabilités de l'actif linux 6.12.60-1 · tous les
+  actifs ») ; le formulaire de filtres et « Réinitialiser » le gardent. *Sécurité* : la portée de la requête est
+  dans la requête de la liste (A67) ; un actif hors du périmètre du compte donne une liste vide et « Actif
+  introuvable », comme un actif qui n'existe pas, sans son nom (vérifié avec le témoin d'un autre groupe : liste,
+  export, décision sur toute la liste).
+- *Page d'un actif* : cinq compteurs (Urgentes, À planifier, À surveiller, Écartées, Corrigées), chacun lien vers
+  la liste de l'actif à ce niveau. La page lit la liste de l'actif par `listedFindings` et ses compteurs par
+  `levelLinks`, comme la liste : un nombre est la longueur de la liste où il mène. Puis « À traiter d'abord » :
+  les dix ouvertes les plus urgentes dans l'ordre du classement (A78), donc les urgentes en tête, avec « Voir les
+  N urgentes » et « Toute la liste de cet actif : tri, filtres, traitement par lot ». Mesure, copie de la base
+  noyau, poste de développement : 86,8 Ko (100 lignes, première page) avant, 19,6 Ko (10 lignes et les
+  compteurs) après, 0,04 à 0,06 s dans les deux cas.
+- *Écarter le bruit* : un bloc permanent pour les analystes, avec des exemples (`wifi`, `bluetooth`, `drm`), la
+  recherche, le nombre trouvé, le bouton, les règles en place et « Réversible : supprimer la règle rétablit ces
+  vulnérabilités » ; sans résultat, « Aucune vulnérabilité ne contient « x509 » maintenant : la règle vaudra pour
+  les prochaines ». L'aperçu de ce que la règle écarterait reste sur la page, paginé (on voit avant d'écarter).
+  Depuis la liste, une recherche (`q=`) propose, par actif concerné, un lien vers cet aperçu : sur la base
+  noyau, « Écartez « bluetooth » sur un actif : linux 6.12.60-1 (148) · linux 5.15.0-100.110 (70) ». Ni un actif dont le nom contient le texte (la recherche l'a trouvé par
+  son nom, qu'une règle ne lit pas), ni un texte qui ne peut pas être une règle (`fitsRule`, la borne de la
+  création) ne sont proposés. Un lecteur voit les règles, pas le bloc.
+- *Suivre tout l'historique* : une confirmation `<details>` qui dit le nombre (« Ajouter les 2 487 vulnérabilités
+  publiées avant le 08/07/2026, et les alertes qui vont avec ? »), comme les suppressions (A33).
+- *Inventaire* : colonnes triables « Urgentes » et « Ouvertes », liens vers la liste de l'actif, lues par une
+  requête groupée par actif (`AssetLoads`, celle des actifs les plus exposés du tableau de bord, étendue à tous
+  les actifs et à leurs urgentes par `urgentExpr`, la règle des niveaux) ; champ « Chercher un actif » (nom, purl
+  ou CPE). Le tableau de bord, qui ne montre pas les urgentes par actif, ne les compte pas : sur la base noyau,
+  les lire coûte 0,09 s, les signaux d'exploitation d'une vulnérabilité étant rangés après son avis dans la
+  ligne. L'inventaire passe de moins de 0,02 s à 0,16 s sur cette base, le tableau de bord ne change pas.
+- *Page d'une vulnérabilité* : titrée par sa CVE seulement quand l'avis n'en nomme qu'une (« CVE-2026-0001
+  (RHSA-2026:0001) ») ; un avis de plusieurs CVE garde son nom (USN-8875-1, pas la première de ses 1 902 CVE).
+  Au-delà de 20 alias, les trois premiers et un `<details>` pour les autres. L'échéance de traitement disparaît
+  quand la vulnérabilité n'est plus ouverte ; une échéance CISA dépassée le dit en rouge. Liens « CVE-… sur tous
+  les actifs » (la recherche de la liste) et, pour l'avis d'une distribution ou d'un registre, dont le résumé
+  décrit souvent la mise à jour, « Description de CVE-… dans la NVD ».
+- *Version vérifiée* : quand le purl porte une autre version que le champ Version (A63), l'inventaire et la page
+  de l'actif l'écrivent sous le purl (`inventory.CheckedVersion`).
+- *Avis récapitulatifs* (constat 4.7) : réglé par A80, une ligne par CVE, les avis groupés repliés.
+
+*Écarté* : garder la liste complète sur la page de l'actif à côté du lien (deux listes, dont une sans tri ni
+lot) ; n'y montrer que les urgentes (un actif sans urgente n'aurait rien à montrer, et ses dix plus urgentes
+commencent par elles) ; deux colonnes côte à côte comme la maquette (un tableau de dix colonnes ne tient pas dans
+trois cinquièmes de page) ; compter les vulnérabilités de chaque actif de l'inventaire en les lisant toutes ;
+masquer la colonne « Actif » d'une liste filtrée sur un actif (le gabarit commun l'aurait demandé à part) ; un
+filtre exact par CVE pour « sur tous les actifs ». *Conséquences* : la page d'un actif ne liste plus ses
+vulnérabilités, sa liste le fait ; `/assets/{id}?page=` ne pagine plus que l'aperçu d'une règle ; un lien
+`/findings?asset=` partagé ne montre rien à qui ne voit pas l'actif ; la recherche d'une CVE courte en trouve
+aussi les plus longues (CVE-2022-3114 trouve CVE-2022-31140).
 
 **A69. Ce que les sources envoient est vérifié avant d'être stocké.** OSV et la NVD sont des hôtes fixes
 en HTTPS, mais leurs champs étaient stockés tels quels : une sévérité hors de la liste (`IMPORTANT` de

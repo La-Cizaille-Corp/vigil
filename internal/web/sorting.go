@@ -154,22 +154,32 @@ func assetIdentifier(a store.Asset) string {
 	return cmp.Or(a.PURL, a.CPE, a.Ecosystem)
 }
 
+// assetRow is an asset of the inventory with its open findings, and how many
+// of them are urgent (A86).
+type assetRow struct {
+	store.Asset
+	Urgent, Open int
+}
+
 // assetColumnList are the columns of the inventory, as in assets.html.
-var assetColumnList = []column[store.Asset]{
-	{key: "name", label: "Nom", compare: func(a, b store.Asset) int {
+var assetColumnList = []column[assetRow]{
+	{key: "name", label: "Nom", compare: func(a, b assetRow) int {
 		return cmp.Or(compareText(a.Name, b.Name), versions.Compare(a.Version, b.Version))
 	}},
-	textColumn("vendor", "Éditeur", inventory.VendorName),
-	{key: "version", label: "Version", empty: func(a store.Asset) bool { return a.Version == "" },
-		compare: func(a, b store.Asset) int { return versions.Compare(a.Version, b.Version) }},
-	textColumn("kind", "Type", func(a store.Asset) string { return choice.Label(inventory.Kinds, a.Kind) }),
-	textColumn("id", "Identifiant (purl, CPE ou écosystème)", assetIdentifier),
-	textColumn("project", "Projet", func(a store.Asset) string { return a.Project }),
-	{key: "criticality", label: "Criticité", desc: true, compare: func(a, b store.Asset) int {
+	textColumn("vendor", "Éditeur", func(a assetRow) string { return inventory.VendorName(a.Asset) }),
+	{key: "version", label: "Version", empty: func(a assetRow) bool { return a.Version == "" },
+		compare: func(a, b assetRow) int { return versions.Compare(a.Version, b.Version) }},
+	{key: "urgent", label: "Urgentes", desc: true, num: true, compare: func(a, b assetRow) int { return cmp.Compare(a.Urgent, b.Urgent) }},
+	{key: "open", label: "Ouvertes", desc: true, num: true, compare: func(a, b assetRow) int { return cmp.Compare(a.Open, b.Open) }},
+	textColumn("kind", "Type", func(a assetRow) string { return choice.Label(inventory.Kinds, a.Kind) }),
+	// "Identifiant" alone: the two counts above take the width its "(purl, CPE ou écosystème)" took at 1 280 px.
+	textColumn("id", "Identifiant", func(a assetRow) string { return assetIdentifier(a.Asset) }),
+	textColumn("project", "Projet", func(a assetRow) string { return a.Project }),
+	{key: "criticality", label: "Criticité", desc: true, compare: func(a, b assetRow) int {
 		return cmp.Compare(choice.Rank(inventory.Criticalities, a.Criticality), choice.Rank(inventory.Criticalities, b.Criticality))
 	}},
-	textColumn("owner", "Responsable", func(a store.Asset) string { return a.Owner }),
-	textColumn("tracking", "Détection", trackingSource),
+	textColumn("owner", "Responsable", func(a assetRow) string { return a.Owner }),
+	textColumn("tracking", "Détection", func(a assetRow) string { return trackingSource(a.Asset) }),
 }
 
 // findingColumnList are the columns of a vulnerability list, as in the
@@ -202,6 +212,7 @@ const defaultFindingOrder = "priority"
 
 // levelLink is a level of the vulnerability list, with what it holds.
 type levelLink struct {
+	Level  string // the value of ?level=
 	Label  string
 	Href   string
 	N      int
@@ -263,7 +274,7 @@ func levelLinks(findings []store.Finding, q url.Values, current string) levelNav
 		return "/findings?" + kept.Encode()
 	}
 	tab := func(level, label string, n int) levelLink {
-		return levelLink{Label: label, Href: link(level), N: n, Active: level == current}
+		return levelLink{Level: level, Label: label, Href: link(level), N: n, Active: level == current}
 	}
 	nav := levelNav{Open: []levelLink{tab(levelOpen, "Ouvertes", counts[levelOpen])}, All: tab(levelAll, "Toutes", len(findings))}
 	for _, l := range tracking.Levels {

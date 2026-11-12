@@ -185,7 +185,11 @@ en cas de téléphone perdu, un administrateur la retire dans Paramètres → Ut
 - **Période de suivi** : un nouvel actif (ajout manuel ou SBOM) remonte les vulnérabilités publiées
   dans les 120 jours précédant son ajout, puis toutes les nouvelles. Les plus anciennes ne sont
   signalées que si elles sont activement exploitées (CISA KEV) ; leur nombre est affiché sur l'actif,
-  avec un bouton « Suivre tout l'historique ».
+  avec « Suivre tout l'historique », qui demande confirmation.
+- **Page d'un actif** : ses vulnérabilités par niveau (Urgentes, À planifier, À surveiller, Écartées,
+  Corrigées), chaque nombre menant à la liste de l'actif à ce niveau (`/findings?asset=…`), puis ses dix
+  plus urgentes. L'inventaire donne pour chaque actif ses urgentes et ses ouvertes, et se cherche par nom,
+  purl ou CPE.
 - L'ajout ou la modification d'un actif lance aussitôt son analyse ; « Analyser cet actif » la
   relance, « Synchroniser l'inventaire » relance tout. L'avancement (actifs vérifiés, barre) et le
   résultat de la dernière synchronisation sont affichés à côté, avec les actifs qui n'ont pas pu être
@@ -195,8 +199,9 @@ en cas de téléphone perdu, un administrateur la retire dans Paramètres → Ut
   critique ou haute), **À surveiller** (le reste, y compris sans score) et **Écartées** (non affecté ou faux
   positif). Les corrigées sortent du classement. Ce sont les mêmes seuils que les alertes, et le même ordre
   dans les listes, le tableau de bord et le digest.
-- **Écarter ce qui ne vous concerne pas** : sur la page d'un actif, cherchez un texte (`wifi:` sur un
-  serveur sans Wi-Fi), vérifiez la liste, puis « Écarter tout ce qui correspond sur cet actif ». Elles passent
+- **Écarter ce qui ne vous concerne pas** : dans « Écarter le bruit », sur la page d'un actif, cherchez un
+  texte (`wifi:` sur un serveur sans Wi-Fi), vérifiez la liste, puis « Écarter tout ce qui correspond sur cet
+  actif ». Une recherche dans la liste des vulnérabilités y mène aussi, actif par actif. Elles passent
   en « Non affecté », les prochaines aussi. Les vulnérabilités exploitées ou probables restent visibles, et
   y reviennent si elles le deviennent ; une décision prise par quelqu'un n'est jamais changée. Supprimer
   la règle remet ses vulnérabilités à analyser.

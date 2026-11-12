@@ -121,7 +121,7 @@ func TestAssetPageLayout(t *testing.T) {
 
 	admin := loginAs(t, base, "admin", "a-strong-password")
 	_, page := admin.get(path)
-	details, vulns := strings.Index(page, "<h2>Détails</h2>"), strings.Index(page, "<h2>Vulnérabilités de cet actif</h2>")
+	details, vulns := strings.Index(page, "<h2>Détails</h2>"), strings.Index(page, `<h2 id="vulnerabilites">Vulnérabilités de cet actif`)
 	if details < 0 || vulns < 0 || details > vulns || !strings.Contains(page, `<details class="card edit">`) {
 		t.Fatalf("details at %d, vulnerabilities at %d, folded form: %v", details, vulns, strings.Contains(page, `<details class="card edit">`))
 	}

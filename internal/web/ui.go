@@ -102,17 +102,22 @@ func splitTags(v string) []string {
 }
 
 // findingTitle names a finding by its CVE when it has one: teams and news
-// speak of CVE-2021-44228, not GHSA-jfh8-c2jp-5v3q.
+// speak of CVE-2021-44228, not GHSA-jfh8-c2jp-5v3q. An advisory of several
+// CVEs keeps its own name: the first of its 1 902 CVEs does not describe
+// USN-8875-1 (A86).
 func findingTitle(f store.Finding) string {
-	if strings.HasPrefix(f.VulnID, "CVE-") {
-		return f.VulnID
-	}
-	for _, a := range f.Aliases {
-		if strings.HasPrefix(a, "CVE-") {
-			return a + " (" + f.VulnID + ")"
-		}
+	if cve := findingCVE(f); cve != "" && cve != f.VulnID {
+		return cve + " (" + f.VulnID + ")"
 	}
 	return f.VulnID
+}
+
+// findingCVE is the CVE of a finding, "" when it has none or several.
+func findingCVE(f store.Finding) string {
+	if cves := tracking.CVEs(f.VulnID, f.Aliases); len(cves) == 1 {
+		return cves[0]
+	}
+	return ""
 }
 
 // maxAliases bounds the aliases named in a list row: an Ubuntu notice can
