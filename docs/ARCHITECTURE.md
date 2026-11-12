@@ -563,7 +563,8 @@ d'une vulnérabilité ramenait à la liste sans ses filtres.
   compris), validé par la même liste blanche que `next` (`listPath` : `/findings` ou `/findings?…`, sinon la
   liste par défaut). La page offre « Retour à la liste » et « Suivante dans la liste » ; après « Enregistrer »,
   elle revient avec les deux, la suivante étant lue avant que la décision sorte la vulnérabilité de la liste
-  (`then=`). Cela coûte une lecture de la liste entière (0,17 s sur la base noyau).
+  (`then=`). Cela coûte une lecture de la liste entière (0,17 s sur la base noyau), une seule par décision :
+  la page qui suit l'enregistrement reprend `then` sans relire la liste (revue de la 0.5.0, W12).
 - *VEX* : « Exporter les analyses en VEX » et « Importer un VEX… » rejoignent l'export CSV au-dessus du tableau ;
   l'export dit qu'il prend toutes les analyses (ou celles du projet), sans les autres filtres.
 

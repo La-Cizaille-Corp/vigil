@@ -273,3 +273,19 @@ func TestBackToTheList(t *testing.T) {
 		t.Errorf("an external return address after a decision: %s", loc)
 	}
 }
+
+// After a decision, the page names the vulnerability that followed it in the
+// list, read before the decision (then=), without reading the list again:
+// then wins over the list as it is now (here, the second one).
+func TestNextAfterADecisionIsNotReadAgain(t *testing.T) {
+	st, base := newServerWith(t, nil)
+	_, ids := seedMany(t, st, 3)
+	c := loginAs(t, base, "analyst", "a-strong-password")
+	first, last := ids["CVE-2026-0000"], ids["CVE-2026-0002"]
+	back := url.QueryEscape("/findings?q=CVE-2026&sort=vuln")
+	_, page := c.get(findingPath(first) + "?back=" + back + "&then=" + itoa(last))
+	want := `<a href="/findings/` + itoa(last) + `?back=%2ffindings%3fq%3dCVE-2026%26sort%3dvuln">Suivante dans la liste →</a>`
+	if !strings.Contains(page, want) {
+		t.Errorf("the next one after a decision is not the one read before it:\n%s", page)
+	}
+}
