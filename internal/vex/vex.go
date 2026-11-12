@@ -97,12 +97,18 @@ var states = map[string]string{
 const maxStatements = 20000
 
 // Parse reads the analyses of a CycloneDX VEX (or BOM with vulnerabilities),
-// at most maxSize bytes.
+// at most maxSize bytes and a bounded number of values, decoded one document
+// at a time (limit.AdmitJSON).
 func Parse(r io.Reader) ([]Statement, error) {
 	data, err := limit.File(r, maxSize)
 	if err != nil {
 		return nil, errors.New("fichier VEX trop volumineux ou illisible")
 	}
+	done, err := limit.AdmitJSON(data)
+	if err != nil {
+		return nil, err
+	}
+	defer done()
 	var doc document
 	if err := json.Unmarshal(data, &doc); err != nil || doc.BOMFormat != "CycloneDX" {
 		return nil, errors.New("document CycloneDX JSON attendu")

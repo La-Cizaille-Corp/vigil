@@ -1,6 +1,8 @@
 // Package limit reads data within a bound: neither an answer from the network
 // nor a file sent by a user is ever read whole whatever its size, and a
-// reading cut at its bound fails instead of passing for the whole data.
+// reading cut at its bound fails instead of passing for the whole data. A JSON
+// document sent by a user is also bounded in values before it is decoded, one
+// at a time (AdmitJSON).
 package limit
 
 import (
@@ -74,6 +76,61 @@ func File(r io.Reader, max int64) ([]byte, error) {
 		return nil, err
 	}
 	return bytes.TrimPrefix(data, bom), nil
+}
+
+// maxJSONValues bounds the values of a JSON document sent by a user (SBOM,
+// VEX), counted before it is decoded. Every element of a list becomes a
+// structure of the decoder, up to 128 bytes for an empty {}, 0 or "": 20 MB
+// of them made it hold 2 to 3 GB. Real documents hold far fewer per byte: the
+// SBOM of a release of Vigil made by Syft 1.54.0 (SPDX, 13 packages) has 40
+// values per package, one byte in 39, so 540 000 values in 20 MB; a CycloneDX
+// SBOM in the form of Trivy, 30 per component, 850 000. Two million leaves
+// more than twice that, and the decoder under 800 MB (790 MB measured for two
+// million 0 in a list of components), one document at a time.
+const maxJSONValues = 2_000_000
+
+// jsonValues reports whether a JSON document holds at most max values a
+// decoder could build: the elements of its lists and the members of its
+// objects, which commas separate, and the lists and objects themselves. It
+// reads bytes only, skipping the strings, so that a document is refused before
+// anything is allocated for it; whether it is valid JSON is the decoder's
+// business.
+func jsonValues(data []byte, max int) bool {
+	n := 0
+	inString, escaped := false, false
+	for _, c := range data {
+		switch {
+		case escaped:
+			escaped = false
+		case inString:
+			escaped = c == '\\'
+			inString = c != '"'
+		case c == '"':
+			inString = true
+		case c == ',' || c == '[' || c == '{':
+			if n++; n > max {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// decoding lets one document sent by a user be decoded at a time.
+// SECURITY: the largest one admitted holds the decoder hundreds of megabytes;
+// concurrent imports (pages, API) wait instead of adding up.
+var decoding = make(chan struct{}, 1)
+
+// AdmitJSON admits a JSON document sent by a user, read by File, to be
+// decoded: it fails, with an error for the screen, past maxJSONValues values
+// (see jsonValues); otherwise it waits until no other document is being
+// decoded. The caller decodes, then calls done.
+func AdmitJSON(data []byte) (done func(), err error) {
+	if !jsonValues(data, maxJSONValues) {
+		return nil, fmt.Errorf("document trop complexe : plus de %d valeurs JSON", maxJSONValues)
+	}
+	decoding <- struct{}{}
+	return func() { <-decoding }, nil
 }
 
 // size writes a bound in megabytes when it is a whole number of them, as the

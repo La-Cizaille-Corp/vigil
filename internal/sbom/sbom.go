@@ -30,12 +30,18 @@ type Document struct {
 	Skipped int // components without a purl
 }
 
-// Parse reads a CycloneDX or SPDX JSON SBOM from r, at most MaxSize bytes.
+// Parse reads a CycloneDX or SPDX JSON SBOM from r, at most MaxSize bytes and
+// a bounded number of values, decoded one document at a time (limit.AdmitJSON).
 func Parse(r io.Reader) (Document, error) {
 	data, err := limit.File(r, MaxSize)
 	if err != nil {
 		return Document{}, err
 	}
+	done, err := limit.AdmitJSON(data)
+	if err != nil {
+		return Document{}, err
+	}
+	defer done()
 	var probe struct {
 		BOMFormat   string `json:"bomFormat"`
 		SPDXVersion string `json:"spdxVersion"`

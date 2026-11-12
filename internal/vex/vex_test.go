@@ -55,6 +55,14 @@ func TestParseByteOrderMarkAndSize(t *testing.T) {
 	}
 }
 
+// A document of empty analyses is refused before it is decoded, as an SBOM is.
+func TestParseTooManyValues(t *testing.T) {
+	doc := `{"bomFormat":"CycloneDX","vulnerabilities":[` + strings.Repeat("{},", 19<<20/3) + `{}]}`
+	if _, err := Parse(strings.NewReader(doc)); err == nil || err.Error() != "document trop complexe : plus de 2000000 valeurs JSON" {
+		t.Errorf("%d MB of {}: %v", len(doc)>>20, err)
+	}
+}
+
 func TestParseRejects(t *testing.T) {
 	for _, in := range []string{`not json`, `{"bomFormat":"SPDX"}`, `{"bomFormat":"CycloneDX","vulnerabilities":[]}`} {
 		if _, err := Parse(bytes.NewBufferString(in)); err == nil {

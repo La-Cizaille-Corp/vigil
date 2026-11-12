@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"testing/iotest"
+	"time"
 )
 
 // A reading stops at its bound with an error, never as if the data were whole,
@@ -58,5 +59,54 @@ func TestFile(t *testing.T) {
 	failing := errors.New("connection reset")
 	if _, err := File(iotest.ErrReader(failing), 10); !errors.Is(err, failing) {
 		t.Errorf("failed reading: %v", err)
+	}
+}
+
+// The values of a JSON document are counted from its bytes: commas, lists and
+// objects, but nothing inside a string, escaped quotes included.
+func TestJSONValues(t *testing.T) {
+	for _, c := range []struct {
+		doc  string
+		want int // values counted
+	}{
+		{`{}`, 1},
+		{`[0,0,0]`, 3},
+		{`{"a":[{},{}],"b":""}`, 6},
+		{`{"a":"x,y[{","b":"\",{["}`, 2},
+		{`"\\",[`, 2}, // an escaped backslash ends before the quote
+	} {
+		if !jsonValues([]byte(c.doc), c.want) || jsonValues([]byte(c.doc), c.want-1) {
+			t.Errorf("%s: not %d values", c.doc, c.want)
+		}
+	}
+}
+
+// A document with too many values is refused before it is decoded; the others
+// are decoded one at a time.
+func TestAdmitJSON(t *testing.T) {
+	many := []byte("[" + strings.Repeat("0,", maxJSONValues) + "0]")
+	if _, err := AdmitJSON(many); err == nil || err.Error() != "document trop complexe : plus de 2000000 valeurs JSON" {
+		t.Fatalf("too many values: %v", err)
+	}
+	done, err := AdmitJSON([]byte(`{"components":[]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := make(chan func())
+	go func() {
+		d, _ := AdmitJSON([]byte(`{}`))
+		second <- d
+	}()
+	select {
+	case <-second:
+		t.Fatal("two documents decoded at once")
+	case <-time.After(50 * time.Millisecond):
+	}
+	done()
+	select {
+	case d := <-second:
+		d()
+	case <-time.After(5 * time.Second):
+		t.Fatal("the second document still waits")
 	}
 }
