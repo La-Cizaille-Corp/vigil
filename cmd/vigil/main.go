@@ -341,7 +341,7 @@ func runServe(ctx context.Context, log *slog.Logger, args []string) error {
 	}
 	if *digestEvery > 0 {
 		go every(ctx, *digestEvery, false, func() {
-			if err := generateAndSend(ctx, st, sv.notifier, *o.baseURL); err != nil {
+			if err := generateAndSend(ctx, st, sv.notifier); err != nil {
 				log.Error("scheduled digest failed", "err", err)
 			}
 		})
@@ -398,21 +398,14 @@ func every(ctx context.Context, period time.Duration, now bool, fn func()) {
 }
 
 // generateAndSend makes the periodic digests, that of the whole inventory and
-// one per group with a channel (digest.Run), and sends each to its channels.
-func generateAndSend(ctx context.Context, st *store.Store, n *notify.Notifier, baseURL string) error {
+// one per group with a channel (digest.Run), and sends each to its channels,
+// with the link of its page (-base-url).
+func generateAndSend(ctx context.Context, st *store.Store, n *notify.Notifier) error {
 	_, err := digest.Run(ctx, st, func(d store.Digest) error {
-		_, err := n.SendDigest(ctx, d, digestLink(baseURL, d.ID))
+		_, err := n.SendDigest(ctx, d)
 		return err
 	})
 	return err
-}
-
-// digestLink is the address of a digest in the interface, "" without -base-url.
-func digestLink(baseURL string, id int64) string {
-	if baseURL == "" {
-		return ""
-	}
-	return fmt.Sprintf("%s/digests/%d", strings.TrimRight(baseURL, "/"), id)
 }
 
 func isLocalAddr(addr string) bool {
@@ -470,7 +463,7 @@ func runDigest(ctx context.Context, log *slog.Logger, args []string) error {
 		if *noHooks {
 			return nil
 		}
-		_, err := notifier.SendDigest(ctx, d, digestLink(*o.baseURL, d.ID))
+		_, err := notifier.SendDigest(ctx, d)
 		return err
 	})
 	return err

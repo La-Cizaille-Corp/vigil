@@ -45,8 +45,9 @@ func TestSendDigest(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	n := &Notifier{Store: st, HTTP: srv.Client(), UserAgent: "test", Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
-	sent, err := n.SendDigest(ctx, store.Digest{ID: 7, Markdown: "# Digest\nCVE-2021-44228"}, "https://vigil.example/digests/7")
+	n := &Notifier{Store: st, HTTP: srv.Client(), BaseURL: "https://vigil.example/", UserAgent: "test",
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	sent, err := n.SendDigest(ctx, store.Digest{ID: 7, Markdown: "# Digest\nCVE-2021-44228"})
 	// W8 of the 0.5.0 review: the channels that received it are counted; the
 	// failing one, the disabled one and that of alerts only are not.
 	if sent != 2 {
@@ -95,8 +96,10 @@ func TestValidateWebhook(t *testing.T) {
 	}
 }
 
-// A digest longer than chat platforms accept is cut once, keeping the
-// truncation note and the link, without splitting a UTF-8 character.
+// A digest longer than a channel accepts is cut once, to the budget of that
+// channel, keeping the truncation note and the link, without splitting a
+// UTF-8 character. C4 of the 0.5.0 review: Teams cut again at 20 000 bytes
+// a digest already cut for chats, and lost the note and the link.
 func TestLongDigestKeepsLink(t *testing.T) {
 	ctx := context.Background()
 	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "n.db"))
@@ -104,22 +107,41 @@ func TestLongDigestKeepsLink(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	var text string
+	texts := map[string]string{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var body map[string]string
+		var body struct {
+			Text        string `json:"text"`
+			Attachments []struct {
+				Content struct {
+					Body []struct{ Text string } `json:"body"`
+				} `json:"content"`
+			} `json:"attachments"`
+		}
 		json.NewDecoder(r.Body).Decode(&body)
-		text = body["text"]
+		texts[r.URL.Path] = body.Text
+		if len(body.Attachments) == 1 && len(body.Attachments[0].Content.Body) == 1 {
+			texts[r.URL.Path] = body.Attachments[0].Content.Body[0].Text
+		}
 	}))
 	defer srv.Close()
-	st.CreateWebhook(ctx, store.Webhook{Name: "chat", Kind: "slack", URL: srv.URL + "/h", Enabled: true, Digests: true})
-	n := &Notifier{Store: st, HTTP: srv.Client(), UserAgent: "test", Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
-	long := strings.Repeat("é", maxText) // 2 bytes each: twice the limit
-	if _, err := n.SendDigest(ctx, store.Digest{ID: 9, Markdown: long}, "https://vigil.example/digests/9"); err != nil {
-		t.Fatal(err)
+	for _, kind := range []string{"slack", "teams"} {
+		st.CreateWebhook(ctx, store.Webhook{Name: kind, Kind: kind, URL: srv.URL + "/" + kind, Enabled: true, Digests: true})
 	}
-	if len(text) > maxText || !strings.HasSuffix(text, "https://vigil.example/digests/9") ||
-		!strings.Contains(text, "tronqué") || !utf8.ValidString(text) {
-		t.Errorf("digest message: %d bytes, ends with %q", len(text), text[max(0, len(text)-60):])
+	n := &Notifier{Store: st, HTTP: srv.Client(), BaseURL: "https://vigil.example", UserAgent: "test",
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	const link = "https://vigil.example/digests/9"
+	// Between the budgets of Teams and of chats, then past both (2 bytes a character).
+	for _, size := range []int{25000, 2 * maxText} {
+		if _, err := n.SendDigest(ctx, store.Digest{ID: 9, Markdown: strings.Repeat("é", size/2)}); err != nil {
+			t.Fatal(err)
+		}
+		for kind, limit := range map[string]int{"slack": maxText, "teams": maxTeamsText} {
+			text := texts["/"+kind]
+			cut := size > limit
+			if len(text) > limit || !strings.HasSuffix(text, link) || strings.Contains(text, "tronqué") != cut || !utf8.ValidString(text) {
+				t.Errorf("digest of %d bytes to %s: %d bytes, cut %v, ends with %q", size, kind, len(text), cut, text[max(0, len(text)-60):])
+			}
+		}
 	}
 }
 
@@ -128,7 +150,7 @@ func TestLongDigestKeepsLink(t *testing.T) {
 func TestAlertNeutralisesMarkup(t *testing.T) {
 	n := &Notifier{BaseURL: "https://vigil.example"}
 	m := n.alertMessage([]store.Alert{{Finding: store.Finding{ID: 1, VulnID: "CVE-2026-1", Severity: "CRITICAL",
-		AssetName: "app <!channel>", Summary: "@here [Correctif](https://evil.example)"}}})
+		AssetName: "app <!channel>", Summary: "@here [Correctif](https://evil.example)"}}}, 0)
 	for _, bad := range []string{"<!channel>", "@here", "](https://evil"} {
 		if strings.Contains(m.Text, bad) {
 			t.Errorf("%q survives in %q", bad, m.Text)
@@ -175,7 +197,7 @@ func TestAlertTitleAndLinks(t *testing.T) {
 			[]string{urgentLink, planLink}, []string{"priority"}},
 		{[]store.Alert{plan, plan}, "[Vigil] 2 vulnérabilités à planifier", []string{planLink}, []string{"level=urgent"}},
 	} {
-		m := n.alertMessage(c.alerts)
+		m := n.alertMessage(c.alerts, 0)
 		if m.Subject != c.subject {
 			t.Errorf("subject %q, want %q", m.Subject, c.subject)
 		}
@@ -189,6 +211,12 @@ func TestAlertTitleAndLinks(t *testing.T) {
 				t.Errorf("%s: %q in\n%s", c.subject, a, m.Text)
 			}
 		}
+	}
+	// C10 of the 0.5.0 review: the alert of a channel limited to a group leads
+	// to the lists of that group, as its digest does (A87).
+	if m := n.alertMessage([]store.Alert{urgent}, 3); !strings.Contains(m.Text, "Urgentes : https://vigil.example/findings?group=3&level=urgent\n") ||
+		!strings.Contains(m.Text, "https://vigil.example/findings/1\n") {
+		t.Errorf("alert of group 3:\n%s", m.Text)
 	}
 	if got := alertTitle(1, 1); got != "1 vulnérabilité urgente et 1 à planifier" {
 		t.Errorf("alertTitle(1, 1) = %q", got)
@@ -243,7 +271,7 @@ func TestTeamsCard(t *testing.T) {
 	if card.Type != "AdaptiveCard" || len(card.Body) != 1 || !card.Body[0].Wrap || !strings.Contains(card.Body[0].Text, "test du canal") {
 		t.Errorf("card = %+v", card)
 	}
-	if got := teamsCard(strings.Repeat("é", 40000)); len(mustJSON(t, got)) > 28<<10 {
+	if got := teamsCard(fit(strings.Repeat("é", 40000), "https://vigil.example/digests/1", budget("teams"))); len(mustJSON(t, got)) > 28<<10 {
 		t.Errorf("a long card is %d bytes", len(mustJSON(t, got)))
 	}
 }

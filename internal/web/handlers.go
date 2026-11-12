@@ -1311,7 +1311,7 @@ func (s *Server) digestCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	msg := "digest-created"
 	if slices.ContainsFunc(hooks, func(h store.Webhook) bool { return h.ReceivesDigest(group.ID) }) {
-		switch sent, err := s.Notifier.SendDigest(r.Context(), d, s.digestLink(d)); {
+		switch sent, err := s.Notifier.SendDigest(r.Context(), d); {
 		case err != nil:
 			msg = "digest-webhook"
 		case sent > 0:
@@ -1350,12 +1350,4 @@ func (s *Server) digestMarkdown(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition",
 		`attachment; filename="vigil-digest-`+d.CreatedAt.Format(time.DateOnly)+`.md"`)
 	_, _ = w.Write([]byte(d.Markdown)) // a client that disconnects is not an error
-}
-
-// digestLink is the absolute URL of a digest, or "" when BaseURL is unknown.
-func (s *Server) digestLink(d store.Digest) string {
-	if s.BaseURL == "" {
-		return ""
-	}
-	return strings.TrimRight(s.BaseURL, "/") + digestPath(d.ID)
 }

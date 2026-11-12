@@ -652,7 +652,10 @@ coupés au milieu d'un mot.
 - *Borne* : chaque liste (urgentes, nouvelles, hors délai) s'arrête à 50 lignes, suivies de « … et 3 253 autres »
   et d'un lien vers la liste de l'interface (`/findings?level=urgent`, `?since=7`, `?overdue=1`, avec `group=`
   pour le digest d'un groupe). Le Markdown, qui ne connaît pas l'adresse de Vigil, nomme la liste (« dans
-  Vigil : la liste des urgentes ») ; le message envoyé se termine déjà par le lien du digest. Les digests par
+  Vigil : la liste des urgentes ») ; le message envoyé se termine déjà par le lien du digest, que construit le
+`Notifier` d'après `-base-url`, comme ceux des alertes (revue 0.5.0, C10 : la ligne de commande et la page
+avaient chacune leur copie) ; l'alerte d'un canal limité à un groupe mène de même aux listes de ce groupe
+(`group=`), et non plus à celles de tout l'inventaire, dont les nombres différaient des siens. Les digests par
   groupe (A68) suivent les mêmes règles, par la même fonction. Mesure sur une copie de la base noyau, ses digests
   effacés pour couvrir les 7 jours par défaut comme l'audit : Markdown 1,87 Mo et 7 698 lignes avant, 10,7 Ko et
   122 lignes après ; HTML 3,28 Mo avant, 26 Ko après. Il tient dans un message de discussion (30 000 octets).
@@ -945,6 +948,10 @@ ou son adresse n'est plus valide (`logic.azure.com`, retirée fin 2025). Microso
 explication selon les cas : l'état du canal donne donc le code et le message de la réponse quand il y en
 a, ce qu'il faut régler pour Teams, et le bouton « Envoyer un test » évite d'attendre une alerte pour
 vérifier. Rien de ce qui cite une adresse n'est repris d'une réponse : elle pourrait contenir le secret.
+Une carte tient en 28 Ko, moins qu'un message de discussion : un message est coupé une seule fois, au budget
+de son canal (`fit`, 20 000 octets pour Teams, 30 000 pour les autres), la note « tronqué » et le lien du
+digest gardés. Le digest était coupé pour les discussions puis recoupé pour Teams, qui perdait la note et le
+lien dès 20 Ko (revue 0.5.0, C4).
 
 **A15. Priorisation KEV > EPSS > sévérité, plutôt que CVSS seul.** Le CVSS mesure la gravité
 théorique, pas la probabilité d'exploitation. Exploitation avérée (KEV) d'abord, puis probabilité
