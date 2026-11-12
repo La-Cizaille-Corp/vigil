@@ -65,8 +65,8 @@ type CVE struct {
 // ProductCPE splits a CPE 2.3 name and reports whether it designates a whole
 // product (version "*" or "-") rather than one release.
 func ProductCPE(cpe string) (fields []string, wholeProduct bool, err error) {
-	fields = strings.Split(cpe, ":")
-	if len(fields) != 13 || fields[0] != "cpe" || fields[1] != "2.3" {
+	fields, ok := SplitCPE(cpe)
+	if !ok {
 		return nil, false, fmt.Errorf("CPE 2.3 invalide : %q", cpe)
 	}
 	return fields, fields[5] == "*" || fields[5] == "-", nil
