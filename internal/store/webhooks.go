@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -23,18 +25,33 @@ type Webhook struct {
 // alert class each one receives.
 var AlertLevels = map[string]int{"priority": AlertPriority, "severe": AlertSevere}
 
-// ListWebhooks returns every webhook.
-func (s *Store) ListWebhooks(ctx context.Context) ([]Webhook, error) {
-	return collect(ctx, s.q(ctx), "list webhooks", scanWebhook,
-		`SELECT id, name, kind, url, enabled, last_error, created_at, digests, alerts FROM webhooks ORDER BY name COLLATE NOCASE`)
-}
+// selectWebhook reads the columns of a Webhook (see scanWebhook).
+const selectWebhook = `SELECT id, name, kind, url, enabled, last_error, created_at, digests, alerts FROM webhooks `
 
+// scanWebhook reads a row of selectWebhook; no row is ErrNotFound.
 func scanWebhook(row scanner) (Webhook, error) {
 	var w Webhook
 	var created string
 	err := row.Scan(&w.ID, &w.Name, &w.Kind, &w.URL, &w.Enabled, &w.LastError, &created, &w.Digests, &w.Alerts)
+	if errors.Is(err, sql.ErrNoRows) {
+		return w, ErrNotFound
+	}
 	w.CreatedAt = parseTime(created)
 	return w, err
+}
+
+// ListWebhooks returns every webhook.
+func (s *Store) ListWebhooks(ctx context.Context) ([]Webhook, error) {
+	return collect(ctx, s.q(ctx), "list webhooks", scanWebhook, selectWebhook+`ORDER BY name COLLATE NOCASE`)
+}
+
+// Webhook returns one webhook, ErrNotFound if none has this id.
+func (s *Store) Webhook(ctx context.Context, id int64) (Webhook, error) {
+	w, err := scanWebhook(s.q(ctx).QueryRowContext(ctx, selectWebhook+`WHERE id = ?`, id))
+	if err != nil {
+		return w, fmt.Errorf("webhook %d: %w", id, err)
+	}
+	return w, nil
 }
 
 // CreateWebhook adds a webhook.

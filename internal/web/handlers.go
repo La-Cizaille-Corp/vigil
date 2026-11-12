@@ -60,7 +60,6 @@ func (s *Server) setupSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Configuration déjà effectuée.", http.StatusForbidden)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxFormBytes)
 	username, password := r.PostFormValue("username"), r.PostFormValue("password")
 	if username == "" || !clip.Fits(username, auth.MaxUsernameLength) {
 		s.render(w, r, http.StatusBadRequest, "setup", page{Title: "Première configuration", Error: "Nom d'utilisateur invalide."})
@@ -72,7 +71,7 @@ func (s *Server) setupSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id, err := s.Store.CreateFirstAdmin(r.Context(), username, hash)
-	if errors.Is(err, store.ErrNotFound) { // another request created it meanwhile
+	if errors.Is(err, store.ErrExists) { // another request created it meanwhile
 		http.Error(w, "Configuration déjà effectuée.", http.StatusForbidden)
 		return
 	}
@@ -80,12 +79,17 @@ func (s *Server) setupSubmit(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	s.auditAs(r, id, "setup", "compte administrateur initial créé")
+	s.auditAs(r, id, "setup", "id", id)
 	s.startSession(w, r, id)
 }
 
 func (s *Server) loginForm(w http.ResponseWriter, r *http.Request) {
-	if ok, _ := s.setupAllowed(r); ok {
+	ok, err := s.setupAllowed(r)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	if ok {
 		http.Redirect(w, r, "/setup", http.StatusSeeOther)
 		return
 	}
@@ -94,7 +98,6 @@ func (s *Server) loginForm(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	ip := s.clientIP(r)
-	r.Body = http.MaxBytesReader(w, r.Body, maxFormBytes)
 	username, password := r.PostFormValue("username"), r.PostFormValue("password")
 	// SECURITY: no account has a longer password (see auth.HashPassword):
 	// it is refused before argon2 runs, so it costs nothing to check.
@@ -147,20 +150,20 @@ func (s *Server) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		// disabled or not: a password typed in the name field would otherwise
 		// end up in the database and the service log. The lookup runs on
 		// every failure, in a single query whether the name exists or not.
-		detail := "ip=" + ip
+		detail := []any{"ip", ip}
 		if a, err := s.Store.AnyUserByName(r.Context(), username); err == nil {
-			detail += " user=" + a.Username
+			detail = append(detail, "user", a.Username)
 		} else if !errors.Is(err, store.ErrNotFound) {
 			s.Log.Warn("failed login: account lookup", "err", err)
 		}
-		s.audit(r, "login_failed", detail)
+		s.audit(r, "login_failed", detail...)
 		// SECURITY: same message whether the user exists or not.
 		s.render(w, r, http.StatusUnauthorized, "login", page{Title: "Connexion", Error: "Identifiants invalides."})
 		return
 	}
 	s.limiter.Forgive(ipKey)
 	s.accounts.Reset(userKey)
-	s.auditAs(r, user.ID, "login", "ip="+ip)
+	s.auditAs(r, user.ID, "login", "ip", ip)
 	s.startSession(w, r, user.ID)
 }
 
@@ -349,31 +352,16 @@ func (s *Server) assetCreate(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	s.audit(r, "asset_create", strconv.FormatInt(id, 10))
+	s.audit(r, "asset_create", "id", id)
 	go s.runAssetSync(id)
-	redirect(w, r, "/assets/"+strconv.FormatInt(id, 10), "asset-created")
+	redirect(w, r, assetPath(id), "asset-created")
 }
 
-func (s *Server) loadAsset(w http.ResponseWriter, r *http.Request) (store.Asset, bool) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		s.notFound(w)
-		return store.Asset{}, false
-	}
-	a, err := s.Store.Asset(r.Context(), requestScope(r), id)
-	if errors.Is(err, store.ErrNotFound) {
-		s.notFound(w)
-		return a, false
-	}
-	if err != nil {
-		s.serverError(w, r, err)
-		return a, false
-	}
-	return a, true
-}
+// assetPath is the page of an asset.
+func assetPath(id int64) string { return "/assets/" + strconv.FormatInt(id, 10) }
 
 func (s *Server) assetEdit(w http.ResponseWriter, r *http.Request) {
-	a, ok := s.loadAsset(w, r)
+	a, ok := load(s, w, r, inScope(r, s.Store.Asset))
 	if !ok {
 		return
 	}
@@ -397,7 +385,7 @@ func (s *Server) renderAsset(w http.ResponseWriter, r *http.Request, status int,
 	}
 	s.render(w, r, status, "asset", page{Title: inventory.Describe(a), Error: formErr,
 		Data: map[string]any{"Asset": a, "Form": s.newAssetForm(r, form), "Editing": !reflect.DeepEqual(form, a),
-			"Findings": findings, "Query": query, "Rules": rules, "RuleMinimum": minRuleText}})
+			"Findings": findings, "Query": query, "Rules": rules}})
 }
 
 // A rule text is short, and long enough not to set aside everything by mistake.
@@ -408,7 +396,7 @@ const (
 
 // dismissalCreate sets aside the vulnerabilities of an asset holding a text.
 func (s *Server) dismissalCreate(w http.ResponseWriter, r *http.Request) {
-	a, ok := s.loadAsset(w, r)
+	a, ok := load(s, w, r, inScope(r, s.Store.Asset))
 	if !ok {
 		return
 	}
@@ -421,36 +409,30 @@ func (s *Server) dismissalCreate(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	s.audit(r, "dismissal_create", strconv.FormatInt(a.ID, 10)+" "+text)
-	redirect(w, r, "/assets/"+strconv.FormatInt(a.ID, 10), "rule-created")
+	s.audit(r, "dismissal_create", "asset", a.ID, "text", text)
+	redirect(w, r, assetPath(a.ID), "rule-created")
 }
 
 // dismissalDelete removes a rule: what it set aside is to analyse again.
 func (s *Server) dismissalDelete(w http.ResponseWriter, r *http.Request) {
-	a, ok := s.loadAsset(w, r)
+	a, ok := load(s, w, r, inScope(r, s.Store.Asset))
 	if !ok {
 		return
 	}
-	id, err := strconv.ParseInt(r.PathValue("rule"), 10, 64)
-	if err != nil {
-		s.notFound(w)
+	id, ok := s.pathID(w, r, "rule")
+	if !ok {
 		return
 	}
-	err = s.Store.DeleteDismissalRule(r.Context(), writeScope(r), a.ID, id)
-	if errors.Is(err, store.ErrNotFound) {
-		s.notFound(w)
+	if err := s.Store.DeleteDismissalRule(r.Context(), writeScope(r), a.ID, id); err != nil {
+		s.storeError(w, r, err)
 		return
 	}
-	if err != nil {
-		s.serverError(w, r, err)
-		return
-	}
-	s.audit(r, "dismissal_delete", strconv.FormatInt(a.ID, 10))
-	redirect(w, r, "/assets/"+strconv.FormatInt(a.ID, 10), "rule-deleted")
+	s.audit(r, "dismissal_delete", "id", id, "asset", a.ID)
+	redirect(w, r, assetPath(a.ID), "rule-deleted")
 }
 
 func (s *Server) assetUpdate(w http.ResponseWriter, r *http.Request) {
-	old, ok := s.loadAsset(w, r)
+	old, ok := load(s, w, r, inScope(r, s.Store.Asset))
 	if !ok {
 		return
 	}
@@ -465,15 +447,15 @@ func (s *Server) assetUpdate(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	s.audit(r, "asset_update", strconv.FormatInt(a.ID, 10))
+	s.audit(r, "asset_update", "id", a.ID)
 	go s.runAssetSync(a.ID)
-	redirect(w, r, "/assets/"+strconv.FormatInt(a.ID, 10), "asset-updated")
+	redirect(w, r, assetPath(a.ID), "asset-updated")
 }
 
 // assetFullHistory tracks the whole history of an asset: the vulnerabilities
 // published before its tracked period are reported too.
 func (s *Server) assetFullHistory(w http.ResponseWriter, r *http.Request) {
-	a, ok := s.loadAsset(w, r)
+	a, ok := load(s, w, r, inScope(r, s.Store.Asset))
 	if !ok {
 		return
 	}
@@ -482,27 +464,27 @@ func (s *Server) assetFullHistory(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	s.audit(r, "asset_update", strconv.FormatInt(a.ID, 10)+" historique complet")
+	s.audit(r, "asset_update", "id", a.ID, "full_history", true)
 	go s.runAssetSync(a.ID)
-	redirect(w, r, "/assets/"+strconv.FormatInt(a.ID, 10), "asset-updated")
+	redirect(w, r, assetPath(a.ID), "asset-updated")
 }
 
 func (s *Server) assetScan(w http.ResponseWriter, r *http.Request) {
-	a, ok := s.loadAsset(w, r)
+	a, ok := load(s, w, r, inScope(r, s.Store.Asset))
 	if !ok {
 		return
 	}
 	if !a.Retired.IsZero() { // no longer in its project: checking it would reopen its findings
-		redirect(w, r, "/assets/"+strconv.FormatInt(a.ID, 10), "")
+		redirect(w, r, assetPath(a.ID), "")
 		return
 	}
-	s.audit(r, "asset_scan", strconv.FormatInt(a.ID, 10))
+	s.audit(r, "asset_scan", "id", a.ID)
 	go s.runAssetSync(a.ID)
-	redirect(w, r, "/assets/"+strconv.FormatInt(a.ID, 10), "scan-started")
+	redirect(w, r, assetPath(a.ID), "scan-started")
 }
 
 func (s *Server) assetDelete(w http.ResponseWriter, r *http.Request) {
-	a, ok := s.loadAsset(w, r)
+	a, ok := load(s, w, r, inScope(r, s.Store.Asset))
 	if !ok {
 		return
 	}
@@ -510,7 +492,7 @@ func (s *Server) assetDelete(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	s.audit(r, "asset_delete", inventory.Describe(a))
+	s.audit(r, "asset_delete", "id", a.ID, "asset", inventory.Describe(a))
 	redirect(w, r, "/assets", "asset-deleted")
 }
 
@@ -546,8 +528,8 @@ func (s *Server) renderFindings(w http.ResponseWriter, r *http.Request, status i
 		return
 	}
 	s.render(w, r, status, "findings", page{Title: "Vulnérabilités", Error: formErr, Data: map[string]any{
-		"Findings": findings, "Filter": f, "Projects": projects, "Tags": tags, "Query": r.URL.RawQuery,
-		"MinEPSSPercent": f.MinEPSS * 100, "Next": "/findings?" + q.Encode(),
+		"Findings": findings, "Filter": f, "Projects": projects, "Tags": tags,
+		"MinEPSSPercent": f.MinEPSS * 100, "Next": "/findings?" + without(q, "msg").Encode(),
 		"Sort": q.Get("sort"), "Dir": q.Get("dir"), "Head": sortHeaders(findingColumnList, "/findings", q, order),
 		"Levels": levels, "Level": q.Get("level"),
 		// Re-encoded from the parsed query: a safe relative link with the same filters.
@@ -621,10 +603,7 @@ func (s *Server) findingBulk(w http.ResponseWriter, r *http.Request) {
 	if !strings.HasPrefix(next, "/findings?") && next != "/findings" {
 		next = "/findings"
 	}
-	status, justif, comment := r.PostFormValue("status"), r.PostFormValue("justification"), r.PostFormValue("comment")
-	if status != "not_affected" {
-		justif = ""
-	}
+	status, justif, comment := triageFromForm(r)
 	ids := r.PostForm["id"]
 	if len(ids) == 0 || len(ids) > maxBulk {
 		s.renderFindingsAt(w, r, next, fmt.Sprintf("Cochez entre 1 et %d vulnérabilités.", maxBulk))
@@ -646,12 +625,18 @@ func (s *Server) findingBulk(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	s.audit(r, "finding_bulk", fmt.Sprintf("%d → %s", done, status))
-	sep := "&"
-	if !strings.Contains(next, "?") {
-		sep = "?"
+	s.audit(r, "finding_bulk", "count", done, "status", status)
+	redirect(w, r, next, "bulk-updated")
+}
+
+// triageFromForm reads a triage decision: a status, its justification, kept
+// for « not affected » only (as in VEX), and a comment.
+func triageFromForm(r *http.Request) (status, justif, comment string) {
+	status, justif, comment = r.PostFormValue("status"), r.PostFormValue("justification"), r.PostFormValue("comment")
+	if status != "not_affected" {
+		justif = ""
 	}
-	http.Redirect(w, r, next+sep+"msg=bulk-updated", http.StatusSeeOther)
+	return status, justif, comment
 }
 
 // renderFindingsAt shows the list at next (its filters) with an error.
@@ -698,6 +683,18 @@ func findingFilterFrom(q url.Values) store.FindingFilter {
 	return f
 }
 
+// without is a copy of the query q without keys: a link that keeps the
+// filters of a list, not its message or its level.
+func without(q url.Values, keys ...string) url.Values {
+	kept := url.Values{}
+	for k, v := range q {
+		if !slices.Contains(keys, k) {
+			kept[k] = v
+		}
+	}
+	return kept
+}
+
 // tagParam reads the tag filter of a list as tags are stored (see
 // inventory.NormalizeTags); a tag longer than inventory.MaxTagLen, which no
 // asset can bear, filters nothing.
@@ -711,30 +708,15 @@ func tagParam(q url.Values) string {
 
 var severities = tracking.Severities
 
-func (s *Server) loadFinding(w http.ResponseWriter, r *http.Request) (store.Finding, bool) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		s.notFound(w)
-		return store.Finding{}, false
-	}
-	f, err := s.Store.Finding(r.Context(), requestScope(r), id)
-	if errors.Is(err, store.ErrNotFound) {
-		s.notFound(w)
-		return f, false
-	}
-	if err != nil {
-		s.serverError(w, r, err)
-		return f, false
-	}
-	return f, true
-}
+// findingPath is the page of a vulnerability found on an asset.
+func findingPath(id int64) string { return "/findings/" + strconv.FormatInt(id, 10) }
 
 func (s *Server) findingShow(w http.ResponseWriter, r *http.Request) {
 	s.renderFinding(w, r, http.StatusOK, "")
 }
 
 func (s *Server) renderFinding(w http.ResponseWriter, r *http.Request, status int, formErr string) {
-	f, ok := s.loadFinding(w, r)
+	f, ok := load(s, w, r, inScope(r, s.Store.Finding))
 	if !ok {
 		return
 	}
@@ -764,14 +746,11 @@ func (s *Server) renderFinding(w http.ResponseWriter, r *http.Request, status in
 }
 
 func (s *Server) findingUpdate(w http.ResponseWriter, r *http.Request) {
-	f, ok := s.loadFinding(w, r)
+	f, ok := load(s, w, r, inScope(r, s.Store.Finding))
 	if !ok {
 		return
 	}
-	status, justif, comment := r.PostFormValue("status"), r.PostFormValue("justification"), r.PostFormValue("comment")
-	if status != "not_affected" {
-		justif = ""
-	}
+	status, justif, comment := triageFromForm(r)
 	if err := tracking.ValidateStatus(status, justif, comment); err != nil {
 		s.renderFinding(w, r, http.StatusBadRequest, err.Error())
 		return
@@ -781,8 +760,8 @@ func (s *Server) findingUpdate(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	s.audit(r, "finding_update", fmt.Sprintf("%d → %s", f.ID, status))
-	redirect(w, r, "/findings/"+strconv.FormatInt(f.ID, 10), "status-updated")
+	s.audit(r, "finding_update", "id", f.ID, "status", status)
+	redirect(w, r, findingPath(f.ID), "status-updated")
 }
 
 // --- sync and digests -----------------------------------------------------
@@ -796,7 +775,7 @@ func (s *Server) syncNow(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, back, "sync-running")
 		return
 	}
-	s.audit(r, "sync", "manuel")
+	s.audit(r, "sync", "trigger", "manual")
 	go s.runSync()
 	redirect(w, r, back, "sync-started")
 }
@@ -810,43 +789,36 @@ func (s *Server) digestList(w http.ResponseWriter, r *http.Request) {
 	s.render(w, r, http.StatusOK, "digests", page{Title: "Digests", Data: list})
 }
 
+// digestCreate generates a digest and sends it to the notification channels.
+// They are read first: when they cannot be, nothing is generated, rather than
+// a digest said to be done and sent to no one.
 func (s *Server) digestCreate(w http.ResponseWriter, r *http.Request) {
+	hooks, err := s.Store.ListWebhooks(r.Context())
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
 	d, err := digest.Generate(r.Context(), s.Store)
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
 	msg := "digest-created"
-	if hooks, err := s.Store.ListWebhooks(r.Context()); err == nil && slices.ContainsFunc(hooks, func(h store.Webhook) bool { return h.Enabled }) {
+	if slices.ContainsFunc(hooks, func(h store.Webhook) bool { return h.Enabled }) {
 		msg = "digest-sent"
 		if err := s.Notifier.SendDigest(r.Context(), d, s.digestLink(d)); err != nil {
 			msg = "digest-webhook"
 		}
 	}
-	s.audit(r, "digest_create", strconv.FormatInt(d.ID, 10))
-	redirect(w, r, "/digests/"+strconv.FormatInt(d.ID, 10), msg)
+	s.audit(r, "digest_create", "id", d.ID)
+	redirect(w, r, digestPath(d.ID), msg)
 }
 
-func (s *Server) loadDigest(w http.ResponseWriter, r *http.Request) (store.Digest, bool) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		s.notFound(w)
-		return store.Digest{}, false
-	}
-	d, err := s.Store.Digest(r.Context(), readScope(r), id)
-	if errors.Is(err, store.ErrNotFound) {
-		s.notFound(w)
-		return d, false
-	}
-	if err != nil {
-		s.serverError(w, r, err)
-		return d, false
-	}
-	return d, true
-}
+// digestPath is the page of a digest.
+func digestPath(id int64) string { return "/digests/" + strconv.FormatInt(id, 10) }
 
 func (s *Server) digestShow(w http.ResponseWriter, r *http.Request) {
-	d, ok := s.loadDigest(w, r)
+	d, ok := load(s, w, r, inScope(r, s.Store.Digest))
 	if !ok {
 		return
 	}
@@ -854,7 +826,7 @@ func (s *Server) digestShow(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) digestMarkdown(w http.ResponseWriter, r *http.Request) {
-	d, ok := s.loadDigest(w, r)
+	d, ok := load(s, w, r, inScope(r, s.Store.Digest))
 	if !ok {
 		return
 	}
@@ -869,5 +841,5 @@ func (s *Server) digestLink(d store.Digest) string {
 	if s.BaseURL == "" {
 		return ""
 	}
-	return strings.TrimRight(s.BaseURL, "/") + "/digests/" + strconv.FormatInt(d.ID, 10)
+	return strings.TrimRight(s.BaseURL, "/") + digestPath(d.ID)
 }

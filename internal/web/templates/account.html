@@ -34,7 +34,7 @@ Paramètres → Utilisateurs, ou sur le serveur avec <code>vigil user reset-totp
 <form method="post" action="/account/password" class="card narrow">
   <input type="hidden" name="csrf" value="{{.CSRF}}">
   <label>Mot de passe actuel <input type="password" name="current" autocomplete="current-password" required maxlength="1024"></label>
-  <label>Nouveau mot de passe (12 caractères minimum) <input type="password" name="new" autocomplete="new-password" required minlength="12" maxlength="1024"></label>
+  <label>Nouveau mot de passe ({{passwordHelp}}) <input type="password" name="new" autocomplete="new-password" required minlength="12" maxlength="1024"></label>
   <label>Confirmation <input type="password" name="confirm" autocomplete="new-password" required minlength="12" maxlength="1024"></label>
   <button type="submit">Changer le mot de passe</button>
 </form>

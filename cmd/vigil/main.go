@@ -59,6 +59,8 @@ Usage :
   vigil user reset-totp -username nom | -all [-db fichier]
   vigil version
 
+Mot de passe de user add et user reset-password : ` + auth.PasswordHelp + `.
+
 La base par défaut se trouve dans le dossier de configuration de l'utilisateur
 (variable VIGIL_DB pour la changer). Clé NVD facultative : VIGIL_NVD_API_KEY.
 Chaque option peut aussi venir de l'environnement : -sync-interval → VIGIL_SYNC_INTERVAL ;
@@ -428,7 +430,8 @@ func runImportSBOM(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	auditCLI(ctx, st, "sbom_import", fmt.Sprintf("%s (CLI): %s +%d =%d -%d", name, doc.Format, res.Added, res.Kept, res.Removed))
+	auditCLI(ctx, st, "sbom_import", "project", name, "format", doc.Format,
+		"added", res.Added, "kept", res.Kept, "removed", res.Removed, "skipped", doc.Skipped)
 	fmt.Printf("projet %q (%s) : %d ajoutés, %d conservés, %d retirés, %d composants ignorés (sans purl)\n",
 		name, doc.Format, res.Added, res.Kept, res.Removed, doc.Skipped)
 	return nil
@@ -478,7 +481,7 @@ func runUser(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	auditCLI(ctx, st, "user_create", fmt.Sprintf("id=%d role=%s (CLI)", id, *role))
+	auditCLI(ctx, st, "user_create", "id", id, "user", *username, "role", *role)
 	fmt.Printf("utilisateur %q créé (%s)\n", *username, *role)
 	return nil
 }
@@ -546,9 +549,11 @@ func runCheck(ctx context.Context, args []string) error {
 	return nil
 }
 
-// auditCLI records a CLI action and warns if the audit log cannot be written.
-func auditCLI(ctx context.Context, st *store.Store, action, detail string) {
-	if err := st.Audit(ctx, 0, action, detail); err != nil {
+// auditCLI records a CLI action, its detail the key-value pairs kv (see
+// store.AuditDetail) and source=cli, and warns if the audit log cannot be
+// written.
+func auditCLI(ctx context.Context, st *store.Store, action string, kv ...any) {
+	if err := st.Audit(ctx, 0, action, store.AuditDetail(append(kv, "source", "cli")...)); err != nil {
 		fmt.Fprintln(os.Stderr, "avertissement : journal d'audit non écrit :", err)
 	}
 }
@@ -557,7 +562,7 @@ func auditCLI(ctx context.Context, st *store.Store, action, detail string) {
 func readPassword() (string, error) {
 	fd := int(os.Stdin.Fd())
 	if term.IsTerminal(fd) {
-		fmt.Fprint(os.Stderr, "Mot de passe : ")
+		fmt.Fprint(os.Stderr, "Mot de passe ("+auth.PasswordHelp+") : ")
 		b, err := term.ReadPassword(fd)
 		fmt.Fprintln(os.Stderr)
 		return string(b), err
@@ -621,10 +626,10 @@ func runUserChange(ctx context.Context, cmd string, args []string) error {
 	if err != nil {
 		return fmt.Errorf("utilisateur %q : %w", *username, err)
 	}
-	detail := *username + " (CLI)"
+	detail := []any{"id", a.ID, "user", a.Username}
 	switch cmd {
 	case "set-role":
-		err, detail = st.SetRole(ctx, a.ID, *role), *username+" role="+*role+" (CLI)"
+		err, detail = st.SetRole(ctx, a.ID, *role), append(detail, "role", *role)
 	case "disable":
 		err = st.SetDisabled(ctx, a.ID, true)
 	case "enable":
@@ -639,7 +644,7 @@ func runUserChange(ctx context.Context, cmd string, args []string) error {
 		return fmt.Errorf("utilisateur %q : %w", *username, err)
 	}
 	auditCLI(ctx, st, map[string]string{"set-role": "user_role", "disable": "user_disable", "enable": "user_enable",
-		"reset-password": "password_reset"}[cmd], detail)
+		"reset-password": "password_reset"}[cmd], detail...)
 	fmt.Printf("%s : fait pour %q\n", cmd, *username)
 	return nil
 }
@@ -663,14 +668,14 @@ func runResetTOTP(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		auditCLI(ctx, st, "totp_reset_all", fmt.Sprintf("%d compte(s)", n))
+		auditCLI(ctx, st, "totp_reset_all", "count", n)
 		fmt.Printf("double authentification retirée de %d compte(s), leurs sessions sont fermées : chacun la reconfigure à sa prochaine connexion\n", n)
 		return nil
 	}
 	if err := st.ResetTOTPByName(ctx, *username); err != nil {
 		return fmt.Errorf("utilisateur %q : %w", *username, err)
 	}
-	auditCLI(ctx, st, "totp_reset", *username)
+	auditCLI(ctx, st, "totp_reset", "user", *username)
 	fmt.Printf("double authentification désactivée pour %q\n", *username)
 	return nil
 }
