@@ -55,7 +55,7 @@
 {{range .Listed}}
 <li>{{if .KEV}}<span class="kev">Exploitée</span> {{end}}<span class="sev sev-{{band .}}">{{sev (band .)}}</span>{{with score .CVSS}} <small>CVSS {{.}}</small>{{end}}{{with epss .EPSS}} <small>EPSS {{.}}</small>{{end}} <a href="/findings/{{.ID}}">{{.VulnID}}</a> — {{.AssetName}} {{.AssetVersion}} — {{status .Status}}</li>
 {{end}}
-{{with .Unlisted}}<li class="muted">… et {{.}} autres, moins sévères, à consulter dans la liste des vulnérabilités</li>{{end}}
+{{with .Unlisted}}<li class="muted">… et {{.}} autres, moins urgentes, à consulter dans la liste des vulnérabilités</li>{{end}}
 </ul>
 {{end}}
 {{else}}

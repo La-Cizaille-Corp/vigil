@@ -38,7 +38,7 @@ Aucune nouvelle vulnérabilité sur la période.
 - {{if .KEV}}**EXPLOITÉE (KEV)** {{end}}**{{sev (band .)}}**{{with score .CVSS}} (CVSS {{.}}){{end}}{{with epss .EPSS}} (EPSS {{.}}){{end}} {{md .VulnID}} — {{md .AssetName}} {{md .AssetVersion}} — {{status .Status}}
 {{- end}}
 {{- with .Unlisted}}
-- … et {{.}} autres, moins sévères, à consulter dans Vigil
+- … et {{.}} autres, moins urgentes, à consulter dans Vigil
 {{- end}}
 {{end}}
 {{- else}}

@@ -8,7 +8,7 @@
 {{range .List}}
 <tr>
   {{if $.Select}}<td class="select" data-label="Sélection"><input type="checkbox" name="id" value="{{.ID}}" form="bulk" aria-label="Sélectionner {{.VulnID}} sur {{.AssetName}}"></td>{{end}}
-  <td data-label="Priorité">{{if .KEV}}<span class="kev">Exploitée</span><br>{{end}}<span class="sev sev-{{.Severity}}">{{sevLabel .Severity}}</span></td>
+  <td data-label="Priorité">{{if .KEV}}<span class="kev">Exploitée</span><br>{{end}}{{$band := band .}}<span class="sev sev-{{$band}}">{{sevLabel $band}}</span></td>
   <td data-label="CVSS">{{with cvss .CVSS}}{{.}}{{else}}<span class="muted">—</span>{{end}}</td>
   <td data-label="EPSS">{{with epss .EPSS}}{{.}}{{else}}<span class="muted">—</span>{{end}}</td>
   <td data-label="Vulnérabilité"><a href="/findings/{{.ID}}">{{.VulnID}}</a>{{if .Aliases}}<br><small>{{aliases .Aliases}}</small>{{end}}</td>

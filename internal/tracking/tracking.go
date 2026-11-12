@@ -33,7 +33,8 @@ var Statuses = []inventory.Option{
 	{Value: "false_positive", Label: "Faux positif"},
 }
 
-// Severities are the severity levels of vulnerabilities, labelled in French.
+// Severities are the severity levels of vulnerabilities, labelled in French,
+// most severe first: the order of Band, of the digest tables and of the charts.
 var Severities = []inventory.Option{
 	{Value: "CRITICAL", Label: "Critique"}, {Value: "HIGH", Label: "Haute"},
 	{Value: "MEDIUM", Label: "Moyenne"}, {Value: "LOW", Label: "Basse"}, {Value: "UNKNOWN", Label: "Inconnue"},
