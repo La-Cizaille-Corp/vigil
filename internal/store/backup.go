@@ -68,7 +68,11 @@ func backup(ctx context.Context, db *sql.DB, dest string) error {
 // As in Open, it waits for a writer rather than failing at once, and keeps
 // its temporary data in memory.
 func openReadOnly(path string) (*sql.DB, error) {
-	return sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?mode=ro&_pragma=busy_timeout(5000)&_pragma=temp_store(2)")
+	name, err := dsn(path, "mode=ro&_pragma=busy_timeout(5000)&_pragma=temp_store(2)")
+	if err != nil {
+		return nil, err
+	}
+	return sql.Open("sqlite", name)
 }
 
 // CheckIntegrity opens a database file read-only and runs integrity_check.

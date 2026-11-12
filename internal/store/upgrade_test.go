@@ -286,7 +286,7 @@ func loadDump(t *testing.T, path, dump string) (map[string][]map[string]string, 
 
 func snapshotFile(t *testing.T, path string) map[string][]map[string]string {
 	t.Helper()
-	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?mode=ro")
+	db, err := openReadOnly(path)
 	if err != nil {
 		t.Fatal(err)
 	}

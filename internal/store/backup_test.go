@@ -5,10 +5,73 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 )
+
+// A database is opened, copied and checked where it is, whatever the
+// characters of its folder: "#" made the read-only opening of a copy read an
+// empty database created beside the folder, "%41" was decoded, and "?" cut
+// the name given to the driver.
+func TestDatabaseInAnyFolder(t *testing.T) {
+	ctx := context.Background()
+	names := []string{"hash#x", "cent%41", "sp ace"}
+	if runtime.GOOS != "windows" { // a reserved character of Windows file names
+		names = append(names, "q?x")
+	}
+	for _, name := range names {
+		t.Run(name, func(t *testing.T) {
+			parent := t.TempDir()
+			dir := filepath.Join(parent, name)
+			path := filepath.Join(dir, "vigil.db")
+			st, err := Open(ctx, path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := st.CreateAsset(ctx, Everything, Asset{Name: "nginx", Kind: "technology", Criticality: "low", Source: "manual"}); err != nil {
+				t.Fatal(err)
+			}
+			var fk int
+			if err := st.db.QueryRowContext(ctx, `PRAGMA foreign_keys`).Scan(&fk); err != nil || fk != 1 {
+				t.Errorf("foreign keys %d, %v: the options of the connection were lost", fk, err)
+			}
+			if _, err := st.BackupTo(ctx, dir, 3); err != nil {
+				t.Errorf("scheduled backup: %v", err)
+			}
+			st.Close()
+
+			if v, err := FileSchema(ctx, path); err != nil || v != LatestSchema() {
+				t.Errorf("FileSchema = %d, %v; want %d", v, err, LatestSchema())
+			}
+			if err := CheckIntegrity(ctx, path); err != nil {
+				t.Error(err)
+			}
+			copyPath := filepath.Join(dir, "copy.db")
+			if err := BackupFile(ctx, path, copyPath); err != nil {
+				t.Fatal(err)
+			}
+			cp, err := Open(ctx, copyPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer cp.Close()
+			if list, err := cp.ListAssets(ctx, Everything); err != nil || len(list) != 1 {
+				t.Errorf("the copy holds %d assets (%v), want the database's 1", len(list), err)
+			}
+			entries, _ := os.ReadDir(parent)
+			var beside []string
+			for _, e := range entries {
+				beside = append(beside, e.Name())
+			}
+			if !slices.Equal(beside, []string{name}) {
+				t.Errorf("files written beside the folder: %v", beside)
+			}
+		})
+	}
+}
 
 func TestBackupWhileWriting(t *testing.T) {
 	ctx := context.Background()
