@@ -9,7 +9,7 @@
 //     negative score is unknown and written "", the caller shows its dash;
 //   - a percentage with a no-break space before its sign, which never
 //     goes alone to the next line: 12,3 % (Percent);
-//   - a number of days, its unit kept the same way: < 1 j, 3,5 j, 12 j (Days);
+//   - a number of days, its unit kept the same way: < 1 j, 3,5 j, 12 j (days);
 //   - the values a field accepts, in an error: Faible, Moyenne ou Haute (Or).
 //
 // The values of form fields stay as HTML reads them, with a point
@@ -62,8 +62,8 @@ func Percent(p float64) string {
 	return Decimal(p*100, 1) + nbsp + "%"
 }
 
-// Days writes a number of days: "< 1 j", one decimal below 10, none above.
-func Days(d float64) string {
+// days writes a number of days: "< 1 j", one decimal below 10, none above.
+func days(d float64) string {
 	switch {
 	case d < 1:
 		return "<" + nbsp + "1" + nbsp + "j"
@@ -93,7 +93,7 @@ func Funcs() map[string]any {
 		"day":  Date,
 		"cvss": Score,
 		"epss": Percent,
-		"days": Days,
+		"days": days,
 		"join": strings.Join,
 	}
 }

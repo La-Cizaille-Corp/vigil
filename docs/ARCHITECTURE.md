@@ -524,7 +524,7 @@ des tableaux du tableau de bord qui mêlaient les corrigées, et un lien « de l
 - *Mots* : « Plus de filtres (2 appliqués) » au lieu de « (actifs) », qui se lisait « filtres d'actifs » ;
   « Activé » / « Désactivé » pour un compte. CVSS et EPSS sont alignés à droite et ne se coupent pas (classe
   `num`, `white-space: nowrap`), la raison d'une ligne non plus. Dans une phrase (« … est de 74,8 % » sur la
-  page d'une vulnérabilité, à 375 px), « % » passait encore seul à la ligne : `fr.Percent` et `fr.Days`
+  page d'une vulnérabilité, à 375 px), « % » passait encore seul à la ligne : `fr.Percent` et `fr.days`
   écrivent une espace insécable avant leur unité, ce qu'A79 avait écarté.
 
 *Écarté* : garder `priority=1` comme synonyme silencieux de `level=urgent` (deux URL pour une liste, et le
@@ -1081,7 +1081,7 @@ d'une par actualité.
 **A94. Un flux se lit entrée par entrée, 2 000 au plus.** La revue de la 0.5.0 (C1) a mesuré qu'un flux de
 8 Mio fait d'éléments `<item/>` vides, décodé d'un bloc avant d'en garder 500, coûtait 2,3 Gio d'allocations et
 450 Mio de tas vivant à chaque collecte (onze flux tiers par défaut, quatre collectes par jour) : de quoi faire
-tuer un petit serveur par manque de mémoire. `cti.Parse` lit désormais le document élément par élément
+tuer un petit serveur par manque de mémoire. `cti.parseFeed` lit désormais le document élément par élément
 (`xml.Decoder.Token`, puis `DecodeElement` pour chaque `item` ou `entry`) et s'arrête à 2 000 entrées
 (`maxFeedEntries`) : le même flux se lit en 3 ms, avec 2 Mio. Les 500 plus récentes des entrées lues sont
 gardées, comme avant ; un flux range ses entrées de la plus récente à la plus ancienne, et ce qui suit la

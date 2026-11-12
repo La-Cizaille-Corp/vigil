@@ -83,7 +83,7 @@ const plainRule = "un seul @, ni espace ni caractère " + addressSpecials
 
 // plainAddress reports whether an address, as net/mail returns it, holds
 // exactly one '@' and neither addressSpecials nor a space or control
-// character. It applies to the recipients (ParseRecipients) and the sender
+// character. It applies to the recipients (parseRecipients) and the sender
 // (NewMailer).
 //
 // SECURITY: net/mail unquotes a quoted local part: "x> NOTIFY=NEVER"@example.com
@@ -96,10 +96,10 @@ func plainAddress(a string) bool {
 		!strings.ContainsFunc(a, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) })
 }
 
-// ParseRecipients reads a comma- or semicolon-separated list of addresses,
+// parseRecipients reads a comma- or semicolon-separated list of addresses,
 // with or without a display name ("Équipe <soc@example.org>"). It returns the
 // addresses alone.
-func ParseRecipients(list string) ([]string, error) {
+func parseRecipients(list string) ([]string, error) {
 	parsed, err := mail.ParseAddressList(strings.ReplaceAll(list, ";", ","))
 	if err != nil || len(parsed) == 0 {
 		return nil, errors.New("adresses e-mail invalides (séparez-les par des virgules)")
@@ -182,7 +182,7 @@ func (m *Mailer) Send(ctx context.Context, to []string, subject, text string) er
 }
 
 // buildMessage writes a UTF-8 text message. Addresses come from
-// ParseRecipients and NewMailer and the subject from Vigil itself; header
+// parseRecipients and NewMailer and the subject from Vigil itself; header
 // values are still encoded so that no line break can reach the headers.
 func buildMessage(from string, to []string, subject, text string, now time.Time) ([]byte, error) {
 	id := make([]byte, 12)

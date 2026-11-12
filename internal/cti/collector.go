@@ -19,14 +19,14 @@ import (
 // Setting keys holding the watched countries and sectors (comma-separated).
 const (
 	SettingCountries   = "cti_countries"
-	SettingSectors     = "cti_sectors"
-	SettingRegulations = "cti_regulations"
+	settingSectors     = "cti_sectors"
+	settingRegulations = "cti_regulations"
 	// SettingNewsPerDay is how many times a day the feeds are collected.
 	SettingNewsPerDay = "cti_news_per_day"
 )
 
-// DefaultNewsPerDay is the frequency of the collection when it was not chosen.
-const DefaultNewsPerDay = 4
+// defaultNewsPerDay is the frequency of the collection when it was not chosen.
+const defaultNewsPerDay = 4
 
 // NewsFrequencies are the times a day the feeds can be collected; 0 is on
 // demand only.
@@ -40,13 +40,13 @@ func NewsPerDay(ctx context.Context, st *store.Store) (int, error) {
 	}
 	n, err := strconv.Atoi(v)
 	if err != nil || !slices.Contains(NewsFrequencies, n) {
-		return DefaultNewsPerDay, nil
+		return defaultNewsPerDay, nil
 	}
 	return n, nil
 }
 
-// Retention of CTI items.
-const Retention = 180 * 24 * time.Hour
+// retention of CTI items.
+const retention = 180 * 24 * time.Hour
 
 // Collector fetches every enabled feed.
 type Collector struct {
@@ -121,7 +121,7 @@ func (c *Collector) run(ctx context.Context, every time.Duration) (int, error) {
 		}
 		total += n
 	}
-	purged, err := c.Store.PurgeCTIItems(ctx, time.Now().Add(-Retention))
+	purged, err := c.Store.PurgeCTIItems(ctx, time.Now().Add(-retention))
 	if err != nil {
 		return total, err
 	}
@@ -130,17 +130,17 @@ func (c *Collector) run(ctx context.Context, every time.Duration) (int, error) {
 }
 
 func (c *Collector) collect(ctx context.Context, f store.Feed) (int, error) {
-	items, err := Fetch(ctx, c.HTTP, f.URL, c.UserAgent)
+	items, err := fetch(ctx, c.HTTP, f.URL, c.UserAgent)
 	if err != nil {
 		return 0, err
 	}
-	cutoff := time.Now().Add(-Retention)
+	cutoff := time.Now().Add(-retention)
 	n := 0
 	for _, it := range items {
 		if it.GUID == "" || it.Title == "" || it.Published.Before(cutoff) {
 			continue
 		}
-		tags := Classify(it, f)
+		tags := classify(it, f)
 		isNew, err := c.Store.InsertCTIItem(ctx, f.ID, store.CTIItem{
 			GUID: it.GUID, Title: it.Title, Link: it.Link, Summary: it.Summary, Published: it.Published,
 			Countries: tags.Countries, Sectors: tags.Sectors, Regulations: tags.Regulations,
@@ -160,7 +160,7 @@ func (c *Collector) collect(ctx context.Context, f store.Feed) (int, error) {
 // selected. Countries and sectors do not apply: a regulation concerns everyone
 // it covers.
 func WatchedRegulations(ctx context.Context, st *store.Store) (store.CTIFilter, error) {
-	regs, err := st.Setting(ctx, SettingRegulations)
+	regs, err := st.Setting(ctx, settingRegulations)
 	if err != nil {
 		return store.CTIFilter{}, err
 	}
@@ -175,7 +175,7 @@ func WatchedFilter(ctx context.Context, st *store.Store) (store.CTIFilter, error
 	if err != nil {
 		return store.CTIFilter{}, err
 	}
-	sectors, err := st.Setting(ctx, SettingSectors)
+	sectors, err := st.Setting(ctx, settingSectors)
 	if err != nil {
 		return store.CTIFilter{}, err
 	}
@@ -192,8 +192,8 @@ func SaveWatched(ctx context.Context, st *store.Store, countries, sectors, regul
 	if err := st.SetSetting(ctx, SettingCountries, keep(Countries, countries)); err != nil {
 		return err
 	}
-	if err := st.SetSetting(ctx, SettingRegulations, keep(Regulations, regulations)); err != nil {
+	if err := st.SetSetting(ctx, settingRegulations, keep(Regulations, regulations)); err != nil {
 		return err
 	}
-	return st.SetSetting(ctx, SettingSectors, keep(Sectors, sectors))
+	return st.SetSetting(ctx, settingSectors, keep(Sectors, sectors))
 }

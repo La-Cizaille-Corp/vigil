@@ -36,7 +36,7 @@ const atom = `<feed xmlns="http://www.w3.org/2005/Atom">
 </feed>`
 
 func TestParseRSS(t *testing.T) {
-	items, err := Parse([]byte(rss))
+	items, err := parseFeed([]byte(rss))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,21 +49,21 @@ func TestParseRSS(t *testing.T) {
 	if items[1].Link != "" {
 		t.Errorf("javascript link kept: %q", items[1].Link)
 	}
-	tags := Classify(items[0], store.Feed{})
+	tags := classify(items[0], store.Feed{})
 	if !reflect.DeepEqual(tags.Countries, []string{"FR"}) || !reflect.DeepEqual(tags.Sectors, []string{"health"}) {
 		t.Errorf("classify = %+v", tags)
 	}
 }
 
 func TestParseAtom(t *testing.T) {
-	items, err := Parse([]byte(atom))
+	items, err := parseFeed([]byte(atom))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(items) != 1 || items[0].Link != "https://example.org/b" || items[0].Published.IsZero() {
 		t.Fatalf("unexpected items: %+v", items)
 	}
-	tags := Classify(items[0], store.Feed{Country: "EU", Sectors: "digital"})
+	tags := classify(items[0], store.Feed{Country: "EU", Sectors: "digital"})
 	if !reflect.DeepEqual(tags.Countries, []string{"DE", "EU"}) || !reflect.DeepEqual(tags.Sectors, []string{"digital", "finance"}) {
 		t.Errorf("classify = %+v", tags)
 	}
@@ -84,7 +84,7 @@ func TestParseDate(t *testing.T) {
 
 func TestClassifyWholeWords(t *testing.T) {
 	// "Ukraine" must not match inside another word, "uk" must not match "Ukraine".
-	tags := Classify(Item{Title: "Ukrainian CERT warns"}, store.Feed{})
+	tags := classify(feedItem{Title: "Ukrainian CERT warns"}, store.Feed{})
 	if !reflect.DeepEqual(tags.Countries, []string{"UA"}) {
 		t.Errorf("countries = %v", tags.Countries)
 	}
@@ -98,7 +98,7 @@ func TestClassifyRegulations(t *testing.T) {
 		"Nouvelle version du référentiel SecNumCloud": {"gdpr", "secnumcloud"},
 		"Cracking the code of ransomware":             {"gdpr"}, // "cra" inside a word is ignored
 	} {
-		tags := Classify(Item{Title: title}, store.Feed{Regulations: "gdpr"})
+		tags := classify(feedItem{Title: title}, store.Feed{Regulations: "gdpr"})
 		if !reflect.DeepEqual(tags.Regulations, want) {
 			t.Errorf("%q: %v, want %v", title, tags.Regulations, want)
 		}
@@ -113,7 +113,7 @@ func TestParseDropsUnsafeLinks(t *testing.T) {
 		"<item><guid>2</guid><title>Avis</title><link>https://www.cert.example@evil.example/</link></item>" +
 		"<item><guid>3</guid><title>Bulletin</title><link> https://example.org/c </link></item>" +
 		"</channel></rss>"
-	items, err := Parse([]byte(feed))
+	items, err := parseFeed([]byte(feed))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestParseLimits(t *testing.T) {
 	fmt.Fprintf(&b, `<item><guid>future</guid><title>f</title><link>https://example.org/%s</link><pubDate>Fri, 01 Jan 2100 00:00:00 +0000</pubDate></item>`,
 		strings.Repeat("a", netsafe.MaxURLLen))
 	b.WriteString(`</channel></rss>`)
-	items, err := Parse([]byte(b.String()))
+	items, err := parseFeed([]byte(b.String()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +172,7 @@ func TestParseStopsAfterMaxEntries(t *testing.T) {
 		b.WriteString(f.close)
 		var before, after runtime.MemStats
 		runtime.ReadMemStats(&before)
-		items, err := Parse(b.Bytes())
+		items, err := parseFeed(b.Bytes())
 		runtime.ReadMemStats(&after)
 		if err != nil || len(items) != maxFeedItems {
 			t.Errorf("%s: %d items, %v", f.entry, len(items), err)
@@ -183,7 +183,7 @@ func TestParseStopsAfterMaxEntries(t *testing.T) {
 	}
 	// What follows the last entry read is not read: not even cut short.
 	feed := "<rss><channel>" + strings.Repeat("<item><guid>g</guid><title>t</title></item>", maxFeedEntries) + "<item><title>coupé"
-	if items, err := Parse([]byte(feed)); err != nil || len(items) != maxFeedItems {
+	if items, err := parseFeed([]byte(feed)); err != nil || len(items) != maxFeedItems {
 		t.Errorf("entries past the bound: %d items, %v", len(items), err)
 	}
 }
@@ -198,7 +198,7 @@ func TestParseRSS10(t *testing.T) {
  <item rdf:about="https://example.org/1"><title>Premier avis</title><link>https://example.org/1</link>
   <dc:date>2026-11-01T10:00:00Z</dc:date></item>
 </rdf:RDF>`
-	items, err := Parse([]byte(rdf))
+	items, err := parseFeed([]byte(rdf))
 	if err != nil || len(items) != 1 {
 		t.Fatalf("%d items, %v", len(items), err)
 	}
@@ -300,11 +300,11 @@ func TestRunIfDue(t *testing.T) {
 		w.Write([]byte(`<rss><channel></channel></rss>`))
 	})
 
-	if n, _ := NewsPerDay(ctx, st); n != DefaultNewsPerDay {
+	if n, _ := NewsPerDay(ctx, st); n != defaultNewsPerDay {
 		t.Errorf("default frequency = %d", n)
 	}
 	st.SetSetting(ctx, SettingNewsPerDay, "3")
-	if n, _ := NewsPerDay(ctx, st); n != DefaultNewsPerDay {
+	if n, _ := NewsPerDay(ctx, st); n != defaultNewsPerDay {
 		t.Errorf("unknown frequency = %d", n)
 	}
 	st.SetSetting(ctx, SettingNewsPerDay, "0")

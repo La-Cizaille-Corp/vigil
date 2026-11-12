@@ -73,7 +73,7 @@ func ValidateWebhook(w store.Webhook) error {
 		return errors.New("niveau d'alerte invalide")
 	}
 	if w.Kind == "email" {
-		_, err := ParseRecipients(w.URL)
+		_, err := parseRecipients(w.URL)
 		return err
 	}
 	return netsafe.ValidateURL(w.URL)
@@ -307,7 +307,7 @@ func (n *Notifier) send(ctx context.Context, h store.Webhook, m message) error {
 		if n.Mail == nil {
 			return errors.New("aucun serveur SMTP configuré (option -smtp-addr)")
 		}
-		to, err := ParseRecipients(h.URL)
+		to, err := parseRecipients(h.URL)
 		if err != nil {
 			return err
 		}

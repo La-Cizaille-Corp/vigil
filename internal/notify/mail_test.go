@@ -108,7 +108,7 @@ func TestMailerSend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	to, err := ParseRecipients("rssi@example.org; Équipe <soc@example.org>")
+	to, err := parseRecipients("rssi@example.org; Équipe <soc@example.org>")
 	if err != nil || len(to) != 2 {
 		t.Fatalf("recipients: %v %v", to, err)
 	}
@@ -158,13 +158,13 @@ func TestMailerSettings(t *testing.T) {
 			t.Errorf("accepted %v", c)
 		}
 	}
-	if _, err := ParseRecipients("a@b.c\r\nBcc: x@y.z"); err == nil {
+	if _, err := parseRecipients("a@b.c\r\nBcc: x@y.z"); err == nil {
 		t.Error("header injection accepted")
 	}
-	if _, err := ParseRecipients(strings.Repeat("a@b.c,", 21) + "a@b.c"); err == nil {
+	if _, err := parseRecipients(strings.Repeat("a@b.c,", 21) + "a@b.c"); err == nil {
 		t.Error("too many recipients accepted")
 	}
-	// The sender follows the rule of the recipients (ParseRecipients): Vigil
+	// The sender follows the rule of the recipients (parseRecipients): Vigil
 	// refuses to start with one it would not accept as a recipient.
 	for _, from := range []string{`"a@b"@example.org`, `"x> NOTIFY=NEVER"@example.org`, `vigil@[192.0.2.1]`, `Vigil <"a b"@example.org>`} {
 		if _, err := NewMailer("smtp.example.org:587", "", "", "", from); err == nil || !strings.Contains(err.Error(), "-smtp-from") {
@@ -199,7 +199,7 @@ func TestRecipientsArePlainAddresses(t *testing.T) {
 		`user@[192.0.2.1]`,
 		`"a@b"@example.com`, `"@"@example.com`, `Équipe <"soc@intra"@example.com>`, // a second '@' once unquoted
 	} {
-		to, err := ParseRecipients(list)
+		to, err := parseRecipients(list)
 		if err == nil {
 			srv.mu.Lock()
 			srv.rcpts = nil
@@ -220,12 +220,12 @@ func TestRecipientsArePlainAddresses(t *testing.T) {
 		`"Dupont, Jean" <jean.dupont@example.org>`: "jean.dupont@example.org",
 		"a@b.c,d@e.f; g@h.i":                       "a@b.c,d@e.f,g@h.i",
 	} {
-		to, err := ParseRecipients(list)
+		to, err := parseRecipients(list)
 		if got := strings.Join(to, ","); err != nil || got != want {
-			t.Errorf("ParseRecipients(%q) = %q, %v; want %q", list, got, err, want)
+			t.Errorf("parseRecipients(%q) = %q, %v; want %q", list, got, err, want)
 		}
 	}
-	to, _ := ParseRecipients(`Équipe <soc@example.org>, prenom.nom+vigil@soc.example.org`)
+	to, _ := parseRecipients(`Équipe <soc@example.org>, prenom.nom+vigil@soc.example.org`)
 	srv.mu.Lock()
 	srv.rcpts = nil
 	srv.mu.Unlock()
