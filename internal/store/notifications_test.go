@@ -81,7 +81,7 @@ func TestCTIMentions(t *testing.T) {
 	if len(all) != 3 || all[1].Concerns != nil {
 		t.Errorf("all items: %+v", all)
 	}
-	mentions, err := st.MentionsOf(ctx, []string{"GHSA-jfh8-c2jp-5v3q", "CVE-2021-44228"}, 5)
+	mentions, err := st.ListMentions(ctx, []string{"GHSA-jfh8-c2jp-5v3q", "CVE-2021-44228"}, 5)
 	if err != nil || len(mentions) != 1 || mentions[0].FeedName == "" {
 		t.Errorf("mentions: %+v, %v", mentions, err)
 	}

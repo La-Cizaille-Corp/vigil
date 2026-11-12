@@ -335,6 +335,17 @@ func expectRow(res sql.Result, err error) error {
 	return nil
 }
 
+// purge runs a DELETE of the rows older than before, the one parameter of
+// query, and returns how many went.
+func purge(ctx context.Context, q querier, query string, before time.Time) (int, error) {
+	res, err := q.ExecContext(ctx, query, formatTime(before))
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	return int(n), err
+}
+
 // wrap prefixes a failure with what was being done; nil stays nil.
 func wrap(label string, err error) error {
 	if err == nil {

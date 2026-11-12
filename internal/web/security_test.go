@@ -242,7 +242,7 @@ func TestUserAdministration(t *testing.T) {
 		t.Errorf("analyst reached user administration: %d", code)
 	}
 
-	b, _ := st.AccountByName(ctx, "bob")
+	b, _ := st.AnyUserByName(ctx, "bob")
 	path := "/settings/users/" + itoa(b.ID)
 	if code := admin.post(path+"/role", url.Values{"csrf": {token}, "role": {"viewer"}}); code != http.StatusSeeOther {
 		t.Fatalf("role change: %d", code)
@@ -260,7 +260,7 @@ func TestUserAdministration(t *testing.T) {
 		t.Errorf("disabled user signed in: %d", code)
 	}
 
-	a, _ := st.AccountByName(ctx, "admin")
+	a, _ := st.AnyUserByName(ctx, "admin")
 	if code, _ := admin.postBody("/settings/users/"+itoa(a.ID)+"/disable", url.Values{"csrf": {token}}); code != http.StatusBadRequest {
 		t.Errorf("admin disabled their own account: %d", code)
 	}

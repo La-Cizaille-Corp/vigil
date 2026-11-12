@@ -39,7 +39,7 @@ func TestAccountLifecycle(t *testing.T) {
 	if err := st.SetDisabled(ctx, alice, true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.SessionByHash(ctx, "alice-session"); !errors.Is(err, ErrNotFound) {
+	if _, err := st.Session(ctx, "alice-session"); !errors.Is(err, ErrNotFound) {
 		t.Error("session of a disabled user still valid")
 	}
 	if _, err := st.UserByName(ctx, "alice"); !errors.Is(err, ErrNotFound) {
@@ -52,7 +52,7 @@ func TestAccountLifecycle(t *testing.T) {
 		t.Errorf("audit log lost the disabled user: %+v", audit)
 	}
 
-	accounts, err := st.ListAccounts(ctx)
+	accounts, err := st.ListUsers(ctx)
 	if err != nil || len(accounts) != 2 || accounts[0].Username != "admin" || !accounts[1].Disabled {
 		t.Fatalf("accounts: %+v %v", accounts, err)
 	}
@@ -67,7 +67,7 @@ func TestAccountLifecycle(t *testing.T) {
 	if err := st.ResetPassword(ctx, alice, "new-hash"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.SessionByHash(ctx, "alice-2"); !errors.Is(err, ErrNotFound) {
+	if _, err := st.Session(ctx, "alice-2"); !errors.Is(err, ErrNotFound) {
 		t.Error("session survived a password reset")
 	}
 }
@@ -164,10 +164,10 @@ func TestResetAllTOTP(t *testing.T) {
 			t.Errorf("user %d keeps a second factor", id)
 		}
 	}
-	if _, err := st.SessionByHash(ctx, "sa"); !errors.Is(err, ErrNotFound) {
+	if _, err := st.Session(ctx, "sa"); !errors.Is(err, ErrNotFound) {
 		t.Error("session of a reset account survived")
 	}
-	if _, err := st.SessionByHash(ctx, "sc"); err != nil {
+	if _, err := st.Session(ctx, "sc"); err != nil {
 		t.Errorf("session of an account without second factor ended: %v", err)
 	}
 }

@@ -126,7 +126,7 @@ func TestSyncLifecycle(t *testing.T) {
 	if res, _ = syncer.Run(ctx); res.Reopened != 1 {
 		t.Fatalf("reopened = %d, want 1", res.Reopened)
 	}
-	events, _ := st.FindingEvents(ctx, store.Everything, findings[0].ID)
+	events, _ := st.ListFindingEvents(ctx, store.Everything, findings[0].ID)
 	if len(events) != 3 {
 		t.Fatalf("events = %d, want 3", len(events))
 	}

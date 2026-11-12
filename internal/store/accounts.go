@@ -5,18 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"time"
 )
-
-// Account is a user as listed for administration.
-type Account struct {
-	ID        int64
-	Username  string
-	Role      string
-	TOTP      bool // second factor enabled
-	Disabled  bool
-	CreatedAt time.Time
-}
 
 // ErrLastAdmin is returned when a change would leave no active administrator.
 var ErrLastAdmin = errors.New("last active administrator")
@@ -26,47 +15,34 @@ var ErrLastAdmin = errors.New("last active administrator")
 // cannot both remove the last one.
 const otherAdmin = `EXISTS (SELECT 1 FROM users o WHERE o.role = 'admin' AND o.disabled_at = '' AND o.id <> users.id)`
 
-// selectAccount reads the columns of an Account (see scanAccount).
-const selectAccount = `SELECT id, username, role, totp_secret <> '', disabled_at <> '', created_at FROM users `
-
-// scanAccount reads a row of selectAccount; no row is ErrNotFound.
-func scanAccount(row scanner) (Account, error) {
-	var a Account
-	var created string
-	err := row.Scan(&a.ID, &a.Username, &a.Role, &a.TOTP, &a.Disabled, &created)
-	if errors.Is(err, sql.ErrNoRows) {
-		return a, ErrNotFound
-	}
-	a.CreatedAt = parseTime(created)
-	return a, err
+// ListUsers returns every user, active ones first, by name.
+func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
+	return collect(ctx, s.db, "list users", func(row scanner) (User, error) { return scanUser(row) },
+		selectUser+`ORDER BY disabled_at <> '', username COLLATE NOCASE`)
 }
 
-// ListAccounts returns every user, active ones first, by name.
-func (s *Store) ListAccounts(ctx context.Context) ([]Account, error) {
-	return collect(ctx, s.db, "list accounts", scanAccount, selectAccount+`ORDER BY disabled_at <> '', username COLLATE NOCASE`)
+// User returns one user, disabled or not.
+func (s *Store) User(ctx context.Context, id int64) (User, error) {
+	return userByID(ctx, s.db, id)
 }
 
-// AccountByID returns one user, disabled or not.
-func (s *Store) AccountByID(ctx context.Context, id int64) (Account, error) {
-	return accountByID(ctx, s.db, id)
-}
-
-func accountByID(ctx context.Context, q querier, id int64) (Account, error) {
-	a, err := scanAccount(q.QueryRowContext(ctx, selectAccount+`WHERE id = ?`, id))
+func userByID(ctx context.Context, q querier, id int64) (User, error) {
+	u, err := scanUser(q.QueryRowContext(ctx, selectUser+`WHERE id = ?`, id))
 	if err != nil && !errors.Is(err, ErrNotFound) {
-		return a, fmt.Errorf("account %d: %w", id, err)
+		return u, fmt.Errorf("user %d: %w", id, err)
 	}
-	return a, err
+	return u, err
 }
 
-// AccountByName returns one user by its exact name, disabled or not, in a
-// single query whether it exists or not (see the failed sign-in).
-func (s *Store) AccountByName(ctx context.Context, username string) (Account, error) {
-	a, err := scanAccount(s.db.QueryRowContext(ctx, selectAccount+`WHERE username = ?`, username))
+// AnyUserByName returns one user by its exact name, disabled or not, in a
+// single query whether it exists or not (see the failed sign-in). To sign in,
+// UserByName keeps the disabled ones out.
+func (s *Store) AnyUserByName(ctx context.Context, username string) (User, error) {
+	u, err := scanUser(s.db.QueryRowContext(ctx, selectUser+`WHERE username = ?`, username))
 	if err != nil && !errors.Is(err, ErrNotFound) {
-		return a, fmt.Errorf("account by name: %w", err)
+		return u, fmt.Errorf("user by name: %w", err)
 	}
-	return a, err
+	return u, err
 }
 
 // CreateFirstAdmin creates the first administrator in a single statement, so
@@ -137,8 +113,8 @@ func (s *Store) ResetTOTP(ctx context.Context, id int64) error {
 // is enrolling, and ends their sessions. After a leak of the database or of a
 // backup, the secrets it held become worthless once everyone has enrolled
 // again. It returns the number of accounts reset.
-func (s *Store) ResetAllTOTP(ctx context.Context) (int64, error) {
-	var n int64
+func (s *Store) ResetAllTOTP(ctx context.Context) (int, error) {
+	var n int
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
 		const enrolled = `totp_secret <> '' OR totp_pending <> ''`
 		if _, err := tx.ExecContext(ctx,
@@ -150,7 +126,8 @@ func (s *Store) ResetAllTOTP(ctx context.Context) (int64, error) {
 		if err != nil {
 			return err
 		}
-		n, err = res.RowsAffected()
+		affected, err := res.RowsAffected()
+		n = int(affected)
 		return err
 	})
 	return n, wrap("reset every totp", err)
@@ -162,11 +139,11 @@ func accountChanged(ctx context.Context, q querier, id int64, res sql.Result, er
 	if err := expectRow(res, err); !errors.Is(err, ErrNotFound) {
 		return err
 	}
-	a, err := accountByID(ctx, q, id)
+	u, err := userByID(ctx, q, id)
 	if err != nil {
 		return err
 	}
-	if a.Role == "admin" && !a.Disabled {
+	if u.Role == "admin" && !u.Disabled {
 		return ErrLastAdmin
 	}
 	return ErrNotFound

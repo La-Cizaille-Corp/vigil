@@ -50,9 +50,9 @@ func (s *Store) CreateDismissalRule(ctx context.Context, sc Scope, assetID int64
 	return err
 }
 
-// DismissalRules returns the rules of an asset of the scope, with the findings
+// ListDismissalRules returns the rules of an asset of the scope, with the findings
 // each sets aside.
-func (s *Store) DismissalRules(ctx context.Context, sc Scope, assetID int64) ([]DismissalRule, error) {
+func (s *Store) ListDismissalRules(ctx context.Context, sc Scope, assetID int64) ([]DismissalRule, error) {
 	cond, args := sc.cond("a")
 	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
 	return collect(ctx, s.db, "dismissal rules", func(row scanner) (DismissalRule, error) {

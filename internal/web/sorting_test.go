@@ -308,7 +308,7 @@ func TestDismissalFlow(t *testing.T) {
 		t.Errorf("reader's view:\n%s", body)
 	}
 
-	rules, _ := st.DismissalRules(ctx, store.Everything, asset)
+	rules, _ := st.ListDismissalRules(ctx, store.Everything, asset)
 	rule := page + "/dismissals/" + strconv.FormatInt(rules[0].ID, 10) + "/delete"
 	if code := c.post(page+"/dismissals/999/delete", url.Values{"csrf": {c.csrf()}}); code != 404 {
 		t.Errorf("unknown rule: %d", code)

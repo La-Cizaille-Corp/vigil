@@ -9,13 +9,34 @@ import (
 	"time"
 )
 
-// User is an account able to sign in.
+// User is an account.
 type User struct {
 	ID           int64
 	Username     string
-	PasswordHash string
+	PasswordHash string // read by UserByName only, to sign in
 	Role         string
-	TOTP         bool // second factor enabled (set on sessions)
+	TOTP         bool // second factor enabled
+	Disabled     bool
+	CreatedAt    time.Time
+}
+
+// userColumns are those of a User but its password hash (see scanUser).
+const (
+	userColumns = `id, username, role, totp_secret <> '', disabled_at <> '', created_at`
+	selectUser  = `SELECT ` + userColumns + ` FROM users `
+)
+
+// scanUser reads the columns of userColumns, then extra ones if given; no row
+// is ErrNotFound.
+func scanUser(row scanner, extra ...any) (User, error) {
+	var u User
+	var created string
+	err := row.Scan(append([]any{&u.ID, &u.Username, &u.Role, &u.TOTP, &u.Disabled, &created}, extra...)...)
+	if errors.Is(err, sql.ErrNoRows) {
+		return u, ErrNotFound
+	}
+	u.CreatedAt = parseTime(created)
+	return u, err
 }
 
 // Session is an authenticated browser session with its user.
@@ -64,15 +85,15 @@ func (s *Store) CreateUser(ctx context.Context, username, passwordHash, role str
 	return id, nil
 }
 
-// UserByName looks up an active user by username; a disabled one is
-// ErrNotFound, so that it cannot sign in.
+// UserByName looks up an active user by username, with its password hash; a
+// disabled one is ErrNotFound, so that it cannot sign in.
 func (s *Store) UserByName(ctx context.Context, username string) (User, error) {
-	var u User
-	err := s.db.QueryRowContext(ctx,
-		`SELECT id, username, password_hash, role FROM users WHERE username = ? AND disabled_at = ''`, username).
-		Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role)
-	if errors.Is(err, sql.ErrNoRows) {
-		return u, ErrNotFound
+	var hash string
+	u, err := scanUser(s.db.QueryRowContext(ctx,
+		`SELECT `+userColumns+`, password_hash FROM users WHERE username = ? AND disabled_at = ''`, username), &hash)
+	u.PasswordHash = hash
+	if errors.Is(err, ErrNotFound) {
+		return u, err
 	}
 	return u, wrap("user by name", err)
 }
@@ -85,16 +106,16 @@ func (s *Store) CreateSession(ctx context.Context, tokenHash string, userID int6
 	return wrap("create session", err)
 }
 
-// SessionByHash returns a non-expired session.
-func (s *Store) SessionByHash(ctx context.Context, tokenHash string) (Session, error) {
+// Session returns a non-expired session.
+func (s *Store) Session(ctx context.Context, tokenHash string) (Session, error) {
 	var sess Session
-	err := s.db.QueryRowContext(ctx, `
-		SELECT u.id, u.username, u.role, u.totp_secret <> '', s.csrf_token
+	var err error
+	sess.User, err = scanUser(s.db.QueryRowContext(ctx, `
+		SELECT `+userColumns+`, s.csrf_token
 		FROM sessions s JOIN users u ON u.id = s.user_id
-		WHERE s.token_hash = ? AND s.expires_at > ? AND u.disabled_at = ''`, tokenHash, now()).
-		Scan(&sess.User.ID, &sess.User.Username, &sess.User.Role, &sess.User.TOTP, &sess.CSRFToken)
-	if errors.Is(err, sql.ErrNoRows) {
-		return sess, ErrNotFound
+		WHERE s.token_hash = ? AND s.expires_at > ? AND u.disabled_at = ''`, tokenHash, now()), &sess.CSRFToken)
+	if errors.Is(err, ErrNotFound) {
+		return sess, err
 	}
 	return sess, wrap("session", err)
 }
@@ -155,11 +176,7 @@ func (s *Store) ListAudit(ctx context.Context, limit int) ([]AuditEntry, error) 
 
 // PurgeAudit deletes the audit entries older than before; it returns how
 // many were deleted.
-func (s *Store) PurgeAudit(ctx context.Context, before time.Time) (int64, error) {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM audit_log WHERE created_at < ?`, formatTime(before))
-	if err != nil {
-		return 0, fmt.Errorf("purge audit log: %w", err)
-	}
-	n, err := res.RowsAffected()
+func (s *Store) PurgeAudit(ctx context.Context, before time.Time) (int, error) {
+	n, err := purge(ctx, s.db, `DELETE FROM audit_log WHERE created_at < ?`, before)
 	return n, wrap("purge audit log", err)
 }

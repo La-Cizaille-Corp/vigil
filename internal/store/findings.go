@@ -458,8 +458,8 @@ func (s *Store) SetFindingStatuses(ctx context.Context, sc Scope, userID int64, 
 	return done, nil
 }
 
-// FindingEvents returns the history of a finding of the scope, oldest first.
-func (s *Store) FindingEvents(ctx context.Context, sc Scope, findingID int64) ([]FindingEvent, error) {
+// ListFindingEvents returns the history of a finding of the scope, oldest first.
+func (s *Store) ListFindingEvents(ctx context.Context, sc Scope, findingID int64) ([]FindingEvent, error) {
 	cond, args := sc.cond("a")
 	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
 	return collect(ctx, s.db, "list finding events", func(row scanner) (FindingEvent, error) {
@@ -512,9 +512,9 @@ func insertEvent(ctx context.Context, q querier, findingID, userID int64, old, s
 	return err
 }
 
-// VulnCVEs returns, for every stored vulnerability, its CVE identifiers
+// ListVulnCVEs returns, for every stored vulnerability, its CVE identifiers
 // (its own id when it is a CVE, plus its CVE aliases).
-func (s *Store) VulnCVEs(ctx context.Context) (map[string][]string, error) {
+func (s *Store) ListVulnCVEs(ctx context.Context) (map[string][]string, error) {
 	pairs, err := collect(ctx, s.db, "list vulnerability CVEs", func(row scanner) ([2]string, error) {
 		var p [2]string
 		err := row.Scan(&p[0], &p[1])

@@ -58,7 +58,7 @@ func newScopeFixture(t *testing.T) (*Store, scopeFixture) {
 	}
 	must(st.SetFindingStatus(ctx, Everything, fx.closed, 0, "resolved", "", "corrigée"))
 	must(st.CreateDismissalRule(ctx, Everything, fx.asset, "matches nothing"))
-	rules, err := st.DismissalRules(ctx, Everything, fx.asset)
+	rules, err := st.ListDismissalRules(ctx, Everything, fx.asset)
 	must(err)
 	fx.rule = rules[0].ID
 
@@ -95,8 +95,8 @@ var isolationCases = map[string]func(context.Context, *Store, Scope, scopeFixtur
 		list, err := st.ListRetiredAssets(ctx, sc)
 		return len(list) > 0, err
 	},
-	"AssetTags": func(ctx context.Context, st *Store, sc Scope, _ scopeFixture) (bool, error) {
-		tags, err := st.AssetTags(ctx, sc)
+	"ListAssetTags": func(ctx context.Context, st *Store, sc Scope, _ scopeFixture) (bool, error) {
+		tags, err := st.ListAssetTags(ctx, sc)
 		return len(tags) > 0, err
 	},
 	"ListProjects": func(ctx context.Context, st *Store, sc Scope, _ scopeFixture) (bool, error) {
@@ -125,8 +125,8 @@ var isolationCases = map[string]func(context.Context, *Store, Scope, scopeFixtur
 		_, err := st.Finding(ctx, sc, fx.open)
 		return found(err)
 	},
-	"FindingEvents": func(ctx context.Context, st *Store, sc Scope, fx scopeFixture) (bool, error) {
-		events, err := st.FindingEvents(ctx, sc, fx.closed)
+	"ListFindingEvents": func(ctx context.Context, st *Store, sc Scope, fx scopeFixture) (bool, error) {
+		events, err := st.ListFindingEvents(ctx, sc, fx.closed)
 		return len(events) > 0, err
 	},
 	"SetFindingStatus": func(ctx context.Context, st *Store, sc Scope, fx scopeFixture) (bool, error) {
@@ -161,8 +161,8 @@ var isolationCases = map[string]func(context.Context, *Store, Scope, scopeFixtur
 		_, err := st.Digest(ctx, sc, fx.digest)
 		return found(err)
 	},
-	"DismissalRules": func(ctx context.Context, st *Store, sc Scope, fx scopeFixture) (bool, error) {
-		rules, err := st.DismissalRules(ctx, sc, fx.asset)
+	"ListDismissalRules": func(ctx context.Context, st *Store, sc Scope, fx scopeFixture) (bool, error) {
+		rules, err := st.ListDismissalRules(ctx, sc, fx.asset)
 		return len(rules) > 0, err
 	},
 	"CreateDismissalRule": func(ctx context.Context, st *Store, sc Scope, fx scopeFixture) (bool, error) {
@@ -190,21 +190,21 @@ var unscoped = map[string]string{}
 func init() {
 	for reason, names := range map[string][]string{
 		"accounts, sessions and the audit log: the caller's own data or the administration's": {
-			"CountUsers", "CreateUser", "UserByName", "CreateSession", "SessionByHash", "DeleteSession",
+			"CountUsers", "CreateUser", "UserByName", "CreateSession", "Session", "DeleteSession",
 			"DeleteOtherSessions", "DeleteExpiredSessions", "Audit", "SetPassword", "ListAudit", "PurgeAudit",
-			"ListAccounts", "AccountByID", "AccountByName", "CreateFirstAdmin", "SetRole", "SetDisabled",
+			"ListUsers", "User", "AnyUserByName", "CreateFirstAdmin", "SetRole", "SetDisabled",
 			"ResetPassword", "ResetTOTP", "ResetAllTOTP", "TOTPPolicy", "SetTOTPPolicy", "UserTOTP",
-			"SetTOTPPending", "EnableTOTP", "DisableTOTP", "DisableTOTPByName", "UseTOTPStep"},
+			"SetTOTPPending", "EnableTOTP", "DisableTOTP", "ResetTOTPByName", "UseTOTPStep"},
 		"threat-intelligence watch: public news and shared settings": {
 			"ListFeeds", "CreateFeed", "SetFeedEnabled", "DeleteFeed", "RecordFeedFetch", "InsertCTIItem",
-			"MentionsOf", "PurgeCTIItems", "Setting", "SetSetting", "UpdateFeedTags", "FeedItems", "SetCTIItemTags"},
+			"ListMentions", "PurgeCTIItems", "Setting", "SetSetting", "UpdateFeedTags", "ListFeedItems", "SetCTIItemTags"},
 		"shared settings, channels and API tokens, managed by administrators": {
 			"SLA", "SetSLA", "ListWebhooks", "CreateWebhook", "DeleteWebhook", "RecordWebhookResult",
 			"SetWebhookDelivery", "SetWebhookEnabled", "ListAPITokens", "CreateAPIToken", "APITokenByHash", "DeleteAPIToken"},
 		"advisories: public data, the same for everyone": {"Vulnerability"},
 		"synchronisation, notifications and digest generation only": {
 			"ObserveFinding", "InTrackedPeriod", "AutoResolveStale", "SetOlderVulns", "ApplyDismissalRules",
-			"UpsertVulnerability", "VulnModified", "SetExploitSignals", "VulnCVEs", "MarkAlerted",
+			"UpsertVulnerability", "VulnModified", "SetExploitSignals", "ListVulnCVEs", "MarkAlerted",
 			"CreateDigest", "LastDigestTime"},
 		"the database itself": {"Close", "SchemaVersion", "UpgradeBackup", "BackupTo"},
 	} {

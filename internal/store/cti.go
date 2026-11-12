@@ -201,8 +201,8 @@ func backfillMentions(ctx context.Context, conn *sql.Conn) error {
 	return nil
 }
 
-// MentionsOf returns the most recent news citing any of the identifiers.
-func (s *Store) MentionsOf(ctx context.Context, ids []string, limit int) ([]CTIItem, error) {
+// ListMentions returns the most recent news citing any of the identifiers.
+func (s *Store) ListMentions(ctx context.Context, ids []string, limit int) ([]CTIItem, error) {
 	var cves []string
 	for _, id := range ids {
 		if strings.HasPrefix(strings.ToUpper(id), "CVE-") {
@@ -291,10 +291,11 @@ func scanCTIItem(row scanner) (CTIItem, error) {
 	return it, nil
 }
 
-// PurgeCTIItems deletes items older than before, to keep the database small.
-func (s *Store) PurgeCTIItems(ctx context.Context, before time.Time) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM cti_items WHERE published < ?`, formatTime(before))
-	return wrap("purge cti items", err)
+// PurgeCTIItems deletes items older than before, to keep the database small;
+// it returns how many were deleted.
+func (s *Store) PurgeCTIItems(ctx context.Context, before time.Time) (int, error) {
+	n, err := purge(ctx, s.db, `DELETE FROM cti_items WHERE published < ?`, before)
+	return n, wrap("purge cti items", err)
 }
 
 // UpdateFeedTags replaces the tags a feed applies to its items.
@@ -303,9 +304,9 @@ func (s *Store) UpdateFeedTags(ctx context.Context, id int64, country, sectors, 
 		`UPDATE cti_feeds SET country = ?, sectors = ?, regulations = ? WHERE id = ?`, country, sectors, regulations, id)))
 }
 
-// FeedItems returns the items of a feed with what tagging reads: their title
+// ListFeedItems returns the items of a feed with what tagging reads: their title
 // and summary.
-func (s *Store) FeedItems(ctx context.Context, feedID int64) ([]CTIItem, error) {
+func (s *Store) ListFeedItems(ctx context.Context, feedID int64) ([]CTIItem, error) {
 	return collect(ctx, s.db, "feed items", func(row scanner) (CTIItem, error) {
 		var it CTIItem
 		err := row.Scan(&it.ID, &it.Title, &it.Summary)

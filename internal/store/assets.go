@@ -118,9 +118,9 @@ func (s *Store) listAssets(ctx context.Context, sc Scope, retired bool) ([]Asset
 		ORDER BY a.project COLLATE NOCASE, a.name COLLATE NOCASE, a.version`, args...)
 }
 
-// AssetTags returns every tag in use in the scope, with the number of assets
+// ListAssetTags returns every tag in use in the scope, with the number of assets
 // carrying it, in alphabetical order.
-func (s *Store) AssetTags(ctx context.Context, sc Scope) ([]TagCount, error) {
+func (s *Store) ListAssetTags(ctx context.Context, sc Scope) ([]TagCount, error) {
 	cond, args := sc.cond("a")
 	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
 	lists, err := collect(ctx, s.db, "asset tags", value[string], `SELECT a.tags FROM assets a WHERE a.tags <> '' AND a.retired_at = '' AND `+cond, args...)

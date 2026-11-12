@@ -207,7 +207,7 @@ type assetForm struct {
 // newAssetForm prepares the form of a: the hints are the tags the account may
 // see, a failure only loses them.
 func (s *Server) newAssetForm(r *http.Request, a store.Asset) assetForm {
-	tags, err := s.Store.AssetTags(r.Context(), readScope(r))
+	tags, err := s.Store.ListAssetTags(r.Context(), readScope(r))
 	if err != nil {
 		s.Log.Warn("asset tags", "err", err)
 	}
