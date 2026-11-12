@@ -76,7 +76,7 @@ func (m Match) Affects(v string) bool {
 	if m.Ranged() {
 		return m.Range.Holds(v)
 	}
-	unescape := func(s string) string { return strings.ToLower(strings.ReplaceAll(s, `\`, "")) }
+	unescape := func(s string) string { return strings.ToLower(Unescape(s)) }
 	v, release := strings.ToLower(v), unescape(m.Version)
 	switch {
 	case versions.Compare(v, release) == 0:
@@ -103,25 +103,53 @@ func (m Match) Named(name string) bool {
 
 // SplitCPE splits a CPE 2.3 name into its 13 fields, keeping escaped colons:
 // cpe:2.3:a:lemonldap-ng:lemonldap\:\:ng:… has the product lemonldap\:\:ng.
-// It reports false for anything else. Every CPE is split here: a plain
-// split on ":" cuts the names that the NVD dictionary escapes.
+// It reports false for anything else: another count of fields, an empty
+// one, a part other than a (application), o (system), h (hardware) or *, a
+// space or a control character, a backslash that escapes nothing. Every CPE
+// is split, and checked, here: a plain split on ":" cuts the names that the
+// NVD dictionary escapes.
 func SplitCPE(cpe string) ([]string, bool) {
+	invalid := func(c byte) bool { return c <= ' ' || c == 0x7f }
 	var fields []string
 	start := 0
 	for i := 0; i < len(cpe); i++ {
-		switch cpe[i] {
-		case '\\':
+		switch {
+		case invalid(cpe[i]):
+			return nil, false
+		case cpe[i] == '\\':
+			if i+1 == len(cpe) || invalid(cpe[i+1]) {
+				return nil, false
+			}
 			i++ // the escaped character
-		case ':':
+		case cpe[i] == ':':
 			fields = append(fields, cpe[start:i])
 			start = i + 1
 		}
 	}
 	fields = append(fields, cpe[start:])
-	if len(fields) != 13 || fields[0] != "cpe" || fields[1] != "2.3" {
+	if len(fields) != 13 || fields[0] != "cpe" || fields[1] != "2.3" ||
+		!slices.Contains([]string{"a", "o", "h", "*"}, fields[2]) || slices.Contains(fields, "") {
 		return nil, false
 	}
 	return fields, true
+}
+
+// Unescape is the readable form of a field of a CPE, without the backslashes
+// that escape its characters: lemonldap\:\:ng reads lemonldap::ng. It is for
+// display and for comparisons with names and versions; the CPE itself, as
+// stored and sent to the NVD, keeps its escapes.
+func Unescape(field string) string {
+	if !strings.Contains(field, `\`) {
+		return field
+	}
+	var b strings.Builder
+	for i := 0; i < len(field); i++ {
+		if field[i] == '\\' && i+1 < len(field) {
+			i++ // the escaped character, kept
+		}
+		b.WriteByte(field[i])
+	}
+	return b.String()
 }
 
 // UnfixedFor reports whether a CVE still affects the latest release of the

@@ -34,7 +34,7 @@ mots de passe refusés à l'installation, sur « Mon compte » et par `vigil use
 | Source | [SecLists](https://github.com/danielmiessler/SecLists), commit `feeac159932a4bf1d0155e8c3a7412e9d1cec3fc`, fichier `Passwords/Common-Credentials/xato-net-10-million-passwords-1000000.txt` (empreinte git `e5e73232c8f4f53edfe9c0fd699f415da8a336e3`) |
 | Extraction | dans l'ordre du fichier, du plus courant au moins courant, les 3 000 premiers de 12 caractères ou plus (`auth.MinPasswordLength`), passés en minuscules et dédoublonnés ; sur le million de lignes, 46 296 font 12 caractères ou plus |
 | Fichier embarqué | 3 000 lignes, ASCII, 41,7 Ko ; SHA-256 `eb76ae50d86aeddabb99f6b5d7f9a0613d354d1824804e394744b32d7bd6a8e6` |
-| Licence | MIT, « Copyright (c) 2018 Daniel Miessler » : texte complet dans `internal/auth/SECLISTS-LICENSE.txt`, joint à la racine de chaque archive de release (`.goreleaser.yaml`) |
+| Licence | MIT, « Copyright (c) 2018 Daniel Miessler » : texte complet dans `internal/auth/SECLISTS-LICENSE.txt`, joint à la racine de chaque archive de release (`.goreleaser.yaml`) et dans l'image Docker (`/usr/share/doc/vigil/`, avec la licence de Vigil) |
 | Contrôle | `TestCommonPasswordsList` : 3 000 entrées distinctes, en minuscules, aucune de moins de 12 caractères, aucune de la forme d'un mot de passe provisoire |
 
 Les mots de passe les plus courants changent peu : la liste se met à jour à la main, rarement, en

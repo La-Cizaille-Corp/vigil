@@ -106,9 +106,37 @@ func TestSplitCPE(t *testing.T) {
 		t.Errorf("fields = %q", f)
 	}
 	for _, bad := range []string{"", "cpe:2.3:bad", "cpe:2.2:a:v:p:1:*:*:*:*:*:*:*",
-		"cpe:2.3:a:v:p:1:*:*:*:*:*:*:*:extra", `cpe:2.3:a:v:p\:1:*:*:*:*:*:*:*`} {
+		"cpe:2.3:a:v:p:1:*:*:*:*:*:*:*:extra", `cpe:2.3:a:v:p\:1:*:*:*:*:*:*:*`,
+		// Thirteen fields, but not a CPE 2.3 name.
+		"cpe:2.3:a:nginx::1.24.0:*:*:*:*:*:*:*", "cpe:2.3:x:nginx:nginx:1.24.0:*:*:*:*:*:*:*",
+		"cpe:2.3:app:nginx:nginx:1.24.0:*:*:*:*:*:*:*", "cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:",
+		"cpe:2.3:a:nginx:nginx web:1.24.0:*:*:*:*:*:*:*", "cpe:2.3:a:nginx:nginx\t:1.24.0:*:*:*:*:*:*:*",
+		"cpe:2.3:a:nginx:nginx\\ x:1.24.0:*:*:*:*:*:*:*", `cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*\`} {
 		if f, ok := SplitCPE(bad); ok || f != nil {
 			t.Errorf("%q accepted: %q", bad, f)
+		}
+	}
+	for _, good := range []string{"cpe:2.3:h:cisco:asa_5505:-:*:*:*:*:*:*:*", "cpe:2.3:*:fortinet:*:*:*:*:*:*:*:*:*",
+		`cpe:2.3:a:jenkins:pipeline\:_groovy:2.61:*:*:*:*:jenkins\/x:*:*`} {
+		if _, ok := SplitCPE(good); !ok {
+			t.Errorf("%q refused", good)
+		}
+	}
+}
+
+// The readable form of a field drops the escaping backslashes and keeps the
+// characters they escape, a backslash included.
+func TestUnescape(t *testing.T) {
+	for in, want := range map[string]string{
+		"fortios":           "fortios",
+		`lemonldap\:\:ng`:   "lemonldap::ng",
+		`at\&t`:             "at&t",
+		`p\\`:               `p\`,
+		`pipeline\:_groovy`: "pipeline:_groovy",
+		`r2\.1`:             "r2.1",
+	} {
+		if got := Unescape(in); got != want {
+			t.Errorf("Unescape(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

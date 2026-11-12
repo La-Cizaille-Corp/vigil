@@ -203,7 +203,7 @@ func productTitle(e nvd.Product) string {
 	if e.Title != "" && (e.Version == "*" || e.Version == "-") {
 		return e.Title
 	}
-	return strings.ReplaceAll(e.Vendor+" "+e.Name, "_", " ")
+	return strings.ReplaceAll(nvd.Unescape(e.Vendor)+" "+nvd.Unescape(e.Name), "_", " ")
 }
 
 func prefill(name, version, kind, cpe, mode string) string {
