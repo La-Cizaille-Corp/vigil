@@ -43,9 +43,10 @@ internal/sources/nvd   Client NVD API 2.0 (produits identifiés par CPE)
 internal/sources/kev   Catalogue CISA Known Exploited Vulnerabilities
 internal/sources/epss  Scores FIRST EPSS
 internal/cvss          Calcul du score CVSS 3.x depuis un vecteur
-internal/tracking      Synchronisation inventaire ↔ sources, enrichissement, statuts VEX
+internal/tracking      Synchronisation inventaire ↔ sources, enrichissement, statuts VEX, classement d'urgence
 internal/cti           Flux RSS/Atom, étiquetage pays / secteur / réglementation
 internal/digest        Génération du digest (Markdown + HTML)
+internal/fr            Dates et nombres à la française (pages, digest, alertes, CSV)
 internal/notify        Digests et alertes vers les webhooks et par e-mail (SMTP)
 internal/netsafe       Client HTTP anti-SSRF pour les URL fournies par les utilisateurs
 internal/limit         Lecture bornée des réponses réseau et des fichiers déposés
@@ -133,6 +134,29 @@ messages du journal étaient en fait en français, tous passés en anglais.
 - un lecteur voit les valeurs en lecture seule, pas les liens vers des actions refusées ;
 - chaque compte peut changer son mot de passe (mot de passe actuel exigé, tentatives limitées,
   autres sessions fermées).
+
+**A79. Dates et nombres à la française, écrits par un seul paquet.** L'audit de code de novembre 2026
+relevait trois formateurs de décimales et deux conventions (le point pour le CVSS et l'EPSS à l'écran et dans
+le digest, la virgule pour les jours, les graphiques et le CSV), une alerte qui arrondissait l'EPSS à l'entier,
+un CVSS de 0 masqué par le digest mais affiché par l'interface, le format de date répété dans une dizaine
+d'endroits, et les fonctions de template (date, statut, sévérité, EPSS) recopiées entre `web` et `digest`. Le
+paquet `fr` écrit la convention et l'applique : un jour `09/02/2026` (`Date`, sans changer de fuseau : une
+échéance est un jour, pas un instant), sans l'année sur l'axe d'un graphique (`DayMonth`), un moment
+`09/02/2026 14:05` en heure locale (`DateTime`) ; la virgule décimale partout, à l'écran, dans le digest, les
+alertes et le CSV, sans séparateur de milliers (`Decimal`) ; un score (CVSS, EPSS en pourcentage) à une
+décimale, 0 compris, vide s'il est inconnu (`Score`) ; un pourcentage avec une espace avant le signe, `12,3 %`
+(`Percent`) ; des jours `< 1 j`, `3,5 j`, `12 j` (`Days`). Les pages et le digest partagent leurs fonctions
+de template, sous les mêmes noms : `fr.Funcs` (`date`, `day`, `cvss`, `epss`, `days`, `join`) et
+`tracking.TemplateFuncs`, les mots des vulnérabilités (`band`, `sevLabel`, `statusLabel`) ; `fr` n'importe
+rien de Vigil, tout paquet peut s'en servir. Restent au point ce que lit une machine : la valeur d'un champ `type="number"`
+(format HTML), les coordonnées SVG, le JSON des webhooks ; les dates ISO des exports CSV et des noms de
+fichier ne changent pas. Le champ caché du jeton CSRF est un seul modèle, appelé par chaque formulaire :
+`{{template "csrf" .CSRF}}`. Les étiquettes proposées sous le champ d'un actif sont lues par le handler ; une
+erreur de lecture donne une erreur 500 au lieu d'une page sans suggestions. *Écarté* : le point pour les
+scores (l'usage des bases de vulnérabilités, mais deux conventions sur une même page) ; une espace insécable
+avant `%` (le reste de l'interface écrit une espace simple). *Conséquences* : CVSS et EPSS s'affichent `9,8`
+et `12,3 %` à l'écran et dans le digest ; un CVSS de 0 s'affiche `0,0`, dans le digest aussi ; l'alerte donne
+l'EPSS à une décimale (`EPSS 12,3 %` au lieu de `EPSS 12 %`) ; le CSV ne change pas, il avait déjà la virgule.
 
 ### Données
 

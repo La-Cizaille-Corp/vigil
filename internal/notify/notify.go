@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"math"
 	"net/http"
 	"net/url"
 	"strings"
@@ -19,6 +18,7 @@ import (
 
 	"github.com/La-Cizaille-Corp/vigil/internal/chattext"
 	"github.com/La-Cizaille-Corp/vigil/internal/clip"
+	"github.com/La-Cizaille-Corp/vigil/internal/fr"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
 	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
@@ -125,7 +125,7 @@ func (n *Notifier) SendDigest(ctx context.Context, d store.Digest, link string) 
 		day = time.Now()
 	}
 	m := message{
-		Subject: "[Vigil] Digest de veille du " + day.Format("02/01/2006"),
+		Subject: "[Vigil] Digest de veille du " + fr.Date(day),
 		Text:    text,
 		Event: map[string]any{
 			"event":      "digest",
@@ -227,7 +227,7 @@ func alertReason(a store.Alert) string {
 	case a.Status == "exploitable":
 		parts = append(parts, "jugée exploitable")
 	case a.EPSS >= store.LikelyEPSS:
-		parts = append(parts, fmt.Sprintf("EPSS %d %%", int(math.Round(a.EPSS*100))))
+		parts = append(parts, "EPSS "+fr.Percent(a.EPSS))
 	}
 	if a.Raised {
 		parts = append(parts, "devenue plus urgente")

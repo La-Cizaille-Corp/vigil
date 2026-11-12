@@ -81,7 +81,7 @@
       <summary>Voir les données</summary>
       <table>
         <thead><tr><th>Semaine du</th><th>Nouvelles</th><th>Traitées</th></tr></thead>
-        <tbody>{{range .Weeks}}<tr><td>{{.Start.Format "02/01/2006"}}</td><td class="num">{{.New}}</td><td class="num">{{.Closed}}</td></tr>{{end}}</tbody>
+        <tbody>{{range .Weeks}}<tr><td>{{day .Start}}</td><td class="num">{{.New}}</td><td class="num">{{.Closed}}</td></tr>{{end}}</tbody>
       </table>
     </details>
     {{end}}{{end}}

@@ -20,7 +20,7 @@
   {{range .Products}}
   <article class="cpe-product">
     <h3>{{.Title}} <code class="small">{{.Name}}</code>{{if .Old}} <span class="tag">ancien nom</span>{{end}}</h3>
-    <p class="muted small">{{.Versions}} version(s) référencée(s), la dernière ajoutée le {{.Latest.Format "02/01/2006"}}{{if .Old}} :
+    <p class="muted small">{{.Versions}} version(s) référencée(s), la dernière ajoutée le {{day .Latest}}{{if .Old}} :
       plus rien depuis {{.Latest.Year}}. Les vulnérabilités récentes sont sans doute rattachées à un autre nom d'éditeur ou de produit{{end}}.
       · <a href="{{.Whole.Use}}">Suivre toutes les versions</a></p>
     {{if .Choices}}

@@ -111,6 +111,19 @@ func TestBand(t *testing.T) {
 	}
 }
 
+func TestTemplateFuncs(t *testing.T) {
+	f := tracking.TemplateFuncs()
+	if got := f["statusLabel"].(func(string) string)("exploitable"); got != "Exploitable – à traiter" {
+		t.Errorf("statusLabel = %s", got)
+	}
+	if got := f["sevLabel"].(func(string) string)(""); got != "Inconnue" {
+		t.Errorf("sevLabel = %s", got)
+	}
+	if got := f["band"].(func(store.Finding) string)(store.Finding{CVSS: 9.8}); got != "CRITICAL" {
+		t.Errorf("band = %s", got)
+	}
+}
+
 // The levels, the lists, the dashboard, the alerts and the digest rank the
 // edge cases alike.
 func TestUrgencyEverywhere(t *testing.T) {

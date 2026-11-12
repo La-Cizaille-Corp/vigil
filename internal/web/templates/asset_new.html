@@ -8,14 +8,14 @@
   <button type="submit">Rechercher</button>
 </form>
 <form method="post" action="/assets" class="card">
-  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  {{template "csrf" .CSRF}}
   {{template "assetFields" .Data.Form}}
   <button type="submit">Ajouter l'actif</button>
 </form>
 
 <h2>Importer un SBOM</h2>
 <form method="post" action="/assets/import" enctype="multipart/form-data" class="card">
-  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  {{template "csrf" .CSRF}}
   <div class="grid">
     <label>Fichier CycloneDX ou SPDX (JSON, 20 Mo max) <input type="file" name="sbom" accept=".json,application/json" required></label>
     <label>Projet (par défaut : nom indiqué dans le SBOM) <input name="project" maxlength="200"></label>
@@ -27,7 +27,7 @@
 
 <h2>Importer un tableau (CSV)</h2>
 <form method="post" action="/assets/import-csv" enctype="multipart/form-data" class="card">
-  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  {{template "csrf" .CSRF}}
   <label>Fichier CSV (2 Mo max), séparé par des virgules ou des points-virgules
     <input type="file" name="csv" accept=".csv,text/csv" required></label>
   <p class="muted small">Première ligne : noms des colonnes. Seule <code>name</code> (ou <code>nom</code>) est obligatoire ;

@@ -1,3 +1,6 @@
+{{/* csrf: the hidden field of the CSRF token, in every form sent by POST. Data: the token. */}}
+{{define "csrf"}}<input type="hidden" name="csrf" value="{{.}}">{{end}}
+
 {{/* findingTable: a vulnerability list. Data: findingRows list selectable;
    selectable adds checkboxes bound to the form id="bulk" of the page. */}}
 {{define "findingTable"}}
@@ -16,7 +19,7 @@
   <td data-label="Corrigée en">{{.FixedIn}}</td>
   <td data-label="Statut">{{statusLabel .Status}}</td>
   <td data-label="Détectée le">{{date .FirstSeen}}</td>
-  <td data-label="Échéance">{{if .Late}}<span class="late">Hors délai</span><br><small>{{.Due.Format "02/01/2006"}}</small>{{else if and (not .Due.IsZero) (or (eq .Status "in_triage") (eq .Status "exploitable"))}}{{.Due.Format "02/01/2006"}}{{else}}<span class="muted">—</span>{{end}}</td>
+  <td data-label="Échéance">{{if .Late}}<span class="late">Hors délai</span><br><small>{{day .Due}}</small>{{else if and (not .Due.IsZero) (or (eq .Status "in_triage") (eq .Status "exploitable"))}}{{day .Due}}{{else}}<span class="muted">—</span>{{end}}</td>
   <td data-label="Résumé" class="text">{{.Summary}}</td>
 </tr>
 {{end}}
@@ -36,7 +39,7 @@
 <div class="toolbar">
   {{if can .User.Role "analyst"}}
   <form method="post" action="/sync" class="inline">
-    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    {{template "csrf" .CSRF}}
     <input type="hidden" name="next" value="{{.Path}}">
     <button type="submit" {{if $st.Running}}disabled{{end}}>Synchroniser l'inventaire</button>
   </form>
