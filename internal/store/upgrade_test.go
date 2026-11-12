@@ -203,6 +203,26 @@ func checkUpgradedData(ctx context.Context, t *testing.T, st *Store) {
 	if _, err := st.DashboardStats(ctx, Everything, time.Now()); err != nil {
 		t.Error(err)
 	}
+	// T9: every account keeps access to everything (migration 017, A68), and
+	// sees as many assets and findings as before.
+	users, err := st.ListUsers(ctx)
+	if err != nil || len(users) == 0 {
+		t.Fatalf("users: %d, %v", len(users), err)
+	}
+	for _, u := range users {
+		mine, err := st.ListAssets(ctx, u.Scope())
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen, err := st.ListFindings(ctx, u.Scope(), FindingFilter{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !u.Access.All || len(mine) != len(assets) || len(seen) != len(findings) {
+			t.Errorf("%s (%s): access %+v, %d assets of %d, %d findings of %d", u.Username, u.Role, u.Access,
+				len(mine), len(assets), len(seen), len(findings))
+		}
+	}
 }
 
 func TestRefuseNewerSchema(t *testing.T) {

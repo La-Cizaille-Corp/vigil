@@ -17,25 +17,66 @@ import (
 // than by each page: lists, counters and identifiers posted in a form or a
 // file all go through the same condition.
 type Scope struct {
-	all bool
+	all    bool
+	groups []int64
 }
 
 // Everything is the scope of the system (synchronisation, notifications,
 // command line) and of the accounts that see every asset.
 var Everything = Scope{all: true}
 
+// InGroups is the scope of a restricted account (A68): the assets of the
+// groups given, none without a group.
+func InGroups(ids ...int64) Scope { return Scope{groups: slices.Clone(ids)} }
+
+// Only narrows the scope to one of its groups, for a list filtered by group.
+// It never widens it: a group the scope does not hold gives nothing.
+func (sc Scope) Only(group int64) Scope {
+	if sc.all || slices.Contains(sc.groups, group) {
+		return InGroups(group)
+	}
+	return Scope{}
+}
+
 // ErrOutsideGroups is returned when a write would place an asset outside the
 // caller's scope.
 var ErrOutsideGroups = errors.New("asset outside the caller's groups")
 
+// ruleMatch is the condition "the rule aliased gr takes in the asset aliased
+// alias" (a constant of the query): exact values, the tag "web" not taking in
+// "webapp", as tags are stored between commas (see joinTags).
+func ruleMatch(alias string) string {
+	return `(gr.kind = 'project' AND gr.value = ` + alias + `.project
+		OR gr.kind = 'tag' AND instr(` + alias + `.tags, ',' || gr.value || ',') > 0)`
+}
+
 // cond returns the SQL condition, and its arguments, that keeps the asset
-// aliased alias (a constant of the query) inside the scope. The conditions on
-// groups will apply to the columns of that alias.
+// aliased alias (a constant of the query) inside the scope. The assets of
+// the groups are computed once per query, not row by row (A68, measured).
 func (sc Scope) cond(alias string) (string, []any) {
-	if sc.all {
+	switch {
+	case sc.all:
 		return "1", nil
+	case len(sc.groups) == 0:
+		return "0", nil
 	}
-	return "0", nil
+	where, args := inClause(nil, nil, "gr.group_id", sc.groups)
+	return alias + `.id IN (SELECT ga.id FROM assets ga WHERE EXISTS (
+		SELECT 1 FROM group_rules gr WHERE ` + where[0] + ` AND ` + ruleMatch("ga") + `))`, args
+}
+
+// groupCond returns the condition that keeps the group aliased alias inside
+// the scope: every group for Everything, those of a restricted account
+// otherwise.
+func (sc Scope) groupCond(alias string) (string, []any) {
+	switch {
+	case sc.all:
+		return "1", nil
+	case len(sc.groups) == 0:
+		return "0", nil
+	}
+	where, args := inClause(nil, nil, alias+".id", sc.groups)
+	return where[0], args
 }
 
 // digestCond keeps the digests of the scope. Every digest covers the whole

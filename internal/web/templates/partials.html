@@ -35,7 +35,7 @@
 
 {{/* syncBar: inventory synchronisation button and state, for pages that list vulnerabilities. */}}
 {{define "syncBar"}}
-{{$st := syncFor .User.Role}}
+{{$st := syncFor .User}}
 <div class="toolbar">
   {{if can .User.Role "analyst"}}
   <form method="post" action="/sync" class="inline">
@@ -50,12 +50,12 @@
 
 {{define "syncText"}}
 {{- if .Running -}}
-  Synchronisation en cours{{with .Asset}} (actif {{.}}){{end}} depuis {{date .Started}}{{if .Total}} : {{.Done}} actif(s) sur {{.Total}}{{end}}{{with .Current}} ({{.}}){{end}}.
+  Synchronisation en cours{{with .Asset}} (actif {{.}}){{end}} depuis {{date .Started}}{{if .Total}} : {{if .Restricted}}{{.Done}} %{{else}}{{.Done}} actif(s) sur {{.Total}}{{end}}{{end}}{{with .Current}} ({{.}}){{end}}.
   {{if .Total}}<progress value="{{.Done}}" max="{{.Total}}" aria-label="Avancement de la synchronisation"></progress>{{else}}<progress aria-label="Avancement de la synchronisation"></progress>{{end}}
   <a href="/sync">suivre l'avancement</a>.
 {{- else if not .Finished.IsZero -}}
   Dernière synchronisation{{with .Asset}} (actif {{.}}){{end}} le {{date .Finished}} :
-  {{if .Err}}<span class="danger-link">échec{{if .Details}} ({{.Err}}){{end}}.</span>{{else}}{{.Result.Created}} nouvelle(s), {{.Result.Reopened}} rouverte(s), {{.Result.Resolved}} corrigée(s) automatiquement{{if .Result.Skipped}}, {{.Result.Skipped}} ignorée(s) car publiée(s) avant la période de suivi{{end}}{{if .Result.Dismissed}}, {{.Result.Dismissed}} écartée(s) par une règle{{end}}.{{if .Result.Failed}}
+  {{if .Err}}<span class="danger-link">échec{{if .Details}} ({{.Err}}){{end}}.</span>{{else if .Restricted}}terminée.{{else}}{{.Result.Created}} nouvelle(s), {{.Result.Reopened}} rouverte(s), {{.Result.Resolved}} corrigée(s) automatiquement{{if .Result.Skipped}}, {{.Result.Skipped}} ignorée(s) car publiée(s) avant la période de suivi{{end}}{{if .Result.Dismissed}}, {{.Result.Dismissed}} écartée(s) par une règle{{end}}.{{if .Result.Failed}}
   <span class="danger-link">{{.Result.Failed}} actif(s) non vérifié(s){{if .Details}} : {{join .Failures " ; "}}{{end}}.</span>{{end}}{{end}}
 {{- else -}}
   Aucune synchronisation depuis le démarrage du serveur.
@@ -114,6 +114,19 @@
     Videz la date pour suivre tout l'historique.</p>
 </fieldset>
 <label>Notes <textarea name="notes" maxlength="4000" rows="2">{{.Notes}}</textarea></label>
+{{end}}
+
+{{/* accessFields: what an account sees (A68), a choice required for a new
+   one. Data: accessChoice. */}}
+{{define "accessFields"}}
+<fieldset class="plain"><legend>Accès</legend>
+  <label class="check"><input type="radio" name="access" value="all" required {{if .All}}checked{{end}}> Tout l'inventaire</label>
+  <label class="check"><input type="radio" name="access" value="groups" required {{if .Restricted}}checked{{end}}> Seulement les actifs de ces groupes :</label>
+  {{range .Groups}}<label class="check"><input type="checkbox" name="group" value="{{.ID}}" {{if .Checked}}checked{{end}}> {{.Name}}</label>
+  {{else}}<p class="small muted">Aucun groupe n'existe encore : <a href="/settings/groups">Paramètres → Groupes</a>.</p>{{end}}
+  <p class="small muted">Un administrateur voit tout, quel que soit ce choix. Un compte limité à des groupes ne voit
+    que leurs actifs et leurs vulnérabilités ; sans groupe, il ne voit rien.</p>
+</fieldset>
 {{end}}
 
 {{/* tagFields: checkbox groups for countries, sectors and regulations. Data: tagSelection. */}}

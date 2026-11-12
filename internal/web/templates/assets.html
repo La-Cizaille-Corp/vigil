@@ -6,7 +6,7 @@
 <p class="muted">Composants absents du dernier SBOM de leur projet. Leur historique de triage est conservé ;
   ils reviennent tels quels si un prochain SBOM les liste. <a href="/assets">← Inventaire</a></p>
 {{end}}
-{{if or .Data.Projects .Data.Tags}}
+{{if or .Data.Projects .Data.Tags .Data.Groups}}
 <form method="get" action="/assets" class="filter-bar">
   {{if .Data.RetiredView}}<input type="hidden" name="retired" value="1">{{end}}
   {{with .Data.Sort}}<input type="hidden" name="sort" value="{{.}}">{{end}}
@@ -21,10 +21,16 @@
       {{range .Data.Tags}}<option value="{{.Tag}}" {{if eq .Tag $.Data.Tag}}selected{{end}}>{{.Tag}} ({{.N}})</option>{{end}}
     </select>
   </label>{{end}}
+  {{if .Data.Groups}}<label>Groupe
+    <select name="group"><option value="">Tous</option>
+      {{range .Data.Groups}}<option value="{{.ID}}" {{if eq .ID $.Data.Group}}selected{{end}}>{{.Name}} ({{.Assets}})</option>{{end}}
+    </select>
+  </label>{{end}}
   <button type="submit">Filtrer</button>
-  {{if or .Data.Project .Data.Tag}}<a href="/assets">Réinitialiser</a>{{end}}
+  {{if or .Data.Project .Data.Tag .Data.Group}}<a href="/assets">Réinitialiser</a>{{end}}
   {{with .Data.Project}}<a href="/findings?project={{.}}">Vulnérabilités de ce projet</a>{{end}}
   {{with .Data.Tag}}<a href="/findings?tag={{.}}">Vulnérabilités de ces actifs</a>{{end}}
+  {{with .Data.Group}}<a href="/findings?group={{.}}">Vulnérabilités de ce groupe</a>{{end}}
 </form>
 {{end}}
 {{if .Data.Assets}}

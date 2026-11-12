@@ -55,7 +55,7 @@ func TestDashboardPage(t *testing.T) {
 	st, base := newTestServer(t)
 	ctx := context.Background()
 	hash, _ := auth.HashPassword("a-strong-password")
-	st.CreateUser(ctx, "viewer", hash, auth.RoleViewer)
+	st.CreateUser(ctx, "viewer", hash, auth.RoleViewer, store.Access{All: true})
 	id, _ := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "fortios", Kind: "os", Criticality: "high", Source: "manual"})
 	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-1", Severity: "CRITICAL", EPSS: -1, CVSS: -1})
 	st.SetExploitSignals(ctx, store.ExploitSignal{ID: "CVE-1", KEV: true, EPSS: 0.5})

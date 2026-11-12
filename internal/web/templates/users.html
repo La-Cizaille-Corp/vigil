@@ -1,5 +1,5 @@
 {{define "content"}}
-{{$csrf := .CSRF}}{{$me := .User.ID}}
+{{$csrf := .CSRF}}{{$me := .User.ID}}{{$groups := .Data.Groups}}{{$names := .Data.GroupNames}}
 <p><a href="/settings">← Paramètres</a></p>
 <p class="muted">Un compte désactivé ne peut plus se connecter et ses sessions sont fermées aussitôt.
 Il reste nommé dans l'historique de triage et le journal d'audit, et peut être réactivé.</p>
@@ -13,7 +13,7 @@ Il reste nommé dans l'historique de triage et le journal d'audit, et peut être
 {{end}}
 
 <table>
-<thead><tr><th>Utilisateur</th><th>Rôle</th><th>Double authentification</th><th>Créé le</th><th>État</th><th></th></tr></thead>
+<thead><tr><th>Utilisateur</th><th>Rôle</th><th>Accès</th><th>Double authentification</th><th>Créé le</th><th>État</th><th></th></tr></thead>
 <tbody>
 {{range .Data.Users}}
 <tr>
@@ -26,6 +26,20 @@ Il reste nommé dans l'historique de triage et le journal d'audit, et peut être
       </select>
       <button type="submit" class="link">Changer</button>
     </form>{{end}}</td>
+  <td>{{if eq .Role "admin"}}Tout l'inventaire <span class="muted small">(administrateur)</span>
+    {{- else if .Access.All}}Tout l'inventaire
+    {{- else if .Access.Groups}}{{range $i, $g := .Access.Groups}}{{if $i}}, {{end}}{{index $names $g}}{{end}}
+    {{- else}}<span class="late">Aucun groupe : ne voit rien</span>{{end}}
+    {{if and (ne .ID $me) (ne .Role "admin")}}
+    <details>
+      <summary class="small">Modifier l'accès</summary>
+      <form method="post" action="/settings/users/{{.ID}}/access">
+        {{template "csrf" $csrf}}
+        {{template "accessFields" (accessForm .Access $groups)}}
+        <button type="submit">Enregistrer l'accès</button>
+      </form>
+    </details>
+    {{end}}</td>
   <td>{{if .TOTP}}Activée{{else}}<span class="muted">Non</span>{{end}}</td>
   <td>{{date .CreatedAt}}</td>
   <td>{{if .Disabled}}<span class="late">Désactivé</span>{{else}}Actif{{end}}</td>
@@ -90,6 +104,7 @@ Il reste nommé dans l'historique de triage et le journal d'audit, et peut être
       <select name="role">{{range roles}}<option value="{{.Value}}"{{if eq .Value "analyst"}} selected{{end}}>{{.Label}}</option>{{end}}</select>
     </label>
   </div>
+  {{template "accessFields" (newAccessForm $groups)}}
   <p class="small muted">Un mot de passe provisoire est généré et affiché une seule fois.
   Lecteur : consultation ; analyste : inventaire et triage ; administrateur : paramètres et comptes.</p>
   <button type="submit">Créer le compte</button>

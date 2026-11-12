@@ -411,10 +411,10 @@ func TestAuditDetailOfEachAction(t *testing.T) {
 	want(st, "sbom_import_api", "project=app token=ci format=CycloneDX added=0 kept=1 removed=0 skipped=0")
 
 	// Users.
-	post(admin, "/settings/users", url.Values{"username": {"bob"}, "role": {"analyst"}})
+	post(admin, "/settings/users", url.Values{"username": {"bob"}, "role": {"analyst"}, "access": {"all"}})
 	bob, _ := st.AnyUserByName(ctx, "bob")
 	user := strconv.FormatInt(bob.ID, 10)
-	want(st, "user_create", "id="+user+" user=bob role=analyst")
+	want(st, "user_create", "id="+user+" user=bob role=analyst access=all")
 	post(admin, "/settings/users/"+user+"/role", url.Values{"role": {"viewer"}})
 	want(st, "user_role", "id="+user+" role=viewer")
 	post(admin, "/settings/users/"+user+"/password", url.Values{})

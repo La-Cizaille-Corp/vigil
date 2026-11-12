@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -51,15 +52,18 @@ Usage :
   vigil import-sbom [-project nom] [-db fichier] fichier.json
   vigil backup  -o fichier.db [-db fichier]
   vigil check   [-db fichier]
-  vigil user add -username nom [-role admin|analyst|viewer] [-db fichier]
+  vigil user add -username nom [-role admin|analyst|viewer] [-groups g1,g2] [-db fichier]
   vigil user list [-db fichier]
   vigil user set-role -username nom -role admin|analyst|viewer [-db fichier]
+  vigil user set-access -username nom -all | -groups g1,g2 [-db fichier]
   vigil user disable|enable -username nom [-db fichier]
   vigil user reset-password -username nom [-db fichier]
   vigil user reset-totp -username nom | -all [-db fichier]
   vigil version
 
 Mot de passe de user add et user reset-password : ` + auth.PasswordHelp + `.
+Accès d'un compte : sans -groups, user add donne accès à tout l'inventaire ; avec -groups,
+aux seuls actifs de ces groupes (Paramètres → Groupes). Un administrateur voit tout.
 
 La base par défaut se trouve dans le dossier de configuration de l'utilisateur
 (-db ou variable VIGIL_DB pour la changer). Clé NVD facultative de serve, sync et digest :
@@ -517,20 +521,79 @@ func runUser(ctx context.Context, args []string) error {
 		switch cmd, args := args[0], args[1:]; cmd {
 		case "add":
 			return runUserAdd(ctx, args)
+		case "set-access":
+			return runUserAccess(ctx, args)
 		case "reset-totp":
 			return runResetTOTP(ctx, args)
 		case "list", "set-role", "disable", "enable", "reset-password":
 			return runUserChange(ctx, cmd, args)
 		}
 	}
-	return errors.New("sous-commande attendue : user add, list, set-role, disable, enable, reset-password ou reset-totp")
+	return errors.New("sous-commande attendue : user add, list, set-role, set-access, disable, enable, reset-password ou reset-totp")
+}
+
+// groupsOption adds -groups to a command: the names of the groups an account
+// is restricted to (A68). It reports whether the option was given, empty or
+// not, once the command line is parsed.
+func groupsOption(fs *flag.FlagSet, usage string) (names *string, given func() bool) {
+	names = fs.String("groups", "", usage)
+	return names, func() bool {
+		set := false
+		fs.Visit(func(f *flag.Flag) { set = set || f.Name == "groups" })
+		return set
+	}
+}
+
+// accessOf reads the access given on the command line: everything, or the
+// groups named in list, separated by commas, at the case of their letters.
+func accessOf(ctx context.Context, st *store.Store, all bool, list string) (store.Access, []store.Group, error) {
+	groups, err := st.ListGroups(ctx, store.Everything)
+	if err != nil || all {
+		return store.Access{All: all}, groups, err
+	}
+	var access store.Access
+	for _, name := range strings.Split(list, ",") {
+		if name = strings.TrimSpace(name); name == "" {
+			continue
+		}
+		i := slices.IndexFunc(groups, func(g store.Group) bool { return strings.EqualFold(g.Name, name) })
+		if i < 0 {
+			known := make([]string, 0, len(groups))
+			for _, g := range groups {
+				known = append(known, g.Name)
+			}
+			return access, groups, fmt.Errorf("groupe %q inconnu ; groupes existants : %s", name, strings.Join(known, ", "))
+		}
+		access.Groups = append(access.Groups, groups[i].ID)
+	}
+	return access, groups, nil
+}
+
+// describeAccess says what an account sees, for the command line.
+func describeAccess(u store.User, groups []store.Group) string {
+	switch {
+	case !u.Restricted():
+		return "tout l'inventaire"
+	case len(u.Access.Groups) == 0:
+		return "aucun groupe (ne voit rien)"
+	}
+	var names []string
+	for _, g := range groups {
+		if slices.Contains(u.Access.Groups, g.ID) {
+			names = append(names, g.Name)
+		}
+	}
+	return "groupes " + strings.Join(names, ", ")
 }
 
 // runUserAdd creates an account, its password read from the terminal or stdin.
+// Without -groups it sees everything, so that scripts written before the
+// groups keep their meaning (A68).
 func runUserAdd(ctx context.Context, args []string) error {
 	fs, o := newCommand("user add", false)
 	username := fs.String("username", "", "nom d'utilisateur")
 	role := fs.String("role", auth.RoleAnalyst, "rôle : admin, analyst ou viewer")
+	groups, restricted := groupsOption(fs, "limiter le compte aux actifs de ces groupes, séparés par des virgules (sans cette option : tout l'inventaire)")
 	if err := o.parse(args); err != nil {
 		return err
 	}
@@ -554,15 +617,58 @@ func runUserAdd(ctx context.Context, args []string) error {
 		return err
 	}
 	defer st.Close()
-	id, err := st.CreateUser(ctx, *username, hash, *role)
+	access, known, err := accessOf(ctx, st, !restricted(), *groups)
+	if err != nil {
+		return err
+	}
+	id, err := st.CreateUser(ctx, *username, hash, *role, access)
 	if errors.Is(err, store.ErrExists) {
 		return fmt.Errorf("le nom d'utilisateur %q existe déjà (majuscules et minuscules ne comptent pas)", *username)
 	}
 	if err != nil {
 		return err
 	}
-	auditCLI(ctx, st, "user_create", "id", id, "user", *username, "role", *role)
-	fmt.Printf("utilisateur %q créé (%s)\n", *username, *role)
+	auditCLI(ctx, st, "user_create", append([]any{"id", id, "user", *username, "role", *role}, store.AuditAccess(access, known)...)...)
+	u := store.User{Role: *role, Access: access}
+	fmt.Printf("utilisateur %q créé (%s, %s)\n", *username, *role, describeAccess(u, known))
+	return nil
+}
+
+// runUserAccess changes what an account sees: everything, or the assets of
+// some groups. It applies to its open sessions at once.
+func runUserAccess(ctx context.Context, args []string) error {
+	fs, o := newCommand("user set-access", false)
+	username := fs.String("username", "", "nom d'utilisateur")
+	all := fs.Bool("all", false, "accès à tout l'inventaire")
+	groups, restricted := groupsOption(fs, "accès aux seuls actifs de ces groupes, séparés par des virgules")
+	if err := o.parse(args); err != nil {
+		return err
+	}
+	if *username == "" {
+		return errors.New("-username est obligatoire")
+	}
+	if *all == restricted() {
+		return errors.New("indiquez -all ou -groups noms")
+	}
+	st, err := o.open(ctx)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	a, err := st.AnyUserByName(ctx, *username)
+	if err != nil {
+		return fmt.Errorf("utilisateur %q : %w", *username, err)
+	}
+	access, known, err := accessOf(ctx, st, *all, *groups)
+	if err != nil {
+		return err
+	}
+	if err := st.SetUserAccess(ctx, a.ID, access); err != nil {
+		return fmt.Errorf("utilisateur %q : %w", *username, err)
+	}
+	auditCLI(ctx, st, "user_access", append([]any{"id", a.ID, "user", a.Username}, store.AuditAccess(access, known)...)...)
+	a.Access = access
+	fmt.Printf("accès de %q : %s\n", a.Username, describeAccess(a, known))
 	return nil
 }
 
@@ -672,6 +778,10 @@ func runUserChange(ctx context.Context, cmd string, args []string) error {
 		if err != nil {
 			return err
 		}
+		groups, err := st.ListGroups(ctx, store.Everything)
+		if err != nil {
+			return err
+		}
 		for _, a := range accounts {
 			state := "actif"
 			if a.Disabled {
@@ -681,7 +791,7 @@ func runUserChange(ctx context.Context, cmd string, args []string) error {
 			if a.TOTP {
 				totp = ", double authentification"
 			}
-			fmt.Printf("%-24s %-8s %s%s\n", a.Username, a.Role, state, totp)
+			fmt.Printf("%-24s %-8s %s%s ; %s\n", a.Username, a.Role, state, totp, describeAccess(a, groups))
 		}
 		return nil
 	}

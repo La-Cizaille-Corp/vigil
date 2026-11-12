@@ -12,9 +12,10 @@ import (
 
 // scopeFixture is a small inventory reached by every scoped method: a manual
 // asset with an open finding cited by a news item and a closed one, a dismissal
-// rule, a component kept by an SBOM and another one retired from it, a digest.
+// rule, a component kept by an SBOM and another one retired from it, a digest,
+// a group taking in the manual asset, and another group taking in nothing.
 type scopeFixture struct {
-	asset, open, closed, rule, digest int64
+	asset, open, closed, rule, digest, group, other int64
 }
 
 func newScopeFixture(t *testing.T) (*Store, scopeFixture) {
@@ -68,6 +69,13 @@ func newScopeFixture(t *testing.T) (*Store, scopeFixture) {
 	must(err)
 	_, err = st.InsertCTIItem(ctx, feed, CTIItem{GUID: "1", Title: "Avis CVE-2026-0001", Link: "https://example.org/1", Published: seen})
 	must(err)
+
+	fx.group, err = st.CreateGroup(ctx, "Équipe")
+	must(err)
+	must(st.SetGroupRules(ctx, fx.group, []string{"equipe"}, nil))
+	fx.other, err = st.CreateGroup(ctx, "Ailleurs")
+	must(err)
+	must(st.SetGroupRules(ctx, fx.other, []string{"ailleurs"}, []string{"ailleurs"}))
 	return st, fx
 }
 
@@ -185,6 +193,28 @@ var isolationCases = map[string]func(context.Context, *Store, Scope, scopeFixtur
 		}
 		return reached, errors.Join(err, err2)
 	},
+	"ListGroups": func(ctx context.Context, st *Store, sc Scope, fx scopeFixture) (bool, error) {
+		// The names of the groups of a scope are its own: a group reaches the
+		// fixture when it is the fixture's, or covers some of its assets.
+		list, err := st.ListGroups(ctx, sc)
+		reached := false
+		for _, g := range list {
+			reached = reached || g.ID == fx.group || g.Assets > 0
+		}
+		return reached, err
+	},
+	"Group": func(ctx context.Context, st *Store, sc Scope, fx scopeFixture) (bool, error) {
+		_, err := st.Group(ctx, sc, fx.group)
+		return found(err)
+	},
+	"ListAssetGroups": func(ctx context.Context, st *Store, sc Scope, fx scopeFixture) (bool, error) {
+		list, err := st.ListAssetGroups(ctx, sc, fx.asset)
+		return len(list) > 0, err
+	},
+	"UngroupedAssets": func(ctx context.Context, st *Store, sc Scope, _ scopeFixture) (bool, error) {
+		n, err := st.UngroupedAssets(ctx, sc) // the components of the SBOM, in no group
+		return n > 0, err
+	},
 }
 
 // unscoped lists the methods that take no scope, with the reason. Those of the
@@ -198,7 +228,9 @@ func init() {
 			"DeleteOtherSessions", "DeleteExpiredSessions", "Audit", "SetPassword", "ListAudit", "PurgeAudit",
 			"ListUsers", "User", "AnyUserByName", "CreateFirstAdmin", "SetRole", "SetDisabled",
 			"ResetPassword", "ResetTOTP", "ResetAllTOTP", "TOTPPolicy", "SetTOTPPolicy", "UserTOTP",
-			"SetTOTPPending", "EnableTOTP", "DisableTOTP", "ResetTOTPByName", "UseTOTPStep"},
+			"SetTOTPPending", "EnableTOTP", "DisableTOTP", "ResetTOTPByName", "UseTOTPStep", "SetUserAccess"},
+		"groups: definitions managed by administrators, which read no asset": {
+			"CreateGroup", "RenameGroup", "SetGroupRules", "DeleteGroup"},
 		"threat-intelligence watch: public news and shared settings": {
 			"ListFeeds", "Feed", "CreateFeed", "SetFeedEnabled", "DeleteFeed", "RecordFeedFetch", "InsertCTIItem",
 			"ListMentions", "PurgeCTIItems", "Setting", "SetSetting", "UpdateFeedTags", "ListFeedItems", "SetCTIItemTags"},
@@ -253,25 +285,28 @@ func TestEveryStoreMethodIsScopedOrExempt(t *testing.T) {
 	}
 }
 
-// The zero scope reaches nothing and changes nothing; Everything reaches the
-// fixture. The groups (A67) will add a scope reaching part of it.
+// The zero scope reaches nothing and changes nothing (T8), nor does the scope
+// of a group that takes in none of the fixture (A68), whatever the method;
+// Everything reaches the fixture.
 func TestScopeIsolation(t *testing.T) {
 	ctx := context.Background()
 	for name, run := range isolationCases {
 		t.Run(name, func(t *testing.T) {
 			st, fx := newScopeFixture(t)
 			before := fingerprint(t, st)
-			reached, err := run(ctx, st, Scope{}, fx)
-			if err != nil {
-				t.Fatalf("zero scope: %v", err)
+			for label, sc := range map[string]Scope{"zero scope": {}, "other group": InGroups(fx.other)} {
+				reached, err := run(ctx, st, sc, fx)
+				if err != nil {
+					t.Fatalf("%s: %v", label, err)
+				}
+				if reached {
+					t.Errorf("%s reached the fixture", label)
+				}
+				if fingerprint(t, st) != before {
+					t.Errorf("%s changed the database", label)
+				}
 			}
-			if reached {
-				t.Error("zero scope reached the fixture")
-			}
-			if fingerprint(t, st) != before {
-				t.Error("zero scope changed the database")
-			}
-			if reached, err = run(ctx, st, Everything, fx); err != nil || !reached {
+			if reached, err := run(ctx, st, Everything, fx); err != nil || !reached {
 				t.Errorf("Everything: reached %v, %v", reached, err)
 			}
 		})

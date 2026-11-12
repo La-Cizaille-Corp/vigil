@@ -140,6 +140,20 @@ version validée.
 - **Arrivée** : Paramètres → Utilisateurs → « Ajouter un utilisateur ». Un mot de passe provisoire
   s'affiche une fois ; transmettez-le par un canal sûr, l'utilisateur le change dans « Mon compte ».
   Un nom qui ne diffère d'un compte existant que par la casse (« Alice » et « alice ») est refusé.
+  L'accès est à choisir : tout l'inventaire, ou seulement certains groupes d'actifs.
+- **Limiter un compte à une équipe, un site ou un client** : Paramètres → Groupes, créez le groupe et
+  cochez ses étiquettes et ses projets (un actif en fait partie s'il porte une de ces étiquettes ou
+  appartient à un de ces projets ; les composants d'un SBOM entrent dans le groupe de leur projet dès
+  l'import). Puis, dans Paramètres → Utilisateurs, « Modifier l'accès » du compte. En ligne de
+  commande : `vigil user add -username camille -role analyst -groups "Équipe web,Compta"`, ou
+  `vigil user set-access -username camille -groups "Équipe web"` (`-all` pour tout l'inventaire).
+  `vigil user add` sans `-groups` donne accès à tout, comme avant. Le changement s'applique aussitôt
+  aux sessions ouvertes. Un compte limité ne voit que les actifs de ses groupes, leurs vulnérabilités
+  et ce qui en dépend (chiffres du tableau de bord, exports, actualités qui le concernent) ; l'état de
+  la synchronisation ne lui montre ni noms ni compteurs, et aucun digest pour l'instant. Un
+  administrateur voit tout. La page Groupes compte les actifs hors de tout groupe, que seuls les
+  comptes sans restriction voient, et la page d'un actif nomme ses groupes : changer une étiquette
+  peut changer qui le voit.
 - **Départ ou compte compromis** : « Désactiver… ». La connexion est refusée et les sessions sont
   fermées aussitôt ; le nom reste dans l'historique de triage et le journal d'audit. Les jetons
   d'API créés par ce compte sont suspendus tant qu'il reste désactivé (Paramètres → Jetons d'API

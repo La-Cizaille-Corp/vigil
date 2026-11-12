@@ -13,9 +13,11 @@
     <button type="submit">Analyser cet actif</button>
   </form>
   {{end}}
-  <span class="muted small">{{template "syncText" (syncFor .User.Role)}}</span>
+  <span class="muted small">{{template "syncText" (syncFor .User)}}</span>
 </div>
 {{with $a.Tags}}<p>{{range .}}<a class="tag" href="/assets?tag={{.}}">{{.}}</a>{{end}}</p>{{end}}
+{{- with .Data.Groups}}<p class="muted small">Groupes : {{range $i, $g := .}}{{if $i}}, {{end}}<a href="/assets?group={{$g.ID}}">{{$g.Name}}</a>{{end}}
+  (déduits des étiquettes et du projet : les changer peut changer qui voit cet actif).</p>{{end}}
 
 <h2>Détails</h2>
 <dl class="card">

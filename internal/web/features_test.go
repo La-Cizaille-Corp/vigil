@@ -49,8 +49,8 @@ func newServerIn(t *testing.T, path string, setup func(*Server)) (*store.Store, 
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	hash, _ := auth.HashPassword("a-strong-password")
-	st.CreateUser(context.Background(), "admin", hash, auth.RoleAdmin)
-	st.CreateUser(context.Background(), "analyst", hash, auth.RoleAnalyst)
+	st.CreateUser(context.Background(), "admin", hash, auth.RoleAdmin, store.Access{All: true})
+	st.CreateUser(context.Background(), "analyst", hash, auth.RoleAnalyst, store.Access{All: true})
 	return st, ts.URL
 }
 
@@ -129,7 +129,7 @@ func TestBulkTriage(t *testing.T) {
 		t.Errorf("invalid status: %d", code)
 	}
 	hash, _ := auth.HashPassword("a-strong-password")
-	st.CreateUser(context.Background(), "viewer", hash, auth.RoleViewer)
+	st.CreateUser(context.Background(), "viewer", hash, auth.RoleViewer, store.Access{All: true})
 	viewer := loginAs(t, base, "viewer", "a-strong-password")
 	if _, body := viewer.get("/findings"); strings.Contains(body, `form="bulk"`) {
 		t.Error("a viewer sees the bulk form")

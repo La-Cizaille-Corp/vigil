@@ -71,8 +71,8 @@ func TestSetupRefusesForwardedRequests(t *testing.T) {
 func TestLoginLimits(t *testing.T) {
 	st, base := newTestServer(t)
 	hash, _ := auth.HashPassword("a-strong-password")
-	st.CreateUser(context.Background(), "admin", hash, auth.RoleAdmin)
-	st.CreateUser(context.Background(), "eve", hash, auth.RoleViewer)
+	st.CreateUser(context.Background(), "admin", hash, auth.RoleAdmin, store.Access{All: true})
+	st.CreateUser(context.Background(), "eve", hash, auth.RoleViewer, store.Access{All: true})
 	c := newClient(t, base)
 	for range 4 {
 		c.post("/login", url.Values{"username": {"admin"}, "password": {"guess"}})
@@ -143,7 +143,7 @@ func TestLengthsCountCharacters(t *testing.T) {
 	token := admin.csrf()
 	for n, want := range map[int]int{40: http.StatusSeeOther, 64: http.StatusSeeOther, 65: http.StatusBadRequest} {
 		name := strings.Repeat("é", n)
-		if code := admin.post("/settings/users", url.Values{"csrf": {token}, "username": {name}, "role": {auth.RoleViewer}}); code != want {
+		if code := admin.post("/settings/users", url.Values{"csrf": {token}, "username": {name}, "role": {auth.RoleViewer}, "access": {"all"}}); code != want {
 			t.Errorf("username of %d accented characters: %d, want %d", n, code, want)
 		}
 	}
@@ -232,7 +232,7 @@ func TestPasswordHelpOnEachPage(t *testing.T) {
 	if _, body := admin.get("/account"); !strings.Contains(body, "Nouveau mot de passe ("+help+")") {
 		t.Errorf("account page: no %q", auth.PasswordHelp)
 	}
-	if code := admin.post("/settings/users", url.Values{"csrf": {admin.csrf()}, "username": {"bob"}, "role": {"analyst"}}); code != http.StatusSeeOther {
+	if code := admin.post("/settings/users", url.Values{"csrf": {admin.csrf()}, "username": {"bob"}, "role": {"analyst"}, "access": {"all"}}); code != http.StatusSeeOther {
 		t.Fatalf("create user: %d", code)
 	}
 	if _, body := admin.get("/settings/users"); !passwordRe.MatchString(body) || !strings.Contains(body, "("+help+")") {
@@ -252,7 +252,7 @@ func TestUserAdministration(t *testing.T) {
 
 	// The password is shown once, on the page the form redirects to: a
 	// reload neither posts the form again nor shows it twice.
-	code := admin.post("/settings/users", url.Values{"csrf": {token}, "username": {"bob"}, "role": {"analyst"}})
+	code := admin.post("/settings/users", url.Values{"csrf": {token}, "username": {"bob"}, "role": {"analyst"}, "access": {"all"}})
 	_, body := admin.get("/settings/users")
 	m := passwordRe.FindStringSubmatch(body)
 	if code != http.StatusSeeOther || m == nil {

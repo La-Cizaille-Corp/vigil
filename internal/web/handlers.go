@@ -291,14 +291,15 @@ func assetFromForm(r *http.Request) store.Asset {
 func (s *Server) assetList(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	retiredView := r.URL.Query().Get("retired") == "1"
-	retired, err := s.Store.ListRetiredAssets(ctx, readScope(r))
+	sc, group := listScope(r)
+	retired, err := s.Store.ListRetiredAssets(ctx, sc)
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
 	assets := retired
 	if !retiredView {
-		if assets, err = s.Store.ListAssets(ctx, readScope(r)); err != nil {
+		if assets, err = s.Store.ListAssets(ctx, sc); err != nil {
 			s.serverError(w, r, err)
 			return
 		}
@@ -326,8 +327,14 @@ func (s *Server) assetList(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
+	groups, err := s.Store.ListGroups(ctx, readScope(r))
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
 	s.render(w, r, http.StatusOK, "assets", page{Title: "Inventaire",
 		Data: map[string]any{"Assets": assets, "Projects": projects, "Project": project, "Tags": tags, "Tag": tag,
+			"Groups": groups, "Group": group,
 			"RetiredView": retiredView, "Retired": len(retired), "Sort": q.Get("sort"), "Dir": q.Get("dir"),
 			"Head": sortHeaders(assetColumnList, "/assets", q, order)}})
 }
@@ -389,6 +396,11 @@ func (s *Server) renderAsset(w http.ResponseWriter, r *http.Request, status int,
 		s.serverError(w, r, err)
 		return
 	}
+	groups, err := s.Store.ListAssetGroups(r.Context(), readScope(r), a.ID)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
 	f, err := s.newAssetForm(r, form)
 	if err != nil {
 		s.serverError(w, r, err)
@@ -396,7 +408,7 @@ func (s *Server) renderAsset(w http.ResponseWriter, r *http.Request, status int,
 	}
 	s.render(w, r, status, "asset", page{Title: inventory.Describe(a), Error: formErr,
 		Data: map[string]any{"Asset": a, "Form": f, "Editing": !reflect.DeepEqual(form, a),
-			"Findings": findings, "Query": query, "Rules": rules}})
+			"Findings": findings, "Query": query, "Rules": rules, "Groups": groups}})
 }
 
 // A rule text is short, and long enough not to set aside everything by mistake.
@@ -518,7 +530,8 @@ func (s *Server) findingList(w http.ResponseWriter, r *http.Request) {
 func (s *Server) renderFindings(w http.ResponseWriter, r *http.Request, status int, formErr string) {
 	q := r.URL.Query()
 	f := findingFilterFrom(q)
-	findings, err := s.Store.ListFindings(r.Context(), readScope(r), f)
+	sc, group := listScope(r)
+	findings, err := s.Store.ListFindings(r.Context(), sc, f)
 	if err != nil {
 		s.serverError(w, r, err)
 		return
@@ -538,8 +551,13 @@ func (s *Server) renderFindings(w http.ResponseWriter, r *http.Request, status i
 		s.serverError(w, r, err)
 		return
 	}
+	groups, err := s.Store.ListGroups(r.Context(), readScope(r))
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
 	s.render(w, r, status, "findings", page{Title: "Vulnérabilités", Error: formErr, Data: map[string]any{
-		"Findings": findings, "Filter": f, "Projects": projects, "Tags": tags,
+		"Findings": findings, "Filter": f, "Projects": projects, "Tags": tags, "Groups": groups, "Group": group,
 		"MinEPSSPercent": f.MinEPSS * 100, "Next": "/findings?" + without(q, "msg").Encode(),
 		"Sort": q.Get("sort"), "Dir": q.Get("dir"), "Head": sortHeaders(findingColumnList, "/findings", q, order),
 		"Levels": levels, "Level": q.Get("level"),
@@ -551,7 +569,8 @@ func (s *Server) renderFindings(w http.ResponseWriter, r *http.Request, status i
 // findingCSV exports the filtered vulnerability list for spreadsheets.
 func (s *Server) findingCSV(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	findings, err := s.Store.ListFindings(r.Context(), readScope(r), findingFilterFrom(q))
+	sc, _ := listScope(r) // what the page shows
+	findings, err := s.Store.ListFindings(r.Context(), sc, findingFilterFrom(q))
 	if err != nil {
 		s.serverError(w, r, err)
 		return

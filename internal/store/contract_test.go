@@ -66,7 +66,7 @@ func TestFindingLifecycle(t *testing.T) {
 	ctx := context.Background()
 	st := openTest(t)
 	assetID, _ := st.CreateAsset(ctx, Everything, Asset{Name: "lodash", Kind: "package", Criticality: "low", Source: "manual"})
-	userID, _ := st.CreateUser(ctx, "ana", "hash", "analyst")
+	userID, _ := st.CreateUser(ctx, "ana", "hash", "analyst", Access{All: true})
 	st.UpsertVulnerability(ctx, Vulnerability{ID: "GHSA-1", Aliases: []string{"CVE-1"}, Severity: "HIGH", CVSS: 7.5, Modified: "m1"})
 
 	if touch, _ := st.ObserveFinding(ctx, assetID, "GHSA-1", "4.17.19", time.Now()); touch != TouchCreated {
@@ -127,7 +127,7 @@ func TestSetFindingStatuses(t *testing.T) {
 	ctx := context.Background()
 	st := openTest(t)
 	assetID, _ := st.CreateAsset(ctx, Everything, Asset{Name: "lodash", Kind: "package", Criticality: "low", Source: "manual"})
-	userID, _ := st.CreateUser(ctx, "ana", "hash", "analyst")
+	userID, _ := st.CreateUser(ctx, "ana", "hash", "analyst", Access{All: true})
 	for _, id := range []string{"CVE-1", "CVE-2"} {
 		st.UpsertVulnerability(ctx, Vulnerability{ID: id, Severity: "HIGH", Modified: "m"})
 		st.ObserveFinding(ctx, assetID, id, "", time.Now())
@@ -174,14 +174,14 @@ func TestSetFindingStatuses(t *testing.T) {
 func TestUsersSessionsTokens(t *testing.T) {
 	ctx := context.Background()
 	st := openTest(t)
-	uid, err := st.CreateUser(ctx, "admin", "hash", "admin")
+	uid, err := st.CreateUser(ctx, "admin", "hash", "admin", Access{All: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateUser(ctx, "admin", "hash", "admin"); err == nil {
+	if _, err := st.CreateUser(ctx, "admin", "hash", "admin", Access{All: true}); err == nil {
 		t.Error("duplicate username accepted")
 	}
-	if _, err := st.CreateUser(ctx, "x", "hash", "root"); err == nil {
+	if _, err := st.CreateUser(ctx, "x", "hash", "root", Access{All: true}); err == nil {
 		t.Error("unknown role accepted by the schema")
 	}
 	st.CreateSession(ctx, "h1", uid, "csrf", time.Now().Add(time.Hour))

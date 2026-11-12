@@ -32,7 +32,7 @@ func loginAs(t *testing.T, base, username, password string) *client {
 func TestAssetAndSyncFlow(t *testing.T) {
 	st, base := newTestServer(t)
 	hash, _ := auth.HashPassword("a-strong-password")
-	st.CreateUser(context.Background(), "admin", hash, auth.RoleAdmin)
+	st.CreateUser(context.Background(), "admin", hash, auth.RoleAdmin, store.Access{All: true})
 	c := loginAs(t, base, "admin", "a-strong-password")
 
 	// A new asset is tracked over the last 120 days by default.
@@ -69,7 +69,7 @@ func TestAssetUpdateVersionAndPURL(t *testing.T) {
 	st, base := newTestServer(t)
 	ctx := context.Background()
 	hash, _ := auth.HashPassword("a-strong-password")
-	st.CreateUser(ctx, "admin", hash, auth.RoleAdmin)
+	st.CreateUser(ctx, "admin", hash, auth.RoleAdmin, store.Access{All: true})
 	c := loginAs(t, base, "admin", "a-strong-password")
 
 	id, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "lodash", Kind: "package", Criticality: "high",
@@ -103,8 +103,8 @@ func TestAssetPageLayout(t *testing.T) {
 	st, base := newTestServer(t)
 	ctx := context.Background()
 	hash, _ := auth.HashPassword("a-strong-password")
-	st.CreateUser(ctx, "admin", hash, auth.RoleAdmin)
-	st.CreateUser(ctx, "reader", hash, auth.RoleViewer)
+	st.CreateUser(ctx, "admin", hash, auth.RoleAdmin, store.Access{All: true})
+	st.CreateUser(ctx, "reader", hash, auth.RoleViewer, store.Access{All: true})
 	id, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "lodash", Kind: "package", Criticality: "high",
 		Source: "manual", PURL: "pkg:npm/lodash", Version: "4.17.15"})
 	if err != nil {
@@ -204,7 +204,7 @@ func TestFeedTags(t *testing.T) {
 	st, base := newTestServer(t)
 	ctx := context.Background()
 	hash, _ := auth.HashPassword("a-strong-password")
-	st.CreateUser(ctx, "admin", hash, auth.RoleAdmin)
+	st.CreateUser(ctx, "admin", hash, auth.RoleAdmin, store.Access{All: true})
 	c := loginAs(t, base, "admin", "a-strong-password")
 
 	form := url.Values{"csrf": {c.csrf()}, "name": {"Test"}, "url": {"https://example.org/feed.xml"},
@@ -237,7 +237,7 @@ func TestFeedTags(t *testing.T) {
 func TestPasswordChange(t *testing.T) {
 	st, base := newTestServer(t)
 	hash, _ := auth.HashPassword("a-strong-password")
-	st.CreateUser(context.Background(), "bob", hash, auth.RoleViewer)
+	st.CreateUser(context.Background(), "bob", hash, auth.RoleViewer, store.Access{All: true})
 	c := loginAs(t, base, "bob", "a-strong-password")
 	other := loginAs(t, base, "bob", "a-strong-password")
 
@@ -266,8 +266,8 @@ func TestNewsFrequency(t *testing.T) {
 	st, base := newTestServer(t)
 	ctx := context.Background()
 	hash, _ := auth.HashPassword("a-strong-password")
-	st.CreateUser(ctx, "admin", hash, auth.RoleAdmin)
-	st.CreateUser(ctx, "bob", hash, auth.RoleViewer)
+	st.CreateUser(ctx, "admin", hash, auth.RoleAdmin, store.Access{All: true})
+	st.CreateUser(ctx, "bob", hash, auth.RoleViewer, store.Access{All: true})
 	c := loginAs(t, base, "admin", "a-strong-password")
 	_, body := c.get("/settings")
 	if !strings.Contains(body, `<option value="4" selected>4 fois par jour</option>`) || !strings.Contains(body, "À la demande seulement") {
