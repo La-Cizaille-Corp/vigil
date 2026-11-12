@@ -1072,7 +1072,10 @@ hebdomadaire compte toujours toutes les vulnérabilités traitées.
 **A34. Plusieurs pays, secteurs et réglementations par flux, modifiables.** Un flux européen ou
 un site de normalisation couvre souvent plusieurs pays ou textes : un sélecteur unique obligeait
 à choisir. Les étiquettes d'un flux se modifient après coup (y compris celles des flux par
-défaut) et sont réappliquées aux actualités déjà collectées.
+défaut) et sont réappliquées aux actualités déjà collectées, dans la même transaction que le changement
+d'étiquettes du flux : un échec en cours de route laissait le flux et une partie de ses actualités réétiquetés
+(revue 0.5.0, C13), et 3 000 actualités se réétiquettent en 0,24 s au lieu de 1,02 s, une validation au lieu
+d'une par actualité.
 
 **A94. Un flux se lit entrée par entrée, 2 000 au plus.** La revue de la 0.5.0 (C1) a mesuré qu'un flux de
 8 Mio fait d'éléments `<item/>` vides, décodé d'un bloc avant d'en garder 500, coûtait 2,3 Gio d'allocations et

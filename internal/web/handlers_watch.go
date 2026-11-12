@@ -195,7 +195,7 @@ func (s *Server) feedCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 // feedUpdate changes the tags of a feed and applies them to the items
-// already collected.
+// already collected, in one transaction: all of them or none (A34).
 func (s *Server) feedUpdate(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Formulaire invalide.", http.StatusBadRequest)
@@ -206,10 +206,12 @@ func (s *Server) feedUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f.Country, f.Sectors, f.Regulations = feedTagsFromForm(r)
-	err := s.Store.UpdateFeedTags(r.Context(), f.ID, f.Country, f.Sectors, f.Regulations)
-	if err == nil {
-		err = cti.Retag(r.Context(), s.Store, f)
-	}
+	err := s.Store.InTx(r.Context(), func(ctx context.Context) error {
+		if err := s.Store.UpdateFeedTags(ctx, f.ID, f.Country, f.Sectors, f.Regulations); err != nil {
+			return err
+		}
+		return cti.Retag(ctx, s.Store, f)
+	})
 	if err != nil {
 		s.storeError(w, r, err)
 		return
