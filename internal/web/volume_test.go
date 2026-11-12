@@ -202,7 +202,7 @@ func TestBulkErrorKeepsChoices(t *testing.T) {
 		`<select name="justification" aria-invalid="true" aria-describedby="bulk-error">`,
 		`<span class="field-error" id="bulk-error" role="alert">Une justification est requise pour « Non affecté ».</span>`,
 		`name="comment" maxlength="4000" value="vu en revue"`,
-		`<th aria-sort="ascending"><a class="sort" href="/findings?dir=desc&amp;sort=vuln">Vulnérabilité</a></th>`, // the list it came from
+		`<th role="columnheader" aria-sort="ascending"><a class="sort" href="/findings?dir=desc&amp;sort=vuln">Vulnérabilité</a></th>`, // the list it came from
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("refused decision misses %s", want)

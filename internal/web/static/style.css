@@ -51,7 +51,8 @@ pre.wrap { white-space: pre-wrap; background: var(--card); padding: .75rem; bord
 .skip:focus { top: .5rem; }
 
 /* --- header -------------------------------------------------------------- */
-header { position: sticky; top: 0; z-index: 10; display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; align-items: center;
+/* The banner of the site only: a <header> inside the page (a vendor of the CPE search) is not one. */
+body > header { position: sticky; top: 0; z-index: 10; display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; align-items: center;
   padding: .6rem 1.25rem; background: var(--card); border-bottom: 1px solid var(--border); box-shadow: var(--shadow); }
 .brand { display: inline-flex; align-items: center; gap: .45rem; font-weight: 750; font-size: 1.15rem; color: var(--fg); }
 .brand:hover { text-decoration: none; }
@@ -105,7 +106,7 @@ tfoot th { border-top: 1px solid var(--border-strong); border-bottom: 0; color: 
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: .5rem 1rem; }
 label { display: block; margin-bottom: .6rem; font-size: .9rem; font-weight: 500; }
 input, select, textarea { width: 100%; margin-top: .2rem; padding: .45rem .55rem; font: inherit; font-weight: 400; color: inherit;
-  background: var(--bg); border: 1px solid var(--field-border); border-radius: 6px; }
+  background: var(--card); border: 1px solid var(--field-border); border-radius: 6px; }
 input:focus, select:focus, textarea:focus, button:focus-visible, a:focus-visible, summary:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 1px; }
 fieldset { border: 1px solid var(--border); border-radius: 8px; max-height: 260px; overflow-y: auto; margin: 0 0 .5rem; }
@@ -180,8 +181,12 @@ dt { color: var(--muted); } dd { margin: 0; }
 .concerns { margin: .15rem 0; }
 .concern-badge { display: inline-block; font-size: .72rem; font-weight: 700; padding: .05rem .45rem; margin-right: .35rem;
   border-radius: 999px; background: var(--danger); color: var(--card); }
-th.select, td.select { width: 2rem; text-align: center; }
-td.select input { width: 1.05rem; height: 1.05rem; }
+th.select, td.select { width: 2.75rem; padding: 0; text-align: center; }
+/* The whole cell ticks its box, a 22 px box in a 44 px target (WCAG 2.5.8 asks 24). */
+label.tick { display: flex; align-items: center; justify-content: center; min-width: 2.75rem; min-height: 2.75rem; margin: 0; cursor: pointer; }
+label.tick input { width: 1.4rem; height: 1.4rem; margin: 0; }
+/* The order of a list chosen from a list: on a phone only, where the titles of its columns are hidden. */
+.sort-form { display: none; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 /* The bulk panel follows the list and sticks to the bottom of the screen
    while the list scrolls: it stays within reach of the boxes ticked. */
@@ -272,22 +277,60 @@ svg.donut { width: 168px; height: 168px; flex: none; }
 
 @media (max-width: 700px) {
   table { display: block; overflow-x: auto; }
-  header { position: static; }
+  /* Two lines: the logo and the account, then the menu on one line that scrolls sideways. */
+  body > header { position: static; display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "brand account" "nav nav";
+    gap: .35rem .75rem; padding: .5rem 1rem .3rem; }
+  body > header .brand { grid-area: brand; }
+  body > header form.inline { grid-area: account; justify-self: end; justify-content: flex-end; gap: .1rem .6rem; min-width: 0; }
+  .account-link { overflow-wrap: anywhere; }
+  body > header nav { grid-area: nav; flex-wrap: nowrap; overflow-x: auto; margin: 0 -1rem; padding: 0 1rem .25rem; }
+  body > header nav a { flex: none; white-space: nowrap; }
+  /* A field of 16 px is not zoomed into by a phone; boxes and links are 24 px high at least (WCAG 2.5.8). */
+  input, select, textarea { font-size: 1rem; }
+  label.check { min-height: 1.5rem; }
+  button.link { padding: .2rem 0; }
+  details > summary { padding: .15rem 0; }
+  .sort-form { display: flex; flex-wrap: wrap; gap: .5rem .75rem; align-items: flex-end; margin: .25rem 0 .75rem; }
+  .sort-form label { flex: 1 1 8rem; margin: 0; }
   /* Long lists read as cards on a phone: every column stays visible. */
   table.cards { overflow: visible; border: 0; background: none; box-shadow: none; }
   table.cards thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   /* minmax(0, 1fr): a card is as wide as the screen, never as its longest word. */
   table.cards tbody { display: grid; grid-template-columns: minmax(0, 1fr); gap: .6rem; }
   table.cards tr { display: grid; grid-template-columns: minmax(0, 1fr); background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: .35rem 0; }
-  table.cards td { display: block; position: relative; border: 0; padding: .3rem .75rem .3rem 8.25rem; text-align: left; width: auto; }
-  table.cards td::before { content: attr(data-label); position: absolute; left: .75rem; top: .45rem; width: 7rem;
+  /* The label floats in the margin of its cell, which grows with it when it takes two lines. */
+  table.cards td { display: flow-root; position: relative; border: 0; padding: .3rem .75rem .3rem 8.25rem; text-align: left; width: auto; }
+  table.cards td::before { content: attr(data-label); float: left; width: 7rem; margin: .15rem 0 0 -7.5rem;
     font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); }
   table.cards td:empty { display: none; }
-  /* The titles of a sortable list stay within reach, above its cards. */
-  table.sortable thead { position: static; display: block; width: auto; height: auto; overflow: visible; clip-path: none; }
-  table.sortable thead tr { display: flex; flex-wrap: wrap; gap: .2rem .85rem; padding: 0 0 .6rem; background: none; border: 0; }
-  table.sortable th { padding: 0; border: 0; background: none; }
-  table.sortable th.no-sort, table.sortable th.select { display: none; }
+  /* The name of a card, and its buttons, take the whole width. */
+  table.cards td.title { padding-left: .75rem; font-weight: 650; }
+  table.cards td.actions { display: flex; flex-wrap: wrap; gap: .25rem 1rem; align-items: center; padding-left: .75rem; }
+  table.cards td.title::before, table.cards td.actions::before { content: none; }
+  table.cards td.actions form.inline, table.cards td.actions details.confirm { margin: 0; }
+  /* A vulnerability as a compact card: its level and scores, its name, aliases and summary, then
+     asset, fix, status and deadline two by two; the box at the top right. */
+  table.findings tr { grid-template-columns: repeat(2, minmax(0, 1fr)) 2.75rem; column-gap: .75rem; padding: .55rem .75rem .65rem;
+    grid-template-areas: "level level select" "cvss epss select" "vuln vuln vuln" "text text text"
+      "asset fixed fixed" "status due due" "seen seen seen"; }
+  table.findings td { padding: .1rem 0; }
+  table.findings td::before { display: block; float: none; width: auto; margin: 0; }
+  table.findings .f-level > div { display: inline; margin-left: .35rem; }
+  table.findings td.f-level::before, table.findings td.f-vuln::before, table.findings td.f-text::before { content: none; }
+  table.findings td.f-cvss::before, table.findings td.f-epss::before { display: inline; margin-right: .35rem; }
+  table.findings td.select { grid-area: select; padding: 0; margin: -.55rem -.75rem 0 0; }
+  table.findings .f-level { grid-area: level; }
+  table.findings .f-cvss { grid-area: cvss; }
+  table.findings .f-epss { grid-area: epss; }
+  table.findings .f-vuln { grid-area: vuln; padding-top: .3rem; }
+  table.findings .f-vuln > a { font-weight: 650; font-size: 1.05rem; }
+  table.findings .f-text { grid-area: text; font-size: .9rem; }
+  table.findings .f-asset { grid-area: asset; }
+  table.findings .f-fixed { grid-area: fixed; }
+  table.findings .f-status { grid-area: status; }
+  table.findings .f-due { grid-area: due; }
+  table.findings .f-seen { grid-area: seen; }
+  table.findings .f-asset, table.findings .f-fixed { margin-top: .45rem; padding-top: .45rem; border-top: 1px solid var(--border); }
 }
 @media (forced-colors: active) {
   .swatch, .donut-seg, .bar { forced-color-adjust: none; }

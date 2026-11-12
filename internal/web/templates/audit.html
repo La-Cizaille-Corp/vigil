@@ -3,10 +3,10 @@
 <p class="muted">Les 500 dernières actions sensibles : connexions, comptes, inventaire, triage par lot, paramètres.
   Une action sans utilisateur vient de la ligne de commande ou du système.</p>
 {{if .Data}}
-<table>
-<thead><tr><th>Date</th><th>Utilisateur</th><th>Action</th><th>Détail</th></tr></thead>
-<tbody>
-{{range .Data}}<tr><td>{{date .CreatedAt}}</td><td>{{or .Username "—"}}</td><td><code class="small">{{.Action}}</code></td><td class="small">{{.Detail}}</td></tr>{{end}}
+<table class="cards" role="table">
+<thead role="rowgroup"><tr role="row"><th role="columnheader">Date</th><th role="columnheader">Utilisateur</th><th role="columnheader">Action</th><th role="columnheader">Détail</th></tr></thead>
+<tbody role="rowgroup">
+{{range .Data}}<tr role="row"><td role="cell" data-label="Date">{{date .CreatedAt}}</td><td role="cell" data-label="Utilisateur">{{or .Username "—"}}</td><td role="cell" data-label="Action"><code class="small">{{.Action}}</code></td><td class="small text" role="cell" data-label="Détail">{{.Detail}}</td></tr>{{end}}
 </tbody>
 </table>
 {{else}}<p class="muted">Journal vide.</p>{{end}}

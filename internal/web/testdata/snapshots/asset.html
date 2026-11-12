@@ -146,53 +146,54 @@
 
 
 
-<table class="cards">
-<thead><tr><th class="no-sort">Priorité</th><th class="no-sort num">CVSS</th><th class="no-sort num">EPSS</th><th class="no-sort">Vulnérabilité</th><th class="no-sort">Actif</th><th class="no-sort">Corrigée en</th><th class="no-sort">Statut</th><th class="no-sort">Détectée le</th><th class="no-sort">Échéance</th><th class="no-sort">Résumé</th></tr></thead>
-<tbody>
 
-<tr>
+<table class="cards findings" role="table">
+<thead role="rowgroup"><tr role="row"><th role="columnheader" class="no-sort">Priorité</th><th role="columnheader" class="no-sort num">CVSS</th><th role="columnheader" class="no-sort num">EPSS</th><th role="columnheader" class="no-sort">Vulnérabilité</th><th role="columnheader" class="no-sort">Actif</th><th role="columnheader" class="no-sort">Corrigée en</th><th role="columnheader" class="no-sort">Statut</th><th role="columnheader" class="no-sort">Détectée le</th><th role="columnheader" class="no-sort">Échéance</th><th role="columnheader" class="no-sort">Résumé</th></tr></thead>
+<tbody role="rowgroup">
+
+<tr role="row">
   
-  <td data-label="Priorité"><span class="level level-watch">À surveiller</span>
+  <td class="f-level" role="cell" data-label="Priorité"><span class="level level-watch">À surveiller</span>
     <div class="small"><span class="sev sev-UNKNOWN">Inconnue</span></div></td>
-  <td data-label="CVSS" class="num">0,0</td>
-  <td data-label="EPSS" class="num">0,0 %</td>
-  <td data-label="Vulnérabilité"><a href="/findings/3">CVE-2025-0003</a></td>
-  <td data-label="Actif"><a href="/assets/1">fortios 7.2.4</a></td>
-  <td data-label="Corrigée en"></td>
-  <td data-label="Statut">À analyser</td>
-  <td data-label="Détectée le">04/03/2025 12:20</td>
-  <td data-label="Échéance"><span class="late">Hors délai</span><br><small>02/06/2025</small></td>
-  <td data-label="Résumé" class="text">Score nul.</td>
+  <td class="f-cvss num" role="cell" data-label="CVSS">0,0</td>
+  <td class="f-epss num" role="cell" data-label="EPSS">0,0 %</td>
+  <td class="f-vuln" role="cell" data-label="Vulnérabilité"><a href="/findings/3">CVE-2025-0003</a></td>
+  <td class="f-asset" role="cell" data-label="Actif"><a href="/assets/1">fortios 7.2.4</a></td>
+  <td class="f-fixed" role="cell" data-label="Corrigée en"></td>
+  <td class="f-status" role="cell" data-label="Statut">À analyser</td>
+  <td class="f-seen" role="cell" data-label="Détectée le">04/03/2025 12:20</td>
+  <td class="f-due" role="cell" data-label="Échéance"><span class="late">Hors délai</span><br><small>02/06/2025</small></td>
+  <td class="f-text text" role="cell" data-label="Résumé">Score nul.</td>
 </tr>
 
-<tr>
+<tr role="row">
   
-  <td data-label="Priorité"><span class="level level-urgent">Urgente</span>
+  <td class="f-level" role="cell" data-label="Priorité"><span class="level level-urgent">Urgente</span>
     <div class="small"><span class="sev sev-HIGH">Haute</span> · <span class="reason">EPSS 12,3 %</span></div></td>
-  <td data-label="CVSS" class="num">7,5</td>
-  <td data-label="EPSS" class="num">12,3 %</td>
-  <td data-label="Vulnérabilité"><a href="/findings/2">CVE-2025-0002</a></td>
-  <td data-label="Actif"><a href="/assets/1">fortios 7.2.4</a></td>
-  <td data-label="Corrigée en"></td>
-  <td data-label="Statut">À analyser</td>
-  <td data-label="Détectée le">04/03/2025 11:20</td>
-  <td data-label="Échéance"><span class="late">Hors délai</span><br><small>03/04/2025</small></td>
-  <td data-label="Résumé" class="text">Déni de service.</td>
+  <td class="f-cvss num" role="cell" data-label="CVSS">7,5</td>
+  <td class="f-epss num" role="cell" data-label="EPSS">12,3 %</td>
+  <td class="f-vuln" role="cell" data-label="Vulnérabilité"><a href="/findings/2">CVE-2025-0002</a></td>
+  <td class="f-asset" role="cell" data-label="Actif"><a href="/assets/1">fortios 7.2.4</a></td>
+  <td class="f-fixed" role="cell" data-label="Corrigée en"></td>
+  <td class="f-status" role="cell" data-label="Statut">À analyser</td>
+  <td class="f-seen" role="cell" data-label="Détectée le">04/03/2025 11:20</td>
+  <td class="f-due" role="cell" data-label="Échéance"><span class="late">Hors délai</span><br><small>03/04/2025</small></td>
+  <td class="f-text text" role="cell" data-label="Résumé">Déni de service.</td>
 </tr>
 
-<tr>
+<tr role="row">
   
-  <td data-label="Priorité"><span class="level level-urgent">Urgente</span>
+  <td class="f-level" role="cell" data-label="Priorité"><span class="level level-urgent">Urgente</span>
     <div class="small"><span class="sev sev-CRITICAL">Critique</span> · <span class="reason">exploitée (CISA KEV)</span></div></td>
-  <td data-label="CVSS" class="num">9,8</td>
-  <td data-label="EPSS" class="num">97,3 %</td>
-  <td data-label="Vulnérabilité"><a href="/findings/1">CVE-2025-0001</a></td>
-  <td data-label="Actif"><a href="/assets/1">fortios 7.2.4</a></td>
-  <td data-label="Corrigée en"></td>
-  <td data-label="Statut">À analyser</td>
-  <td data-label="Détectée le">04/03/2025 10:20</td>
-  <td data-label="Échéance"><span class="late">Hors délai</span><br><small>19/03/2025</small></td>
-  <td data-label="Résumé" class="text">Contournement de l&#39;authentification.</td>
+  <td class="f-cvss num" role="cell" data-label="CVSS">9,8</td>
+  <td class="f-epss num" role="cell" data-label="EPSS">97,3 %</td>
+  <td class="f-vuln" role="cell" data-label="Vulnérabilité"><a href="/findings/1">CVE-2025-0001</a></td>
+  <td class="f-asset" role="cell" data-label="Actif"><a href="/assets/1">fortios 7.2.4</a></td>
+  <td class="f-fixed" role="cell" data-label="Corrigée en"></td>
+  <td class="f-status" role="cell" data-label="Statut">À analyser</td>
+  <td class="f-seen" role="cell" data-label="Détectée le">04/03/2025 10:20</td>
+  <td class="f-due" role="cell" data-label="Échéance"><span class="late">Hors délai</span><br><small>19/03/2025</small></td>
+  <td class="f-text text" role="cell" data-label="Résumé">Contournement de l&#39;authentification.</td>
 </tr>
 
 </tbody>

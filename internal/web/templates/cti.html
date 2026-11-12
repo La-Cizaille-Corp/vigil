@@ -33,7 +33,7 @@
 <ul class="news">
 {{range .Data.Items}}
 <li>
-  {{if .Link}}<a href="{{.Link}}" rel="noopener noreferrer" target="_blank">{{.Title}}</a>{{else}}{{.Title}}{{end}}
+  {{if .Link}}{{template "newTab" (link .Link .Title)}}{{else}}{{.Title}}{{end}}
   {{if .Concerns}}<div class="concerns small"><span class="concern-badge">Vous concerne</span>
     {{range .Concerns}}<a href="/findings?q={{.}}&amp;status=in_triage&amp;status=exploitable">{{.}}</a> {{end}}</div>{{end}}
   <div class="muted small">{{.FeedName}} · {{date .Published}}

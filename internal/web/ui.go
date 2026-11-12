@@ -24,6 +24,9 @@ type tagSelection struct {
 	Countries, Sectors, Regulations []string
 }
 
+// textLink is the data of the "newTab" template: an address and its text.
+type textLink struct{ Href, Text string }
+
 // accessChoice is the data of the "accessFields" template: the access of an
 // account, neither choice made for a new one (A68: the form requires it),
 // and the groups to check.

@@ -214,6 +214,7 @@ func (s *Server) parseTemplates() error {
 		"dict3": func(countries, sectors, regulations []string) tagSelection {
 			return tagSelection{countries, sectors, regulations}
 		},
+		"link":              func(href, text string) textLink { return textLink{href, text} },
 		"accessForm":        accessForm,
 		"newAccessForm":     newAccessForm,
 		"kindLabel":         func(v string) string { return choice.Label(inventory.Kinds, v) },
@@ -289,6 +290,7 @@ type findingRows struct {
 	List     []store.Finding
 	Head     []sortHeader
 	Sortable bool
+	Sort     sortChoice     // the order chosen from a list on a phone, when Sortable
 	Select   bool           // checkboxes bound to the form id="bulk" of the page
 	Checked  map[int64]bool // boxes ticked, when a bulk decision is shown again
 	Back     string         // the list a row's page leads back to (?back=), "" for none

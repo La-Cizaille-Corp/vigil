@@ -2,6 +2,7 @@ package web
 
 import (
 	"cmp"
+	"maps"
 	"net/url"
 	"slices"
 	"strconv"
@@ -26,6 +27,7 @@ type column[T any] struct {
 // sortHeader is the title of a column in a template.
 type sortHeader struct {
 	Label string
+	Key   string // the value of ?sort= for this column, "" when it cannot sort the list
 	Href  string // sorts by this column, or the other way if it already does; "" when it cannot
 	Order string // aria-sort value when the list is sorted by this column
 	Class string // "no-sort" without Href, "num" over numbers
@@ -108,6 +110,7 @@ func sortHeaders[T any](cols []column[T], path string, q url.Values, o listOrder
 	for _, c := range cols {
 		h := sortHeader{Label: c.label, Class: headerClass(c, c.compare != nil)}
 		if c.compare != nil {
+			h.Key = c.key
 			desc := c.desc
 			if c.key == o.key {
 				desc = !o.desc
@@ -127,6 +130,36 @@ func sortHeaders[T any](cols []column[T], path string, q url.Values, o listOrder
 		out = append(out, h)
 	}
 	return out
+}
+
+// sortChoice is the data of the "sortForm" template: the order of a sortable
+// list chosen from a list of its columns, where its titles are out of sight
+// (on a phone, A33), with the other parameters of the list kept as they are.
+type sortChoice struct {
+	Path string
+	Head []sortHeader // the columns; those with a Key sort the list
+	Desc bool         // the list is in descending order
+	Keep []queryParam // filters and level, in the order of their names
+}
+
+// queryParam is one value of a query string, sent again by a form.
+type queryParam struct{ Name, Value string }
+
+// newSortChoice is the sort form of the list at path described by q, whose
+// column titles are head (see sortHeaders): a new order starts at its first
+// page.
+func newSortChoice(path string, q url.Values, head []sortHeader) sortChoice {
+	c := sortChoice{Path: path, Head: head}
+	for _, h := range head {
+		c.Desc = c.Desc || h.Order == "descending"
+	}
+	kept := without(q, "msg", "page", "sort", "dir")
+	for _, name := range slices.Sorted(maps.Keys(kept)) {
+		for _, v := range kept[name] {
+			c.Keep = append(c.Keep, queryParam{name, v})
+		}
+	}
+	return c
 }
 
 // plainHeaders returns the titles of the columns of a list that is not sorted
