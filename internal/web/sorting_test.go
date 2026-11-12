@@ -92,7 +92,7 @@ func TestSortFindings(t *testing.T) {
 	other, _ := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "apache", Version: "2.4", Kind: "product", Criticality: "low", Source: "manual"})
 	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-2024-10000", Severity: "HIGH", EPSS: 0.5, CVSS: -1})
 	st.ObserveFinding(ctx, other, "CVE-2024-10000", "", time.Now().Add(-5*24*time.Hour))
-	st.SetExploitSignals(ctx, "CVE-2024-10000", false, "", 0.5)
+	st.SetExploitSignals(ctx, store.ExploitSignal{ID: "CVE-2024-10000", EPSS: 0.5})
 	c := loginAs(t, base, "analyst", "a-strong-password")
 	const crit, high, low, likely = "CVE-2024-0001", "CVE-2024-0002", "CVE-2024-0003", "CVE-2024-10000"
 	for query, want := range map[string][]string{
@@ -190,7 +190,7 @@ func TestFindingLevels(t *testing.T) {
 	ctx := context.Background()
 	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-2024-0004", Severity: "LOW", EPSS: -1, CVSS: 2})
 	st.ObserveFinding(ctx, assetID, "CVE-2024-0004", "", time.Now())
-	st.SetExploitSignals(ctx, "CVE-2024-0004", true, "", 0.5)
+	st.SetExploitSignals(ctx, store.ExploitSignal{ID: "CVE-2024-0004", KEV: true, EPSS: 0.5})
 	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-2024-0005", EPSS: -1, CVSS: -1})
 	st.ObserveFinding(ctx, assetID, "CVE-2024-0005", "", time.Now())
 	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-2024-0006", Severity: "HIGH", EPSS: -1, CVSS: 8})

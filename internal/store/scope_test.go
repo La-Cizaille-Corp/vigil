@@ -206,7 +206,7 @@ func init() {
 			"ObserveFinding", "InTrackedPeriod", "AutoResolveStale", "SetOlderVulns", "ApplyDismissalRules",
 			"UpsertVulnerability", "VulnModified", "SetExploitSignals", "ListVulnCVEs", "MarkAlerted",
 			"CreateDigest", "LastDigestTime"},
-		"the database itself": {"Close", "SchemaVersion", "UpgradeBackup", "BackupTo"},
+		"the database itself": {"Close", "SchemaVersion", "UpgradeBackup", "BackupTo", "InTx"},
 	} {
 		for _, name := range names {
 			unscoped[name] = reason

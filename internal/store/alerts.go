@@ -39,7 +39,7 @@ func (s *Store) PendingAlerts(ctx context.Context, sc Scope) ([]Alert, error) {
 	cond, args := sc.cond("a")
 	today := day(time.Now())
 	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
-	return collect(ctx, s.db, "pending alerts", func(row scanner) (Alert, error) {
+	return collect(ctx, s.q(ctx), "pending alerts", func(row scanner) (Alert, error) {
 		var a Alert
 		var alerted int
 		var err error

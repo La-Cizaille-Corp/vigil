@@ -38,10 +38,10 @@ func dismissalComment(text string) string { return "Écartée par la règle « "
 // CreateDismissalRule adds a rule to an asset of the scope and applies it; a
 // rule that already exists is left as it is.
 func (s *Store) CreateDismissalRule(ctx context.Context, sc Scope, assetID int64, text string) error {
-	if err := assetInScope(ctx, s.db, sc, assetID); err != nil {
+	if err := assetInScope(ctx, s.q(ctx), sc, assetID); err != nil {
 		return wrap("create dismissal rule", err)
 	}
-	if _, err := s.db.ExecContext(ctx, `
+	if _, err := s.q(ctx).ExecContext(ctx, `
 		INSERT INTO dismissal_rules (asset_id, text, created_at) VALUES (?, ?, ?)
 		ON CONFLICT (asset_id, text) DO NOTHING`, assetID, text, now()); err != nil {
 		return fmt.Errorf("create dismissal rule: %w", err)
@@ -53,19 +53,27 @@ func (s *Store) CreateDismissalRule(ctx context.Context, sc Scope, assetID int64
 // ListDismissalRules returns the rules of an asset of the scope, with the findings
 // each sets aside.
 func (s *Store) ListDismissalRules(ctx context.Context, sc Scope, assetID int64) ([]DismissalRule, error) {
-	cond, args := sc.cond("a")
-	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
-	return collect(ctx, s.db, "dismissal rules", func(row scanner) (DismissalRule, error) {
+	query, args := dismissalRulesQuery(sc, assetID)
+	return collect(ctx, s.q(ctx), "dismissal rules", func(row scanner) (DismissalRule, error) {
 		var r DismissalRule
 		var created string
 		err := row.Scan(&r.ID, &r.AssetID, &r.Text, &created, &r.Findings)
 		r.CreatedAt = parseTime(created)
 		return r, err
-	}, `
+	}, query, args...)
+}
+
+// dismissalRulesQuery reads the rules of an asset of the scope, counting the
+// findings of each through the index findings_dismissed_by
+// (TestHistoryQueriesUseIndexes).
+func dismissalRulesQuery(sc Scope, assetID int64) (string, []any) {
+	cond, args := sc.cond("a")
+	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
+	return `
 		SELECT r.id, r.asset_id, r.text, r.created_at,
 		       (SELECT count(*) FROM findings f WHERE f.dismissed_by = r.id)
 		FROM dismissal_rules r JOIN assets a ON a.id = r.asset_id
-		WHERE r.asset_id = ? AND `+cond+` ORDER BY r.text COLLATE NOCASE`, append([]any{assetID}, args...)...)
+		WHERE r.asset_id = ? AND ` + cond + ` ORDER BY r.text COLLATE NOCASE`, append([]any{assetID}, args...)
 }
 
 // DeleteDismissalRule removes a rule of an asset of the scope: the findings it

@@ -127,7 +127,7 @@ func LatestSchema() int {
 
 // SchemaVersion returns the schema version of the open database.
 func (s *Store) SchemaVersion(ctx context.Context) (int, error) {
-	return schemaVersion(ctx, s.db)
+	return schemaVersion(ctx, s.q(ctx))
 }
 
 // schemaVersion reads the highest applied migration.
@@ -250,16 +250,45 @@ var afterMigration = map[int]func(context.Context, *sql.Conn) error{
 	9: backfillMentions,
 }
 
-func (s *Store) inTx(ctx context.Context, fn func(*sql.Tx) error) error {
+// txKey marks a context that carries a transaction of InTx.
+type txKey struct{}
+
+// InTx runs fn in a transaction: every call of the store made with the
+// context fn receives joins it, and an error of fn undoes them all. The
+// synchronisation groups the writes of an asset this way (A57).
+//
+// Inside fn, call the store with that context only, and read nothing from
+// the network: the transaction holds the only connection to the database,
+// that any other call waits for.
+func (s *Store) InTx(ctx context.Context, fn func(context.Context) error) error {
+	if _, ok := ctx.Value(txKey{}).(*sql.Tx); ok {
+		return fn(ctx) // already inside one: part of it
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("begin transaction: %w", err)
 	}
-	if err := fn(tx); err != nil {
+	if err := fn(context.WithValue(ctx, txKey{}, tx)); err != nil {
 		_ = tx.Rollback() // fn's error is the one to report
 		return err
 	}
-	return tx.Commit()
+	return wrap("commit", tx.Commit())
+}
+
+// q returns where the statements made with ctx go: the transaction it
+// carries (see InTx), or the database.
+func (s *Store) q(ctx context.Context) querier {
+	if tx, ok := ctx.Value(txKey{}).(*sql.Tx); ok {
+		return tx
+	}
+	return s.db
+}
+
+// inTx runs fn in a transaction, or in that of InTx when ctx carries one.
+func (s *Store) inTx(ctx context.Context, fn func(*sql.Tx) error) error {
+	return s.InTx(ctx, func(ctx context.Context) error {
+		return fn(ctx.Value(txKey{}).(*sql.Tx))
+	})
 }
 
 // scanner is a row to read: a *sql.Row or the current row of *sql.Rows.

@@ -10,7 +10,7 @@ import (
 // UserTOTP returns the active and pending TOTP secrets of a user and the last
 // accepted time step; ErrNotFound for an unknown user.
 func (s *Store) UserTOTP(ctx context.Context, userID int64) (secret, pending string, lastStep int64, err error) {
-	err = s.db.QueryRowContext(ctx,
+	err = s.q(ctx).QueryRowContext(ctx,
 		`SELECT totp_secret, totp_pending, totp_last_step FROM users WHERE id = ?`, userID).
 		Scan(&secret, &pending, &lastStep)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -24,12 +24,12 @@ func (s *Store) UserTOTP(ctx context.Context, userID int64) (secret, pending str
 
 // SetTOTPPending stores a secret awaiting confirmation by a first valid code.
 func (s *Store) SetTOTPPending(ctx context.Context, userID int64, secret string) error {
-	return wrap("set pending totp", expectRow(s.db.ExecContext(ctx, `UPDATE users SET totp_pending = ? WHERE id = ?`, secret, userID)))
+	return wrap("set pending totp", expectRow(s.q(ctx).ExecContext(ctx, `UPDATE users SET totp_pending = ? WHERE id = ?`, secret, userID)))
 }
 
 // EnableTOTP activates the pending secret.
 func (s *Store) EnableTOTP(ctx context.Context, userID, step int64) error {
-	return wrap("enable totp", expectRow(s.db.ExecContext(ctx, `
+	return wrap("enable totp", expectRow(s.q(ctx).ExecContext(ctx, `
 		UPDATE users SET totp_secret = totp_pending, totp_pending = '', totp_last_step = ?
 		WHERE id = ? AND totp_pending <> ''`, step, userID)))
 }
@@ -37,7 +37,7 @@ func (s *Store) EnableTOTP(ctx context.Context, userID, step int64) error {
 // DisableTOTP removes the second factor of a user, who turns it off: the
 // caller ends the user's other sessions (ResetTOTP ends them all).
 func (s *Store) DisableTOTP(ctx context.Context, userID int64) error {
-	return wrap("disable totp", expectRow(s.db.ExecContext(ctx,
+	return wrap("disable totp", expectRow(s.q(ctx).ExecContext(ctx,
 		`UPDATE users SET totp_secret = '', totp_pending = '', totp_last_step = 0 WHERE id = ?`, userID)))
 }
 
@@ -54,7 +54,7 @@ func (s *Store) ResetTOTPByName(ctx context.Context, username string) error {
 // UseTOTPStep consumes a time step; it reports false when that step (or a
 // later one) was already used, so a code cannot be replayed, even concurrently.
 func (s *Store) UseTOTPStep(ctx context.Context, userID, step int64) (bool, error) {
-	res, err := s.db.ExecContext(ctx,
+	res, err := s.q(ctx).ExecContext(ctx,
 		`UPDATE users SET totp_last_step = ? WHERE id = ? AND totp_last_step < ?`, step, userID, step)
 	if err != nil {
 		return false, fmt.Errorf("use totp step: %w", err)

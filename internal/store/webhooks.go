@@ -25,7 +25,7 @@ var AlertLevels = map[string]int{"priority": AlertPriority, "severe": AlertSever
 
 // ListWebhooks returns every webhook.
 func (s *Store) ListWebhooks(ctx context.Context) ([]Webhook, error) {
-	return collect(ctx, s.db, "list webhooks", scanWebhook,
+	return collect(ctx, s.q(ctx), "list webhooks", scanWebhook,
 		`SELECT id, name, kind, url, enabled, last_error, created_at, digests, alerts FROM webhooks ORDER BY name COLLATE NOCASE`)
 }
 
@@ -39,7 +39,7 @@ func scanWebhook(row scanner) (Webhook, error) {
 
 // CreateWebhook adds a webhook.
 func (s *Store) CreateWebhook(ctx context.Context, w Webhook) (int64, error) {
-	res, err := s.db.ExecContext(ctx,
+	res, err := s.q(ctx).ExecContext(ctx,
 		`INSERT INTO webhooks (name, kind, url, enabled, digests, alerts, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		w.Name, w.Kind, w.URL, w.Enabled, w.Digests, w.Alerts, now())
 	if err != nil {
@@ -51,21 +51,21 @@ func (s *Store) CreateWebhook(ctx context.Context, w Webhook) (int64, error) {
 
 // DeleteWebhook removes a webhook.
 func (s *Store) DeleteWebhook(ctx context.Context, id int64) error {
-	return wrap("delete webhook", expectRow(s.db.ExecContext(ctx, `DELETE FROM webhooks WHERE id = ?`, id)))
+	return wrap("delete webhook", expectRow(s.q(ctx).ExecContext(ctx, `DELETE FROM webhooks WHERE id = ?`, id)))
 }
 
 // RecordWebhookResult stores the last delivery error ("" on success).
 func (s *Store) RecordWebhookResult(ctx context.Context, id int64, deliveryErr error) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE webhooks SET last_error = ? WHERE id = ?`, errText(deliveryErr), id)
+	_, err := s.q(ctx).ExecContext(ctx, `UPDATE webhooks SET last_error = ? WHERE id = ?`, errText(deliveryErr), id)
 	return wrap("record webhook result", err)
 }
 
 // SetWebhookDelivery chooses what a channel receives.
 func (s *Store) SetWebhookDelivery(ctx context.Context, id int64, digests bool, alerts string) error {
-	return wrap("set webhook delivery", expectRow(s.db.ExecContext(ctx, `UPDATE webhooks SET digests = ?, alerts = ? WHERE id = ?`, digests, alerts, id)))
+	return wrap("set webhook delivery", expectRow(s.q(ctx).ExecContext(ctx, `UPDATE webhooks SET digests = ?, alerts = ? WHERE id = ?`, digests, alerts, id)))
 }
 
 // SetWebhookEnabled turns a webhook on or off.
 func (s *Store) SetWebhookEnabled(ctx context.Context, id int64, enabled bool) error {
-	return wrap("set webhook enabled", expectRow(s.db.ExecContext(ctx, `UPDATE webhooks SET enabled = ? WHERE id = ?`, enabled, id)))
+	return wrap("set webhook enabled", expectRow(s.q(ctx).ExecContext(ctx, `UPDATE webhooks SET enabled = ? WHERE id = ?`, enabled, id)))
 }

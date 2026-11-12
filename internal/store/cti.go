@@ -50,7 +50,7 @@ type CTIFilter struct {
 
 // ListFeeds returns every feed.
 func (s *Store) ListFeeds(ctx context.Context) ([]Feed, error) {
-	return collect(ctx, s.db, "list feeds", scanFeed, `
+	return collect(ctx, s.q(ctx), "list feeds", scanFeed, `
 		SELECT id, name, url, country, sectors, regulations, enabled, last_fetched, last_error
 		FROM cti_feeds ORDER BY name COLLATE NOCASE`)
 }
@@ -65,7 +65,7 @@ func scanFeed(row scanner) (Feed, error) {
 
 // CreateFeed adds a feed.
 func (s *Store) CreateFeed(ctx context.Context, f Feed) (int64, error) {
-	res, err := s.db.ExecContext(ctx,
+	res, err := s.q(ctx).ExecContext(ctx,
 		`INSERT INTO cti_feeds (name, url, country, sectors, regulations, enabled) VALUES (?, ?, ?, ?, ?, ?)`,
 		f.Name, f.URL, f.Country, f.Sectors, f.Regulations, f.Enabled)
 	if err != nil {
@@ -77,17 +77,17 @@ func (s *Store) CreateFeed(ctx context.Context, f Feed) (int64, error) {
 
 // SetFeedEnabled turns a feed on or off.
 func (s *Store) SetFeedEnabled(ctx context.Context, id int64, enabled bool) error {
-	return wrap("set feed enabled", expectRow(s.db.ExecContext(ctx, `UPDATE cti_feeds SET enabled = ? WHERE id = ?`, enabled, id)))
+	return wrap("set feed enabled", expectRow(s.q(ctx).ExecContext(ctx, `UPDATE cti_feeds SET enabled = ? WHERE id = ?`, enabled, id)))
 }
 
 // DeleteFeed removes a feed and its items.
 func (s *Store) DeleteFeed(ctx context.Context, id int64) error {
-	return wrap("delete feed", expectRow(s.db.ExecContext(ctx, `DELETE FROM cti_feeds WHERE id = ?`, id)))
+	return wrap("delete feed", expectRow(s.q(ctx).ExecContext(ctx, `DELETE FROM cti_feeds WHERE id = ?`, id)))
 }
 
 // RecordFeedFetch stores the outcome of a fetch.
 func (s *Store) RecordFeedFetch(ctx context.Context, id int64, fetchErr error) error {
-	_, err := s.db.ExecContext(ctx,
+	_, err := s.q(ctx).ExecContext(ctx,
 		`UPDATE cti_feeds SET last_fetched = ?, last_error = ? WHERE id = ?`, now(), errText(fetchErr), id)
 	return wrap("record feed fetch", err)
 }
@@ -215,7 +215,7 @@ func (s *Store) ListMentions(ctx context.Context, ids []string, limit int) ([]CT
 	where, args := inClause(nil, nil, "m.cve", cves)
 	args = append(args, limit)
 	// #nosec G202 -- where[0] is "m.cve IN (?, ...)": the values are parameters.
-	return collect(ctx, s.db, "mentions", func(row scanner) (CTIItem, error) {
+	return collect(ctx, s.q(ctx), "mentions", func(row scanner) (CTIItem, error) {
 		var it CTIItem
 		var published string
 		err := row.Scan(&it.ID, &it.FeedName, &it.Title, &it.Link, &published)
@@ -272,7 +272,7 @@ func (s *Store) ListCTIItems(ctx context.Context, sc Scope, f CTIFilter) ([]CTII
 		limit = 200
 	}
 	args = append(args, limit)
-	return collect(ctx, s.db, "list cti items", scanCTIItem, q, args...)
+	return collect(ctx, s.q(ctx), "list cti items", scanCTIItem, q, args...)
 }
 
 // scanCTIItem reads a row of ListCTIItems.
@@ -294,20 +294,20 @@ func scanCTIItem(row scanner) (CTIItem, error) {
 // PurgeCTIItems deletes items older than before, to keep the database small;
 // it returns how many were deleted.
 func (s *Store) PurgeCTIItems(ctx context.Context, before time.Time) (int, error) {
-	n, err := purge(ctx, s.db, `DELETE FROM cti_items WHERE published < ?`, before)
+	n, err := purge(ctx, s.q(ctx), `DELETE FROM cti_items WHERE published < ?`, before)
 	return n, wrap("purge cti items", err)
 }
 
 // UpdateFeedTags replaces the tags a feed applies to its items.
 func (s *Store) UpdateFeedTags(ctx context.Context, id int64, country, sectors, regulations string) error {
-	return wrap("update feed tags", expectRow(s.db.ExecContext(ctx,
+	return wrap("update feed tags", expectRow(s.q(ctx).ExecContext(ctx,
 		`UPDATE cti_feeds SET country = ?, sectors = ?, regulations = ? WHERE id = ?`, country, sectors, regulations, id)))
 }
 
 // ListFeedItems returns the items of a feed with what tagging reads: their title
 // and summary.
 func (s *Store) ListFeedItems(ctx context.Context, feedID int64) ([]CTIItem, error) {
-	return collect(ctx, s.db, "feed items", func(row scanner) (CTIItem, error) {
+	return collect(ctx, s.q(ctx), "feed items", func(row scanner) (CTIItem, error) {
 		var it CTIItem
 		err := row.Scan(&it.ID, &it.Title, &it.Summary)
 		return it, err
@@ -316,7 +316,7 @@ func (s *Store) ListFeedItems(ctx context.Context, feedID int64) ([]CTIItem, err
 
 // SetCTIItemTags replaces the tags of an item.
 func (s *Store) SetCTIItemTags(ctx context.Context, id int64, countries, sectors, regulations []string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE cti_items SET countries = ?, sectors = ?, regulations = ? WHERE id = ?`,
+	_, err := s.q(ctx).ExecContext(ctx, `UPDATE cti_items SET countries = ?, sectors = ?, regulations = ? WHERE id = ?`,
 		joinTags(countries), joinTags(sectors), joinTags(regulations), id)
 	return wrap("set cti item tags", err)
 }

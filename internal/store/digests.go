@@ -19,7 +19,7 @@ type Digest struct {
 
 // CreateDigest stores a digest and returns its id.
 func (s *Store) CreateDigest(ctx context.Context, d Digest) (int64, error) {
-	res, err := s.db.ExecContext(ctx,
+	res, err := s.q(ctx).ExecContext(ctx,
 		`INSERT INTO digests (since, created_at, markdown, html) VALUES (?, ?, ?, ?)`,
 		formatTime(d.Since), formatTime(d.CreatedAt), d.Markdown, d.HTML)
 	if err != nil {
@@ -33,7 +33,7 @@ func (s *Store) CreateDigest(ctx context.Context, d Digest) (int64, error) {
 func (s *Store) Digest(ctx context.Context, sc Scope, id int64) (Digest, error) {
 	var d Digest
 	var since, created string
-	err := s.db.QueryRowContext(ctx,
+	err := s.q(ctx).QueryRowContext(ctx,
 		`SELECT id, since, created_at, markdown, html FROM digests WHERE id = ? AND `+sc.digestCond(), id).
 		Scan(&d.ID, &since, &created, &d.Markdown, &d.HTML)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -47,7 +47,7 @@ func (s *Store) Digest(ctx context.Context, sc Scope, id int64) (Digest, error) 
 // recent first.
 func (s *Store) ListDigests(ctx context.Context, sc Scope) ([]Digest, error) {
 	// #nosec G202 -- digestCond is a fixed expression.
-	return collect(ctx, s.db, "list digests", func(row scanner) (Digest, error) {
+	return collect(ctx, s.q(ctx), "list digests", func(row scanner) (Digest, error) {
 		var d Digest
 		var since, created string
 		err := row.Scan(&d.ID, &since, &created)
@@ -59,7 +59,7 @@ func (s *Store) ListDigests(ctx context.Context, sc Scope) ([]Digest, error) {
 // LastDigestTime returns when the latest digest was produced, or zero.
 func (s *Store) LastDigestTime(ctx context.Context) (time.Time, error) {
 	var created sql.NullString
-	err := s.db.QueryRowContext(ctx, `SELECT MAX(created_at) FROM digests`).Scan(&created)
+	err := s.q(ctx).QueryRowContext(ctx, `SELECT MAX(created_at) FROM digests`).Scan(&created)
 	if err != nil || !created.Valid {
 		return time.Time{}, wrap("last digest time", err)
 	}

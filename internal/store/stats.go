@@ -85,7 +85,7 @@ func (s *Store) openStats(ctx context.Context, sc Scope, now time.Time, st *Stat
 		n, prio, kev, overdue, overdueKEV, triage, old int
 	}
 	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
-	list, err := collect(ctx, s.db, "open findings", func(row scanner) (severityStats, error) {
+	list, err := collect(ctx, s.q(ctx), "open findings", func(row scanner) (severityStats, error) {
 		var r severityStats
 		err := row.Scan(&r.severity, &r.n, &r.prio, &r.kev, &r.overdue, &r.overdueKEV, &r.triage, &r.old)
 		return r, err
@@ -121,7 +121,7 @@ func (s *Store) openStats(ctx context.Context, sc Scope, now time.Time, st *Stat
 func (s *Store) closedStats(ctx context.Context, sc Scope, now time.Time, st *Stats) error {
 	var mean sql.NullFloat64
 	cond, args := sc.cond("a")
-	err := s.db.QueryRowContext(ctx, `
+	err := s.q(ctx).QueryRowContext(ctx, `
 		SELECT COUNT(*), AVG(julianday(c.closed_at) - julianday(f.first_seen))
 		FROM findings f JOIN assets a ON a.id = f.asset_id
 		JOIN (SELECT finding_id, MAX(created_at) AS closed_at FROM finding_events
@@ -157,7 +157,7 @@ func (s *Store) weeklyStats(ctx context.Context, sc Scope, now time.Time, st *St
 	cond, condArgs := sc.cond("a")
 	args := append([]any{formatTime(start)}, condArgs...)
 	count := func(query string, add func(*WeekCount)) error {
-		times, err := collect(ctx, s.db, "weekly activity", value[string], query, args...)
+		times, err := collect(ctx, s.q(ctx), "weekly activity", value[string], query, args...)
 		if err != nil {
 			return err
 		}
@@ -186,7 +186,7 @@ func (s *Store) weeklyStats(ctx context.Context, sc Scope, now time.Time, st *St
 func (s *Store) topAssets(ctx context.Context, sc Scope, _ time.Time, st *Stats) error {
 	cond, args := sc.cond("a")
 	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
-	list, err := collect(ctx, s.db, "top assets", func(row scanner) (AssetLoad, error) {
+	list, err := collect(ctx, s.q(ctx), "top assets", func(row scanner) (AssetLoad, error) {
 		var a AssetLoad
 		err := row.Scan(&a.ID, &a.Name, &a.Version, &a.Critical, &a.High, &a.Medium, &a.Other)
 		return a, err
@@ -206,7 +206,7 @@ func (s *Store) topAssets(ctx context.Context, sc Scope, _ time.Time, st *Stats)
 func (s *Store) ctiStats(ctx context.Context, sc Scope, now time.Time, st *Stats) error {
 	month := formatTime(now.Add(-30 * 24 * time.Hour))
 	with, args := openCVEs(sc)
-	return wrap("news", s.db.QueryRowContext(ctx, with+`
+	return wrap("news", s.q(ctx).QueryRowContext(ctx, with+`
 		SELECT COALESCE(SUM(published >= ?), 0), COALESCE(SUM(regulations <> '' AND published >= ?), 0),
 		       COALESCE(SUM(published >= ? AND EXISTS (SELECT 1 FROM cti_mentions m
 		                    WHERE m.item_id = i.id AND m.cve IN (SELECT cve FROM open_cves))), 0)

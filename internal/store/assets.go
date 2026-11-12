@@ -54,7 +54,7 @@ func (s *Store) CreateAsset(ctx context.Context, sc Scope, a Asset) (int64, erro
 	if err := sc.writable(); err != nil {
 		return 0, err
 	}
-	id, err := insertAsset(ctx, s.db, a, now())
+	id, err := insertAsset(ctx, s.q(ctx), a, now())
 	return id, wrap("create asset", err)
 }
 
@@ -75,7 +75,7 @@ func insertAsset(ctx context.Context, q querier, a Asset, ts string) (int64, err
 func (s *Store) UpdateAsset(ctx context.Context, sc Scope, a Asset) error {
 	cond, args := sc.cond("a")
 	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
-	return wrap("update asset", expectRow(s.db.ExecContext(ctx, `
+	return wrap("update asset", expectRow(s.q(ctx).ExecContext(ctx, `
 		UPDATE assets AS a SET name = ?, kind = ?, ecosystem = ?, version = ?, purl = ?, cpe = ?, cpe_mode = ?, cpe_from = ?, track_since = ?,
 		       criticality = ?, owner = ?, notes = ?, project = ?, tags = ?, updated_at = ?
 		WHERE a.id = ? AND `+cond,
@@ -87,7 +87,7 @@ func (s *Store) UpdateAsset(ctx context.Context, sc Scope, a Asset) error {
 // asset that does not exist, so that a guessed id tells nothing.
 func (s *Store) Asset(ctx context.Context, sc Scope, id int64) (Asset, error) {
 	cond, args := sc.cond("a")
-	a, err := scanAsset(s.db.QueryRowContext(ctx, `SELECT `+assetColumns+` FROM assets a WHERE a.id = ? AND `+cond,
+	a, err := scanAsset(s.q(ctx).QueryRowContext(ctx, `SELECT `+assetColumns+` FROM assets a WHERE a.id = ? AND `+cond,
 		append([]any{id}, args...)...))
 	if errors.Is(err, sql.ErrNoRows) {
 		return a, ErrNotFound
@@ -114,7 +114,7 @@ func (s *Store) listAssets(ctx context.Context, sc Scope, retired bool) ([]Asset
 	}
 	cond, args := sc.cond("a")
 	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
-	return collect(ctx, s.db, "list assets", scanAsset, `SELECT `+assetColumns+` FROM assets a WHERE `+state+` AND `+cond+`
+	return collect(ctx, s.q(ctx), "list assets", scanAsset, `SELECT `+assetColumns+` FROM assets a WHERE `+state+` AND `+cond+`
 		ORDER BY a.project COLLATE NOCASE, a.name COLLATE NOCASE, a.version`, args...)
 }
 
@@ -123,7 +123,7 @@ func (s *Store) listAssets(ctx context.Context, sc Scope, retired bool) ([]Asset
 func (s *Store) ListAssetTags(ctx context.Context, sc Scope) ([]TagCount, error) {
 	cond, args := sc.cond("a")
 	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
-	lists, err := collect(ctx, s.db, "asset tags", value[string], `SELECT a.tags FROM assets a WHERE a.tags <> '' AND a.retired_at = '' AND `+cond, args...)
+	lists, err := collect(ctx, s.q(ctx), "asset tags", value[string], `SELECT a.tags FROM assets a WHERE a.tags <> '' AND a.retired_at = '' AND `+cond, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +150,7 @@ type TagCount struct {
 // SetOlderVulns records how many known vulnerabilities of an asset were
 // published before its tracked period.
 func (s *Store) SetOlderVulns(ctx context.Context, id int64, n int) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE assets SET older_vulns = ? WHERE id = ?`, n, id)
+	_, err := s.q(ctx).ExecContext(ctx, `UPDATE assets SET older_vulns = ? WHERE id = ?`, n, id)
 	return wrap("set older vulnerabilities", err)
 }
 
@@ -158,5 +158,5 @@ func (s *Store) SetOlderVulns(ctx context.Context, id int64, n int) error {
 func (s *Store) DeleteAsset(ctx context.Context, sc Scope, id int64) error {
 	cond, args := sc.cond("a")
 	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
-	return wrap("delete asset", expectRow(s.db.ExecContext(ctx, `DELETE FROM assets AS a WHERE a.id = ? AND `+cond, append([]any{id}, args...)...)))
+	return wrap("delete asset", expectRow(s.q(ctx).ExecContext(ctx, `DELETE FROM assets AS a WHERE a.id = ? AND `+cond, append([]any{id}, args...)...)))
 }

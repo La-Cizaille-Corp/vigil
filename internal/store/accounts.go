@@ -17,13 +17,13 @@ const otherAdmin = `EXISTS (SELECT 1 FROM users o WHERE o.role = 'admin' AND o.d
 
 // ListUsers returns every user, active ones first, by name.
 func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
-	return collect(ctx, s.db, "list users", func(row scanner) (User, error) { return scanUser(row) },
+	return collect(ctx, s.q(ctx), "list users", func(row scanner) (User, error) { return scanUser(row) },
 		selectUser+`ORDER BY disabled_at <> '', username COLLATE NOCASE`)
 }
 
 // User returns one user, disabled or not.
 func (s *Store) User(ctx context.Context, id int64) (User, error) {
-	return userByID(ctx, s.db, id)
+	return userByID(ctx, s.q(ctx), id)
 }
 
 func userByID(ctx context.Context, q querier, id int64) (User, error) {
@@ -38,7 +38,7 @@ func userByID(ctx context.Context, q querier, id int64) (User, error) {
 // single query whether it exists or not (see the failed sign-in). To sign in,
 // UserByName keeps the disabled ones out.
 func (s *Store) AnyUserByName(ctx context.Context, username string) (User, error) {
-	u, err := scanUser(s.db.QueryRowContext(ctx, selectUser+`WHERE username = ?`, username))
+	u, err := scanUser(s.q(ctx).QueryRowContext(ctx, selectUser+`WHERE username = ?`, username))
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return u, fmt.Errorf("user by name: %w", err)
 	}
@@ -49,7 +49,7 @@ func (s *Store) AnyUserByName(ctx context.Context, username string) (User, error
 // that two concurrent first-run forms cannot both succeed: ErrNotFound when
 // an account already exists.
 func (s *Store) CreateFirstAdmin(ctx context.Context, username, passwordHash string) (int64, error) {
-	res, err := s.db.ExecContext(ctx, `
+	res, err := s.q(ctx).ExecContext(ctx, `
 		INSERT INTO users (username, password_hash, role, created_at)
 		SELECT ?, ?, 'admin', ? WHERE NOT EXISTS (SELECT 1 FROM users)`, username, passwordHash, now())
 	if err := expectRow(res, err); err != nil {
@@ -62,16 +62,16 @@ func (s *Store) CreateFirstAdmin(ctx context.Context, username, passwordHash str
 // SetRole changes the role of an active user. The role is read at every
 // request, so the change applies to open sessions at once.
 func (s *Store) SetRole(ctx context.Context, id int64, role string) error {
-	res, err := s.db.ExecContext(ctx, `
+	res, err := s.q(ctx).ExecContext(ctx, `
 		UPDATE users SET role = ?
 		WHERE id = ? AND disabled_at = '' AND (role <> 'admin' OR ? = 'admin' OR `+otherAdmin+`)`, role, id, role)
-	return wrap("set role", accountChanged(ctx, s.db, id, res, err))
+	return wrap("set role", accountChanged(ctx, s.q(ctx), id, res, err))
 }
 
 // SetDisabled disables a user, ending its sessions, or enables it again.
 func (s *Store) SetDisabled(ctx context.Context, id int64, disabled bool) error {
 	if !disabled {
-		return wrap("enable account", expectRow(s.db.ExecContext(ctx, `UPDATE users SET disabled_at = '' WHERE id = ?`, id)))
+		return wrap("enable account", expectRow(s.q(ctx).ExecContext(ctx, `UPDATE users SET disabled_at = '' WHERE id = ?`, id)))
 	}
 	return wrap("disable account", s.inTx(ctx, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx, `

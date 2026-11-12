@@ -113,6 +113,6 @@ func retireAsset(ctx context.Context, tx querier, id int64, project, ts string) 
 func (s *Store) ListProjects(ctx context.Context, sc Scope) ([]string, error) {
 	cond, args := sc.cond("a")
 	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
-	return collect(ctx, s.db, "list projects", value[string], `SELECT DISTINCT a.project FROM assets a
+	return collect(ctx, s.q(ctx), "list projects", value[string], `SELECT DISTINCT a.project FROM assets a
 		WHERE a.project <> '' AND a.retired_at = '' AND `+cond+` ORDER BY a.project COLLATE NOCASE`, args...)
 }

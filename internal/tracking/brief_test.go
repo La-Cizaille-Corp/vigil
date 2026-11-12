@@ -82,9 +82,16 @@ func TestSourceDataChecked(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
+	storeOSV := func(adv osv.Vuln) error { // as for an asset: stored once its advisories are read
+		pending := &advisories{store: st}
+		if err := (&Syncer{Store: st}).storeOSV(ctx, pending, adv, true); err != nil {
+			return err
+		}
+		return pending.flush(ctx)
+	}
 	adv := osv.Vuln{ID: "GHSA-bad", Modified: "2026-01-01T00:00:00Z", Summary: long}
 	adv.DatabaseSpecific.Severity = "<b>pwned</b>"
-	if err := (&Syncer{Store: st}).storeOSV(ctx, adv, true); err != nil {
+	if err := storeOSV(adv); err != nil {
 		t.Fatal(err)
 	}
 	got, err := st.Vulnerability(ctx, "GHSA-bad")
@@ -94,7 +101,7 @@ func TestSourceDataChecked(t *testing.T) {
 	// The scale of a database is translated before the check, not lost by it.
 	adv = osv.Vuln{ID: "RHSA-2024:0001", Modified: "2026-01-01T00:00:00Z"}
 	adv.DatabaseSpecific.Severity = "Important"
-	if err := (&Syncer{Store: st}).storeOSV(ctx, adv, true); err != nil {
+	if err := storeOSV(adv); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := st.Vulnerability(ctx, "RHSA-2024:0001"); err != nil || got.Severity != "HIGH" {
