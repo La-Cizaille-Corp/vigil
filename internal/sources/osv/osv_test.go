@@ -3,8 +3,11 @@ package osv
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -308,6 +311,62 @@ func TestAdvisoriesStream(t *testing.T) {
 			t.Errorf("%s: no error", name)
 		}
 		bad.Close()
+	}
+}
+
+// cutPage sends the start of a page, then loses the connection: the body ends
+// before the length announced, as when OSV closes it (HTTP/2 GOAWAY).
+func cutPage(w http.ResponseWriter, start string) {
+	w.Header().Set("Content-Length", strconv.Itoa(len(start)+1000))
+	io.WriteString(w, start)
+	w.(http.Flusher).Flush()
+	if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
+		conn.Close()
+	}
+}
+
+// A page cut by the network is asked for again and read from its start, what
+// was already returned skipped; a cut that lasts ends the reading, with an error
+// that says so rather than "unreadable".
+func TestAdvisoriesCutPage(t *testing.T) {
+	var tokens []any
+	cuts := 1
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		tokens = append(tokens, body["page_token"])
+		page := `{"vulns":[{"id":"A"},{"id":"B"},{"id":"C"}],"next_page_token":"p2"}`
+		if body["page_token"] == "p2" {
+			page = `{"vulns":[{"id":"D"}]}`
+		} else if cuts > 0 {
+			cuts--
+			cutPage(w, page[:strings.Index(page, `{"id":"C"}`)]) // A and B sent
+			return
+		}
+		io.WriteString(w, page)
+	}))
+	defer srv.Close()
+	c := &Client{URL: srv.URL, HTTP: http.DefaultClient}
+	var ids []string
+	for _, v := range query(t, c, Query{Package: Package{Name: "linux", Ecosystem: "Ubuntu:22.04:LTS"}, Version: "5.15.0-100.110"}) {
+		ids = append(ids, v.ID)
+	}
+	if strings.Join(ids, " ") != "A B C D" || len(tokens) != 3 || tokens[0] != nil || tokens[1] != nil || tokens[2] != "p2" {
+		t.Errorf("advisories %v, page tokens asked %v", ids, tokens)
+	}
+
+	tokens, cuts = nil, 10
+	list := c.Advisories(Query{})
+	n := 0
+	for list.Next(context.Background()) {
+		n++
+	}
+	err := list.Err()
+	if err == nil || strings.Contains(err.Error(), "illisible") || !strings.Contains(err.Error(), "lecture interrompue") {
+		t.Errorf("lasting cut: %v", err)
+	}
+	if n != 2 || len(tokens) != 1+len(retryDelays) {
+		t.Errorf("lasting cut: %d advisories, %d requests", n, len(tokens))
 	}
 }
 

@@ -394,6 +394,26 @@ dont les erreurs taisent l'adresse et dont la réponse n'est pas du JSON : ils g
 illisible`, plus de `temporarily unavailable`) ; une lecture d'OSV coupée en route est désormais renvoyée,
 comme pour la NVD, et une réponse trop grosse de la NVD ne l'est plus.
 
+*Correction (novembre 2026) : ce qui est renvoyé exactement.* « Pendant la lecture » ne valait que pour
+les réponses lues d'un bloc (`Do`), tenues dans `Retry`. Une page de `/v1/query`, lue avis par avis
+après `Open`, n'était reprise qu'en cas d'échec à l'ouverture : une coupure au milieu de la page perdait
+l'actif, sous un message trompeur. Lors d'un essai réel, le noyau Ubuntu 22.04 (8 212 avis, 63 pages,
+4,5 Go, 25 minutes de lecture) a été perdu ainsi après 21 minutes, sur un `GOAWAY` HTTP/2 d'OSV
+(`server_shutting_down`), affiché « réponse illisible ». Désormais :
+- `Open` rend une erreur de lecture du corps comme une panne du réseau (`Temporary`), sauf la fin du
+  corps et le dépassement de la borne : connexion coupée ou fermée, corps plus court qu'annoncé, délai
+  atteint pendant la lecture. Un corps terminé proprement mais incomplet reste une réponse illisible ;
+- une réponse lue d'un bloc (`Do`) est demandée à nouveau, comme avant ;
+- une page de `/v1/query` coupée est demandée à nouveau, avec le même jeton, et relue depuis son
+  début ; ses avis déjà rendus sont sautés, d'après leur identifiant. Les nouvelles tentatives sont
+  aussi nombreuses que pour une requête, avec les mêmes attentes (5 puis 15 secondes, aucune pour un
+  serveur de test). Une page relue ne compte pas dans la borne des 200 pages ;
+- passé ces essais, l'erreur dit « lecture interrompue », et plus « réponse illisible », réservé
+  aux réponses mal formées, trop grosses ou à un délimiteur inattendu, qui ne sont pas renvoyées.
+
+*Écarté* : relire toute la requête depuis la première page, soit 25 minutes pour ce noyau ; garder une
+page en mémoire pour la relire, alors qu'elle peut dépasser 64 Mo (A55).
+
 **A13. Statuts CycloneDX / VEX.** Des statuts maison auraient été plus « parlants » mais non
 interopérables. Les états VEX (`in_triage`, `exploitable`, `resolved`, `not_affected` +
 justification, `false_positive`) sont libellés en français dans l'interface, et l'export /

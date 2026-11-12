@@ -534,16 +534,22 @@ const maxQueryPages = 200
 //	}
 //	err := list.Err()
 type Advisories struct {
-	client  *Client
-	query   Query
-	token   string // of the next page
-	pages   int
-	done    bool
-	body    io.Closer // of the page being read
-	dec     *json.Decoder
-	inVulns bool
-	vuln    Vuln
-	err     error
+	client    *Client
+	query     Query
+	pageToken string // of the page being read, "" for the first one
+	token     string // of the next page
+	pages     int
+	done      bool
+	body      io.Closer // of the page being read
+	dec       *json.Decoder
+	inVulns   bool
+	vuln      Vuln
+	err       error
+	// A page cut by the network is read again from its start: returned holds
+	// the advisories of the page already returned, rereads how many times it
+	// was asked for again. returned is nil before a new page.
+	returned map[string]bool
+	rereads  int
 }
 
 // Advisories returns the advisories matching q: those of a version, or of the
@@ -567,41 +573,72 @@ func (a *Advisories) Close() {
 // Next moves to the next advisory; false at the end or after a failure.
 func (a *Advisories) Next(ctx context.Context) bool {
 	for a.err == nil && !a.done {
+		var err error // reading the page; a failure to ask for it is final
 		switch {
 		case a.dec == nil:
-			a.err = a.openPage(ctx)
+			if a.err = a.openPage(ctx); a.err == nil {
+				err = a.expect('{')
+			}
 		case a.inVulns && a.dec.More():
-			if a.err = a.decodeVuln(); a.err == nil {
+			if err = a.decodeVuln(); err == nil && !(a.rereads > 0 && a.returned[a.vuln.ID]) {
+				a.returned[a.vuln.ID] = true
 				return true
 			}
 		case a.inVulns:
 			a.inVulns = false
-			a.err = a.expect(']')
+			err = a.expect(']')
 		case a.dec.More():
-			a.err = a.readField()
+			err = a.readField()
 		default: // end of the page
-			if a.err = a.expect('}'); a.err == nil {
+			if err = a.expect('}'); err == nil {
 				a.Close()
+				a.pageToken, a.returned, a.rereads = a.token, nil, 0
 				a.done = a.token == ""
 			}
+		}
+		if err != nil {
+			a.err = a.readFailed(ctx, err)
 		}
 	}
 	a.Close()
 	return false
 }
 
-// openPage asks for the next page and enters its object.
-func (a *Advisories) openPage(ctx context.Context) error {
-	if a.pages == maxQueryPages {
-		return fmt.Errorf("osv query: more than %d pages of results", maxQueryPages)
+// readFailed handles a failure while reading a page. One cut by the network
+// (sources.Temporary) is asked for again and read from its start, without
+// returning twice an advisory: as many times as Client.send sends a request
+// again, after the same delays. It returns nil then, otherwise the error that
+// ends the reading.
+func (a *Advisories) readFailed(ctx context.Context, err error) error {
+	a.Close()
+	a.inVulns = false
+	if !sources.Temporary(err) {
+		return fmt.Errorf("osv /v1/query: réponse illisible : %w", err)
 	}
-	a.pages++
+	delays := a.client.delays()
+	if a.rereads == len(delays) || sources.Sleep(ctx, delays[a.rereads]) != nil {
+		return fmt.Errorf("osv /v1/query: lecture interrompue : %w", err)
+	}
+	a.rereads++
+	return nil
+}
+
+// openPage asks for the page of pageToken: the next one, or the same again
+// after a cut.
+func (a *Advisories) openPage(ctx context.Context) error {
+	if a.returned == nil { // a new page
+		if a.pages == maxQueryPages {
+			return fmt.Errorf("osv query: more than %d pages of results", maxQueryPages)
+		}
+		a.pages++
+		a.returned = map[string]bool{}
+	}
 	body := map[string]any{"package": a.query.Package}
 	if a.query.Version != "" {
 		body["version"] = a.query.Version
 	}
-	if a.token != "" {
-		body["page_token"] = a.token
+	if a.pageToken != "" {
+		body["page_token"] = a.pageToken
 	}
 	a.token = ""
 	var page io.ReadCloser
@@ -614,19 +651,13 @@ func (a *Advisories) openPage(ctx context.Context) error {
 	}
 	a.body = page
 	a.dec = json.NewDecoder(page)
-	return a.expect('{')
-}
-
-// unreadable is the failure to read a page of /v1/query: a malformed one, or
-// one cut short or past maxPage.
-func unreadable(err error) error {
-	return fmt.Errorf("osv /v1/query: réponse illisible : %w", err)
+	return nil
 }
 
 func (a *Advisories) decodeVuln() error {
 	var v Vuln
 	if err := a.dec.Decode(&v); err != nil {
-		return unreadable(err)
+		return err
 	}
 	a.vuln = v
 	return nil
@@ -636,7 +667,7 @@ func (a *Advisories) decodeVuln() error {
 func (a *Advisories) readField() error {
 	key, err := a.dec.Token()
 	if err != nil {
-		return unreadable(err)
+		return err
 	}
 	switch key {
 	case "vulns":
@@ -648,20 +679,17 @@ func (a *Advisories) readField() error {
 		var skipped json.RawMessage
 		err = a.dec.Decode(&skipped)
 	}
-	if err != nil {
-		return unreadable(err)
-	}
-	return nil
+	return err
 }
 
 // expect reads a delimiter of the page, which must be the one given.
 func (a *Advisories) expect(delim json.Delim) error {
 	token, err := a.dec.Token()
 	if err != nil {
-		return unreadable(err)
+		return err
 	}
 	if token != delim {
-		return unreadable(fmt.Errorf("%v au lieu de %v", token, delim))
+		return fmt.Errorf("%v au lieu de %v", token, delim)
 	}
 	return nil
 }
@@ -686,14 +714,20 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 // network glitch on the batch request would fail the whole synchronisation.
 var retryDelays = []time.Duration{5 * time.Second, 15 * time.Second}
 
+// delays returns the waits before asking again: retryDelays for OSV, none for
+// a test server or a mirror.
+func (c *Client) delays() []time.Duration {
+	if cmp.Or(c.URL, DefaultURL) != DefaultURL {
+		return make([]time.Duration, len(retryDelays))
+	}
+	return retryDelays
+}
+
 // send makes a request to path and has it sent by call (sources.Do or Open),
 // again after a temporary failure.
 func (c *Client) send(ctx context.Context, method, path string, body any, call func(*http.Request) error) error {
-	base, delays := cmp.Or(c.URL, DefaultURL), retryDelays
-	if base != DefaultURL {
-		delays = make([]time.Duration, len(retryDelays)) // tests and mirrors
-	}
-	err := sources.Retry(ctx, delays, func() (bool, error) {
+	base := cmp.Or(c.URL, DefaultURL)
+	err := sources.Retry(ctx, c.delays(), func() (bool, error) {
 		req, err := sources.NewRequest(ctx, method, base+path, c.UserAgent, body)
 		if err != nil {
 			return false, err
