@@ -1,6 +1,7 @@
 package cti
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -150,6 +152,59 @@ func TestParseLimits(t *testing.T) {
 		if it.GUID == "future" && it.Link != "" {
 			t.Error("oversized link kept")
 		}
+	}
+}
+
+// C1 of the 0.5.0 review: a feed is decoded one entry at a time, and no
+// further than maxFeedEntries. 8 MiB of empty items used to cost about
+// 2.3 GiB of allocations (450 MiB live) for the 500 items kept.
+func TestParseStopsAfterMaxEntries(t *testing.T) {
+	for _, f := range []struct{ open, entry, close string }{
+		{"<rss><channel>", "<item/>", "</channel></rss>"},
+		{`<feed xmlns="http://www.w3.org/2005/Atom">`, "<entry/>", "</feed>"},
+		{"<rss><channel>", "<x:item/>", "</channel></rss>"}, // any prefix is an item for encoding/xml
+	} {
+		var b bytes.Buffer
+		b.WriteString(f.open)
+		for b.Len()+len(f.entry)+len(f.close) <= maxFeedBytes {
+			b.WriteString(f.entry)
+		}
+		b.WriteString(f.close)
+		var before, after runtime.MemStats
+		runtime.ReadMemStats(&before)
+		items, err := Parse(b.Bytes())
+		runtime.ReadMemStats(&after)
+		if err != nil || len(items) != maxFeedItems {
+			t.Errorf("%s: %d items, %v", f.entry, len(items), err)
+		}
+		if allocated := after.TotalAlloc - before.TotalAlloc; allocated > 32<<20 {
+			t.Errorf("%s: %d MiB allocated to read %d bytes", f.entry, allocated>>20, b.Len())
+		}
+	}
+	// What follows the last entry read is not read: not even cut short.
+	feed := "<rss><channel>" + strings.Repeat("<item><guid>g</guid><title>t</title></item>", maxFeedEntries) + "<item><title>coupé"
+	if items, err := Parse([]byte(feed)); err != nil || len(items) != maxFeedItems {
+		t.Errorf("entries past the bound: %d items, %v", len(items), err)
+	}
+}
+
+// C12 of the 0.5.0 review: the items of RSS 1.0 are children of the root,
+// not of the channel; they used to be dropped without an error.
+func TestParseRSS10(t *testing.T) {
+	const rdf = `<?xml version="1.0"?>
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/" xmlns:dc="http://purl.org/dc/elements/1.1/">
+ <channel rdf:about="https://example.org/"><title>Exemple</title><link>https://example.org/</link>
+  <items><rdf:Seq><rdf:li resource="https://example.org/1"/></rdf:Seq></items></channel>
+ <item rdf:about="https://example.org/1"><title>Premier avis</title><link>https://example.org/1</link>
+  <dc:date>2026-11-01T10:00:00Z</dc:date></item>
+</rdf:RDF>`
+	items, err := Parse([]byte(rdf))
+	if err != nil || len(items) != 1 {
+		t.Fatalf("%d items, %v", len(items), err)
+	}
+	if it := items[0]; it.Title != "Premier avis" || it.Link != "https://example.org/1" || it.GUID != "https://example.org/1" ||
+		!it.Published.Equal(time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)) {
+		t.Errorf("item = %+v", it)
 	}
 }
 

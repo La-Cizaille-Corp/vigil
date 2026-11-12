@@ -1074,6 +1074,17 @@ un site de normalisation couvre souvent plusieurs pays ou textes : un sélecteur
 à choisir. Les étiquettes d'un flux se modifient après coup (y compris celles des flux par
 défaut) et sont réappliquées aux actualités déjà collectées.
 
+**A94. Un flux se lit entrée par entrée, 2 000 au plus.** La revue de la 0.5.0 (C1) a mesuré qu'un flux de
+8 Mio fait d'éléments `<item/>` vides, décodé d'un bloc avant d'en garder 500, coûtait 2,3 Gio d'allocations et
+450 Mio de tas vivant à chaque collecte (onze flux tiers par défaut, quatre collectes par jour) : de quoi faire
+tuer un petit serveur par manque de mémoire. `cti.Parse` lit désormais le document élément par élément
+(`xml.Decoder.Token`, puis `DecodeElement` pour chaque `item` ou `entry`) et s'arrête à 2 000 entrées
+(`maxFeedEntries`) : le même flux se lit en 3 ms, avec 2 Mio. Les 500 plus récentes des entrées lues sont
+gardées, comme avant ; un flux range ses entrées de la plus récente à la plus ancienne, et ce qui suit la
+2 000ᵉ n'est pas lu, même tronqué. La même boucle lit RSS 1.0 (RDF), dont les `item` sont des enfants de la
+racine et non du canal : ils étaient perdus sans erreur (C12). *Écarté* : compter les `<item` dans les octets
+avant de décoder, que contourne un préfixe d'espace de noms (`<a:item/>` reste un `item` pour `encoding/xml`).
+
 **A19. Digest « depuis le précédent ».** Une fenêtre fixe (7 jours) ferait manquer ou répéter
 des éléments selon la fréquence de génération. Formats : Markdown (webhooks, export) et HTML
 (interface). Webhooks au format le plus simple commun à Slack et Mattermost (A59 pour Teams ; champ
