@@ -27,11 +27,11 @@ import (
 
 // Statuses are the CycloneDX / VEX analysis states, labelled in French.
 var Statuses = []choice.Option{
-	{Value: "in_triage", Label: "À analyser"},
-	{Value: "exploitable", Label: "Exploitable – à traiter"},
-	{Value: "resolved", Label: "Corrigé"},
-	{Value: "not_affected", Label: "Non affecté"},
-	{Value: "false_positive", Label: "Faux positif"},
+	{Value: store.StatusInTriage, Label: "À analyser"},
+	{Value: store.StatusExploitable, Label: "Exploitable – à traiter"},
+	{Value: store.StatusResolved, Label: "Corrigé"},
+	{Value: store.StatusNotAffected, Label: "Non affecté"},
+	{Value: store.StatusFalsePositive, Label: "Faux positif"},
 }
 
 // Severities are the severity levels of vulnerabilities, labelled in French.
@@ -72,7 +72,7 @@ func ValidateStatus(status, justification, comment string) error {
 	if justification != "" && !choice.Has(Justifications, justification) {
 		return errors.New("justification invalide")
 	}
-	if status == "not_affected" && justification == "" {
+	if status == store.StatusNotAffected && justification == "" {
 		return errors.New("une justification est requise pour « Non affecté »")
 	}
 	if !clip.Fits(comment, MaxComment) {

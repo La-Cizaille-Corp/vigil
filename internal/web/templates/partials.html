@@ -16,7 +16,7 @@
   <td data-label="Corrigée en">{{.FixedIn}}</td>
   <td data-label="Statut">{{statusLabel .Status}}</td>
   <td data-label="Détectée le">{{date .FirstSeen}}</td>
-  <td data-label="Échéance">{{if .Late}}<span class="late">Hors délai</span><br><small>{{.Due.Format "02/01/2006"}}</small>{{else if and (not .Due.IsZero) (or (eq .Status "in_triage") (eq .Status "exploitable"))}}{{.Due.Format "02/01/2006"}}{{else}}<span class="muted">—</span>{{end}}</td>
+  <td data-label="Échéance">{{if .Late}}<span class="late">Hors délai</span><br><small>{{.Due.Format "02/01/2006"}}</small>{{else if and (not .Due.IsZero) .Open}}{{.Due.Format "02/01/2006"}}{{else}}<span class="muted">—</span>{{end}}</td>
   <td data-label="Résumé" class="text">{{.Summary}}</td>
 </tr>
 {{end}}

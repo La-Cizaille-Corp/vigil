@@ -91,17 +91,13 @@ func retireAsset(ctx context.Context, tx querier, id int64, project, ts string) 
 		return err
 	}
 	list, err := collect(ctx, tx, "open findings", scanFindingState,
-		`SELECT id, status, vuln_id FROM findings WHERE asset_id = ? AND status IN ('in_triage', 'exploitable')`, id)
+		`SELECT id, status, vuln_id FROM findings WHERE asset_id = ? AND status IN `+openStatuses, id)
 	if err != nil {
 		return err
 	}
+	reason := fmt.Sprintf("composant absent du dernier SBOM du projet %s", project)
 	for _, o := range list {
-		if _, err := tx.ExecContext(ctx,
-			`UPDATE findings SET status = 'resolved', auto_resolved = 1, updated_at = ? WHERE id = ?`, ts, o.id); err != nil {
-			return err
-		}
-		if err := insertEvent(ctx, tx, o.id, 0, o.status, "resolved",
-			fmt.Sprintf("composant absent du dernier SBOM du projet %s", project), ts); err != nil {
+		if err := autoResolve(ctx, tx, o, reason, ts); err != nil {
 			return err
 		}
 	}

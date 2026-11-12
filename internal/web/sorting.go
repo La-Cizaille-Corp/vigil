@@ -158,9 +158,6 @@ var assetColumnList = []column[store.Asset]{
 	textColumn("tracking", "Détection", trackingSource),
 }
 
-// isOpen reports whether a finding is still to triage or to fix.
-func isOpen(f store.Finding) bool { return f.Status == "in_triage" || f.Status == "exploitable" }
-
 // findingColumnList are the columns of a vulnerability list, as in the
 // findingTable template. The default order is the priority, most urgent first.
 var findingColumnList = []column[store.Finding]{
@@ -189,7 +186,7 @@ var findingColumnList = []column[store.Finding]{
 	}},
 	{key: "recent", label: "Détectée le", desc: true,
 		compare: func(a, b store.Finding) int { return a.FirstSeen.Compare(b.FirstSeen) }},
-	{key: "due", label: "Échéance", empty: func(f store.Finding) bool { return f.Due.IsZero() || !isOpen(f) },
+	{key: "due", label: "Échéance", empty: func(f store.Finding) bool { return f.Due.IsZero() || !f.Open() },
 		compare: func(a, b store.Finding) int { return a.Due.Compare(b.Due) }},
 	{label: "Résumé"},
 }
@@ -232,9 +229,9 @@ func levelLinks(findings []store.Finding, q url.Values, current string) []levelL
 	counts := map[string]int{}
 	for _, f := range findings {
 		switch {
-		case isOpen(f):
+		case f.Open():
 			counts[levelOpen]++
-		case f.Status == "resolved":
+		case f.Status == store.StatusResolved:
 			counts[levelFixed]++
 		}
 		counts[digest.Level(f)]++
@@ -265,9 +262,9 @@ func keepLevel(findings []store.Finding, level string) []store.Finding {
 	var keep func(store.Finding) bool
 	switch {
 	case level == levelOpen:
-		keep = isOpen
+		keep = store.Finding.Open
 	case level == levelFixed:
-		keep = func(f store.Finding) bool { return f.Status == "resolved" }
+		keep = func(f store.Finding) bool { return f.Status == store.StatusResolved }
 	case choice.Has(digest.Levels, level):
 		keep = func(f store.Finding) bool { return digest.Level(f) == level }
 	default:

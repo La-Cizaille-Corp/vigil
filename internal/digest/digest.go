@@ -257,7 +257,7 @@ func Generate(ctx context.Context, st *store.Store) (store.Digest, error) {
 	}
 	d.New = ByVendor(news)
 	var open []store.Finding
-	for _, status := range []string{"exploitable", "in_triage"} {
+	for _, status := range []string{store.StatusExploitable, store.StatusInTriage} {
 		fs, err := st.ListFindings(ctx, store.Everything, store.FindingFilter{Status: status, Now: now})
 		if err != nil {
 			return store.Digest{}, err

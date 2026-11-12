@@ -634,7 +634,7 @@ func (s *Server) findingBulk(w http.ResponseWriter, r *http.Request) {
 // for « not affected » only (as in VEX), and a comment.
 func triageFromForm(r *http.Request) (status, justif, comment string) {
 	status, justif, comment = r.PostFormValue("status"), r.PostFormValue("justification"), r.PostFormValue("comment")
-	if status != "not_affected" {
+	if status != store.StatusNotAffected {
 		justif = ""
 	}
 	return status, justif, comment

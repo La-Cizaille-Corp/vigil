@@ -53,6 +53,24 @@ type Finding struct {
 	Late          bool      // open and past its deadline
 }
 
+// Triage statuses of a finding: the CycloneDX / VEX analysis states
+// (labelled in tracking.Statuses).
+const (
+	StatusInTriage      = "in_triage"
+	StatusExploitable   = "exploitable"
+	StatusResolved      = "resolved"
+	StatusNotAffected   = "not_affected"
+	StatusFalsePositive = "false_positive"
+)
+
+// Open reports whether a finding is still to triage or to fix; openStatuses
+// says the same in SQL.
+func (f Finding) Open() bool { return f.Status == StatusInTriage || f.Status == StatusExploitable }
+
+// openStatuses are the statuses of findings still to triage or to fix (see
+// Finding.Open).
+const openStatuses = `('in_triage', 'exploitable')`
+
 // FindingEvent is one entry of a finding's status history.
 type FindingEvent struct {
 	Username  string // empty for system changes
@@ -170,14 +188,14 @@ func (s *Store) ObserveFinding(ctx context.Context, assetID int64, vulnID, fixed
 		case err != nil:
 			return err
 		}
-		if auto == 1 && status == "resolved" {
+		if auto == 1 && status == StatusResolved {
 			result = TouchReopened
 			if _, err := tx.ExecContext(ctx, `
 				UPDATE findings SET status = 'in_triage', auto_resolved = 0, fixed_in = ?, last_seen = ?, updated_at = ?
 				WHERE id = ?`, fixedIn, ts, ts, id); err != nil {
 				return err
 			}
-			return insertEvent(ctx, tx, id, 0, status, "in_triage", "signalée à nouveau par la source", ts)
+			return insertEvent(ctx, tx, id, 0, status, StatusInTriage, "signalée à nouveau par la source", ts)
 		}
 		_, err = tx.ExecContext(ctx, `UPDATE findings SET fixed_in = ?, last_seen = ? WHERE id = ?`, fixedIn, ts, id)
 		return err
@@ -223,7 +241,7 @@ func (s *Store) AutoResolveStale(ctx context.Context, assetID int64, reported []
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
 		open, err := collect(ctx, tx, "open findings", scanFindingState, `
 			SELECT f.id, f.status, f.vuln_id FROM findings f JOIN vulnerabilities v ON v.id = f.vuln_id
-			WHERE f.asset_id = ? AND f.status IN ('in_triage', 'exploitable') AND `+inPeriod,
+			WHERE f.asset_id = ? AND f.status IN `+openStatuses+` AND `+inPeriod,
 			assetID, since, since)
 		if err != nil {
 			return err
@@ -232,12 +250,7 @@ func (s *Store) AutoResolveStale(ctx context.Context, assetID int64, reported []
 			if still[st.vulnID] {
 				continue
 			}
-			if _, err := tx.ExecContext(ctx, `
-				UPDATE findings SET status = 'resolved', auto_resolved = 1, updated_at = ? WHERE id = ?`,
-				ts, st.id); err != nil {
-				return err
-			}
-			if err := insertEvent(ctx, tx, st.id, 0, st.status, "resolved", "plus signalée par la source (version corrigée ?)", ts); err != nil {
+			if err := autoResolve(ctx, tx, st, "plus signalée par la source (version corrigée ?)", ts); err != nil {
 				return err
 			}
 			closed++
@@ -256,6 +269,17 @@ type findingState struct {
 	id     int64
 	status string
 	vulnID string
+}
+
+// autoResolve closes an open finding the sources no longer report, or whose
+// component is gone, with the reason in its history: a later report reopens
+// it (see ObserveFinding).
+func autoResolve(ctx context.Context, q querier, st findingState, reason, ts string) error {
+	if _, err := q.ExecContext(ctx,
+		`UPDATE findings SET status = 'resolved', auto_resolved = 1, updated_at = ? WHERE id = ?`, ts, st.id); err != nil {
+		return err
+	}
+	return insertEvent(ctx, q, st.id, 0, st.status, StatusResolved, reason, ts)
 }
 
 // scanFindingState reads id, status and, if selected, the vulnerability.
@@ -358,9 +382,6 @@ func (s *Store) Finding(ctx context.Context, sc Scope, id int64) (Finding, error
 	return fd, wrap("finding", err)
 }
 
-// openStatuses are the statuses of findings still to triage or to fix.
-const openStatuses = `('in_triage', 'exploitable')`
-
 // findingColumns and findingFrom select findings with their asset and
 // vulnerability; the deadline column takes the SLA arguments first.
 const (
@@ -392,7 +413,7 @@ func scanFinding(row scanner, today string, extra ...any) (Finding, error) {
 	fd.FirstSeen = parseTime(first)
 	if due.Valid {
 		fd.Due, _ = time.Parse(time.DateOnly, due.String) // written by SQLite's date()
-		fd.Late = (fd.Status == "in_triage" || fd.Status == "exploitable") && due.String < today
+		fd.Late = fd.Open() && due.String < today
 	}
 	return fd, nil
 }
@@ -400,19 +421,28 @@ func scanFinding(row scanner, today string, extra ...any) (Finding, error) {
 // SetFindingStatus changes the triage state of a finding of the scope and
 // records it in the history.
 func (s *Store) SetFindingStatus(ctx context.Context, sc Scope, id, userID int64, status, justification, comment string) error {
-	ts := now()
+	c := StatusChange{ID: id, Status: status, Justification: justification, Comment: comment}
 	return wrap("set finding status", s.inTx(ctx, func(tx *sql.Tx) error {
-		old, err := findingStatus(ctx, tx, sc, id)
-		if err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `
-			UPDATE findings SET status = ?, justification = ?, comment = ?, auto_resolved = 0, dismissed_by = 0, updated_at = ?
-			WHERE id = ?`, status, justification, comment, ts, id); err != nil {
-			return err
-		}
-		return insertEvent(ctx, tx, id, userID, old, status, comment, ts)
+		return setStatus(ctx, tx, sc, userID, c, false, now())
 	}))
+}
+
+// setStatus applies a triage decision to a finding of the scope, with an
+// event in its history; ErrNotFound when it does not exist or is outside the
+// scope. With keepComment, an empty comment keeps the finding's own instead
+// of erasing it.
+func setStatus(ctx context.Context, q querier, sc Scope, userID int64, c StatusChange, keepComment bool, ts string) error {
+	old, err := findingStatus(ctx, q, sc, c.ID)
+	if err != nil {
+		return err
+	}
+	if _, err := q.ExecContext(ctx, `
+		UPDATE findings SET status = ?, justification = ?, auto_resolved = 0, dismissed_by = 0, updated_at = ?,
+		       comment = CASE WHEN ? AND ? = '' THEN comment ELSE ? END
+		WHERE id = ?`, c.Status, c.Justification, ts, keepComment, c.Comment, c.Comment, c.ID); err != nil {
+		return err
+	}
+	return insertEvent(ctx, q, c.ID, userID, old, c.Status, c.Comment, ts)
 }
 
 // StatusChange is a triage decision for one finding.
@@ -432,20 +462,11 @@ func (s *Store) SetFindingStatuses(ctx context.Context, sc Scope, userID int64, 
 	done := 0
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
 		for _, c := range changes {
-			old, err := findingStatus(ctx, tx, sc, c.ID)
+			err := setStatus(ctx, tx, sc, userID, c, true, ts)
 			if errors.Is(err, ErrNotFound) {
 				continue
 			}
 			if err != nil {
-				return err
-			}
-			if _, err := tx.ExecContext(ctx, `
-				UPDATE findings SET status = ?, justification = ?, auto_resolved = 0, dismissed_by = 0, updated_at = ?,
-				       comment = CASE WHEN ? = '' THEN comment ELSE ? END
-				WHERE id = ?`, c.Status, c.Justification, ts, c.Comment, c.Comment, c.ID); err != nil {
-				return err
-			}
-			if err := insertEvent(ctx, tx, c.ID, userID, old, c.Status, c.Comment, ts); err != nil {
 				return err
 			}
 			done++
