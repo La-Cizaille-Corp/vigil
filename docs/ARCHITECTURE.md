@@ -174,7 +174,12 @@ trier), ou à partir d'une version. La période de suivi (A31) s'applique en plu
 la limite NVD (5 requêtes / 30 s sans clé). *Conséquence* : plus de bruit qu'OSV, triage humain
 attendu (principe 4). Un ancien mode « nouvelles CVE des 120 derniers jours » glissait avec le
 temps : une CVE sortie de la fenêtre était résolue automatiquement à tort. Il a été remplacé par
-la période de suivi, à date de début fixe.
+la période de suivi, à date de début fixe. Un CPE ne se découpe qu'à un endroit, `nvd.SplitCPE`,
+qui garde les deux-points échappés des noms du dictionnaire (`lemonldap\:\:ng`) et ne rend que
+les 13 champs d'un CPE 2.3 : requêtes NVD, recherche dans le dictionnaire, versions corrigées et
+éditeur ou produit de l'inventaire l'appellent ; `inventory` l'importe comme il importe déjà `osv`
+pour les purl. Écarté : un découpage par « : » à chaque endroit, qui refusait ces CPE au suivi et
+les coupait en deux dans la recherche.
 
 **A12. Un actif avec purl et CPE n'est interrogé que par son purl.** Interroger les deux
 doublerait les alertes (GHSA et CVE pour la même faille) et le CPE est moins précis. Il n'y a pas

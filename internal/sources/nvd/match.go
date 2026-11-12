@@ -41,8 +41,8 @@ func Matches(raw []byte) []Match {
 	for _, c := range doc.Configurations {
 		for _, n := range c.Nodes {
 			for _, m := range n.CPEMatch {
-				f := SplitCPE(m.Criteria)
-				if !m.Vulnerable || len(f) != 13 {
+				f, ok := SplitCPE(m.Criteria)
+				if !m.Vulnerable || !ok {
 					continue
 				}
 				r := versions.Range{Start: m.VersionStartIncluding, Fixed: m.VersionEndExcluding, LastAffected: m.VersionEndIncluding}
@@ -101,9 +101,11 @@ func (m Match) Named(name string) bool {
 		(subset(nameWords, append(words(m.Vendor), product...)) || subset(product, nameWords))
 }
 
-// SplitCPE splits a CPE 2.3 name into its fields, keeping escaped colons:
+// SplitCPE splits a CPE 2.3 name into its 13 fields, keeping escaped colons:
 // cpe:2.3:a:lemonldap-ng:lemonldap\:\:ng:… has the product lemonldap\:\:ng.
-func SplitCPE(cpe string) []string {
+// It reports false for anything else. Every CPE is split here: a plain
+// split on ":" cuts the names that the NVD dictionary escapes.
+func SplitCPE(cpe string) ([]string, bool) {
 	var fields []string
 	start := 0
 	for i := 0; i < len(cpe); i++ {
@@ -115,14 +117,18 @@ func SplitCPE(cpe string) []string {
 			start = i + 1
 		}
 	}
-	return append(fields, cpe[start:])
+	fields = append(fields, cpe[start:])
+	if len(fields) != 13 || fields[0] != "cpe" || fields[1] != "2.3" {
+		return nil, false
+	}
+	return fields, true
 }
 
 // UnfixedFor reports whether a CVE still affects the latest release of the
 // product of a CPE, or of any product of its vendor for a vendor CPE.
 func UnfixedFor(c CVE, cpe string) bool {
-	f := SplitCPE(cpe)
-	if len(f) != 13 {
+	f, ok := SplitCPE(cpe)
+	if !ok {
 		return false
 	}
 	return slices.ContainsFunc(Matches(c.Raw), func(m Match) bool {

@@ -139,6 +139,9 @@ func TestVendorProduct(t *testing.T) {
 	}{
 		{store.Asset{CPE: "cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*"}, "fortinet", "fortios", false},
 		{store.Asset{CPE: "cpe:2.3:*:fortinet:*:*:*:*:*:*:*:*:*"}, "fortinet", "", true},
+		{store.Asset{CPE: `cpe:2.3:a:lemonldap-ng:lemonldap\:\:ng:2.0.16:*:*:*:*:*:*:*`}, "lemonldap-ng", `lemonldap\:\:ng`, false},
+		{store.Asset{CPE: `cpe:2.3:a:lemonldap-ng:lemonldap\:\:ng:*:*:*:*:*:*:*:*`, PURL: "pkg:npm/other@1"}, "lemonldap-ng", `lemonldap\:\:ng`, false},
+		{store.Asset{CPE: "cpe:2.3:bad", PURL: "pkg:npm/lodash@4.17.15"}, "", "lodash", false},
 		{store.Asset{PURL: "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1"}, "org.apache.logging.log4j", "log4j-core", false},
 		{store.Asset{PURL: "pkg:npm/%40angular/core@17.0.0?x=1"}, "@angular", "core", false},
 		{store.Asset{PURL: "pkg:npm/lodash@4.17.15"}, "", "lodash", false},
@@ -175,6 +178,7 @@ func TestVendorName(t *testing.T) {
 		want string
 	}{
 		{store.Asset{CPE: "cpe:2.3:a:palo_alto_networks:pan-os:*:*:*:*:*:*:*:*"}, "Palo Alto Networks"},
+		{store.Asset{CPE: `cpe:2.3:a:lemonldap-ng:lemonldap\:\:ng:*:*:*:*:*:*:*:*`}, "Lemonldap-ng"},
 		{store.Asset{PURL: "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1"}, "org.apache.logging.log4j"},
 		{store.Asset{PURL: "pkg:pypi/django@4.2"}, "Paquets PyPI"},
 		{store.Asset{PURL: "pkg:golang/stdlib@1.22.0"}, "Paquets golang"},
