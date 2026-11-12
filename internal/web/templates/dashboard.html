@@ -128,7 +128,7 @@
 </section>
 
 <h2>Nouvelles vulnérabilités ouvertes (7 derniers jours)</h2>
-{{template "findingTable" (findingRows .Data.Recent false)}}
+{{template "findingTable" (findingRows .Data.Recent)}}
 {{if gt .Data.RecentTotal (len .Data.Recent)}}<p><a href="/findings?since={{.Data.RecentDays}}&amp;sort=recent">Voir les {{.Data.RecentTotal}} vulnérabilités ouvertes de la semaine</a></p>
 {{else}}<p><a href="/findings?sort=recent">Voir toutes les vulnérabilités ouvertes, les plus récentes d'abord</a></p>{{end}}
 {{end}}

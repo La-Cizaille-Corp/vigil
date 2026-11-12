@@ -26,10 +26,11 @@ func assetOrder(body string) []string {
 	return out
 }
 
-// findingOrder returns the vulnerabilities of a list page, in order.
+// findingOrder returns the vulnerabilities of a list page, in order; a row
+// may lead back to its list (?back=).
 func findingOrder(body string) []string {
 	var out []string
-	for _, m := range regexp.MustCompile(`<a href="/findings/\d+">([^<]+)</a>`).FindAllStringSubmatch(body, -1) {
+	for _, m := range regexp.MustCompile(`<a href="/findings/\d+(?:\?back=[^"]*)?">([^<]+)</a>`).FindAllStringSubmatch(body, -1) {
 		out = append(out, m[1])
 	}
 	return out

@@ -185,9 +185,23 @@ td.select input { width: 1.05rem; height: 1.05rem; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 /* The bulk panel follows the list and sticks to the bottom of the screen
    while the list scrolls: it stays within reach of the boxes ticked. */
-details.bulk { position: sticky; bottom: 0; z-index: 5; margin: .5rem 0 1rem; }
+details.bulk { position: sticky; bottom: 0; z-index: 5; margin: .5rem 0 1rem; border-color: var(--border-strong);
+  box-shadow: 0 -2px 10px rgba(16, 24, 40, .12); }
 details.bulk[open] { max-height: 70vh; overflow-y: auto; }
 details.bulk form { margin-top: .75rem; }
+.bulk-scope label.check { margin: .2rem 0; }
+/* A refused value: the message beside its field (A85). */
+.field-error { display: block; margin-top: .25rem; color: var(--danger); font-size: .85rem; font-weight: 600; }
+[aria-invalid="true"] { border-color: var(--danger); }
+/* Above a long list: its count, its exports and imports (A85). */
+.list-bar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: .25rem 1rem; }
+.list-bar > p { margin: .5rem 0; }
+.list-actions { display: flex; flex-wrap: wrap; align-items: baseline; gap: .25rem .9rem; }
+details.vex-import > summary { color: var(--accent); }
+details.vex-import[open] { flex-basis: 100%; }
+nav.pager { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: .5rem 1.25rem; margin: .25rem 0 1rem; }
+nav.pager a, nav.pager span { padding: .35rem .2rem; }
+.list-nav { display: flex; flex-wrap: wrap; gap: .25rem .5rem; }
 form.inline-search { display: flex; flex-wrap: wrap; gap: .75rem; align-items: flex-end; }
 form.inline-search label { flex: 1 1 22rem; }
 .cpe-vendor-head { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: baseline; justify-content: space-between; }

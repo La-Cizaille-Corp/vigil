@@ -52,42 +52,64 @@
     <a href="/findings">Réinitialiser</a>
   </div>
 </form>
-{{$analyst := can .User.Role "analyst"}}
-<p class="muted">{{len .Data.Findings}} vulnérabilité(s){{with $f.Project}} — <a href="/assets?project={{.}}">actifs du projet {{.}}</a>{{end}}
-  · <a href="{{.Data.CSVLink}}">Exporter cette liste (CSV)</a></p>
-{{template "findingTable" (sortedFindingRows .Data.Findings (and $analyst (gt (len .Data.Findings) 0)) .Data.Head)}}
+{{$analyst := can .User.Role "analyst"}}{{$p := .Data.Pager}}{{$b := .Data.Bulk}}
+{{- /* Above the table: what the list holds, and what can be done with all of it (A85). */}}
+<div class="list-bar">
+  <p class="muted">{{$p.Total}} vulnérabilité(s){{if gt $p.Pages 1}} · lignes {{$p.First}} à {{$p.Last}} sur {{$p.Total}}{{end}}{{with $f.Project}} — <a href="/assets?project={{.}}">actifs du projet {{.}}</a>{{end}}</p>
+  <div class="list-actions">
+    <a href="{{.Data.CSVLink}}">Exporter la liste (CSV)</a>
+    <a href="/findings/vex{{if $f.Project}}?project={{$f.Project}}{{end}}">Exporter les analyses en VEX</a>
+    <span class="muted small">(toutes{{with $f.Project}} celles du projet {{.}}{{end}}, sans les autres filtres)</span>
+    {{if $analyst}}<details class="vex-import"{{if .Error}} open{{end}}>
+      <summary>Importer un VEX…</summary>
+      <form method="post" action="/findings/vex" enctype="multipart/form-data" class="card">
+        {{template "csrf" .CSRF}}
+        <label>VEX CycloneDX (JSON) : les analyses s'appliquent aux vulnérabilités correspondantes
+          (même purl ou CPE, même identifiant ou alias) <input type="file" name="vex" accept=".json,application/json" required></label>
+        <button type="submit">Importer le VEX</button>
+      </form>
+    </details>{{end}}
+  </div>
+</div>
+{{template "findingTable" .Data.Table}}
+{{template "pager" $p}}
 {{/* After the list, stuck to the bottom of the screen while it scrolls (style.css):
-   the boxes reach the form through their form="bulk" attribute. */}}
-{{if and $analyst .Data.Findings}}
-<details class="card bulk" id="traiter">
+   the boxes reach the form through their form="bulk" attribute. A refused
+   decision, or one waiting for its confirmation, comes back unfolded with its
+   choices (A85). */}}
+{{if and $analyst (or .Data.Table.List $b.Open)}}
+<details class="card bulk" id="traiter"{{if $b.Open}} open{{end}}>
   <summary>Traiter la sélection…</summary>
 <form method="post" action="/findings/bulk" id="bulk">
   {{template "csrf" .CSRF}}
   <input type="hidden" name="next" value="{{.Data.Next}}">
-  <p class="small">Cochez des lignes du tableau, puis appliquez-leur une même décision (enregistrée dans l'historique de chacune).</p>
+  {{with $b.Confirm}}<input type="hidden" name="confirm" value="{{.}}">{{end}}
   <div class="grid">
     <label>Nouveau statut
-      <select name="status">{{range statuses}}<option value="{{.Value}}">{{.Label}}</option>{{end}}</select>
+      <select name="status"{{if eq $b.Field "status"}} aria-invalid="true" aria-describedby="bulk-error"{{end}}>{{range statuses}}<option value="{{.Value}}"{{if eq .Value $b.Status}} selected{{end}}>{{.Label}}</option>{{end}}</select>
+      {{if eq $b.Field "status"}}<span class="field-error" id="bulk-error" role="alert">{{$b.Err}}</span>{{end}}
     </label>
     <label>Justification (si « Non affecté »)
-      <select name="justification"><option value="">—</option>{{range justifs}}<option value="{{.Value}}">{{.Label}}</option>{{end}}</select>
+      <select name="justification"{{if eq $b.Field "justification"}} aria-invalid="true" aria-describedby="bulk-error"{{end}}><option value="">—</option>{{range justifs}}<option value="{{.Value}}"{{if eq .Value $b.Justification}} selected{{end}}>{{.Label}}</option>{{end}}</select>
+      {{if eq $b.Field "justification"}}<span class="field-error" id="bulk-error" role="alert">{{$b.Err}}</span>{{end}}
     </label>
-    <label>Commentaire (vide : chaque vulnérabilité garde le sien) <input name="comment" maxlength="4000"></label>
+    <label>Commentaire (vide : chaque vulnérabilité garde le sien) <input name="comment" maxlength="4000" value="{{$b.Comment}}"{{if eq $b.Field "comment"}} aria-invalid="true" aria-describedby="bulk-error"{{end}}>
+      {{if eq $b.Field "comment"}}<span class="field-error" id="bulk-error" role="alert">{{$b.Err}}</span>{{end}}
+    </label>
   </div>
-  <button type="submit">Appliquer à la sélection</button>
+  <fieldset class="plain bulk-scope"{{if eq $b.Field "scope"}} aria-describedby="bulk-error"{{end}}>
+    <legend>Appliquer à</legend>
+    <label class="check"><input type="radio" name="scope" value="rows"{{if ne $b.Scope "list"}} checked{{end}}> les lignes cochées</label>
+    <label class="check"><input type="radio" name="scope" value="list"{{if eq $b.Scope "list"}} checked{{end}}> toute la liste filtrée ({{$p.Total}}), toutes pages comprises</label>
+    {{if eq $b.Field "scope"}}<span class="field-error" id="bulk-error" role="alert">{{$b.Err}}</span>{{end}}
+  </fieldset>
+  <p class="small muted">La décision entre dans l'historique de chacune. Sur toute la liste, ce que quelqu'un a déjà décidé ne change pas,
+    et au-delà de {{.Data.Confirm}} vulnérabilités une confirmation en donne le nombre.</p>
+  {{if $b.Confirm}}<p class="notice" role="status">Appliquer « {{statusLabel $b.Status}} » aux {{$b.Confirm}} vulnérabilités de cette liste ?
+    Celles qu'une personne a déjà décidées, et celles qui ont déjà ce statut, ne changent pas.</p>
+  <div class="toolbar"><button type="submit">Confirmer pour {{$b.Confirm}} vulnérabilités</button> <a href="{{.Data.Next}}">Annuler</a></div>
+  {{else}}<button type="submit">Appliquer</button>{{end}}
 </form>
 </details>
 {{end}}
-
-<h2>Échange VEX (CycloneDX)</h2>
-<p><a href="/findings/vex{{if $f.Project}}?project={{$f.Project}}{{end}}">Exporter les analyses en VEX{{if $f.Project}} (projet {{$f.Project}}){{end}}</a></p>
-{{if can .User.Role "analyst"}}
-<form method="post" action="/findings/vex" enctype="multipart/form-data" class="card">
-  {{template "csrf" .CSRF}}
-  <label>Importer un VEX CycloneDX (JSON) : les analyses s'appliquent aux vulnérabilités correspondantes
-    (même purl ou CPE, même identifiant ou alias) <input type="file" name="vex" accept=".json,application/json" required></label>
-  <button type="submit">Importer le VEX</button>
-</form>
 {{end}}
-{{end}}
-

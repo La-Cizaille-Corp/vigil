@@ -273,9 +273,9 @@ d'OpenSSL, 2.4.0-r1 d'Alpine). La comparaison ignore la casse.
 
 **A54. Tri par les titres de colonnes et filtres en listes, sans JavaScript.** Chaque titre de
 colonne est un lien (`?sort=…&dir=…`) qui garde les filtres et inverse l'ordre au second clic ;
-`aria-sort` et la feuille de style disent l'ordre courant. Le tri se fait en Go sur la liste chargée :
-elle n'est pas paginée, et un tri SQL ne saurait pas comparer des versions (A53), ni l'ordre des
-statuts et des criticités. Les valeurs absentes restent en fin de liste dans les deux sens. CVSS et EPSS
+`aria-sort` et la feuille de style disent l'ordre courant. Le tri se fait en Go sur la liste chargée
+entière (un tri SQL ne saurait pas comparer des versions, A53, ni l'ordre des statuts et des
+criticités) ; depuis A85, seule la page rendue est ensuite coupée. Les valeurs absentes restent en fin de liste dans les deux sens. CVSS et EPSS
 deviennent des colonnes, ce qui remplace la liste « Tri » du formulaire. Sur téléphone, les titres
 restent visibles au-dessus des cartes. Dans l'inventaire, projets et étiquettes passent de rangées
 de liens, d'autant plus hautes que l'inventaire est varié, à deux listes déroulantes combinables ;
@@ -459,6 +459,47 @@ titre et de lien (une alerte d'un canal « Urgentes et À planifier » donne un 
 ses champs, et `reason` dit « CVSS 7,5 » pour une vulnérabilité à planifier par son score. Les pourcentages et
 les jours portent une espace insécable (U+00A0) à l'écran, dans le digest et les alertes ; les nombres écrits en
 dur dans les gabarits (« 88 % » de couverture) gardent une espace simple.
+
+**A85. La liste tient le volume : des pages après le tri, des décisions sur toute la liste.** L'audit
+d'ergonomie de la 0.4.1 (lot 3) mesurait 7 629 lignes, 6,6 Mo de HTML et 900 000 px pour la liste d'un noyau ;
+le triage par lot se cochait ligne à ligne (500 au plus), perdait cases et choix à la moindre erreur, et la page
+d'une vulnérabilité ramenait à la liste sans ses filtres.
+- *Pages* : la liste est lue, filtrée et triée en entier, en Go (A54), puis seule une page de 100 lignes est
+  rendue (`?page=`, « lignes 101 à 200 sur 3 235 », Précédente / Suivante ; un numéro hors bornes montre la page
+  la plus proche). Les nombres des niveaux, l'export CSV, la décision sur toute la liste et « Suivante dans la
+  liste » lisent la liste entière, par une seule fonction (`listedFindings`) ; changer d'ordre ou de niveau
+  revient à la première page. La page d'un actif est coupée de même (`paginate`, commun). La veille, plafonnée à
+  200 actualités, reste au lot 5 de l'audit (« veille paginée et comptée »), qui pourra reprendre `paginate`.
+  Mesure, copie de la base noyau, page « À planifier » (3 235 vulnérabilités), poste de développement : 2,68 Mo
+  et 0,27 s avant, 0,11 Mo et 0,18 s après ; « Toutes » (7 629) : 6,43 Mo et 0,44 s avant, 0,11 Mo et 0,20 s après.
+- *Traiter la sélection* : le panneau reste collé au bas de l'écran, sous les cases, et propose « les lignes
+  cochées » ou « toute la liste filtrée (N), toutes pages comprises », la liste étant celle que décrit déjà le
+  champ `next`. Sur toute la liste, les garde-fous des règles d'écart (A61) : ce qu'une personne a déjà décidé
+  ne change pas (`decidedExpr`, désormais partagé avec les règles, par `StatusChange.KeepDecided`), ni ce qui a
+  déjà ce statut ; au-delà de 50 vulnérabilités, la page revient avec le nombre exact à confirmer (« Confirmer
+  pour 3 235 vulnérabilités »), et une liste qui a changé entre-temps redemande la confirmation. Une
+  transaction pour toute la liste : 0,6 s pour 3 235 vulnérabilités sur la base noyau. Le journal d'audit
+  donne le nombre changé et celui de la liste (`count=… status=… list=…`).
+- *Une décision refusée* (justification manquante, rien de coché) réaffiche la liste d'où elle vient, avec
+  les cases cochées, le statut, la justification, le commentaire et la portée choisis, le panneau ouvert et le
+  message sous le champ fautif (`tracking.StatusError` nomme le champ ; `aria-invalid`).
+- *Retour à la liste* : chaque ligne mène à sa vulnérabilité avec `?back=` (la liste, filtres, ordre et page
+  compris), validé par la même liste blanche que `next` (`listPath` : `/findings` ou `/findings?…`, sinon la
+  liste par défaut). La page offre « Retour à la liste » et « Suivante dans la liste » ; après « Enregistrer »,
+  elle revient avec les deux, la suivante étant lue avant que la décision sorte la vulnérabilité de la liste
+  (`then=`). Cela coûte une lecture de la liste entière (0,17 s sur la base noyau).
+- *VEX* : « Exporter les analyses en VEX » et « Importer un VEX… » rejoignent l'export CSV au-dessus du tableau ;
+  l'export dit qu'il prend toutes les analyses (ou celles du projet), sans les autres filtres.
+
+*Écarté* : paginer en SQL (`LIMIT`) : le tri est fait en Go (A54), et les nombres des niveaux comme la décision
+sur toute la liste veulent la liste entière ; une case « tout cocher » (impossible sans JavaScript, et bornée à
+une page) ; une confirmation `<details>` dont le nombre aurait été celui de l'affichage, pas celui de l'envoi ;
+déplacer l'import VEX sur « Ajouter des actifs » (il n'ajoute pas d'actif ; le lot 7 refondra cette page) ; le
+`Referer` pour le retour à la liste (absent selon les navigateurs et la politique de référent). *Conséquences* :
+les cases cochées valent pour la page affichée (changer de page les perd, faute de script) ; une décision sur
+toute la liste compte comme décision humaine pour les suivantes et pour les règles d'écart ; le rechargement
+d'une liste réaffichée après refus renvoie le formulaire (comme toute réponse à un envoi), sans effet tant
+qu'il est refusé ou demande confirmation.
 
 **A69. Ce que les sources envoient est vérifié avant d'être stocké.** OSV et la NVD sont des hôtes fixes
 en HTTPS, mais leurs champs étaient stockés tels quels : une sévérité hors de la liste (`IMPORTANT` de
@@ -1108,7 +1149,8 @@ l'inventaire, la donnée la plus sensible ; et une fuite se traite par rotation 
 **A43. Triage par lot et journal d'audit consultable.** Le triage par lot applique une même
 décision à des vulnérabilités cochées, avec un événement d'historique pour chacune (pas de
 raccourci qui perdrait la traçabilité). Le journal d'audit, déjà écrit, devient lisible par les
-administrateurs (exigence fréquente des audits NIS2 ou ISO 27001). Format du détail : A73.
+administrateurs (exigence fréquente des audits NIS2 ou ISO 27001). Format du détail : A73. Depuis
+A85, la décision peut porter sur toute la liste filtrée, avec les garde-fous des règles d'écart.
 
 **A73. Un seul format pour le détail du journal d'audit, un seul chemin pour lire et modifier un objet
 par son identifiant.** L'audit de code de novembre 2026 (R1, R5, R7, R12) relevait quatre formes de
