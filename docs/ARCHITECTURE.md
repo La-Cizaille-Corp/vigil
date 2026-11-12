@@ -46,7 +46,7 @@ internal/cvss          Calcul du score CVSS 3.x depuis un vecteur
 internal/tracking      Synchronisation inventaire ↔ sources, enrichissement, statuts VEX, classement d'urgence
 internal/cti           Flux RSS/Atom, étiquetage pays / secteur / réglementation
 internal/digest        Génération du digest (Markdown + HTML)
-internal/fr            Dates et nombres à la française, fonctions de template des pages et du digest
+internal/fr            Dates et nombres à la française (pages, digest, alertes, CSV)
 internal/notify        Digests et alertes vers les webhooks et par e-mail (SMTP)
 internal/netsafe       Client HTTP anti-SSRF pour les URL fournies par les utilisateurs
 internal/auth          argon2id, mots de passe courants refusés, jetons, TOTP, limitation des tentatives, rôles
@@ -144,9 +144,10 @@ paquet `fr` écrit la convention et l'applique : un jour `09/02/2026` (`Date`, s
 `09/02/2026 14:05` en heure locale (`DateTime`) ; la virgule décimale partout, à l'écran, dans le digest, les
 alertes et le CSV, sans séparateur de milliers (`Decimal`) ; un score (CVSS, EPSS en pourcentage) à une
 décimale, 0 compris, vide s'il est inconnu (`Score`) ; un pourcentage avec une espace avant le signe, `12,3 %`
-(`Percent`) ; des jours `< 1 j`, `3,5 j`, `12 j` (`Days`). `fr.Funcs` est la table de fonctions de template
-commune aux pages et au digest, sous les mêmes noms (`date`, `day`, `cvss`, `epss`, `days`, `join`, `band`,
-`sevLabel`, `statusLabel`). Restent au point ce que lit une machine : la valeur d'un champ `type="number"`
+(`Percent`) ; des jours `< 1 j`, `3,5 j`, `12 j` (`Days`). Les pages et le digest partagent leurs fonctions
+de template, sous les mêmes noms : `fr.Funcs` (`date`, `day`, `cvss`, `epss`, `days`, `join`) et
+`tracking.TemplateFuncs`, les mots des vulnérabilités (`band`, `sevLabel`, `statusLabel`) ; `fr` n'importe
+rien de Vigil, tout paquet peut s'en servir. Restent au point ce que lit une machine : la valeur d'un champ `type="number"`
 (format HTML), les coordonnées SVG, le JSON des webhooks ; les dates ISO des exports CSV et des noms de
 fichier ne changent pas. Le champ caché du jeton CSRF est un seul modèle, appelé par chaque formulaire :
 `{{template "csrf" .CSRF}}`. Les étiquettes proposées sous le champ d'un actif sont lues par le handler ; une
@@ -155,8 +156,6 @@ scores (l'usage des bases de vulnérabilités, mais deux conventions sur une mê
 avant `%` (le reste de l'interface écrit une espace simple). *Conséquences* : CVSS et EPSS s'affichent `9,8`
 et `12,3 %` à l'écran et dans le digest ; un CVSS de 0 s'affiche `0,0`, dans le digest aussi ; l'alerte donne
 l'EPSS à une décimale (`EPSS 12,3 %` au lieu de `EPSS 12 %`) ; le CSV ne change pas, il avait déjà la virgule.
-`fr` emprunte le vocabulaire des vulnérabilités à `tracking` : il sert aux paquets qui présentent (web,
-digest, notify), pas à ceux dont `tracking` dépend.
 
 ### Données
 

@@ -48,6 +48,16 @@ func SeverityLabel(v string) string {
 	return inventory.Label(Severities, v)
 }
 
+// TemplateFuncs returns the template functions that name findings in French,
+// shared by the web pages and the digest with fr.Funcs (A79).
+func TemplateFuncs() map[string]any {
+	return map[string]any{
+		"band":        Band,
+		"sevLabel":    SeverityLabel,
+		"statusLabel": func(v string) string { return inventory.Label(Statuses, v) },
+	}
+}
+
 // Justifications explain a "not_affected" status (CycloneDX vocabulary).
 var Justifications = []inventory.Option{
 	{Value: "code_not_present", Label: "Code vulnérable absent"},

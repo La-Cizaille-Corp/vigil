@@ -57,13 +57,13 @@ func TestNumbers(t *testing.T) {
 
 func TestFuncs(t *testing.T) {
 	f := Funcs()
-	for _, name := range []string{"date", "day", "cvss", "epss", "days", "join", "band", "sevLabel", "statusLabel"} {
+	for _, name := range []string{"date", "day", "cvss", "epss", "days", "join"} {
 		if f[name] == nil {
 			t.Errorf("no %s", name)
 		}
 	}
-	if got := f["statusLabel"].(func(string) string)("exploitable"); got != "Exploitable – à traiter" {
-		t.Errorf("statusLabel = %s", got)
+	if got := f["cvss"].(func(float64) string)(9.8); got != "9,8" {
+		t.Errorf("cvss = %s", got)
 	}
 	f["date"] = nil
 	if Funcs()["date"] == nil {

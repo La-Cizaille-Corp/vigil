@@ -14,17 +14,15 @@
 // (input type="number"), and so do machine formats: ISO dates of the CSV
 // exports and of the API, JSON numbers.
 //
-// Funcs gathers these with the words of the findings (statuses, severities)
-// for the templates of the web pages and of the digest.
+// Funcs gives these to the templates of the web pages and of the digest,
+// with tracking.TemplateFuncs for the words of the findings. The package
+// imports nothing of Vigil, so that any package may write the same way.
 package fr
 
 import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
-	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
 )
 
 // Date writes the day of t as it is, without changing its time zone: a
@@ -70,17 +68,15 @@ func Days(d float64) string {
 	return Decimal(d, 0) + " j"
 }
 
-// Funcs returns the template functions the web pages and the digest share.
+// Funcs returns the template functions that write dates and numbers, shared
+// by the web pages and the digest.
 func Funcs() map[string]any {
 	return map[string]any{
-		"date":        DateTime,
-		"day":         Date,
-		"cvss":        Score,
-		"epss":        Percent,
-		"days":        Days,
-		"join":        strings.Join,
-		"band":        tracking.Band,
-		"sevLabel":    tracking.SeverityLabel,
-		"statusLabel": func(v string) string { return inventory.Label(tracking.Statuses, v) },
+		"date": DateTime,
+		"day":  Date,
+		"cvss": Score,
+		"epss": Percent,
+		"days": Days,
+		"join": strings.Join,
 	}
 }

@@ -29,10 +29,11 @@ var mdSource string
 //go:embed digest.html.tmpl
 var htmlSource string
 
-// funcs are the template functions of the web pages (fr.Funcs), and those of
-// the digest.
+// funcs are the template functions shared with the web pages (fr.Funcs,
+// tracking.TemplateFuncs), and those of the digest.
 var funcs = func() map[string]any {
 	f := fr.Funcs()
+	maps.Copy(f, tracking.TemplateFuncs())
 	maps.Copy(f, map[string]any{
 		"countries": func(v []string) string { return labels(cti.Countries, v) },
 		"sectors":   func(v []string) string { return labels(cti.Sectors, v) },

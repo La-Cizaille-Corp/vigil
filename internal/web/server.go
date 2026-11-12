@@ -252,7 +252,9 @@ func (s *Server) parseTemplates() error {
 		// (see package digest), so it is already escaped.
 		"trustedDigest": func(s string) template.HTML { return template.HTML(s) }, // #nosec G203 -- escaped at generation
 	}
-	maps.Copy(funcs, fr.Funcs()) // dates, numbers and words shared with the digest
+	// Dates, numbers and the words of the findings, as in the digest.
+	maps.Copy(funcs, fr.Funcs())
+	maps.Copy(funcs, tracking.TemplateFuncs())
 	pages, err := fs.Glob(templatesFS, "templates/*.html")
 	if err != nil {
 		return err
