@@ -205,7 +205,9 @@ les ordonne par la date écrite dans leur nom, qu'une copie déplacée ou restau
 (les copies `.bak` étaient ordonnées par la date du fichier) ; un fichier dont le nom n'est pas
 celui qu'elle écrit, comme une copie faite à la main, n'est ni compté ni effacé ; le fichier
 temporaire d'une copie interrompue, copie complète de la base, est retiré après une heure, pour les
-copies `.bak` comme pour les sauvegardes.
+copies `.bak` comme pour les sauvegardes. La base et ses copies sont nommées au pilote par une URI de
+leur chemin absolu, échappé (`dsn`) : un dossier dont le nom contient « # », « % » ou « ? » faisait
+lire ou créer un autre fichier, et `vigil backup` copiait alors sans erreur une base vide.
 
 **A7. Pilote `modernc.org/sqlite` (Go pur).** `mattn/go-sqlite3` exige CGO : compilation
 croisée et image distroless plus complexes. modernc garde le binaire statique, au prix d'une
