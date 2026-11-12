@@ -200,7 +200,7 @@ func (s *Syncer) run(ctx context.Context, assetID int64) (res Result, err error)
 		// A failed notification is logged: the findings are recorded anyway
 		// and the next digest lists them.
 		if alertErr := s.Alert(ctx); alertErr != nil {
-			s.Log.Warn("alertes immédiates", "err", alertErr)
+			s.Log.Warn("immediate alerts failed", "err", alertErr)
 		}
 	}
 	return res, nil
@@ -313,7 +313,7 @@ func (s *Syncer) scan(ctx context.Context, assets []store.Asset) (Result, error)
 		s.working("scores d'exploitation (KEV, EPSS)")
 		// Enrichment failures are logged but do not fail the sync.
 		if err := s.enrich(ctx); err != nil {
-			s.Log.Warn("enrichissement KEV/EPSS", "err", err)
+			s.Log.Warn("kev/epss enrichment failed", "err", err)
 		}
 	}
 
@@ -343,7 +343,7 @@ func (s *Syncer) checked() {
 // failed reports an asset the sources could not check: its findings stay as
 // they were, as the next run may check it.
 func (s *Syncer) failed(res *Result, a store.Asset, err error) {
-	s.Log.Warn("actif non vérifié", "asset", a.Name, "err", err)
+	s.Log.Warn("asset not checked", "asset", a.Name, "err", err)
 	res.Failed++
 	s.setStatus(func(st *Status) {
 		st.Done++
@@ -587,7 +587,7 @@ func (s *Syncer) exploitedCVEs(ctx context.Context) map[string]bool {
 	}
 	catalogue, err := kev.Fetch(ctx, s.HTTP, cmp.Or(s.KEVURL, kev.DefaultURL), s.UserAgent)
 	if err != nil {
-		s.Log.Warn("catalogue KEV", "err", err)
+		s.Log.Warn("kev catalog failed", "err", err)
 		return nil
 	}
 	out := make(map[string]bool, len(catalogue))

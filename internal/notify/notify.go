@@ -248,7 +248,7 @@ func (n *Notifier) deliver(ctx context.Context, m message, want func(store.Webho
 		}
 		sendErr := n.send(ctx, h, m)
 		if sendErr != nil {
-			n.Log.Warn("notification en erreur", "canal", h.Name, "err", sendErr)
+			n.Log.Warn("notification failed", "channel", h.Name, "err", sendErr)
 			errs = append(errs, fmt.Errorf("%s: %w", h.Name, sendErr))
 		}
 		if err := n.Store.RecordWebhookResult(ctx, h.ID, sendErr); err != nil {

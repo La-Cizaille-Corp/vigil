@@ -113,7 +113,12 @@ suffisent. *Conséquence* : interface sobre, rechargements de page complets.
 première est francophone (CERT-FR, ANSSI, NIS2) ; le code reste accessible à tout contributeur.
 Les codes techniques (sévérités, rôles, types de webhook, étiquettes) sont affichés par leur
 libellé français ; les messages d'erreur Go restent en minuscules (convention Go) et sont mis en
-forme de phrase à l'affichage.
+forme de phrase à l'affichage. Leur langue suit leur lecteur : français pour une erreur faite pour
+l'écran ou la ligne de commande (saisie, fichier importé, URL refusée, collecte déjà en cours),
+anglais pour une erreur interne et pour le journal du service, messages comme clés, que lisent aussi
+des outils. La raison technique d'un échec de source reste celle de la source (`status 503`,
+`HTTP 404 (Invalid apiKey.)`). L'audit de code de novembre 2026 en relevait deux exceptions ; dix-sept
+messages du journal étaient en fait en français, tous passés en anglais.
 
 **A33. Conventions d'interface communes.** Relevées lors d'une passe de cohérence :
 - une action destructive (actif, flux, webhook, jeton) passe par une confirmation (`<details>`,
@@ -739,3 +744,6 @@ l'historique, analyse statique et CodeQL, revue des dépendances, scan de l'imag
 | Acceptation de risque avec date d'expiration | Différé | Statuts VEX et commentaires suffisent pour l'instant ; une date de réexamen serait la prochaine étape. |
 | Base européenne EUVD (ENISA) | Différé | API récente et encore mouvante ; les CVE qu'elle référence sont déjà couvertes par OSV et la NVD. |
 | Service Windows natif | Différé | Planificateur de tâches ou WinSW suffisent (voir [INSTALL.md](INSTALL.md)) ; éviterait une dépendance. |
+| Liste des sessions ouvertes (date, adresse) | Différé | Le bouton « Fermer mes autres sessions » de Mon compte couvre le besoin sans nouvelle colonne ; à ouvrir sur demande. |
+| Jeton CSRF avant la connexion | Écarté | `Origin` et `Sec-Fetch-Site` suffisent avec les navigateurs actuels ; le cas restant est consigné au [modèle de menace](THREAT_MODEL.md), « Risques acceptés ». |
+| Structures typées par page (au lieu de `map[string]any`) | Différé | Gros changement pour peu de gain ; à faire page par page, quand on y touche. |

@@ -74,7 +74,7 @@ func TestFeedErrorKeepsTheURLSecret(t *testing.T) {
 			t.Errorf("stored error: %q", f.LastError)
 		}
 	}
-	if !strings.Contains(logs.String(), "flux CTI en erreur") || strings.Contains(logs.String(), secret) {
+	if !strings.Contains(logs.String(), "cti feed failed") || strings.Contains(logs.String(), secret) {
 		t.Errorf("service log: %s", strings.TrimSpace(logs.String()))
 	}
 
