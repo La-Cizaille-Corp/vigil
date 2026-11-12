@@ -912,7 +912,18 @@ d'origine (liste blanche de chemins, pas de redirection ouverte). L'état couran
 résultat (nouvelles, rouvertes, corrigées, ignorées, erreur) est affiché à côté ; il est gardé
 en mémoire, car il ne concerne que le processus en cours. Ajouter, modifier ou « Analyser » un
 actif lance son analyse seule ; si une synchronisation est en cours, l'analyse attend qu'elle
-finisse au lieu d'être perdue.
+finisse au lieu d'être perdue. Depuis la revue de la 0.5.0 (W2), la même attente vaut pour la
+synchronisation d'un import (CSV, SBOM, API) et pour la synchronisation programmée de `serve`, qui
+étaient abandonnées si une autre tournait : un import pendant une synchronisation affichait
+« synchronisation lancée » et ses composants attendaient la suivante, et une analyse d'actif en cours
+au moment du tick faisait sauter la synchronisation programmée jusqu'à l'intervalle suivant (6 h par
+défaut). Une seule fonction attend et lance (`Server.Sync`, réessai toutes les 5 secondes), et une
+seule attente par actif, ou pour tout l'inventaire : une demande pour ce qui attend déjà n'ajoute rien,
+puisque l'attente lit l'inventaire quand elle démarre. Deux « Analyser » de suite ne font donc qu'une
+analyse, et une série de demandes n'empile plus d'analyses ni de goroutines. Le bouton « Synchroniser
+l'inventaire » reste refusé pendant une synchronisation (« déjà en cours »). *Écarté* : faire attendre
+`Syncer.Run` lui-même, qui refuse une seconde synchronisation (`ErrRunning`) et sur lequel comptent ce
+bouton et l'état « déjà en cours ».
 
 **A58. Fréquence de collecte des flux, réglable dans l'interface.** Les actualités suivaient
 `-sync-interval`, avec les vulnérabilités : 4 collectes par jour par défaut, et changer l'une changeait

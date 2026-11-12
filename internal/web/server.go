@@ -77,6 +77,7 @@ type Server struct {
 
 	pages    map[string]*template.Template
 	once     onceStore     // values shown once after a redirect
+	syncs    syncQueue     // runs waiting for the one in progress (see Sync)
 	limiter  *auth.Limiter // failed attempts per client (see clientKey), or per user from a session
 	accounts *auth.Limiter // failed sign-ins per account name
 

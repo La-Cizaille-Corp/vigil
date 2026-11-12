@@ -430,7 +430,7 @@ func (s *Server) sbomImport(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, "sbom_import", "project", project, "format", doc.Format,
 		"added", res.Added, "kept", res.Kept, "removed", res.Removed, "skipped", doc.Skipped)
-	go s.runSync()
+	s.syncInBackground(0)
 	redirect(w, r, "/assets?project="+url.QueryEscape(project), "sbom-imported")
 }
 

@@ -407,7 +407,7 @@ func (s *Server) assetCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "asset_create", "id", id)
-	go s.runAssetSync(id)
+	s.syncInBackground(id)
 	redirect(w, r, assetPath(id), createdMessage(a))
 }
 
@@ -561,7 +561,7 @@ func (s *Server) assetUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "asset_update", "id", a.ID)
-	go s.runAssetSync(a.ID)
+	s.syncInBackground(a.ID)
 	redirect(w, r, assetPath(a.ID), "asset-updated")
 }
 
@@ -578,7 +578,7 @@ func (s *Server) assetFullHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "asset_update", "id", a.ID, "full_history", true)
-	go s.runAssetSync(a.ID)
+	s.syncInBackground(a.ID)
 	redirect(w, r, assetPath(a.ID), "asset-updated")
 }
 
@@ -592,7 +592,7 @@ func (s *Server) assetScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "asset_scan", "id", a.ID)
-	go s.runAssetSync(a.ID)
+	s.syncInBackground(a.ID)
 	redirect(w, r, assetPath(a.ID), "scan-started")
 }
 
@@ -1259,7 +1259,7 @@ func (s *Server) syncNow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "sync", "trigger", "manual")
-	go s.runSync()
+	s.syncInBackground(0)
 	redirect(w, r, back, "sync-started")
 }
 
