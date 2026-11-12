@@ -82,7 +82,10 @@ func (s *Server) Handler() (http.Handler, error) {
 	s.limiter = auth.NewLimiter(5, 15*time.Minute)
 	s.accounts = auth.NewLimiter(10, 15*time.Minute)
 
-	static, _ := fs.Sub(staticFS, "static")
+	static, err := fs.Sub(staticFS, "static")
+	if err != nil {
+		return nil, err
+	}
 	mux := http.NewServeMux()
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(static)))
 
@@ -363,9 +366,15 @@ var flashes = map[string]string{ // #nosec G101 -- message keys, not credentials
 	"vex-imported":      "VEX importé : les analyses correspondantes ont été appliquées.",
 }
 
+// redirect sends the browser to path once a form is done, with the message
+// msg (a key of flashes) if any; path may already hold a query string.
 func redirect(w http.ResponseWriter, r *http.Request, path, msg string) {
 	if msg != "" {
-		path += "?msg=" + url.QueryEscape(msg)
+		sep := "?"
+		if strings.Contains(path, "?") {
+			sep = "&"
+		}
+		path += sep + "msg=" + url.QueryEscape(msg)
 	}
 	http.Redirect(w, r, path, http.StatusSeeOther)
 }
@@ -378,6 +387,73 @@ func (s *Server) serverError(w http.ResponseWriter, r *http.Request, err error) 
 
 func (s *Server) notFound(w http.ResponseWriter) {
 	http.Error(w, "Introuvable.", http.StatusNotFound)
+}
+
+// storeError answers a failed call to the store: 404 when the object does
+// not exist, 500 otherwise.
+func (s *Server) storeError(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, store.ErrNotFound) {
+		s.notFound(w)
+		return
+	}
+	s.serverError(w, r, err)
+}
+
+// pathID reads the identifier named key in the path of r; a malformed one
+// is answered 404, as no object bears it.
+func (s *Server) pathID(w http.ResponseWriter, r *http.Request, key string) (int64, bool) {
+	id, err := strconv.ParseInt(r.PathValue(key), 10, 64)
+	if err != nil {
+		s.notFound(w)
+		return 0, false
+	}
+	return id, true
+}
+
+// load reads the object named by the {id} path value with get (inScope binds
+// the lookups of the inventory to the scope of the request): 404 when no
+// object bears it, 500 when the store fails.
+func load[T any](s *Server, w http.ResponseWriter, r *http.Request, get func(context.Context, int64) (T, error)) (T, bool) {
+	var v T
+	id, ok := s.pathID(w, r, "id")
+	if !ok {
+		return v, false
+	}
+	v, err := get(r.Context(), id)
+	if err != nil {
+		s.storeError(w, r, err)
+		return v, false
+	}
+	return v, true
+}
+
+// change is a modification of the object named by the {id} path value, made
+// by (*Server).change.
+type change struct {
+	action  string // in the audit log
+	detail  []any  // key-value pairs of the audit entry, after the id (see store.AuditDetail)
+	to, msg string // where the browser goes once it is made, with which message
+	apply   func(id int64) error
+	// refuse, when set, answers an error the user can do something about,
+	// and reports whether it did (see userChange); any other is 404 or 500.
+	refuse func(error) bool
+}
+
+// change applies c to the {id} path value, writes it to the audit log once it
+// succeeded, then redirects.
+func (s *Server) change(w http.ResponseWriter, r *http.Request, c change) {
+	id, ok := s.pathID(w, r, "id")
+	if !ok {
+		return
+	}
+	if err := c.apply(id); err != nil {
+		if c.refuse == nil || !c.refuse(err) {
+			s.storeError(w, r, err)
+		}
+		return
+	}
+	s.audit(r, c.action, append([]any{"id", id}, c.detail...)...)
+	redirect(w, r, c.to, c.msg)
 }
 
 // clientIP is the client address used for rate limiting and the audit log.
@@ -446,24 +522,25 @@ func (s *Server) background() context.Context {
 	return context.Background()
 }
 
-// audit records an action in the audit log; a failure is logged, never
-// silently ignored, but does not fail the user's request.
 // audit records an action of the signed-in user, or of the system (user 0)
-// for a request without a session: the API, a failed login.
-func (s *Server) audit(r *http.Request, action, detail string) {
+// for a request without a session: the API, a failed login. Its detail is
+// the key-value pairs kv (see store.AuditDetail). A failure to write it is
+// logged, never silently ignored, but does not fail the user's request.
+func (s *Server) audit(r *http.Request, action string, kv ...any) {
 	sess, _ := sessionFrom(r.Context())
-	s.auditAs(r, sess.User.ID, action, detail)
+	s.auditAs(r, sess.User.ID, action, kv...)
 }
 
 // auditAs records an action of a user whose session does not exist yet: the
 // first setup, a login.
-func (s *Server) auditAs(r *http.Request, userID int64, action, detail string) {
+func (s *Server) auditAs(r *http.Request, userID int64, action string, kv ...any) {
 	// The journal keeps a copy outside the database: shipped to a log server,
 	// it survives a lost or altered database. SECURITY: the detail may hold a
-	// typed username or feed name; line breaks are removed so that it cannot
-	// forge another log entry, whatever the log handler.
-	line := strings.ReplaceAll(strings.ReplaceAll(detail, "\n", " "), "\r", " ")
-	s.Log.Info("audit", "action", action, "user_id", userID, "detail", line, "ip", s.clientIP(r))
+	// typed username or feed name; AuditDetail quotes a value holding a line
+	// break, so that it cannot forge another log entry, whatever the log
+	// handler.
+	detail := store.AuditDetail(kv...)
+	s.Log.Info("audit", "action", action, "user_id", userID, "detail", detail, "ip", s.clientIP(r))
 	if err := s.Store.Audit(r.Context(), userID, action, detail); err != nil {
 		s.Log.Error("audit log write failed", "action", action, "err", err)
 	}

@@ -81,8 +81,8 @@ func (s *Store) AccountByName(ctx context.Context, username string) (Account, er
 }
 
 // CreateFirstAdmin creates the first administrator in a single statement, so
-// that two concurrent first-run forms cannot both succeed: ErrNotFound when
-// an account already exists.
+// that two concurrent first-run forms cannot both succeed: ErrExists when an
+// account already exists.
 func (s *Store) CreateFirstAdmin(ctx context.Context, username, passwordHash string) (int64, error) {
 	res, err := s.db.ExecContext(ctx, `
 		INSERT INTO users (username, password_hash, role, created_at)
@@ -91,7 +91,7 @@ func (s *Store) CreateFirstAdmin(ctx context.Context, username, passwordHash str
 		return 0, fmt.Errorf("create first admin: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return 0, ErrNotFound
+		return 0, ErrExists
 	}
 	return res.LastInsertId()
 }
