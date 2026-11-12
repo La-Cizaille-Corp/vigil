@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
@@ -96,6 +97,15 @@ func (s *Server) tokenCreate(w http.ResponseWriter, r *http.Request) {
 		s.renderSettings(w, r, http.StatusBadRequest, "Indiquez un nom et un projet (sans / ? #).")
 		return
 	}
+	// The group, if one is chosen, is looked up before the token is made.
+	var group store.Group
+	if id := groupParam(r.PostForm); id != 0 {
+		var err error
+		if group, err = s.Store.Group(r.Context(), readScope(r), id); err != nil {
+			s.storeError(w, r, err)
+			return
+		}
+	}
 	raw, err := auth.NewToken()
 	if err != nil {
 		s.serverError(w, r, err)
@@ -109,9 +119,29 @@ func (s *Server) tokenCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "api_token_create", "id", id, "name", t.Name, "project", t.Project)
+	if err := s.addProjectToGroup(r, group, t.Project); err != nil {
+		s.serverError(w, r, err)
+		return
+	}
 	// SECURITY: the secret is displayed once, on the page this redirects to.
 	s.keepOnce(r, onceToken, secret)
 	redirect(w, r, "/settings", "token-created")
+}
+
+// addProjectToGroup adds the project of a new token to the group g chosen in
+// the form, if any (ID 0: none), so that the components it pushes are seen
+// by the accounts of that group (A68); a group already naming it is left as
+// it is.
+func (s *Server) addProjectToGroup(r *http.Request, g store.Group, project string) error {
+	if g.ID == 0 || slices.Contains(g.Projects, project) {
+		return nil
+	}
+	projects := append(g.Projects, project)
+	if err := s.Store.SetGroupRules(r.Context(), g.ID, g.Tags, projects); err != nil {
+		return err
+	}
+	s.audit(r, "group_rules", "id", g.ID, "tags", strings.Join(g.Tags, ","), "projects", strings.Join(projects, ","))
+	return nil
 }
 
 func (s *Server) tokenDelete(w http.ResponseWriter, r *http.Request) {

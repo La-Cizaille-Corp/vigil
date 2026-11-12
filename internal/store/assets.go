@@ -59,15 +59,16 @@ func (s *Store) CreateAsset(ctx context.Context, sc Scope, a Asset) (int64, erro
 }
 
 // CreateAssets inserts assets in one transaction, all or none, and returns
-// their ids in order; they must land inside the scope (ErrOutsideGroups).
+// their ids in order; they must land inside the scope (ErrOutsideGroups,
+// see checkMove).
 func (s *Store) CreateAssets(ctx context.Context, sc Scope, assets []Asset) ([]int64, error) {
-	if err := sc.writable(); err != nil {
-		return nil, err
-	}
 	ts := now()
 	ids := make([]int64, 0, len(assets))
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
 		for _, a := range assets {
+			if err := checkMove(ctx, tx, sc, nil, &a); err != nil {
+				return err
+			}
 			id, err := insertAsset(ctx, tx, a, ts)
 			if err != nil {
 				return err
@@ -95,16 +96,37 @@ func insertAsset(ctx context.Context, q querier, a Asset, ts string) (int64, err
 	return res.LastInsertId()
 }
 
-// UpdateAsset replaces the editable fields of an asset of the scope.
+// UpdateAsset replaces the editable fields of an asset of the scope, which
+// must not leave or enter groups the scope does not hold (see checkMove).
 func (s *Store) UpdateAsset(ctx context.Context, sc Scope, a Asset) error {
 	cond, args := sc.cond("a")
-	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
-	return wrap("update asset", expectRow(s.q(ctx).ExecContext(ctx, `
-		UPDATE assets AS a SET name = ?, kind = ?, ecosystem = ?, version = ?, purl = ?, cpe = ?, cpe_mode = ?, cpe_from = ?, track_since = ?,
-		       criticality = ?, owner = ?, notes = ?, project = ?, tags = ?, updated_at = ?
-		WHERE a.id = ? AND `+cond,
-		append([]any{a.Name, a.Kind, a.Ecosystem, a.Version, a.PURL, a.CPE, a.CPEMode, a.CPEFrom, a.TrackSince, a.Criticality, a.Owner, a.Notes, a.Project,
-			joinTags(a.Tags), now(), a.ID}, args...)...)))
+	return wrap("update asset", s.InTx(ctx, func(ctx context.Context) error {
+		if err := s.checkWrite(ctx, sc, a.ID, &a); err != nil {
+			return err
+		}
+		// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
+		return expectRow(s.q(ctx).ExecContext(ctx, `
+			UPDATE assets AS a SET name = ?, kind = ?, ecosystem = ?, version = ?, purl = ?, cpe = ?, cpe_mode = ?, cpe_from = ?, track_since = ?,
+			       criticality = ?, owner = ?, notes = ?, project = ?, tags = ?, updated_at = ?
+			WHERE a.id = ? AND `+cond,
+			append([]any{a.Name, a.Kind, a.Ecosystem, a.Version, a.PURL, a.CPE, a.CPEMode, a.CPEFrom, a.TrackSince, a.Criticality, a.Owner, a.Notes, a.Project,
+				joinTags(a.Tags), now(), a.ID}, args...)...))
+	}))
+}
+
+// checkWrite refuses a change of the stored asset id into after (nil: its
+// deletion) that would move it across groups the scope does not hold; the
+// asset is looked up in the scope, ErrNotFound outside of it. Everything
+// skips the lookup: the write itself finds the asset or not.
+func (s *Store) checkWrite(ctx context.Context, sc Scope, id int64, after *Asset) error {
+	if sc.all {
+		return nil
+	}
+	before, err := s.Asset(ctx, sc, id)
+	if err != nil {
+		return err
+	}
+	return checkMove(ctx, s.q(ctx), sc, &before, after)
 }
 
 // Asset returns one asset of the scope: ErrNotFound outside of it, as for an
@@ -178,9 +200,16 @@ func (s *Store) SetOlderVulns(ctx context.Context, id int64, n int) error {
 	return wrap("set older vulnerabilities", err)
 }
 
-// DeleteAsset removes an asset of the scope and, by cascade, its findings.
+// DeleteAsset removes an asset of the scope and, by cascade, its findings. A
+// restricted account deletes only an asset of its groups alone (see
+// checkMove): one shared with another group is not its own to delete.
 func (s *Store) DeleteAsset(ctx context.Context, sc Scope, id int64) error {
 	cond, args := sc.cond("a")
-	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
-	return wrap("delete asset", expectRow(s.q(ctx).ExecContext(ctx, `DELETE FROM assets AS a WHERE a.id = ? AND `+cond, append([]any{id}, args...)...)))
+	return wrap("delete asset", s.InTx(ctx, func(ctx context.Context) error {
+		if err := s.checkWrite(ctx, sc, id, nil); err != nil {
+			return err
+		}
+		// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
+		return expectRow(s.q(ctx).ExecContext(ctx, `DELETE FROM assets AS a WHERE a.id = ? AND `+cond, append([]any{id}, args...)...))
+	}))
 }

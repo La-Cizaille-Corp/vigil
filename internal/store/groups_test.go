@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math/rand/v2"
+	"reflect"
 	"slices"
 	"testing"
 )
@@ -159,6 +160,103 @@ func TestScopeMatchesTheRule(t *testing.T) {
 		if len(mine) > 1 || len(mine) == 1 && mine[0].ID != ids[1] || len(mine) == 0 && inGroup(a, byID[ids[1]]) {
 			t.Errorf("asset %v %q: groups %v seen from %d", a.Tags, a.Project, mine, ids[1])
 		}
+	}
+}
+
+// T6: a restricted account makes an asset enter only its groups, leave only
+// its groups, and stay in one of them unless it deletes it: whatever the way
+// (creation, change, deletion, several at once, SBOM), a write that would
+// break it is refused, says why, and changes nothing.
+func TestRestrictedWrites(t *testing.T) {
+	ctx := context.Background()
+	st := openTest(t)
+	group := func(name string, tags, projects []string) int64 {
+		t.Helper()
+		id, err := st.CreateGroup(ctx, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.SetGroupRules(ctx, id, tags, projects); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	a := group("A", []string{"equipe-a"}, []string{"boutique"})
+	group("B", []string{"equipe-b"}, []string{"erp", "partage"})
+	group("A et B", nil, []string{"partage"})
+	asset := func(name string, project string, tags ...string) Asset {
+		return Asset{Name: name, Kind: "package", Criticality: "low", Source: "manual", Project: project, Tags: tags}
+	}
+	mine, err := st.CreateAsset(ctx, Everything, asset("mine", "", "equipe-a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared, err := st.CreateAsset(ctx, Everything, asset("shared", "", "equipe-a", "equipe-b"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := InGroups(a)
+	refused := func(label string, err error, want OutsideGroupsError) {
+		t.Helper()
+		var e *OutsideGroupsError
+		if !errors.As(err, &e) || !errors.Is(err, ErrOutsideGroups) {
+			t.Errorf("%s: %v, want refused", label, err)
+			return
+		}
+		if !reflect.DeepEqual(*e, want) {
+			t.Errorf("%s: %+v, want %+v", label, *e, want)
+		}
+	}
+	update := func(id int64, project string, tags ...string) error {
+		a, err := st.Asset(ctx, Everything, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		a.Project, a.Tags = project, tags
+		return st.UpdateAsset(ctx, sc, a)
+	}
+	before := fingerprint(t, st)
+	suggest := OutsideGroupsError{Tags: []string{"equipe-a"}, Projects: []string{"boutique"}}
+	_, err = st.CreateAsset(ctx, sc, asset("nowhere", ""))
+	refused("created in no group", err, OutsideGroupsError{Asset: "nowhere", Tags: suggest.Tags, Projects: suggest.Projects})
+	_, err = st.CreateAsset(ctx, sc, asset("also B", "", "equipe-a", "equipe-b"))
+	refused("created in B too", err, OutsideGroupsError{Asset: "also B", ForeignTags: []string{"equipe-b"}})
+	_, err = st.CreateAssets(ctx, sc, []Asset{asset("fine", "boutique"), asset("erp", "erp")})
+	refused("one of several in B", err, OutsideGroupsError{Asset: "erp", ForeignProjects: []string{"erp"},
+		Tags: suggest.Tags, Projects: suggest.Projects})
+	refused("B added", update(mine, "", "equipe-a", "equipe-b"), OutsideGroupsError{Asset: "mine", ForeignTags: []string{"equipe-b"}})
+	refused("B removed", update(shared, "", "equipe-a"), OutsideGroupsError{Asset: "shared", ForeignTags: []string{"equipe-b"}})
+	refused("A removed", update(mine, ""), OutsideGroupsError{Asset: "mine", Tags: suggest.Tags, Projects: suggest.Projects})
+	refused("shared deleted", st.DeleteAsset(ctx, sc, shared), OutsideGroupsError{Asset: "shared", Deleting: true,
+		ForeignTags: []string{"equipe-b"}})
+	for _, project := range []string{"erp", "partage", "inconnu"} {
+		_, err := st.ReplaceProjectAssets(ctx, sc, project, []Asset{{Name: "c", Kind: "package", PURL: "pkg:npm/c@1"}})
+		if !errors.Is(err, ErrOutsideGroups) {
+			t.Errorf("SBOM of the project %s: %v", project, err)
+		}
+	}
+	if fingerprint(t, st) != before {
+		t.Fatal("a refused write changed the database")
+	}
+
+	// Within its groups, it writes as anyone.
+	if err := update(mine, "boutique"); err != nil {
+		t.Errorf("tag of A replaced by a project of A: %v", err)
+	}
+	if err := update(shared, "", "equipe-a", "equipe-b", "prod"); err != nil {
+		t.Errorf("a tag of no group added to a shared asset: %v", err)
+	}
+	if _, err := st.CreateAssets(ctx, sc, []Asset{asset("fine", "boutique"), asset("fine too", "", "equipe-a")}); err != nil {
+		t.Errorf("created in A: %v", err)
+	}
+	if _, err := st.ReplaceProjectAssets(ctx, sc, "boutique", []Asset{{Name: "c", Kind: "package", PURL: "pkg:npm/c@1"}}); err != nil {
+		t.Errorf("SBOM of a project of A: %v", err)
+	}
+	if err := st.DeleteAsset(ctx, sc, mine); err != nil {
+		t.Errorf("an asset of A alone deleted: %v", err)
+	}
+	if err := st.DeleteAsset(ctx, Everything, shared); err != nil {
+		t.Errorf("deleted by an account that sees everything: %v", err)
 	}
 }
 
