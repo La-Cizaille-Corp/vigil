@@ -103,8 +103,8 @@ func rangeText(r versions.Range, prefix string) string {
 }
 
 // osvFixes reads the ranges of an OSV advisory for a package. At the latest
-// release, the ranges without a fixed version are the asset's (see
-// osv.Vuln.Unfixed).
+// release, the last interval of a range that ends affected is the asset's
+// (osv.Range.Unfixed, the rule of osv.Vuln.Unfixed).
 func osvFixes(raw string, pkg osv.Package, version string) []Fix {
 	var v osv.Vuln
 	if json.Unmarshal([]byte(raw), &v) != nil {
@@ -114,10 +114,11 @@ func osvFixes(raw string, pkg osv.Package, version string) []Fix {
 	var out []Fix
 	for _, a := range v.For(pkg) {
 		for _, r := range a.Ranges {
-			for _, iv := range r.Intervals() {
+			ivs := r.Intervals()
+			for i, iv := range ivs {
 				yours := iv.Holds(version)
-				if latest {
-					yours = iv.Fixed == ""
+				if latest { // the last interval, when the range ends affected
+					yours = i == len(ivs)-1 && r.Unfixed()
 				}
 				out = append(out, Fix{rangeText(iv, ""), iv.Fixed, yours})
 			}

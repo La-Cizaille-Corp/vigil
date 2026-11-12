@@ -183,6 +183,21 @@ func (r Range) Intervals() []versions.Range {
 	if r.Type == "GIT" {
 		return nil
 	}
+	return r.spans()
+}
+
+// Unfixed reports whether a range still affects the latest release: its last
+// interval has no fixed version, it is open ("introduced") or ends affected
+// ("last_affected", no fix indicated). A range of commits counts too: its
+// commits are not compared, but its last event says whether a fix came.
+func (r Range) Unfixed() bool {
+	spans := r.spans()
+	return len(spans) > 0 && spans[len(spans)-1].Fixed == ""
+}
+
+// spans reads the events of a range, of versions or of commits, into
+// intervals: the one reading of the events, for Intervals and Unfixed.
+func (r Range) spans() []versions.Range {
 	var out []versions.Range
 	var iv versions.Range
 	open := false
@@ -232,27 +247,15 @@ func (v Vuln) For(pkg Package) []Affected {
 }
 
 // Unfixed reports whether the advisory still affects the latest release of
-// pkg: one of its ranges ends affected, after "introduced" (no fixed version
-// yet) or "last_affected" (affected up to that version, no fix indicated).
-// A withdrawn advisory affects nothing.
+// pkg: one of its ranges ends affected (Range.Unfixed). A withdrawn advisory
+// affects nothing.
 func (v Vuln) Unfixed(pkg Package) bool {
 	if v.Withdrawn != "" {
 		return false
 	}
 	for _, a := range v.For(pkg) {
-		for _, r := range a.Ranges {
-			open := false
-			for _, e := range r.Events {
-				switch {
-				case e["introduced"] != "", e["last_affected"] != "":
-					open = true
-				case e["fixed"] != "":
-					open = false
-				}
-			}
-			if open {
-				return true
-			}
+		if slices.ContainsFunc(a.Ranges, Range.Unfixed) {
+			return true
 		}
 	}
 	return false

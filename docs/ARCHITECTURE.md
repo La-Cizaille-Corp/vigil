@@ -268,7 +268,11 @@ la traiter comme ouverte signalerait presque toutes leurs CVE. Pour un paquet, O
 sans version (`/v1/query`, avis complets, un appel par paquet) et seuls les avis retenus sont
 stockés. *Conséquence* : quand le correctif sort, la source le signale et la vulnérabilité est
 résolue automatiquement (A14), ce qui correspond à un actif qui se met à jour. Un correctif
-publié mais pas encore installé n'est pas signalé : c'est l'hypothèse même de `latest`.
+publié mais pas encore installé n'est pas signalé : c'est l'hypothèse même de `latest`. Une seule
+lecture des étapes d'une plage dit qu'elle finit affectée (`osv.Range.Unfixed`) : la détection, et la page
+d'une vulnérabilité, qui désigne comme celle de l'actif le dernier intervalle de cette plage. *Correction
+(revue de la 0.5.0)* : la page prenait tout intervalle sans version corrigée, y compris « affectée jusqu'à
+1.0 » suivi d'un intervalle corrigé, que la détection ne retient pas.
 
 **A52. Détection par le nom, sans purl ni CPE.** Beaucoup d'actifs sont saisis par leur seul nom :
 ils n'étaient pas vérifiés. Ils sont désormais cherchés dans les descriptions des CVE de la NVD

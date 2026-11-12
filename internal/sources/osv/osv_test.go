@@ -31,6 +31,10 @@ func TestUnfixed(t *testing.T) {
 		{"withdrawn", `{"withdrawn":"2024-01-01T00:00:00Z","affected":[{"package":{"purl":"pkg:npm/lodash"},"ranges":[{"type":"SEMVER","events":[{"introduced":"0"}]}]}]}`, lodash, false},
 		{"purl case and version", `{"affected":[{"package":{"purl":"pkg:pypi/django"},"ranges":[{"type":"ECOSYSTEM","events":[{"introduced":"0"}]}]}]}`, Package{PURL: "pkg:pypi/Django@4.2"}, true},
 		{"only entry without purl", `{"affected":[{"package":{"name":"lodash","ecosystem":"npm"},"ranges":[{"type":"SEMVER","events":[{"introduced":"0"}]}]}]}`, lodash, true},
+		{"affected up to a version, then fixed", `{"affected":[{"package":{"purl":"pkg:npm/lodash"},"ranges":[{"type":"SEMVER","events":[
+			{"introduced":"0"},{"last_affected":"1.0"},{"introduced":"2.0"},{"fixed":"2.5"}]}]}]}`, lodash, false},
+		{"commits without a fix", `{"affected":[{"package":{"purl":"pkg:npm/lodash"},"ranges":[{"type":"GIT","events":[{"introduced":"abc123"}]}]}]}`, lodash, true},
+		{"commits fixed", `{"affected":[{"package":{"purl":"pkg:npm/lodash"},"ranges":[{"type":"GIT","events":[{"introduced":"abc"},{"fixed":"def"}]}]}]}`, lodash, false},
 		{"name and ecosystem", `{"affected":[{"package":{"name":"openssl","ecosystem":"Debian:12"},"ranges":[{"type":"ECOSYSTEM","events":[{"introduced":"0"}]}]},
 			{"package":{"name":"openssl","ecosystem":"Alpine:v3.20"},"ranges":[{"type":"ECOSYSTEM","events":[{"introduced":"0"},{"fixed":"3.3.2-r0"}]}]}]}`, Package{Name: "openssl", Ecosystem: "Alpine"}, false},
 	}
