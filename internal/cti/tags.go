@@ -5,26 +5,41 @@ import (
 	"fmt"
 	"io"
 	"regexp"
-	"slices"
 	"sort"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/La-Cizaille-Corp/vigil/internal/choice"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
 
-// Tag is a sector or a country with the keywords that reveal it.
-// Matching is deliberately simple (whole words, case-insensitive): the
+// tag is a sector, a regulation or a country with the keywords that reveal
+// it. Matching is deliberately simple (whole words, case-insensitive): the
 // source's own country and sectors come first, keywords only complete them,
 // and tags can be filtered rather than trusted blindly.
-type Tag struct {
+type tag struct {
 	Value    string
 	Label    string
 	Keywords []string
 }
 
-// Sectors follows the NIS2 sector list, simplified.
-var Sectors = []Tag{
+// The options offered by forms and filters, from the tables below.
+var (
+	Sectors     = options(sectorTags)
+	Regulations = options(regulationTags)
+	Countries   = options(countryTags)
+)
+
+func options(tags []tag) []choice.Option {
+	out := make([]choice.Option, len(tags))
+	for i, t := range tags {
+		out[i] = choice.Option{Value: t.Value, Label: t.Label}
+	}
+	return out
+}
+
+// sectorTags follows the NIS2 sector list, simplified.
+var sectorTags = []tag{
 	{"energy", "Énergie", []string{"energy", "énergie", "power grid", "electricity", "électricité", "oil", "pétrole", "gas pipeline", "nuclear", "nucléaire", "utility", "utilities"}},
 	{"health", "Santé", []string{"health", "santé", "hospital", "hôpital", "hôpitaux", "healthcare", "medical", "médical", "pharma", "pharmaceutical", "clinic", "clinique"}},
 	{"finance", "Finance", []string{"bank", "banque", "banking", "bancaire", "financial", "financier", "fintech", "insurance", "assurance", "crypto exchange", "payment", "paiement"}},
@@ -39,10 +54,10 @@ var Sectors = []Tag{
 	{"digital", "Services numériques / IT", []string{"cloud", "saas", "msp", "managed service provider", "hosting", "hébergeur", "data center", "datacenter", "software supply chain"}},
 }
 
-// Regulations are the regulations and reference standards followed by the
-// regulatory watch. Keywords avoid bare acronyms that are common words
+// regulationTags are the regulations and reference standards followed by
+// the regulatory watch. Keywords avoid bare acronyms that are common words
 // (e.g. "CRA" alone) to limit false positives.
-var Regulations = []Tag{
+var regulationTags = []tag{
 	{"nis2", "NIS2", []string{"nis2", "nis 2", "nis-2", "directive (eu) 2022/2555", "directive 2022/2555"}},
 	{"cra", "Cyber Resilience Act", []string{"cyber resilience act", "cyber-resilience act", "cyberrésilience", "cyber-résilience", "règlement cra", "the cra", "le cra", "regulation (eu) 2024/2847"}},
 	{"dora", "DORA", []string{"dora", "digital operational resilience", "résilience opérationnelle numérique", "regulation (eu) 2022/2554"}},
@@ -59,8 +74,9 @@ var Regulations = []Tag{
 	{"nist_csf", "NIST CSF / SP 800", []string{"nist csf", "cybersecurity framework", "nist sp 800", "sp 800-53"}},
 }
 
-// Countries most commonly cited in CTI news; extend as needed.
-var Countries = []Tag{
+// countryTags are the countries most commonly cited in CTI news; extend as
+// needed.
+var countryTags = []tag{
 	{"FR", "France", []string{"france", "french", "français", "française", "anssi", "cert-fr"}},
 	{"BE", "Belgique", []string{"belgium", "belgique", "belgian", "belge"}},
 	{"CH", "Suisse", []string{"switzerland", "suisse", "swiss"}},
@@ -87,7 +103,7 @@ var Countries = []Tag{
 var tagPatterns = map[string]*regexp.Regexp{}
 
 func init() {
-	for _, list := range [][]Tag{Sectors, Countries, Regulations} {
+	for _, list := range [][]tag{sectorTags, countryTags, regulationTags} {
 		for _, t := range list {
 			quoted := make([]string, len(t.Keywords))
 			for i, k := range t.Keywords {
@@ -109,13 +125,13 @@ type Tags struct {
 func Classify(it Item, f store.Feed) Tags {
 	text := it.Title + " " + it.Summary
 	return Tags{
-		Countries:   match(Countries, text, splitNonEmpty(f.Country)),
-		Sectors:     match(Sectors, text, splitNonEmpty(f.Sectors)),
-		Regulations: match(Regulations, text, splitNonEmpty(f.Regulations)),
+		Countries:   match(countryTags, text, splitNonEmpty(f.Country)),
+		Sectors:     match(sectorTags, text, splitNonEmpty(f.Sectors)),
+		Regulations: match(regulationTags, text, splitNonEmpty(f.Regulations)),
 	}
 }
 
-func match(tags []Tag, text string, initial []string) []string {
+func match(tags []tag, text string, initial []string) []string {
 	set := map[string]bool{}
 	for _, v := range initial {
 		set[v] = true
@@ -138,41 +154,6 @@ func splitNonEmpty(s string) []string {
 	for _, p := range strings.Split(s, ",") {
 		if p = strings.TrimSpace(p); p != "" {
 			out = append(out, p)
-		}
-	}
-	return out
-}
-
-// Label returns the display label of a sector or country value.
-func Label(tags []Tag, value string) string {
-	for _, t := range tags {
-		if t.Value == value {
-			return t.Label
-		}
-	}
-	return value
-}
-
-// Known reports whether value is one of tags.
-func Known(tags []Tag, value string) bool {
-	for _, t := range tags {
-		if t.Value == value {
-			return true
-		}
-	}
-	return false
-}
-
-// KnownOnly keeps the values found in tags, each once, in the order given.
-// SECURITY: each value of a filter adds a condition to the query, and SQLite
-// refuses an expression deeper than 1000: without duplicates, a crafted URL or
-// form cannot make the news pages fail. out only holds known values, so the
-// Contains check stays cheap.
-func KnownOnly(tags []Tag, values []string) []string {
-	var out []string
-	for _, v := range values {
-		if Known(tags, v) && !slices.Contains(out, v) {
-			out = append(out, v)
 		}
 	}
 	return out

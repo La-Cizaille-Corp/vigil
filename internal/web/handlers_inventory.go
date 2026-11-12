@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/La-Cizaille-Corp/vigil/internal/choice"
 	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/nvd"
@@ -225,10 +226,10 @@ func prefilledAssetForm(q url.Values) store.Asset {
 		return a
 	}
 	a.Name, a.Version, a.CPE = q.Get("name"), q.Get("version"), q.Get("cpe")
-	if k := q.Get("kind"); inventory.Label(inventory.Kinds, k) != k {
+	if k := q.Get("kind"); choice.Has(inventory.Kinds, k) {
 		a.Kind = k
 	}
-	if m := q.Get("cpe_mode"); inventory.Label(inventory.CPEModes, m) != m {
+	if m := q.Get("cpe_mode"); choice.Has(inventory.CPEModes, m) {
 		a.CPEMode = m
 	}
 	inventory.Normalize(&a)

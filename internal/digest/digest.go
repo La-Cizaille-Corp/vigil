@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/chattext"
+	"github.com/La-Cizaille-Corp/vigil/internal/choice"
 	"github.com/La-Cizaille-Corp/vigil/internal/cti"
 	"github.com/La-Cizaille-Corp/vigil/internal/cvss"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
@@ -30,7 +31,7 @@ var htmlSource string
 
 var funcs = map[string]any{
 	"date":   func(t time.Time) string { return t.Local().Format("02/01/2006 15:04") },
-	"status": func(s string) string { return inventory.Label(tracking.Statuses, s) },
+	"status": func(s string) string { return choice.Label(tracking.Statuses, s) },
 	"sev":    tracking.SeverityLabel,
 	"band":   Band,
 	"score": func(v float64) string {
@@ -115,7 +116,7 @@ const (
 )
 
 // Levels are the levels of a finding, labelled in French, most urgent first.
-var Levels = []inventory.Option{
+var Levels = []choice.Option{
 	{Value: LevelUrgent, Label: "Urgentes"},
 	{Value: LevelPlan, Label: "À planifier"},
 	{Value: LevelWatch, Label: "À surveiller"},
@@ -386,10 +387,10 @@ func FormatEPSS(p float64) string {
 	return fmt.Sprintf("%.1f %%", p*100)
 }
 
-func labels(tags []cti.Tag, values []string) string {
+func labels(tags []choice.Option, values []string) string {
 	out := make([]string, len(values))
 	for i, v := range values {
-		out[i] = cti.Label(tags, v)
+		out[i] = choice.Label(tags, v)
 	}
 	return strings.Join(out, ", ")
 }

@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/La-Cizaille-Corp/vigil/internal/choice"
 	"github.com/La-Cizaille-Corp/vigil/internal/digest"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
@@ -134,12 +135,6 @@ func compareText(a, b string) int {
 	return strings.Compare(strings.ToLower(a), strings.ToLower(b))
 }
 
-// optionRank is the position of a value in a list of options: statuses and
-// criticalities sort in their own order, not alphabetically.
-func optionRank(opts []inventory.Option, value string) int {
-	return slices.IndexFunc(opts, func(o inventory.Option) bool { return o.Value == value })
-}
-
 // assetIdentifier is what the inventory shows in its Identifier column.
 func assetIdentifier(a store.Asset) string {
 	return cmp.Or(a.PURL, a.CPE, a.Ecosystem)
@@ -153,11 +148,11 @@ var assetColumnList = []column[store.Asset]{
 	textColumn("vendor", "Éditeur", inventory.VendorName),
 	{key: "version", label: "Version", empty: func(a store.Asset) bool { return a.Version == "" },
 		compare: func(a, b store.Asset) int { return versions.Compare(a.Version, b.Version) }},
-	textColumn("kind", "Type", func(a store.Asset) string { return inventory.Label(inventory.Kinds, a.Kind) }),
+	textColumn("kind", "Type", func(a store.Asset) string { return choice.Label(inventory.Kinds, a.Kind) }),
 	textColumn("id", "Identifiant (purl, CPE ou écosystème)", assetIdentifier),
 	textColumn("project", "Projet", func(a store.Asset) string { return a.Project }),
 	{key: "criticality", label: "Criticité", desc: true, compare: func(a, b store.Asset) int {
-		return cmp.Compare(optionRank(inventory.Criticalities, a.Criticality), optionRank(inventory.Criticalities, b.Criticality))
+		return cmp.Compare(choice.Rank(inventory.Criticalities, a.Criticality), choice.Rank(inventory.Criticalities, b.Criticality))
 	}},
 	textColumn("owner", "Responsable", func(a store.Asset) string { return a.Owner }),
 	textColumn("tracking", "Détection", trackingSource),
@@ -190,7 +185,7 @@ var findingColumnList = []column[store.Finding]{
 	{key: "fixed", label: "Corrigée en", empty: func(f store.Finding) bool { return f.FixedIn == "" },
 		compare: func(a, b store.Finding) int { return versions.Compare(a.FixedIn, b.FixedIn) }},
 	{key: "status", label: "Statut", compare: func(a, b store.Finding) int {
-		return cmp.Compare(optionRank(tracking.Statuses, a.Status), optionRank(tracking.Statuses, b.Status))
+		return cmp.Compare(choice.Rank(tracking.Statuses, a.Status), choice.Rank(tracking.Statuses, b.Status))
 	}},
 	{key: "recent", label: "Détectée le", desc: true,
 		compare: func(a, b store.Finding) int { return a.FirstSeen.Compare(b.FirstSeen) }},
@@ -223,7 +218,7 @@ const (
 // asked for is shown.
 func listLevel(q url.Values) string {
 	switch l := q.Get("level"); {
-	case l == levelOpen || l == levelFixed || l == levelAll || isLevel(l):
+	case l == levelOpen || l == levelFixed || l == levelAll || choice.Has(digest.Levels, l):
 		return l
 	case len(q["status"]) > 0:
 		return levelAll
@@ -264,10 +259,6 @@ func levelLinks(findings []store.Finding, q url.Values, current string) []levelL
 	return append(out, tab(levelFixed, "Corrigées", counts[levelFixed]), tab(levelAll, "Toutes", len(findings)))
 }
 
-func isLevel(v string) bool {
-	return slices.ContainsFunc(digest.Levels, func(o inventory.Option) bool { return o.Value == v })
-}
-
 // keepLevel keeps the findings of a level (see listLevel); an unknown level
 // keeps them all.
 func keepLevel(findings []store.Finding, level string) []store.Finding {
@@ -277,7 +268,7 @@ func keepLevel(findings []store.Finding, level string) []store.Finding {
 		keep = isOpen
 	case level == levelFixed:
 		keep = func(f store.Finding) bool { return f.Status == "resolved" }
-	case isLevel(level):
+	case choice.Has(digest.Levels, level):
 		keep = func(f store.Finding) bool { return digest.Level(f) == level }
 	default:
 		return findings

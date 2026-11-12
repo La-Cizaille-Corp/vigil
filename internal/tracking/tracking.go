@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/La-Cizaille-Corp/vigil/internal/choice"
 	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 	"github.com/La-Cizaille-Corp/vigil/internal/cvss"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
@@ -25,7 +26,7 @@ import (
 )
 
 // Statuses are the CycloneDX / VEX analysis states, labelled in French.
-var Statuses = []inventory.Option{
+var Statuses = []choice.Option{
 	{Value: "in_triage", Label: "À analyser"},
 	{Value: "exploitable", Label: "Exploitable – à traiter"},
 	{Value: "resolved", Label: "Corrigé"},
@@ -34,7 +35,7 @@ var Statuses = []inventory.Option{
 }
 
 // Severities are the severity levels of vulnerabilities, labelled in French.
-var Severities = []inventory.Option{
+var Severities = []choice.Option{
 	{Value: "CRITICAL", Label: "Critique"}, {Value: "HIGH", Label: "Haute"},
 	{Value: "MEDIUM", Label: "Moyenne"}, {Value: "LOW", Label: "Basse"}, {Value: "UNKNOWN", Label: "Inconnue"},
 }
@@ -44,11 +45,11 @@ func SeverityLabel(v string) string {
 	if v == "" {
 		v = "UNKNOWN"
 	}
-	return inventory.Label(Severities, v)
+	return choice.Label(Severities, v)
 }
 
 // Justifications explain a "not_affected" status (CycloneDX vocabulary).
-var Justifications = []inventory.Option{
+var Justifications = []choice.Option{
 	{Value: "code_not_present", Label: "Code vulnérable absent"},
 	{Value: "code_not_reachable", Label: "Code vulnérable non atteignable"},
 	{Value: "requires_configuration", Label: "Nécessite une configuration absente"},
@@ -65,10 +66,10 @@ const MaxComment = 4000
 
 // ValidateStatus checks a status change submitted by a user.
 func ValidateStatus(status, justification, comment string) error {
-	if inventory.Label(Statuses, status) == status {
+	if !choice.Has(Statuses, status) {
 		return errors.New("statut invalide")
 	}
-	if justification != "" && inventory.Label(Justifications, justification) == justification {
+	if justification != "" && !choice.Has(Justifications, justification) {
 		return errors.New("justification invalide")
 	}
 	if status == "not_affected" && justification == "" {
@@ -572,7 +573,7 @@ const (
 // CVSS score outside 0..10 becomes absent, texts and lists are bounded. A
 // longer alias is not an identifier: it is dropped.
 func sanitize(v store.Vulnerability) store.Vulnerability {
-	if v.Severity == "UNKNOWN" || inventory.Label(Severities, v.Severity) == v.Severity {
+	if v.Severity == "UNKNOWN" || !choice.Has(Severities, v.Severity) {
 		v.Severity = ""
 	}
 	if !(v.CVSS >= 0 && v.CVSS <= 10) { // NaN included

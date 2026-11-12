@@ -16,13 +16,6 @@ import (
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
 )
 
-// roles are the user roles, labelled in French.
-var roles = []inventory.Option{
-	{Value: "admin", Label: "administrateur"},
-	{Value: "analyst", Label: "analyste"},
-	{Value: "viewer", Label: "lecteur"},
-}
-
 // tagSelection is the data of the "tagFields" template.
 type tagSelection struct {
 	Countries, Sectors, Regulations []string

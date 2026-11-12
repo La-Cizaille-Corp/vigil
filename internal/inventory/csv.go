@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/La-Cizaille-Corp/vigil/internal/choice"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
 
@@ -177,7 +178,7 @@ func AssetsFromCSV(records [][]string, now time.Time) ([]store.Asset, error) {
 // optionValue accepts a code or a French label, case-insensitively; an
 // empty cell gives def. An unknown value is returned as is, so that
 // Validate reports it.
-func optionValue(options []Option, v, def string) string {
+func optionValue(options []choice.Option, v, def string) string {
 	if v == "" {
 		return def
 	}
