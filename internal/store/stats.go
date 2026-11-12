@@ -104,7 +104,7 @@ func (s *Store) openStats(ctx context.Context, sc Scope, now time.Time, st *Stat
 		       SUM(v.kev AND COALESCE(`+dueExpr+` < ?, 0)),
 		       SUM(f.status = 'in_triage'),
 		       SUM(f.status = 'in_triage' AND f.first_seen < ?)
-		FROM findings f JOIN vulnerabilities v ON v.id = f.vuln_id JOIN assets a ON a.id = f.asset_id
+		FROM findings f`+vulnJoin+` JOIN assets a ON a.id = f.asset_id
 		WHERE f.status IN `+openStatuses+` AND `+shownExpr+` AND `+cond+`
 		GROUP BY 1`, args...)
 	if err != nil {
@@ -198,30 +198,21 @@ func (s *Store) weeklyStats(ctx context.Context, sc Scope, now time.Time, st *St
 		func(w *WeekCount) { w.Closed++ })
 }
 
+// topAssets keeps the first loads of the scope (see AssetLoads), which the
+// dashboard shows by severity.
 func (s *Store) topAssets(ctx context.Context, sc Scope, _ time.Time, st *Stats) error {
-	list, err := s.assetLoads(ctx, sc, false)
+	list, err := s.AssetLoads(ctx, sc)
 	st.TopAssets = list[:min(len(list), topAssets)]
 	return err
 }
 
 // AssetLoads returns the assets of the scope that have open findings, with
 // them by severity and the urgent ones, the most exposed first: what each
-// asset of the inventory exposes (A86).
+// asset of the inventory exposes (A86). The exploitation signals the urgent
+// ones need come from the index of the advisories (A91), not from their record.
 func (s *Store) AssetLoads(ctx context.Context, sc Scope) ([]AssetLoad, error) {
-	return s.assetLoads(ctx, sc, true)
-}
-
-// assetLoads reads the loads of the assets of the scope; the dashboard shows
-// the first ones without their urgent ones (Urgent 0), whose count reads the
-// exploitation signals of every vulnerability: 0.09 s on the kernel base of
-// the audit, where they follow its stored advisory in the row.
-func (s *Store) assetLoads(ctx context.Context, sc Scope, urgent bool) ([]AssetLoad, error) {
-	urgentSum := "0"
-	if urgent {
-		urgentSum = "SUM(" + urgentExpr + ")"
-	}
 	cond, args := sc.cond("a")
-	// #nosec G202 -- urgentSum and cond are fixed expressions (urgentExpr, Scope.cond); the values are parameters.
+	// #nosec G202 -- urgentExpr, vulnJoin and cond (Scope.cond) are fixed expressions; the values are parameters.
 	return collect(ctx, s.q(ctx), "asset loads", func(row scanner) (AssetLoad, error) {
 		var a AssetLoad
 		err := row.Scan(&a.ID, &a.Name, &a.Version, &a.Critical, &a.High, &a.Medium, &a.Other, &a.Urgent)
@@ -229,8 +220,8 @@ func (s *Store) assetLoads(ctx context.Context, sc Scope, urgent bool) ([]AssetL
 	}, `
 		SELECT a.id, a.name, a.version,
 		       SUM(v.severity = 'CRITICAL'), SUM(v.severity = 'HIGH'), SUM(v.severity = 'MEDIUM'),
-		       SUM(v.severity NOT IN ('CRITICAL', 'HIGH', 'MEDIUM')), `+urgentSum+`
-		FROM findings f JOIN assets a ON a.id = f.asset_id JOIN vulnerabilities v ON v.id = f.vuln_id
+		       SUM(v.severity NOT IN ('CRITICAL', 'HIGH', 'MEDIUM')), SUM(`+urgentExpr+`)
+		FROM findings f JOIN assets a ON a.id = f.asset_id`+vulnJoin+`
 		WHERE f.status IN `+openStatuses+` AND `+shownExpr+` AND `+cond+`
 		GROUP BY a.id
 		ORDER BY 4 DESC, 5 DESC, COUNT(*) DESC, a.name`, args...)

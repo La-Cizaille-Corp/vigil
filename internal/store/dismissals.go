@@ -117,8 +117,7 @@ func (s *Store) ApplyDismissalRules(ctx context.Context) (int, error) {
 		}
 		exploited, err := collect(ctx, tx, "exploited findings set aside", scanMatch, `
 			SELECT f.id, r.id, r.text FROM findings f
-			JOIN dismissal_rules r ON r.id = f.dismissed_by
-			JOIN vulnerabilities v ON v.id = f.vuln_id
+			JOIN dismissal_rules r ON r.id = f.dismissed_by`+vulnJoin+`
 			WHERE `+shownExpr+` AND `+exploitedExpr)
 		if err != nil {
 			return err
@@ -135,8 +134,7 @@ func (s *Store) ApplyDismissalRules(ctx context.Context) (int, error) {
 
 		matches, err := collect(ctx, tx, "findings to set aside", scanMatch, `
 			SELECT f.id, r.id, r.text FROM dismissal_rules r
-			JOIN findings f ON f.asset_id = r.asset_id
-			JOIN vulnerabilities v ON v.id = f.vuln_id
+			JOIN findings f ON f.asset_id = r.asset_id`+vulnJoin+`
 			WHERE f.status = 'in_triage' AND `+shownExpr+` AND NOT `+exploitedExpr+` AND `+ruleMatchExpr+`
 			  AND NOT `+decidedExpr)
 		if err != nil {

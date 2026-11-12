@@ -221,6 +221,37 @@ seules parties dynamiques (filtres) n'assemblent que des expressions de colonnes
 migrations sont appliquées au démarrage, dans l'ordre, une seule fois ; une base ancienne
 (sauvegarde) est donc mise à niveau automatiquement.
 
+**A91. Ce que les listes lisent d'un avis tient dans un index que chaque requête nomme.** La revue de
+la 0.5.0 a mesuré, sur la base noyau de l'audit (180 Mo, 7 681 avis, 7 680 vulnérabilités trouvées),
+que la liste des vulnérabilités, les alertes, le tableau de bord et les charges par actif (A86)
+passaient l'essentiel de leur temps dans les pages de débordement de `vulnerabilities` : `kev`,
+`epss` et `cvss` (migrations 002 et 006) y sont rangées après l'avis stocké (`raw`, 159 Mo, 20,8 Ko
+en moyenne ; 38 872 des 44 427 pages de la table sont des pages de débordement), et lire `epss`
+parcourt toute la chaîne de la ligne (`SUM(epss)` sur la table : 134 ms, contre 20 ms pour `kev`,
+qu'il suffit de lire dans l'en-tête de la ligne). La migration 021 crée `vulnerabilities_listed`
+(`id, kev, epss, cvss, severity, published, aliases, summary`) : tout ce que lisent d'un avis les
+listes, les comptes, les alertes, le tableau de bord, les actualités qui concernent l'inventaire et
+la synchronisation (période de suivi, règles d'écart, résolution automatique). Les requêtes le
+nomment (`INDEXED BY`, constantes `listedVulns` et `vulnJoin` de `internal/store`) : sans
+statistiques, SQLite préfère l'index unique de la clé primaire et relit la ligne. `ANALYZE` le
+ferait choisir sur une base remplie, mais une base neuve analyse une table vide et n'y gagnerait
+rien. `TestAdvisoriesReadThroughTheirIndex` relève les requêtes de ces méthodes et exige que leur plan
+lise les avis par cet index seul (`COVERING INDEX`) : une colonne ajoutée à une liste sans l'être à
+l'index le fait échouer. L'index `vulnerabilities_cvss` (006), qu'aucune requête n'employait, est
+supprimé. *Mesures* (même base, meilleur de 5 appels, deux séries, avant → après) : liste complète
+166 à 195 ms → 33 à 57 ms ; liste d'un actif 141 à 172 → 14 à 16 ms ; alertes en attente 128 à 166
+→ 8 à 11 ms ; tableau de bord 168 à 232 → 34 à 50 ms ; charges par actif 130 à 157 → 11 à 15 ms. La
+migration crée l'index en 0,13 s et grossit la base de 2 Mo ; l'ouverture qui met cette base à jour
+(copie `.bak`, migrations 020 et 021) prend de 0,9 à 1,6 s. *Écartés* : reconstruire la table dans
+un autre ordre (11,3 s ; fichier de 180 à 352 Mo, faute de `VACUUM` possible dans la transaction de
+migration ; journal de 345 Mo ; détour par une copie de la table et des clés étrangères différées,
+car renommer la table fait échouer leur contrôle) ; sortir l'avis stocké dans sa propre table (1,7 s,
+336 Mo, et les lectures de l'avis à changer) ; compter sur `ANALYZE` ou `PRAGMA optimize`.
+*Conséquences* : les signaux d'exploitation se lisent sans coût, et le tableau de bord compte ses
+actifs les plus exposés par la requête de l'inventaire (`AssetLoads`, un seul chemin au lieu de deux) ;
+écrire un avis met aussi l'index à jour (alias et résumé bornés par `tracking.sanitize`) ; ce qui lit
+une colonne absente de l'index (la page d'un avis, ses avis groupés) lit toujours la ligne.
+
 **A9. Pas de miroir de la NVD.** OpenCVE montre le coût d'un miroir complet (plusieurs Go,
 import long). Vigil interroge les sources à la demande pour son inventaire et ne stocke que ce
 qui le concerne.
@@ -612,9 +643,10 @@ milliers de vulnérabilités et leurs alertes.
 - *Inventaire* : colonnes triables « Urgentes » et « Ouvertes », liens vers la liste de l'actif, lues par une
   requête groupée par actif (`AssetLoads`, celle des actifs les plus exposés du tableau de bord, étendue à tous
   les actifs et à leurs urgentes par `urgentExpr`, la règle des niveaux) ; champ « Chercher un actif » (nom, purl
-  ou CPE). Le tableau de bord, qui ne montre pas les urgentes par actif, ne les compte pas : sur la base noyau,
-  les lire coûte 0,09 s, les signaux d'exploitation d'une vulnérabilité étant rangés après son avis dans la
-  ligne. L'inventaire passe de moins de 0,02 s à 0,16 s sur cette base, le tableau de bord ne change pas.
+  ou CPE). Le tableau de bord, qui ne montre pas les urgentes par actif, ne les comptait pas d'abord : sur la base
+  noyau, les lire coûtait 0,09 s, les signaux d'exploitation d'une vulnérabilité étant rangés après son avis dans
+  la ligne, et l'inventaire passait de moins de 0,02 s à 0,16 s. Depuis A91, ces signaux se lisent dans un index :
+  les charges de tous les actifs coûtent de 11 à 15 ms sur cette base, et le tableau de bord prend la même requête.
 - *Page d'une vulnérabilité* : titrée par sa CVE seulement quand l'avis n'en nomme qu'une (« CVE-2026-0001
   (RHSA-2026:0001) ») ; un avis de plusieurs CVE garde son nom (USN-8875-1, pas la première de ses 1 902 CVE).
   Au-delà de 20 alias, les trois premiers et un `<details>` pour les autres. L'échéance de traitement disparaît
