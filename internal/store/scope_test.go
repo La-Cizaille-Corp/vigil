@@ -266,6 +266,8 @@ func init() {
 			"ListFindingTriage", "FoldFindings",
 			"UpsertVulnerability", "VulnModified", "SetExploitSignals", "ListVulnCVEs", "MarkAlerted",
 			"CreateDigest", "LastDigestTime"},
+		"advisories OSV reports for a package version, shared by the assets that ask it, for the synchronisation only": {
+			"OSVList", "SaveOSVList", "PurgeOSVLists"},
 		"the database itself": {"Close", "SchemaVersion", "UpgradeBackup", "BackupTo", "InTx"},
 	} {
 		for _, name := range names {
