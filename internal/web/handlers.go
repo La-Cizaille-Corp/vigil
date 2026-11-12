@@ -294,14 +294,15 @@ func assetFromForm(r *http.Request) store.Asset {
 func (s *Server) assetList(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	retiredView := r.URL.Query().Get("retired") == "1"
-	retired, err := s.Store.ListRetiredAssets(ctx, readScope(r))
+	sc, group := listScope(r, r.URL.Query())
+	retired, err := s.Store.ListRetiredAssets(ctx, sc)
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
 	assets := retired
 	if !retiredView {
-		if assets, err = s.Store.ListAssets(ctx, readScope(r)); err != nil {
+		if assets, err = s.Store.ListAssets(ctx, sc); err != nil {
 			s.serverError(w, r, err)
 			return
 		}
@@ -329,8 +330,14 @@ func (s *Server) assetList(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
+	groups, err := s.Store.ListGroups(ctx, readScope(r))
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
 	s.render(w, r, http.StatusOK, "assets", page{Title: "Inventaire",
 		Data: map[string]any{"Assets": assets, "Projects": projects, "Project": project, "Tags": tags, "Tag": tag,
+			"Groups": groups, "Group": group,
 			"RetiredView": retiredView, "Retired": len(retired), "Sort": q.Get("sort"), "Dir": q.Get("dir"),
 			"Head": sortHeaders(assetColumnList, "/assets", q, order)}})
 }
@@ -393,6 +400,11 @@ func (s *Server) renderAsset(w http.ResponseWriter, r *http.Request, status int,
 		s.serverError(w, r, err)
 		return
 	}
+	groups, err := s.Store.ListAssetGroups(r.Context(), readScope(r), a.ID)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
 	f, err := s.newAssetForm(r, form)
 	if err != nil {
 		s.serverError(w, r, err)
@@ -401,7 +413,7 @@ func (s *Server) renderAsset(w http.ResponseWriter, r *http.Request, status int,
 	shown, pages := paginate(findings, r.URL.Query(), assetPath(a.ID))
 	s.render(w, r, status, "asset", page{Title: inventory.Describe(a), Error: formErr,
 		Data: map[string]any{"Asset": a, "Form": f, "Editing": !reflect.DeepEqual(form, a),
-			"Findings": shown, "Pager": pages, "Query": query, "Rules": rules}})
+			"Findings": shown, "Pager": pages, "Query": query, "Rules": rules, "Groups": groups}})
 }
 
 // A rule text is short, and long enough not to set aside everything by mistake.
@@ -550,14 +562,16 @@ type findingList struct {
 	Filter   store.FindingFilter
 	Levels   levelNav
 	Order    listOrder
+	Group    int64 // the group the list is filtered by, 0 for none
 }
 
 // listedFindings reads the vulnerability list described by q: the list page,
 // its export, a decision on the whole list and the next vulnerability of a
 // list all read it here, so that they agree.
 func (s *Server) listedFindings(r *http.Request, q url.Values) (findingList, error) {
-	l := findingList{Filter: findingFilterFrom(q), Order: orderFrom(q, findingColumnList, defaultFindingOrder)}
-	findings, err := s.Store.ListFindings(r.Context(), readScope(r), l.Filter)
+	sc, group := listScope(r, q)
+	l := findingList{Filter: findingFilterFrom(q), Order: orderFrom(q, findingColumnList, defaultFindingOrder), Group: group}
+	findings, err := s.Store.ListFindings(r.Context(), sc, l.Filter)
 	if err != nil {
 		return l, err
 	}
@@ -632,16 +646,25 @@ func (s *Server) renderFindings(w http.ResponseWriter, r *http.Request, status i
 		s.serverError(w, r, err)
 		return
 	}
+	groups, err := s.Store.ListGroups(r.Context(), readScope(r))
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
 	sess, _ := sessionFrom(r.Context())
 	analyst := auth.RoleAtLeast(sess.User.Role, auth.RoleAnalyst)
 	f, back := l.Filter, listURL(q)
+	more := moreFilters(f)
+	if l.Group != 0 {
+		more++
+	}
 	s.render(w, r, status, "findings", page{Title: "Vulnérabilités", Error: formErr, Data: map[string]any{
-		"Filter": f, "Projects": projects, "Tags": tags, "Pager": pages, "Bulk": b, "Confirm": bulkConfirmAbove,
+		"Filter": f, "Projects": projects, "Tags": tags, "Groups": groups, "Group": l.Group, "Pager": pages, "Bulk": b, "Confirm": bulkConfirmAbove,
 		"MinEPSSPercent": f.MinEPSS * 100, "Next": back,
 		"Table": findingRows{List: shown, Head: sortHeaders(findingColumnList, "/findings", q, l.Order), Sortable: true,
 			Select: analyst && len(shown) > 0, Checked: b.Checked, Back: back},
 		"Sort": q.Get("sort"), "Dir": q.Get("dir"),
-		"Levels": l.Levels, "Level": q.Get("level"), "Since": sinceDays(q), "More": moreFilters(f),
+		"Levels": l.Levels, "Level": q.Get("level"), "Since": sinceDays(q), "More": more,
 		// Re-encoded from the parsed query: a safe relative link with the same filters, every page.
 		"CSVLink": template.URL("/findings.csv?" + without(q, "msg", "page").Encode()), // #nosec G203 -- fixed path, encoded values
 	}})

@@ -49,9 +49,10 @@ func (s *Store) AnyUserByName(ctx context.Context, username string) (User, error
 // that two concurrent first-run forms cannot both succeed: ErrExists when an
 // account already exists.
 func (s *Store) CreateFirstAdmin(ctx context.Context, username, passwordHash string) (int64, error) {
+	// An administrator sees everything; 'all' keeps it so if it is ever made an analyst.
 	res, err := s.q(ctx).ExecContext(ctx, `
-		INSERT INTO users (username, password_hash, role, created_at)
-		SELECT ?, ?, 'admin', ? WHERE NOT EXISTS (SELECT 1 FROM users)`, username, passwordHash, now())
+		INSERT INTO users (username, password_hash, role, access, created_at)
+		SELECT ?, ?, 'admin', 'all', ? WHERE NOT EXISTS (SELECT 1 FROM users)`, username, passwordHash, now())
 	if err := expectRow(res, err); errors.Is(err, ErrNotFound) {
 		return 0, ErrExists // an account exists already
 	} else if err != nil {
@@ -68,6 +69,37 @@ func (s *Store) SetRole(ctx context.Context, id int64, role string) error {
 		UPDATE users SET role = ?
 		WHERE id = ? AND disabled_at = '' AND (role <> 'admin' OR ? = 'admin' OR `+otherAdmin+`)`, role, id, role)
 	return wrap("set role", accountChanged(ctx, s.q(ctx), id, res, err))
+}
+
+// SetUserAccess changes what a user sees (A68). The access is read at every
+// request, so the change applies to open sessions at once.
+func (s *Store) SetUserAccess(ctx context.Context, id int64, access Access) error {
+	return wrap("set user access", s.inTx(ctx, func(tx *sql.Tx) error { return setAccess(ctx, tx, id, access) }))
+}
+
+// setAccess writes the access of a user: everything, or its groups, the ids
+// of no group being left out. ErrNotFound when no user has this id.
+func setAccess(ctx context.Context, tx querier, id int64, access Access) error {
+	kind := "groups"
+	if access.All {
+		kind = "all"
+	}
+	if err := expectRow(tx.ExecContext(ctx, `UPDATE users SET access = ? WHERE id = ?`, kind, id)); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM user_groups WHERE user_id = ?`, id); err != nil {
+		return err
+	}
+	if access.All {
+		return nil
+	}
+	for _, g := range access.Groups {
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO user_groups (user_id, group_id)
+			SELECT ?, id FROM asset_groups WHERE id = ?`, id, g); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // SetDisabled disables a user, ending its sessions, or enables it again.

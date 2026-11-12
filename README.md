@@ -32,7 +32,7 @@ Outil open source de **veille de sécurité** léger : un seul binaire, aucune i
   exportable en Markdown, et **alertes immédiates** dès qu'une vulnérabilité devient urgente
   (exploitée, probable, critique), par **e-mail** ou **webhook** Slack, Mattermost, Teams ou JSON.
 - Fonctionne **en local** (par défaut sur `127.0.0.1`) ou **en mode client / serveur** (TLS, rôles,
-  journal d'audit). Les **mises à jour conservent les données** : copie automatique de la base avant
+  comptes limités à des **groupes d'actifs** par équipe, site ou client, journal d'audit). Les **mises à jour conservent les données** : copie automatique de la base avant
   toute évolution de schéma.
 
 Comparaison avec OpenCVE, Dependency-Track, DefectDojo, Vulnerability-Lookup et Taranis AI :
@@ -93,8 +93,8 @@ jour, fréquence réglable dans **Paramètres → Flux de veille**.
 | `vigil sync` | Synchronisation ponctuelle : OSV, KEV, EPSS, flux CTI |
 | `vigil digest` | Génère un digest, l'affiche en Markdown et l'envoie aux webhooks (`-no-webhooks` pour ne pas l'envoyer) |
 | `vigil import-sbom -project app sbom.json` | Importe ou met à jour les composants d'un projet |
-| `vigil user add -username bob -role analyst` | Crée un compte (mot de passe lu sans écho) |
-| `vigil user list` / `disable` / `enable` / `set-role` / `reset-password` | Gère les comptes en ligne de commande (aussi dans Paramètres → Utilisateurs) |
+| `vigil user add -username bob -role analyst` | Crée un compte (mot de passe lu sans écho) ; `-groups "Équipe web"` le limite à des groupes d'actifs |
+| `vigil user list` / `disable` / `enable` / `set-role` / `set-access` / `reset-password` | Gère les comptes en ligne de commande (aussi dans Paramètres → Utilisateurs) |
 
 La base SQLite est stockée dans le dossier de configuration de l'utilisateur ; `-db` ou la
 variable `VIGIL_DB` permettent de la déplacer.
@@ -156,7 +156,9 @@ pas viser d'adresses privées ou locales, sauf avec `-allow-private-urls`.
 Rôles : `viewer` (lecture), `analyst` (inventaire, triage, synchronisation, digests, filtres de
 veille), `admin` (flux CTI, webhooks, jetons d'API et comptes en plus). Les administrateurs gèrent
 les comptes dans **Paramètres → Utilisateurs** : création avec mot de passe provisoire, rôle,
-désactivation d'un départ (sessions fermées aussitôt, historique conservé). Chaque utilisateur
+accès (tout l'inventaire, ou les seuls actifs de certains groupes, définis par des étiquettes et
+des projets dans **Paramètres → Groupes**), désactivation d'un départ (sessions fermées aussitôt,
+historique conservé). Chaque utilisateur
 peut activer la **double authentification TOTP** dans « Mon compte » (recommandé en mode serveur) ;
 en cas de téléphone perdu, un administrateur la retire dans Paramètres → Utilisateurs ou avec
 `vigil user reset-totp -username NOM` (`-all` pour tous les comptes, après une fuite de la base).

@@ -10,11 +10,13 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/osv"
+	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
 
 // TestSourceRedirects: the clients given to the fixed sources follow
@@ -101,6 +103,84 @@ func TestUserAddIgnoresCase(t *testing.T) {
 	}
 	if err := add("Alice"); err == nil || !strings.Contains(err.Error(), "majuscules et minuscules") {
 		t.Errorf("case variant of an existing name: %v", err)
+	}
+}
+
+// A68: vigil user add without -groups gives access to everything, as before
+// the groups; with -groups, to the groups named, at the case of their
+// letters; vigil user set-access changes it. An unknown group is refused.
+func TestUserAccessFromTheCommandLine(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	db := filepath.Join(dir, "vigil.db")
+	stdin := os.Stdin
+	t.Cleanup(func() { os.Stdin = stdin })
+	user := func(args ...string) error {
+		t.Helper()
+		in := filepath.Join(dir, "password")
+		if err := os.WriteFile(in, []byte("a-strong-password\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		f, err := os.Open(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		os.Stdin = f
+		return runUser(ctx, append(args, "-db", db))
+	}
+	if err := user("add", "-username", "script"); err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.Open(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateGroup(ctx, "Équipe web"); err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+	if err := user("add", "-username", "camille", "-groups", "ÉQUIPE WEB"); err != nil {
+		t.Fatal(err)
+	}
+	if err := user("add", "-username", "dom", "-groups", "Équipe web,Inconnu"); err == nil || !strings.Contains(err.Error(), `"Inconnu"`) {
+		t.Errorf("unknown group: %v", err)
+	}
+	for _, args := range [][]string{{"-username", "script"}, {"-username", "script", "-all", "-groups", "x"}} {
+		if err := user(append([]string{"set-access"}, args...)...); err == nil {
+			t.Errorf("set-access %v accepted", args)
+		}
+	}
+	if err := user("set-access", "-username", "script", "-groups", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := user("set-access", "-username", "camille", "-all"); err != nil {
+		t.Fatal(err)
+	}
+	st, err = store.Open(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	for name, want := range map[string]store.Access{"script": {}, "camille": {All: true}} {
+		u, err := st.AnyUserByName(ctx, name)
+		if err != nil || u.Access.All != want.All || len(u.Access.Groups) != 0 {
+			t.Errorf("%s: %+v, %v", name, u.Access, err)
+		}
+	}
+	if _, err := st.AnyUserByName(ctx, "dom"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("account created with an unknown group: %v", err)
+	}
+	entries, _ := st.ListAudit(ctx, 10)
+	var details []string
+	for _, e := range entries {
+		details = append(details, e.Action+" "+e.Detail)
+	}
+	for _, want := range []string{`user_create id=2 user=camille role=analyst access=groups groups="Équipe web" source=cli`,
+		`user_access id=1 user=script access=groups groups="" source=cli`, "user_access id=2 user=camille access=all source=cli"} {
+		if !slices.Contains(details, want) {
+			t.Errorf("audit misses %q: %q", want, details)
+		}
 	}
 }
 

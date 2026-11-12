@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -37,14 +38,22 @@ func webSources(t *testing.T) map[string]*ast.File {
 	return files
 }
 
-// Only scope.go may grant every asset: a handler that needs a scope asks it
-// for the one of the request.
+// Only scope.go may grant a scope, every asset or those of some groups: a
+// handler that needs one asks it for the one of the request.
 func TestEverythingOnlyInScopeFile(t *testing.T) {
 	for name, f := range webSources(t) {
+		if name == "scope.go" {
+			continue
+		}
 		ast.Inspect(f, func(n ast.Node) bool {
-			if sel, ok := n.(*ast.SelectorExpr); ok && sel.Sel.Name == "Everything" {
-				if x, ok := sel.X.(*ast.Ident); ok && x.Name == "store" && name != "scope.go" {
-					t.Errorf("%s uses store.Everything: take readScope, writeScope or requestScope", name)
+			if sel, ok := n.(*ast.SelectorExpr); ok && (sel.Sel.Name == "Everything" || sel.Sel.Name == "InGroups") {
+				if x, ok := sel.X.(*ast.Ident); ok && x.Name == "store" {
+					t.Errorf("%s uses store.%s: take readScope, writeScope, requestScope or listScope", name, sel.Sel.Name)
+				}
+			}
+			if call, ok := n.(*ast.CallExpr); ok {
+				if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Scope" && len(call.Args) == 0 {
+					t.Errorf("%s takes the scope of an account: take readScope, writeScope, requestScope or listScope", name)
 				}
 			}
 			return true
@@ -67,12 +76,16 @@ func TestSystemMethodsStayOutOfWeb(t *testing.T) {
 	}
 }
 
-// A request without a session has no scope: it sees nothing.
+// A request without a session has no scope: it sees nothing, whatever group
+// it asks for.
 func TestScopeWithoutSession(t *testing.T) {
 	for _, method := range []string{http.MethodGet, http.MethodPost} {
-		r := httptest.NewRequest(method, "/", nil)
-		if readScope(r) != (store.Scope{}) || writeScope(r) != (store.Scope{}) || requestScope(r) != (store.Scope{}) {
-			t.Errorf("%s without a session: not the zero scope", method)
+		r := httptest.NewRequest(method, "/?group=1", nil)
+		list, _ := listScope(r, r.URL.Query())
+		for _, sc := range []store.Scope{readScope(r), writeScope(r), requestScope(r), list} {
+			if !reflect.DeepEqual(sc, store.Scope{}) {
+				t.Errorf("%s without a session: not the zero scope", method)
+			}
 		}
 	}
 }

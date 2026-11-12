@@ -815,7 +815,8 @@ des éléments selon la fréquence de génération. Formats : Markdown (webhooks
 **A20. Comptes locaux, sans SSO.** Le SSO (OIDC, SAML) ajoute une dépendance lourde et une
 configuration délicate ; hors périmètre tant que la demande n'existe pas. Mots de passe en
 argon2id, sessions côté serveur (jeton aléatoire stocké haché), trois rôles (lecture, analyste,
-administrateur) vérifiés sur chaque route.
+administrateur) vérifiés sur chaque route. Depuis la 0.5.0, chaque compte a aussi un accès : tout
+l'inventaire, ou les seuls actifs de certains groupes (A68).
 
 **A77. Les mots de passe les plus courants sont refusés, d'après une liste embarquée.** L'audit de
 code de novembre 2026 (S14, exigence ASVS V2.1.7) relevait qu'un mot de passe de 12 caractères comme
@@ -915,8 +916,9 @@ en plus du rôle vérifié à chaque route. Il se fait dans `internal/store` : c
 chiffres du tableau de bord, alertes, mention « concerne l'inventaire » de la veille), reçoit une
 portée (`store.Scope`) qui entre dans le `WHERE` de chaque requête. La valeur nulle ne couvre rien :
 une page qui l'oublierait serait vide, sans rien montrer d'autre. `store.Everything` couvre tout, pour
-la synchronisation, les notifications, la ligne de commande et, tant qu'aucun groupe n'existe, chaque
-compte. Hors portée, un identifiant répond « Introuvable », comme s'il n'existait pas. Écartés : le
+la synchronisation, les notifications, la ligne de commande et les comptes sans restriction ;
+`store.InGroups` couvre les groupes d'un compte limité (A68). Hors portée, un identifiant répond
+« Introuvable », comme s'il n'existait pas. Écartés : le
 contrôle dans chaque page (un oubli y est une fuite, et le triage par lot comme l'import VEX prennent
 leurs identifiants dans le contenu de la requête) ; la base elle-même (SQLite n'a pas de sécurité par
 ligne, et la connexion unique, A5, interdit des vues par utilisateur). *Vérification* : un test liste
@@ -924,6 +926,55 @@ par réflexion les méthodes du stockage et exige pour chacune un cas d'isolatio
 n'atteint rien et ne change rien) ou une raison d'en être exemptée ; dans `internal/web`, seul
 `scope.go` accorde `store.Everything`, les méthodes de la synchronisation ne sont pas appelées, et
 les routes forment une table que les tests parcourent.
+
+**A68. Groupes d'actifs définis par des étiquettes et des projets ; comptes limités à des groupes,
+contrôlés dans le stockage.** Une équipe, un site ou un client devait pouvoir ne voir que son
+inventaire : les trois rôles (A20) valaient pour toute la base. Un groupe est un nom, des étiquettes
+et des projets ; un actif en fait partie s'il porte une de ses étiquettes ou appartient à un de ses
+projets, valeurs exactes (l'étiquette « web » ne prend pas « webapp »). Rien n'est enregistré par
+actif : l'appartenance est calculée à chaque requête, un actif peut être dans plusieurs groupes et un
+composant de SBOM entre dans le groupe de son projet dès l'import, API comprise. Un actif isolé reçoit
+une étiquette dédiée. Un compte garde son rôle global et reçoit un accès : tout l'inventaire, ou ses
+seuls groupes. Un administrateur voit tout, quel que soit son accès : il gère les comptes et pourrait
+s'accorder n'importe quel groupe. Le contrôle est la portée de A67 : `User.Scope` la tire du compte de
+la session, relu à chaque requête, et la condition SQL (`Scope.cond`) calcule une fois par requête les
+actifs des groupes (`a.id IN (SELECT …)`), plutôt qu'une condition corrélée ligne par ligne, mesurée
+deux fois plus lente dans l'étude. Hors périmètre, un objet est introuvable (404), comme un objet
+inexistant ; un identifiant d'un triage par lot ou d'un énoncé VEX hors périmètre est ignoré comme un
+inconnu. Ce que le compte voit le suit partout : listes, pages, compteurs et graphiques du tableau de
+bord, actualités « qui concernent l'inventaire », exports CSV et VEX, étiquettes, projets et groupes
+proposés. L'état de la synchronisation parcourt tout l'inventaire : un compte limité y voit si elle
+tourne et son avancement en pourcentage, sans nom ni compteur. Les digests couvrent tout l'inventaire :
+un compte limité n'en voit aucun. Administration : Paramètres → Groupes (nom, étiquettes et projets
+cochés parmi ceux en usage, avec leur nombre d'actifs, ou une valeur pas encore utilisée ; nombre
+d'actifs hors de tout groupe) ; l'accès se choisit dans Paramètres → Utilisateurs, obligatoirement à la
+création (bouton radio `required`), et en ligne de commande (`vigil user add -groups`,
+`vigil user set-access`) ; la page d'un actif nomme ses groupes, « Mon compte » l'accès ; un filtre
+Groupe s'ajoute à l'inventaire et aux vulnérabilités (`Scope.Only`, qui ne peut que restreindre). Le
+journal d'audit garde la création, le renommage, les règles et la suppression d'un groupe, et l'accès
+donné à un compte (`access=groups groups="Équipe web,Compta"`). Un nom de groupe est unique à la casse
+près (comparaison en Go, comme les noms de compte, A70), sans virgule pour la ligne de commande.
+*Options écartées* : un rôle par groupe (droits par objet dans chaque gabarit et matrice comptes ×
+groupes, pour un besoin rare dans les équipes visées ; une colonne `role` dans `user_groups` le
+permettra si la demande vient) ; les étiquettes ou les projets seuls comme groupes (droits à répéter
+compte par compte, un seul projet par actif) ; des membres enregistrés par actif (un troisième
+classement, et rien d'automatique sans règles) ; un filtre dans les handlers (un oubli suffit pour un
+accès par identifiant) ; un compte sans groupe qui verrait tout (retirer son dernier groupe lui
+ouvrirait la base) ; l'accès « tout » par défaut à la création dans l'interface. *Conséquences* :
+migration 017 ; les comptes existants reçoivent l'accès à tout et `vigil user add` sans `-groups` le
+garde, pour ne pas casser les scripts ; en base, la valeur par défaut refuse ; un actif hors de tout
+groupe n'est vu que des comptes sans restriction ; changer une étiquette peut changer qui voit un
+actif, d'où ses groupes affichés sur sa page ; un actif partagé par deux groupes a un seul triage,
+visible des deux, et son historique nomme les comptes des deux ; supprimer un groupe ne supprime aucun
+actif, ses comptes voient moins, jamais plus ; l'identifiant d'un groupe n'est jamais réutilisé
+(`AUTOINCREMENT`). *Vérification* : la condition SQL est comparée à la règle écrite en Go sur des jeux
+aléatoires (cas limites compris), chaque route d'objet croisée avec cinq comptes et quatre actifs
+(matrice : 403 pour le rôle, puis 404 pour la portée, rien de modifié), et un actif témoin d'un autre
+groupe ne doit apparaître dans aucune page, aucun export ni aucune indication d'un compte limité.
+*Mesure* (copie de la base des noyaux Debian et Ubuntu de A64, 7 629 vulnérabilités, pilote de Vigil) :
+la portée « tout » coûte ce qu'elle coûtait (tableau de bord environ 320 ms, liste d'un noyau environ
+28 ms) ; un compte limité au groupe d'un noyau voit son tableau de bord en environ 65 ms et la liste du
+noyau en environ 28 ms ; limité à un groupe couvrant les deux, il retrouve les temps de « tout ».
 
 **A71. Le stockage lit et écrit d'une seule façon.** L'audit de la 0.4.2 (D1, D3, D5, D6) comptait
 environ 25 copies de la boucle de lecture SQL, trois interfaces locales équivalentes, `RowsAffected`

@@ -37,8 +37,17 @@ func (s *Server) renderUsers(w http.ResponseWriter, r *http.Request, status int,
 		s.serverError(w, r, err)
 		return
 	}
+	groups, err := s.Store.ListGroups(r.Context(), readScope(r))
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	names := make(map[int64]string, len(groups))
+	for _, g := range groups {
+		names[g.ID] = g.Name
+	}
 	s.render(w, r, status, "users", page{Title: "Utilisateurs", Error: formErr,
-		Data: map[string]any{"Users": accounts, "Secret": secret, "Policy": policy}})
+		Data: map[string]any{"Users": accounts, "Secret": secret, "Policy": policy, "Groups": groups, "GroupNames": names}})
 }
 
 // userTOTPPolicy sets who must use a second factor.
@@ -52,11 +61,22 @@ func (s *Server) userTOTPPolicy(w http.ResponseWriter, r *http.Request) {
 	redirect(w, r, "/settings/users", "totp-policy-saved")
 }
 
-// userCreate adds an account with a generated temporary password.
+// userCreate adds an account with a generated temporary password and the
+// access chosen in the form (A68).
 func (s *Server) userCreate(w http.ResponseWriter, r *http.Request) {
 	username, role := strings.TrimSpace(r.PostFormValue("username")), r.PostFormValue("role")
 	if username == "" || !clip.Fits(username, auth.MaxUsernameLength) || !auth.ValidRole(role) {
 		s.renderUsers(w, r, http.StatusBadRequest, "Indiquez un nom (64 caractères maximum) et un rôle.", nil)
+		return
+	}
+	access, chosen := accessFromForm(r)
+	if !chosen {
+		s.renderUsers(w, r, http.StatusBadRequest, errNoAccess, nil)
+		return
+	}
+	detail, err := s.accessDetail(r, access)
+	if err != nil {
+		s.serverError(w, r, err)
 		return
 	}
 	password, hash, err := temporaryPassword()
@@ -64,7 +84,7 @@ func (s *Server) userCreate(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	id, err := s.Store.CreateUser(r.Context(), username, hash, role)
+	id, err := s.Store.CreateUser(r.Context(), username, hash, role, access)
 	if errors.Is(err, store.ErrExists) {
 		s.renderUsers(w, r, http.StatusBadRequest, "Ce nom d'utilisateur existe déjà (majuscules et minuscules ne comptent pas).", nil)
 		return
@@ -73,7 +93,7 @@ func (s *Server) userCreate(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	s.audit(r, "user_create", "id", id, "user", username, "role", role)
+	s.audit(r, "user_create", append([]any{"id", id, "user", username, "role", role}, detail...)...)
 	// SECURITY: the password is displayed once, on the page this redirects to.
 	s.keepOnce(r, oncePassword, &newPassword{Username: username, Password: password})
 	redirect(w, r, "/settings/users", "user-created")
@@ -88,6 +108,25 @@ func (s *Server) userRole(w http.ResponseWriter, r *http.Request) {
 	}
 	s.userChange(w, r, change{action: "user_role", detail: []any{"role", role}, msg: "user-updated",
 		apply: func(id int64) error { return s.Store.SetRole(r.Context(), id, role) }})
+}
+
+// errNoAccess asks for the access of an account: the form requires it.
+const errNoAccess = "Choisissez l'accès du compte : tout l'inventaire, ou seulement certains groupes."
+
+// userAccess changes what another account sees: everything, or its groups.
+func (s *Server) userAccess(w http.ResponseWriter, r *http.Request) {
+	access, chosen := accessFromForm(r)
+	if !chosen {
+		s.renderUsers(w, r, http.StatusBadRequest, errNoAccess, nil)
+		return
+	}
+	detail, err := s.accessDetail(r, access)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	s.userChange(w, r, change{action: "user_access", detail: detail, msg: "access-updated",
+		apply: func(id int64) error { return s.Store.SetUserAccess(r.Context(), id, access) }})
 }
 
 func (s *Server) userDisable(w http.ResponseWriter, r *http.Request) {

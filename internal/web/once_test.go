@@ -17,7 +17,7 @@ func TestOnceValueWaitsForItsPage(t *testing.T) {
 	admin := loginAs(t, base, "admin", "a-strong-password")
 	token := admin.csrf()
 
-	if code := admin.post("/settings/users", url.Values{"csrf": {token}, "username": {"bob"}, "role": {"analyst"}}); code != http.StatusSeeOther {
+	if code := admin.post("/settings/users", url.Values{"csrf": {token}, "username": {"bob"}, "role": {"analyst"}, "access": {"all"}}); code != http.StatusSeeOther {
 		t.Fatalf("create user: %d", code)
 	}
 	if _, body := admin.get("/settings"); passwordRe.MatchString(body) {

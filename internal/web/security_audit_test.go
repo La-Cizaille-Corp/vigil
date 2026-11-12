@@ -79,7 +79,7 @@ func TestFeedErrorKeepsTheURLSecret(t *testing.T) {
 	}
 
 	hash, _ := auth.HashPassword("a-strong-password")
-	if _, err := st.CreateUser(ctx, "viewer", hash, auth.RoleViewer); err != nil {
+	if _, err := st.CreateUser(ctx, "viewer", hash, auth.RoleViewer, store.Access{All: true}); err != nil {
 		t.Fatal(err)
 	}
 	viewer := loginAs(t, base, "viewer", "a-strong-password")

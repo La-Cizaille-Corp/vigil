@@ -248,7 +248,7 @@ func TestDismissalRules(t *testing.T) {
 	defer st.Close()
 	asset, _ := st.CreateAsset(ctx, Everything, Asset{Name: "linux", Kind: "os", Criticality: "high", Source: "manual"})
 	other, _ := st.CreateAsset(ctx, Everything, Asset{Name: "autre", Kind: "os", Criticality: "high", Source: "manual"})
-	user, _ := st.CreateUser(ctx, "ana", "x", "analyst")
+	user, _ := st.CreateUser(ctx, "ana", "x", "analyst", Access{All: true})
 	add := func(a int64, id, summary string) int64 {
 		t.Helper()
 		st.UpsertVulnerability(ctx, Vulnerability{ID: id, Summary: summary, EPSS: -1, CVSS: -1})

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -21,6 +22,40 @@ import (
 // tagSelection is the data of the "tagFields" template.
 type tagSelection struct {
 	Countries, Sectors, Regulations []string
+}
+
+// accessChoice is the data of the "accessFields" template: the access of an
+// account, neither choice made for a new one (A68: the form requires it),
+// and the groups to check.
+type accessChoice struct {
+	All, Restricted bool
+	Groups          []groupChoice
+}
+
+// groupChoice is a group offered in a form.
+type groupChoice struct {
+	ID      int64
+	Name    string
+	Checked bool
+}
+
+// accessForm is the form of the access of an existing account.
+func accessForm(access store.Access, groups []store.Group) accessChoice {
+	c := newAccessForm(groups)
+	c.All, c.Restricted = access.All, !access.All
+	for i := range c.Groups {
+		c.Groups[i].Checked = slices.Contains(access.Groups, c.Groups[i].ID)
+	}
+	return c
+}
+
+// newAccessForm is the form of the access of a new account.
+func newAccessForm(groups []store.Group) accessChoice {
+	var c accessChoice
+	for _, g := range groups {
+		c.Groups = append(c.Groups, groupChoice{ID: g.ID, Name: g.Name})
+	}
+	return c
 }
 
 // syncTargets are the pages a synchronisation can be started from, and
@@ -100,11 +135,30 @@ func aliasList(aliases []string) string {
 // addresses, proxy messages) are for those who can act on them.
 type syncView struct {
 	tracking.Status
-	Details bool
+	Details    bool
+	Restricted bool // Done is a percentage, out of a Total of 100
 }
 
-func (s *Server) syncFor(role string) syncView {
-	return syncView{Status: s.syncStatus(), Details: auth.RoleAtLeast(role, auth.RoleAnalyst)}
+// syncFor is the state of the synchronisation as shown to u.
+func (s *Server) syncFor(u *store.User) syncView { return newSyncView(s.syncStatus(), *u) }
+
+// newSyncView shows st to u. SECURITY: a run goes through the whole
+// inventory: an account restricted to groups (A68) sees whether it is going
+// and how far, never the names of the assets nor the counts, which would
+// tell of the other groups.
+func newSyncView(st tracking.Status, u store.User) syncView {
+	if !u.Restricted() {
+		return syncView{Status: st, Details: auth.RoleAtLeast(u.Role, auth.RoleAnalyst)}
+	}
+	v := syncView{Restricted: true}
+	v.Running, v.Started, v.Finished = st.Running, st.Started, st.Finished
+	if st.Err != "" {
+		v.Err = "failed" // shown as « échec », without details
+	}
+	if st.Total > 0 {
+		v.Total, v.Done = 100, 100*st.Done/st.Total
+	}
+	return v
 }
 
 // syncPage follows a synchronisation: it reloads itself while it runs.
