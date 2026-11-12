@@ -70,11 +70,14 @@ modification, ou sur demande), par l'API après un import SBOM, ou par `vigil sy
    Certains paquets sont lus en entier d'emblée et comparés ici (A51, A56). NVD : requêtes par CPE
    limitées à la période de suivi, espacées selon la limite de débit, renvoyées après une panne
    passagère. Un actif qu'une source n'a pas pu vérifier est signalé et ne bloque pas les autres.
-3. Enrichissement : CVE croisées avec CISA KEV et EPSS, avant les findings (voir A31). Une panne
-   de ces sources est journalisée sans faire échouer la synchronisation.
+   Les avis d'un actif sont enregistrés ensemble, une fois ses sources lues (A57).
+3. Enrichissement : CVE croisées avec CISA KEV et EPSS, avant les findings (voir A31) ; le
+   catalogue KEV est lu une fois par synchronisation, chaque CVE demandée une fois à EPSS, et seuls
+   les changements écrits, en une transaction. Une panne de ces sources est journalisée sans faire
+   échouer la synchronisation.
 4. `findings` : création si nouveau et dans la période de suivi de l'actif, réouverture si résolu
    automatiquement puis signalé à nouveau, résolution automatique si la source ne le signale plus
-   (version mise à jour).
+   (version mise à jour). Les écritures d'un actif forment une transaction : tout ou rien (A57).
 5. Alertes immédiates (A37) : les vulnérabilités ouvertes devenues urgentes sont envoyées aux
    canaux qui les demandent, une fois par niveau d'urgence.
 6. `cti.Collector` récupère les flux ; les items reçoivent pays, secteurs et réglementations, et
@@ -293,6 +296,26 @@ sur la requête groupée faisait échouer toute la synchronisation. Les actifs n
 avec la raison pour qui peut agir, et gardent leurs vulnérabilités. La limite d'une synchronisation
 lancée depuis l'interface passe de 15 minutes à 2 heures : sans clé NVD, une vingtaine d'actifs suivis
 par CPE ou par nom la dépassaient, et tout le résultat était perdu.
+*Une transaction par actif* (audit du code de la 0.4.2, D4, décision de novembre 2026). Chaque avis,
+chaque vulnérabilité trouvée et chaque signal KEV ou EPSS était écrit dans sa propre transaction,
+donc avec une écriture forcée sur le disque : environ 3,3 s pour enregistrer les 3 000 avis d'un
+paquet sur un poste de développement, 1,9 s pour les retrouver inchangés ; 0,34 s et 0,22 s
+désormais (`BenchmarkSync`). Les écritures d'un actif sont groupées (`Store.InTx`) : ses vulnérabilités
+trouvées, rouvertes ou résolues et le nombre d'avis plus anciens que sa période, en une transaction,
+après les lectures dont elles dépendent ; ses avis, en une transaction une fois toutes ses sources
+lues, par lots de 500 (ou 8 Mo) pour une liste longue, car un seul avis à la fois est lu du réseau
+(A62). Un échec annule le lot de cet actif seulement : il est compté « non vérifié » avec la raison,
+garde ses vulnérabilités telles qu'elles étaient, et les autres actifs continuent (une erreur
+d'écriture arrêtait toute la synchronisation, en laissant l'actif à moitié enregistré). Les avis
+d'un actif dont une source échoue en cours de lecture ne sont pas gardés. Le réseau n'est jamais lu
+pendant une transaction : elle tient la seule connexion à la base (A5), que l'interface attend.
+Écartés : une transaction pour toute la synchronisation (une panne en fin de course perdrait tout,
+et l'interface attendrait des minutes) ; garder tous les avis d'un actif en mémoire jusqu'à la fin,
+contraire à A62 pour un noyau ; une transaction tenue pendant la lecture d'OSV, qui bloquerait
+l'interface pendant des minutes. La migration 016 ajoute les deux index qui manquaient : l'historique
+d'une vulnérabilité (sa page, les règles d'écart à chaque synchronisation, la suppression d'un actif)
+et les vulnérabilités qu'écarte une règle ne sont plus lus en parcourant toute la table
+(`TestHistoryQueriesUseIndexes`).
 
 **A60. Un seul classement, en quatre niveaux.** Les raccourcis (non traitées, prioritaires, critiques
 et hautes, hors délai) se recouvraient et ne disaient pas où commencer, surtout sur les volumes d'un noyau.
@@ -630,7 +653,7 @@ le nom simple pour la clé primaire (`User`, `Session`), `XByY` pour une autre c
 `User` pour la table des comptes (`Account` a disparu). `UserByName` garde son sens, comptes actifs
 seulement, pour la connexion ; la recherche qui inclut les comptes désactivés prend un nom nouveau,
 `AnyUserByName`, pour qu'un appel écrit dans une autre branche ne change pas de sens en silence à
-la fusion. Échéances : « hors délai » et le filtre des vulnérabilités en retard se jugent à la même
+la fusion. Toute méthode rejoint la transaction de `Store.InTx` que porte son contexte (A57). Échéances : « hors délai » et le filtre des vulnérabilités en retard se jugent à la même
 heure, `FindingFilter.Now`, que le tableau de bord et le digest passent avec celle de leurs
 chiffres (l'heure courante sinon), au lieu de trois horloges (`time.Now()` à la lecture,
 `date('now')` dans le filtre, celle de l'appelant au tableau de bord). Rangement : helpers
