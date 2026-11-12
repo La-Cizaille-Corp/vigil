@@ -19,14 +19,17 @@ type ImportResult struct {
 // findings are resolved with a history event (the component is gone, often
 // replaced by a fixed version), its decisions are kept, and it comes back as
 // it was if a later SBOM lists it again. Manually created assets are never
-// touched. The components must land inside the scope (ErrOutsideGroups).
+// touched. The components must land inside the scope (ErrOutsideGroups): for
+// a restricted account, the groups naming the project exist and are all its
+// own (A68); a component it keeps or retires stays in its groups.
 func (s *Store) ReplaceProjectAssets(ctx context.Context, sc Scope, project string, assets []Asset) (ImportResult, error) {
 	var res ImportResult
-	if err := sc.writable(); err != nil {
-		return res, err
-	}
 	ts := now()
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
+		// A new component carries no tag: it is in the groups of its project.
+		if err := checkMove(ctx, tx, sc, nil, &Asset{Name: project, Project: project}); err != nil {
+			return err
+		}
 		type known struct {
 			id      int64
 			purl    string

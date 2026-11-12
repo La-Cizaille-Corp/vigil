@@ -39,8 +39,30 @@ func (sc Scope) Only(group int64) Scope {
 }
 
 // ErrOutsideGroups is returned when a write would place an asset outside the
-// caller's scope.
+// caller's scope; an OutsideGroupsError says why.
 var ErrOutsideGroups = errors.New("asset outside the caller's groups")
+
+// OutsideGroupsError is a write of a restricted account refused because it
+// would move an asset across groups the account does not hold (A68), with
+// what the user needs to correct it.
+type OutsideGroupsError struct {
+	Asset    string // the asset refused, named as given
+	Deleting bool
+	// ForeignTags and ForeignProjects are the tags and the project of the
+	// asset, before or after the write, that place it in groups of other
+	// accounts: not to add, nor to remove.
+	ForeignTags, ForeignProjects []string
+	// Tags and Projects, when it would be in none of the caller's groups,
+	// are the values that would put it in one.
+	Tags, Projects []string
+}
+
+func (e *OutsideGroupsError) Error() string {
+	return "asset " + e.Asset + " outside the caller's groups"
+}
+
+// Is makes errors.Is(err, ErrOutsideGroups) true.
+func (e *OutsideGroupsError) Is(target error) bool { return target == ErrOutsideGroups }
 
 // ruleMatch is the condition "the rule aliased gr takes in the asset aliased
 // alias" (a constant of the query): exact values, the tag "web" not taking in
@@ -88,13 +110,23 @@ func (sc Scope) digestCond() string {
 	return "0"
 }
 
-// writable reports whether the scope may add assets: a new asset must land
-// inside it.
-func (sc Scope) writable() error {
+// moves reports what a write moving an asset from the groups before to the
+// groups after (nil for a new or a deleted asset) does to the scope (A68): the
+// groups it would enter or leave that the scope does not hold, and whether
+// the asset stays in one of the scope's groups. A restricted account makes an
+// asset enter only its groups, leave only its groups, and stay in one of them
+// unless it deletes it; Everything may do anything.
+func (sc Scope) moves(before, after []int64, deleting bool) (foreign []int64, stays bool) {
 	if sc.all {
-		return nil
+		return nil, true
 	}
-	return ErrOutsideGroups
+	for _, g := range append(slices.Clone(before), after...) {
+		if slices.Contains(before, g) != slices.Contains(after, g) && !slices.Contains(sc.groups, g) && !slices.Contains(foreign, g) {
+			foreign = append(foreign, g)
+		}
+	}
+	stays = deleting || slices.ContainsFunc(after, func(g int64) bool { return slices.Contains(sc.groups, g) })
+	return foreign, stays
 }
 
 // assetInScope returns ErrNotFound when the asset does not exist or is outside

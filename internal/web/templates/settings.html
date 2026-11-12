@@ -15,7 +15,7 @@
 <p class="muted">Pays et secteurs suivis : ils filtrent la page « Veille » et la section menaces du digest.
 Sans sélection, tout est inclus. Les réglementations suivies alimentent la vue « Veille réglementaire » et
 la section correspondante du digest (sans sélection : toutes les réglementations et normes).</p>
-{{if can .User.Role "analyst"}}
+{{if and (can .User.Role "analyst") (not .User.Restricted)}}
 <form method="post" action="/settings/watch" class="card">
   {{template "csrf" $csrf}}
   {{template "tagFields" (dict3 $w.Countries $w.Sectors $w.Regulations)}}
@@ -227,6 +227,9 @@ le compte qui l'a créé est désactivé.</p>
   <div class="grid">
     <label>Nom <input name="name" required maxlength="100" placeholder="gitlab-ci mon-app"></label>
     <label>Projet <input name="project" required maxlength="200"></label>
+    {{with .Data.Groups}}<label>Ajouter ce projet au groupe (facultatif)
+      <select name="group"><option value="">—</option>{{range .}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>
+    </label>{{end}}
   </div>
   <button type="submit">Créer le jeton</button>
 </form>
