@@ -1,10 +1,13 @@
 package auth
 
 import (
+	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestPasswordRoundTrip(t *testing.T) {
@@ -102,5 +105,43 @@ func TestPasswordPolicyAndGenerator(t *testing.T) {
 	}
 	if q, _ := NewPassword(); q == p {
 		t.Error("same password twice")
+	}
+}
+
+// S14 (ASVS V2.1.7): a password among the most common ones is refused
+// whatever its case; a strong one is still accepted.
+func TestCommonPasswordRefused(t *testing.T) {
+	for _, p := range []string{"qwerty123456", "QWERTY123456", "Qwerty123456", "1Qaz2Wsx3Edc"} {
+		if _, err := HashPassword(p); !errors.Is(err, errCommonPassword) {
+			t.Errorf("common password %q: %v", p, err)
+		}
+	}
+	if _, err := HashPassword("Vigil keeps 3 watches"); err != nil {
+		t.Errorf("strong password refused: %v", err)
+	}
+}
+
+// The embedded list loads whole: 3,000 distinct entries, all lower-cased
+// (the lookup lower-cases the password) and none shorter than the minimum
+// (HashPassword refuses those already). No entry has the shape of a
+// generated password, so temporary passwords never hit the list, and the
+// timing dummy is not one of them.
+func TestCommonPasswordsList(t *testing.T) {
+	if n := len(commonPasswords); n != 3000 {
+		t.Errorf("%d common passwords loaded, want 3000", n)
+	}
+	generated := regexp.MustCompile(`^[a-z0-9]{5}(-[a-z0-9]{5}){3}$`)
+	for p := range commonPasswords {
+		switch {
+		case utf8.RuneCountInString(p) < MinPasswordLength:
+			t.Errorf("%q is shorter than %d characters", p, MinPasswordLength)
+		case p != strings.ToLower(p):
+			t.Errorf("%q is not lower-cased", p)
+		case generated.MatchString(p):
+			t.Errorf("%q has the shape of a generated password", p)
+		}
+	}
+	if dummyHash == "" {
+		t.Error("the timing dummy password is refused")
 	}
 }

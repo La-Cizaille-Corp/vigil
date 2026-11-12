@@ -47,7 +47,7 @@ internal/cti           Flux RSS/Atom, étiquetage pays / secteur / réglementati
 internal/digest        Génération du digest (Markdown + HTML)
 internal/notify        Digests et alertes vers les webhooks et par e-mail (SMTP)
 internal/netsafe       Client HTTP anti-SSRF pour les URL fournies par les utilisateurs
-internal/auth          argon2id, jetons, TOTP, limitation des tentatives, rôles
+internal/auth          argon2id, mots de passe courants refusés, jetons, TOTP, limitation des tentatives, rôles
 internal/web           Handlers HTTP, middleware de sécurité, templates, API CI
 deploy/                Docker Compose + Caddy, unité systemd, exemple d'environnement
 ```
@@ -481,6 +481,32 @@ des éléments selon la fréquence de génération. Formats : Markdown (webhooks
 configuration délicate ; hors périmètre tant que la demande n'existe pas. Mots de passe en
 argon2id, sessions côté serveur (jeton aléatoire stocké haché), trois rôles (lecture, analyste,
 administrateur) vérifiés sur chaque route.
+
+**A77. Les mots de passe les plus courants sont refusés, d'après une liste embarquée.** L'audit de
+code de novembre 2026 (S14, exigence ASVS V2.1.7) relevait qu'un mot de passe de 12 caractères comme
+`qwerty123456` ou `1qaz2wsx3edc` était accepté : c'est l'un des premiers qu'essaie une attaque, en
+ligne malgré la limitation des tentatives, ou hors ligne sur une base volée. Les 3 000 plus courants
+de 12 caractères ou plus, tirés de SecLists (provenance, extraction et licence dans
+[DEPENDENCIES.md](DEPENDENCIES.md)), sont embarqués dans le binaire (`//go:embed`, 42 Ko) et
+refusés, casse ignorée, par `auth.HashPassword`, par où passe déjà tout mot de passe choisi :
+installation, « Mon compte », `vigil user add` et `vigil user reset-password`. Les mots de passe
+provisoires y passent aussi, sans effet : aucune entrée n'a leur forme (vérifié par test). Écarté :
+- *le service Pwned Passwords* (Have I Been Pwned, par k-anonymat) : un hôte sortant de plus à
+  chaque choix de mot de passe, un échec quand la machine ne l'atteint pas (réseau fermé), un
+  fragment d'empreinte de chaque mot de passe envoyé au dehors ;
+- *une estimation de robustesse* (zxcvbn) : une dépendance et des dictionnaires bien plus lourds,
+  pour peu de gain au-delà de 12 caractères ;
+- *une liste plus longue* (les 46 296 du million qui font 12 caractères ou plus) : une attaque
+  commence par les plus courants, et l'ASVS cite les 1 000 ou 10 000 premiers qui respectent la
+  politique ;
+- *des règles de composition* (majuscule, chiffre, symbole), que l'ASVS déconseille (V2.1.9) ;
+- *le contrôle à la connexion*, que l'ASVS cite aussi : il imposerait un changement forcé au milieu
+  de la connexion, une page et un état de plus ; un administrateur peut déjà imposer un nouveau mot
+  de passe (« Nouveau mot de passe… », `vigil user reset-password`).
+
+*Conséquences* : un mot de passe déjà en place reste valable jusqu'à son prochain changement ; une
+variante d'un mot de passe courant (un chiffre ajouté) passe ; la licence MIT de SecLists accompagne
+chaque archive de release.
 
 **A21. TOTP implémenté en interne.** RFC 6238 en une trentaine de lignes (vecteurs de la RFC en
 test) plutôt qu'une bibliothèque. Anti-rejeu atomique en base, essais limités, désactivation

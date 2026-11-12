@@ -2,10 +2,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -52,5 +57,36 @@ func TestSourceRedirects(t *testing.T) {
 	}
 	if keys["again"] != "secret" || keys["other"] != "" {
 		t.Errorf("NVD key seen on the same host: %q, on another host: %q", keys["again"], keys["other"])
+	}
+}
+
+// S14 (ASVS V2.1.7): vigil user add and reset-password refuse one of the most
+// common passwords, whatever its case, before the database is even opened.
+func TestUserCommandsRefuseCommonPassword(t *testing.T) {
+	dir := t.TempDir()
+	db := filepath.Join(dir, "vigil.db")
+	stdin := os.Stdin
+	t.Cleanup(func() { os.Stdin = stdin })
+	for _, args := range [][]string{
+		{"add", "-db", db, "-username", "bob"},
+		{"reset-password", "-db", db, "-username", "bob"},
+	} {
+		in := filepath.Join(dir, "password")
+		if err := os.WriteFile(in, []byte("Qwerty123456\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		f, err := os.Open(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.Stdin = f
+		err = runUser(context.Background(), args)
+		f.Close()
+		if err == nil || !strings.Contains(err.Error(), "fait partie des plus courants") {
+			t.Errorf("vigil user %s with a common password: %v", args[0], err)
+		}
+	}
+	if _, err := os.Stat(db); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("database opened: %v", err)
 	}
 }

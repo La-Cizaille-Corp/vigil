@@ -24,7 +24,7 @@ API externes (OSV, NVD, KEV, EPSS), requêtes de l'API CI.
 
 | Menace | Mesures |
 |---|---|
-| Vol ou devinette de mot de passe | argon2id, 12 caractères minimum (comptés en caractères, pas en octets) et 1 024 octets au plus, partout (installation, connexion, changement, ligne de commande ; un mot de passe plus long est refusé avant le calcul), limitation des échecs par adresse et par compte (mémoire bornée), temps constant si l'utilisateur n'existe pas, TOTP optionnel avec anti-rejeu atomique. |
+| Vol ou devinette de mot de passe | argon2id, 12 caractères minimum (comptés en caractères, pas en octets) et 1 024 octets au plus, partout (installation, connexion, changement, ligne de commande ; un mot de passe plus long est refusé avant le calcul), refus d'un nouveau mot de passe parmi les 3 000 plus courants, casse ignorée (liste embarquée, registre A77), limitation des échecs par adresse et par compte (mémoire bornée), temps constant si l'utilisateur n'existe pas, TOTP optionnel avec anti-rejeu atomique. |
 | Vol de session | Jeton aléatoire 256 bits stocké haché, cookie `HttpOnly`, `SameSite=Strict`, `Secure` et préfixe `__Host-` en HTTPS, expiration 12 h. Activer le TOTP exige le mot de passe, le désactiver un code (essais limités par utilisateur) ; activer ou désactiver le TOTP ferme les autres sessions. |
 | Départ d'un utilisateur, compte compromis | Un administrateur désactive le compte (Paramètres → Utilisateurs ou `vigil user disable`) : connexion refusée, sessions fermées aussitôt, nom conservé dans l'historique et le journal d'audit. Changement de rôle immédiat ; mot de passe provisoire généré ; au moins un administrateur actif reste toujours. |
 | CSRF | Jeton synchroniseur sur toute requête modifiante d'une session, vérification `Origin` / `Sec-Fetch-Site`, `SameSite=Strict`. La connexion et l'installation, faute de session, n'ont que la vérification d'origine (voir « Risques acceptés »). |
@@ -63,6 +63,11 @@ API externes (OSV, NVD, KEV, EPSS), requêtes de l'API CI.
   forgé et la limitation des tentatives contournée : n'exposez Vigil `-behind-proxy` que sur
   `127.0.0.1` ou un réseau interne (c'est le cas de l'unité systemd et du Compose fournis).
 - **Pas de SSO** : hors périmètre pour l'instant.
+- **Mots de passe courants hors de la liste ou déjà en place** : seuls les 3 000 mots de passe de
+  12 caractères ou plus les plus courants sont refusés, sans consulter de service en ligne de mots
+  de passe divulgués ; une variante (un chiffre ajouté) passe. Le contrôle porte sur le mot de passe
+  que l'on choisit, pas sur la connexion : un mot de passe déjà en place reste valable jusqu'à son
+  prochain changement (registre A77).
 - **Verrouillage d'un compte par un tiers** : dix échecs en 15 minutes bloquent le compte pendant
   ce délai, même pour son titulaire. C'est le prix de la limite par compte.
 - **Connexion forcée depuis un navigateur ancien** : les formulaires de connexion et d'installation

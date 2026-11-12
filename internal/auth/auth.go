@@ -1,10 +1,11 @@
-// Package auth provides password hashing, random tokens and a login rate limiter.
+// Package auth provides password hashing and policy, random tokens and a login rate limiter.
 package auth
 
 import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	_ "embed"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -66,7 +67,32 @@ func idKey(password string, salt []byte, iterations, memory uint32, threads uint
 	return argon2.IDKey([]byte(password), salt, iterations, memory, threads, argonKeyLen)
 }
 
-// HashPassword returns an encoded argon2id hash.
+// commonPasswordsFile lists the most common passwords that MinPasswordLength
+// lets through, one per line, lower-cased: the first 3,000 of at least 12
+// characters of a SecLists list (MIT licence in SECLISTS-LICENSE.txt,
+// provenance in docs/DEPENDENCIES.md).
+//
+//go:embed common-passwords.txt
+var commonPasswordsFile string
+
+// commonPasswords is the set of commonPasswordsFile. Fields also drops the
+// carriage returns of a checkout that would turn the file into CRLF.
+var commonPasswords = func() map[string]struct{} {
+	words := strings.Fields(commonPasswordsFile)
+	set := make(map[string]struct{}, len(words))
+	for _, w := range words {
+		set[w] = struct{}{}
+	}
+	return set
+}()
+
+// errCommonPassword is shown as is, on screen and on the command line.
+var errCommonPassword = errors.New("ce mot de passe fait partie des plus courants : choisissez-en un autre")
+
+// HashPassword checks a password being set against the policy (length,
+// common passwords) and returns its encoded argon2id hash. Every password
+// chosen goes through it: setup, the account page, vigil user add and
+// reset-password.
 func HashPassword(password string) (string, error) {
 	if utf8.RuneCountInString(password) < MinPasswordLength {
 		return "", fmt.Errorf("le mot de passe doit contenir au moins %d caractères", MinPasswordLength)
@@ -75,6 +101,13 @@ func HashPassword(password string) (string, error) {
 	// password it could not sign in with.
 	if len(password) > MaxPasswordBytes {
 		return "", fmt.Errorf("le mot de passe est trop long (%d octets au plus)", MaxPasswordBytes)
+	}
+	// SECURITY: one of the most common passwords is refused whatever its
+	// case (ASVS V2.1.7), the first ones an attacker tries. Only a password
+	// being set is checked, never at sign-in: an existing one stays valid
+	// until its next change.
+	if _, common := commonPasswords[strings.ToLower(password)]; common {
+		return "", errCommonPassword
 	}
 	salt := make([]byte, 16)
 	if _, err := rand.Read(salt); err != nil {
@@ -138,7 +171,8 @@ func NewToken() (string, error) {
 const passwordAlphabet = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 // NewPassword returns a random temporary password of 20 characters in groups
-// of 5 (about 115 bits), for an administrator to hand over.
+// of 5 (about 115 bits), for an administrator to hand over. No common
+// password has that shape, so the list in HashPassword never refuses one.
 func NewPassword() (string, error) {
 	var b strings.Builder
 	// Bytes above the largest multiple of the alphabet size are skipped, so
