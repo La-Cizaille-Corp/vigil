@@ -3,10 +3,12 @@ package tracking
 import (
 	"cmp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/choice"
 	"github.com/La-Cizaille-Corp/vigil/internal/cvss"
+	"github.com/La-Cizaille-Corp/vigil/internal/fr"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
 
@@ -71,16 +73,98 @@ func Level(f store.Finding) string {
 	return LevelWatch
 }
 
-// urgency is the first key of ComparePriority (A15, A78): exploited (CISA
-// KEV) or judged exploitable by a user, then likely to be exploited.
-func urgency(f store.Finding) int {
+// levelNames name one finding of each level, on its badge.
+var levelNames = map[string]string{
+	LevelUrgent: "Urgente", LevelPlan: "À planifier", LevelWatch: "À surveiller", LevelAside: "Écartée",
+}
+
+// levelName names one finding of a level ("Urgente"), "" for no level.
+func levelName(level string) string { return levelNames[level] }
+
+// ground is what makes a finding urgent, or to plan by its CVSS score alone:
+// the reason of its level that its severity band does not tell (A84).
+type ground int
+
+const (
+	groundNone      ground = iota
+	groundExploited        // listed in CISA KEV
+	groundJudged           // judged exploitable by a user
+	groundLikely           // EPSS >= store.LikelyEPSS
+	groundScore            // to plan by a CVSS score of store.SevereCVSS or more, its severity being lower
+)
+
+// urgency is the first key of ComparePriority (A15, A78), with its ground:
+// exploited (CISA KEV) or judged exploitable by a user, then likely to be
+// exploited. The level of a finding (its alert class) follows the same rule.
+func urgency(f store.Finding) (int, ground) {
 	switch {
-	case f.KEV || f.Status == store.StatusExploitable:
-		return 2
+	case f.KEV:
+		return 2, groundExploited
+	case f.Status == store.StatusExploitable:
+		return 2, groundJudged
 	case f.EPSS >= store.LikelyEPSS:
-		return 1
+		return 1, groundLikely
 	}
-	return 0
+	return 0, groundNone
+}
+
+// groundOf is the ground of a finding: its urgency, else, for one to plan
+// whose band is below HIGH, its CVSS score (the alert class counts a score
+// of store.SevereCVSS whatever the advisory says).
+func groundOf(f store.Finding) ground {
+	if _, g := urgency(f); g != groundNone {
+		return g
+	}
+	if Level(f) == LevelPlan && severityRank(Band(f)) < severityRank("HIGH") {
+		return groundScore
+	}
+	return groundNone
+}
+
+// Reason says in a few words what makes a finding urgent (set aside or
+// fixed, what would), or to plan when its severity band does not say it,
+// beside that band in a list or an alert: "exploitée (CISA KEV)", "jugée
+// exploitable", "EPSS 12,3 %", "CVSS 7,5"; "" when the band says it all. It
+// is the rule of the ranking (urgency) and of the levels, not a copy of it.
+func Reason(f store.Finding) string {
+	switch groundOf(f) {
+	case groundExploited:
+		return "exploitée (CISA KEV)"
+	case groundJudged:
+		return "jugée exploitable"
+	case groundLikely:
+		return "EPSS " + fr.Percent(f.EPSS)
+	case groundScore:
+		return "CVSS " + fr.Score(f.CVSS)
+	}
+	return ""
+}
+
+// explain says in a sentence why a finding has its level, on its page:
+// "la probabilité d'exploitation EPSS est de 74,8 % (seuil 10,0 %)". It is ""
+// for a fixed finding, which has no level.
+func explain(f store.Finding) string {
+	switch Level(f) {
+	case "":
+		return ""
+	case LevelAside:
+		return "elle est marquée « " + choice.Label(Statuses, f.Status) + " »"
+	}
+	switch groundOf(f) {
+	case groundExploited:
+		return "elle est exploitée activement (CISA KEV)"
+	case groundJudged:
+		return "l'équipe l'a jugée exploitable"
+	case groundLikely:
+		return "la probabilité d'exploitation EPSS est de " + fr.Percent(f.EPSS) +
+			" (seuil " + fr.Percent(store.LikelyEPSS) + ")"
+	case groundScore:
+		return "son score CVSS est de " + fr.Score(f.CVSS) + " (seuil " + strconv.Itoa(store.SevereCVSS) + ")"
+	}
+	if Level(f) == LevelPlan {
+		return "sa sévérité est " + strings.ToLower(SeverityLabel(Band(f)))
+	}
+	return "elle n'est ni exploitée, ni probable, ni critique ou haute"
 }
 
 // ComparePriority compares the urgency of two findings, like cmp.Compare:
@@ -90,8 +174,10 @@ func urgency(f store.Finding) int {
 // CVSS score, and the most recent detection. It is the only ranking of
 // findings (A78): lists, dashboard and digest.
 func ComparePriority(a, b store.Finding) int {
+	ua, _ := urgency(a)
+	ub, _ := urgency(b)
 	return cmp.Or(
-		cmp.Compare(urgency(a), urgency(b)),
+		cmp.Compare(ua, ub),
 		cmp.Compare(severityRank(Band(a)), severityRank(Band(b))),
 		cmp.Compare(a.EPSS, b.EPSS),
 		cmp.Compare(a.CVSS, b.CVSS),

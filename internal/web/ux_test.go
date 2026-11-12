@@ -2,8 +2,11 @@ package web
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -151,13 +154,56 @@ func TestDashboardCardsLinkToTheirList(t *testing.T) {
 	seedFindings(t, st)
 	c := loginAs(t, base, "analyst", "a-strong-password")
 	_, page := c.get("/")
-	if !strings.Contains(page, `<a class="kpi kpi-hero" href="/findings?priority=1">`) ||
+	if !strings.Contains(page, `<a class="kpi kpi-hero" href="/findings?level=urgent">`) ||
 		!strings.Contains(page, `<a class="kpi" href="/findings">`) || strings.Contains(page, "%3d") {
 		t.Error("dashboard cards do not link to the open findings")
 	}
 	// The mean time to fix says what it counts.
 	if !strings.Contains(page, "traitée(s) en 90 jours, hors celles trouvées à la première analyse de leur actif") {
 		t.Error("the mean time to fix does not say what it counts")
+	}
+}
+
+// The new vulnerabilities of the dashboard are the open ones of the week, and
+// its link opens the list of exactly those (A84): before, a fixed one could
+// come first, and the link opened the whole list.
+func TestDashboardWeekIsTheList(t *testing.T) {
+	st, base := newServerWith(t, nil)
+	ctx := context.Background()
+	asset, _ := seedFindings(t, st) // one of the week, two older
+	for i := range 12 {
+		id := fmt.Sprintf("CVE-2026-%04d", i)
+		st.UpsertVulnerability(ctx, store.Vulnerability{ID: id, Severity: "MEDIUM", EPSS: -1, CVSS: 5})
+		st.ObserveFinding(ctx, asset, id, "", time.Now().Add(-time.Hour))
+	}
+	fixed := "CVE-2026-0000"
+	st.UpsertVulnerability(ctx, store.Vulnerability{ID: fixed, Severity: "CRITICAL", EPSS: -1, CVSS: 10})
+	list, _ := st.ListFindings(ctx, store.Everything, store.FindingFilter{})
+	for _, f := range list {
+		if f.VulnID == fixed {
+			st.SetFindingStatus(ctx, store.Everything, f.ID, 0, "resolved", "", "")
+		}
+	}
+	c := loginAs(t, base, "analyst", "a-strong-password")
+	_, page := c.get("/")
+	if strings.Contains(page, ">"+fixed+"<") {
+		t.Error("a fixed vulnerability among the new ones")
+	}
+	link := `<a href="/findings?since=7&amp;sort=recent">Voir les 12 vulnérabilités ouvertes de la semaine</a>`
+	if !strings.Contains(page, link) {
+		t.Fatalf("link to the week misses %s", link)
+	}
+	_, list2 := c.get("/findings?since=7&sort=recent")
+	if got := findingOrder(list2); len(got) != 12 || slices.Contains(got, fixed) || slices.Contains(got, "CVE-2024-0002") {
+		t.Errorf("the week's list: %v", got)
+	}
+	if !regexp.MustCompile(`name="since"[^>]*value="7"`).MatchString(list2) || !strings.Contains(list2, "Plus de filtres (1 appliqué)") {
+		t.Error("the period is not kept in the filter form")
+	}
+	for _, bad := range []string{"0", "-3", "x", "99999"} {
+		if _, body := c.get("/findings?since=" + bad); len(findingOrder(body)) != 14 {
+			t.Errorf("since=%s narrows the list", bad)
+		}
 	}
 }
 
@@ -290,5 +336,32 @@ func TestNewsFrequency(t *testing.T) {
 	}
 	if _, body := viewer.get("/settings"); !strings.Contains(body, "12 fois par jour") || strings.Contains(body, `name="per_day"`) {
 		t.Errorf("reader's view:\n%s", body)
+	}
+}
+
+// The settings speak of levels, and « actif » is an asset, not the state of an
+// account (A84).
+func TestLevelWordsInSettings(t *testing.T) {
+	st, base := newServerWith(t, nil)
+	admin := loginAs(t, base, "admin", "a-strong-password")
+	_, body := admin.get("/settings")
+	for _, want := range []string{">Aucune alerte immédiate</option>", ">Urgentes seulement</option>", ">Urgentes et À planifier</option>"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("settings miss %s", want)
+		}
+	}
+	if strings.Contains(body, "Exploitées ou probables") || strings.Contains(body, "élevées") {
+		t.Error("an alert setting is not named by its levels")
+	}
+	u, err := st.UserByName(context.Background(), "analyst")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code := admin.post("/settings/users/"+strconv.FormatInt(u.ID, 10)+"/disable", url.Values{"csrf": {admin.csrf()}}); code != http.StatusSeeOther {
+		t.Fatalf("disable: %d", code)
+	}
+	_, body = admin.get("/settings/users")
+	if !strings.Contains(body, "<td>Activé</td>") || !strings.Contains(body, `<span class="late">Désactivé</span>`) || strings.Contains(body, "<td>Actif</td>") {
+		t.Error("the state of an account is not Activé / Désactivé")
 	}
 }

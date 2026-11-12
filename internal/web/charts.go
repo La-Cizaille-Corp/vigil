@@ -17,9 +17,6 @@ import (
 // classes so that light and dark themes apply. Every mark carries a <title>
 // (native tooltip) and every chart has a data table.
 
-// openFindings is the query string of the open findings list.
-const openFindings = "status=in_triage&status=exploitable"
-
 // donutSegment is one severity of the donut chart.
 type donutSegment struct {
 	Severity, Label string
@@ -65,7 +62,7 @@ func newDonut(bySeverity map[string]int) donutChart {
 			Severity: sev, Label: tracking.SeverityLabel(sev), N: n,
 			Percent: int(math.Round(100 * float64(n) / float64(d.Total))),
 			Dash:    round2(dash), Gap: round2(circumference - dash), Offset: round2(-offset),
-			Link: "/findings?" + openFindings + "&severity=" + url.QueryEscape(sev),
+			Link: "/findings?severity=" + url.QueryEscape(sev), // the open ones, as the list shows by default
 		})
 		offset += length
 	}

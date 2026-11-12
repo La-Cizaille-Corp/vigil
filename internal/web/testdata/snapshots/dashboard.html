@@ -50,10 +50,10 @@
 
 
 <section class="kpis" aria-label="Indicateurs clés">
-  <a class="kpi kpi-hero" href="/findings?priority=1">
-    <span class="kpi-label">À traiter en priorité</span>
+  <a class="kpi kpi-hero" href="/findings?level=urgent">
+    <span class="kpi-label">Urgentes</span>
     <span class="kpi-value">2</span>
-    <span class="kpi-note">dont 1 exploitée(s) (CISA KEV), les autres probables (EPSS ≥ 10 %) ou jugées exploitables</span>
+    <span class="kpi-note">à traiter d'abord : dont 1 exploitée(s) (CISA KEV), les autres probables (EPSS ≥ 10 %) ou jugées exploitables</span>
   </a>
   <a class="kpi" href="/findings">
     <span class="kpi-label">Vulnérabilités ouvertes</span>
@@ -89,12 +89,12 @@
     <div class="donut-wrap">
       <svg class="donut" viewBox="0 0 120 120" role="img" aria-label="Vulnérabilités ouvertes par sévérité">
         <circle class="donut-track" cx="60" cy="60" r="46"/>
-        <a href="/findings?status=in_triage&amp;status=exploitable&amp;severity=CRITICAL"><circle class="donut-seg viz-sev-critical" cx="60" cy="60" r="46" stroke-dasharray="56.31 232.72" stroke-dashoffset="-0" transform="rotate(-90 60 60)"><title>Critique : 1 (20 %)</title></circle></a><a href="/findings?status=in_triage&amp;status=exploitable&amp;severity=HIGH"><circle class="donut-seg viz-sev-high" cx="60" cy="60" r="46" stroke-dasharray="56.31 232.72" stroke-dashoffset="-57.81" transform="rotate(-90 60 60)"><title>Haute : 1 (20 %)</title></circle></a><a href="/findings?status=in_triage&amp;status=exploitable&amp;severity=MEDIUM"><circle class="donut-seg viz-sev-medium" cx="60" cy="60" r="46" stroke-dasharray="56.31 232.72" stroke-dashoffset="-115.61" transform="rotate(-90 60 60)"><title>Moyenne : 1 (20 %)</title></circle></a><a href="/findings?status=in_triage&amp;status=exploitable&amp;severity=LOW"><circle class="donut-seg viz-sev-low" cx="60" cy="60" r="46" stroke-dasharray="56.31 232.72" stroke-dashoffset="-173.42" transform="rotate(-90 60 60)"><title>Basse : 1 (20 %)</title></circle></a><a href="/findings?status=in_triage&amp;status=exploitable&amp;severity=UNKNOWN"><circle class="donut-seg viz-sev-unknown" cx="60" cy="60" r="46" stroke-dasharray="56.31 232.72" stroke-dashoffset="-231.22" transform="rotate(-90 60 60)"><title>Inconnue : 1 (20 %)</title></circle></a>
+        <a href="/findings?severity=CRITICAL"><circle class="donut-seg viz-sev-critical" cx="60" cy="60" r="46" stroke-dasharray="56.31 232.72" stroke-dashoffset="-0" transform="rotate(-90 60 60)"><title>Critique : 1 (20 %)</title></circle></a><a href="/findings?severity=HIGH"><circle class="donut-seg viz-sev-high" cx="60" cy="60" r="46" stroke-dasharray="56.31 232.72" stroke-dashoffset="-57.81" transform="rotate(-90 60 60)"><title>Haute : 1 (20 %)</title></circle></a><a href="/findings?severity=MEDIUM"><circle class="donut-seg viz-sev-medium" cx="60" cy="60" r="46" stroke-dasharray="56.31 232.72" stroke-dashoffset="-115.61" transform="rotate(-90 60 60)"><title>Moyenne : 1 (20 %)</title></circle></a><a href="/findings?severity=LOW"><circle class="donut-seg viz-sev-low" cx="60" cy="60" r="46" stroke-dasharray="56.31 232.72" stroke-dashoffset="-173.42" transform="rotate(-90 60 60)"><title>Basse : 1 (20 %)</title></circle></a><a href="/findings?severity=UNKNOWN"><circle class="donut-seg viz-sev-unknown" cx="60" cy="60" r="46" stroke-dasharray="56.31 232.72" stroke-dashoffset="-231.22" transform="rotate(-90 60 60)"><title>Inconnue : 1 (20 %)</title></circle></a>
         <text class="donut-total" x="60" y="62" text-anchor="middle">5</text>
         <text class="donut-caption" x="60" y="77" text-anchor="middle">ouvertes</text>
       </svg>
       <ul class="legend">
-        <li><span class="swatch viz-sev-critical"></span><a href="/findings?status=in_triage&amp;status=exploitable&amp;severity=CRITICAL">Critique</a><strong>1</strong><span class="muted">20 %</span></li><li><span class="swatch viz-sev-high"></span><a href="/findings?status=in_triage&amp;status=exploitable&amp;severity=HIGH">Haute</a><strong>1</strong><span class="muted">20 %</span></li><li><span class="swatch viz-sev-medium"></span><a href="/findings?status=in_triage&amp;status=exploitable&amp;severity=MEDIUM">Moyenne</a><strong>1</strong><span class="muted">20 %</span></li><li><span class="swatch viz-sev-low"></span><a href="/findings?status=in_triage&amp;status=exploitable&amp;severity=LOW">Basse</a><strong>1</strong><span class="muted">20 %</span></li><li><span class="swatch viz-sev-unknown"></span><a href="/findings?status=in_triage&amp;status=exploitable&amp;severity=UNKNOWN">Inconnue</a><strong>1</strong><span class="muted">20 %</span></li>
+        <li><span class="swatch viz-sev-critical"></span><a href="/findings?severity=CRITICAL">Critique</a><strong>1</strong><span class="muted">20 %</span></li><li><span class="swatch viz-sev-high"></span><a href="/findings?severity=HIGH">Haute</a><strong>1</strong><span class="muted">20 %</span></li><li><span class="swatch viz-sev-medium"></span><a href="/findings?severity=MEDIUM">Moyenne</a><strong>1</strong><span class="muted">20 %</span></li><li><span class="swatch viz-sev-low"></span><a href="/findings?severity=LOW">Basse</a><strong>1</strong><span class="muted">20 %</span></li><li><span class="swatch viz-sev-unknown"></span><a href="/findings?severity=UNKNOWN">Inconnue</a><strong>1</strong><span class="muted">20 %</span></li>
       </ul>
     </div>
     
@@ -149,13 +149,13 @@
   </article>
 </section>
 
-<h2>Nouvelles vulnérabilités (7 derniers jours)</h2>
+<h2>Nouvelles vulnérabilités ouvertes (7 derniers jours)</h2>
 
 
 <p class="muted">Aucune vulnérabilité.</p>
 
 
-<p><a href="/findings?sort=recent">Voir toutes les vulnérabilités</a></p>
+<p><a href="/findings?sort=recent">Voir toutes les vulnérabilités ouvertes, les plus récentes d'abord</a></p>
 
 </main>
 </body>

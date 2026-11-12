@@ -13,12 +13,17 @@ import (
 // and Go code compares with it.
 const LikelyEPSS = 0.1
 
+// SevereCVSS is the CVSS score from which a finding is severe (AlertSevere)
+// whatever the severity of its advisory. It is written only here, as
+// LikelyEPSS.
+const SevereCVSS = 7
+
 // Alert classes, from the least to the most urgent. A finding is notified
 // once when it reaches a class, and again only if it rises to a higher one.
 // They are the levels of tracking.Level too (A60).
 const (
 	AlertNone     = 0
-	AlertSevere   = 1 // critical or high severity, or a CVSS score of 7 or more
+	AlertSevere   = 1 // critical or high severity, or a CVSS score of SevereCVSS or more
 	AlertPriority = 2 // exploited (CISA KEV), likely to be (EPSS >= LikelyEPSS) or judged exploitable (A78)
 )
 
@@ -35,7 +40,7 @@ var (
 	// filled in the classes already notified with this rule, the status aside.
 	alertClassExpr = `CASE
 		WHEN ` + urgentExpr + ` THEN 2
-		WHEN v.severity IN ('CRITICAL', 'HIGH') OR v.cvss >= 7 THEN 1
+		WHEN v.severity IN ('CRITICAL', 'HIGH') OR v.cvss >= ` + strconv.Itoa(SevereCVSS) + ` THEN 1
 		ELSE 0 END`
 )
 

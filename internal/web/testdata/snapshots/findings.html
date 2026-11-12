@@ -53,10 +53,10 @@
   <a href="/findings?level=urgent" >Urgentes <small>2</small></a>
   <a href="/findings?level=plan" >À planifier <small>0</small></a>
   <a href="/findings?level=watch" >À surveiller <small>3</small></a>
+  <span class="sep" aria-hidden="true"></span>
   <a href="/findings?level=aside" >Écartées <small>0</small></a>
   <a href="/findings?level=fixed" >Corrigées <small>0</small></a>
-  <a href="/findings?level=all" class="active" aria-current="true">Toutes <small>5</small></a>
-  
+  <a class="quiet active" href="/findings?level=all" aria-current="true">Toutes (5)</a>
 </nav>
 <form method="get" action="/findings" class="card filters-form">
   <input type="hidden" name="level" value="all">
@@ -78,6 +78,7 @@
       </label>
       <label>CVSS minimum <input type="number" name="cvss" min="0" max="10" step="0.1" value="" placeholder="ex. 7"></label>
       <label>EPSS minimum (%) <input type="number" name="epss" min="0" max="100" step="0.1" value="" placeholder="ex. 10"></label>
+      <label>Détectées ces derniers jours <input type="number" name="since" min="1" max="3650" step="1" value="" placeholder="ex. 7"></label>
     </div>
     <div class="grid">
       <fieldset><legend>Statut</legend>
@@ -91,7 +92,6 @@
       </fieldset>
       <fieldset><legend>Exploitation</legend>
         <label class="check"><input type="checkbox" name="kev" value="1" > Exploitée (CISA KEV)</label>
-        <label class="check"><input type="checkbox" name="priority" value="1" > Prioritaire (KEV, EPSS ≥ 10 % ou jugée exploitable)</label>
         <label class="check"><input type="checkbox" name="overdue" value="1" > Hors délai de traitement</label>
       </fieldset>
     </div>
@@ -107,14 +107,15 @@
 
 
 <table class="cards sortable">
-<thead><tr><th class="select"><span class="sr-only">Sélection</span></th><th aria-sort="descending"><a class="sort" href="/findings?dir=asc&amp;level=all&amp;sort=priority">Priorité</a></th><th><a class="sort" href="/findings?dir=desc&amp;level=all&amp;sort=cvss">CVSS</a></th><th><a class="sort" href="/findings?dir=desc&amp;level=all&amp;sort=epss">EPSS</a></th><th><a class="sort" href="/findings?dir=asc&amp;level=all&amp;sort=vuln">Vulnérabilité</a></th><th><a class="sort" href="/findings?dir=asc&amp;level=all&amp;sort=asset">Actif</a></th><th><a class="sort" href="/findings?dir=asc&amp;level=all&amp;sort=fixed">Corrigée en</a></th><th><a class="sort" href="/findings?dir=asc&amp;level=all&amp;sort=status">Statut</a></th><th><a class="sort" href="/findings?dir=desc&amp;level=all&amp;sort=recent">Détectée le</a></th><th><a class="sort" href="/findings?dir=asc&amp;level=all&amp;sort=due">Échéance</a></th><th class="no-sort">Résumé</th></tr></thead>
+<thead><tr><th class="select"><span class="sr-only">Sélection</span></th><th aria-sort="descending"><a class="sort" href="/findings?dir=asc&amp;level=all&amp;sort=priority">Priorité</a></th><th class="num"><a class="sort" href="/findings?dir=desc&amp;level=all&amp;sort=cvss">CVSS</a></th><th class="num"><a class="sort" href="/findings?dir=desc&amp;level=all&amp;sort=epss">EPSS</a></th><th><a class="sort" href="/findings?dir=asc&amp;level=all&amp;sort=vuln">Vulnérabilité</a></th><th><a class="sort" href="/findings?dir=asc&amp;level=all&amp;sort=asset">Actif</a></th><th><a class="sort" href="/findings?dir=asc&amp;level=all&amp;sort=fixed">Corrigée en</a></th><th><a class="sort" href="/findings?dir=asc&amp;level=all&amp;sort=status">Statut</a></th><th><a class="sort" href="/findings?dir=desc&amp;level=all&amp;sort=recent">Détectée le</a></th><th><a class="sort" href="/findings?dir=asc&amp;level=all&amp;sort=due">Échéance</a></th><th class="no-sort">Résumé</th></tr></thead>
 <tbody>
 
 <tr>
   <td class="select" data-label="Sélection"><input type="checkbox" name="id" value="1" form="bulk" aria-label="Sélectionner CVE-2025-0001 sur fortios"></td>
-  <td data-label="Priorité"><span class="kev">Exploitée</span><br><span class="sev sev-CRITICAL">Critique</span></td>
-  <td data-label="CVSS">9,8</td>
-  <td data-label="EPSS">97,3 %</td>
+  <td data-label="Priorité"><span class="level level-urgent">Urgente</span>
+    <div class="small"><span class="sev sev-CRITICAL">Critique</span> · <span class="reason">exploitée (CISA KEV)</span></div></td>
+  <td data-label="CVSS" class="num">9,8</td>
+  <td data-label="EPSS" class="num">97,3 %</td>
   <td data-label="Vulnérabilité"><a href="/findings/1">CVE-2025-0001</a></td>
   <td data-label="Actif"><a href="/assets/1">fortios 7.2.4</a></td>
   <td data-label="Corrigée en"></td>
@@ -126,9 +127,10 @@
 
 <tr>
   <td class="select" data-label="Sélection"><input type="checkbox" name="id" value="2" form="bulk" aria-label="Sélectionner CVE-2025-0002 sur fortios"></td>
-  <td data-label="Priorité"><span class="sev sev-HIGH">Haute</span></td>
-  <td data-label="CVSS">7,5</td>
-  <td data-label="EPSS">12,3 %</td>
+  <td data-label="Priorité"><span class="level level-urgent">Urgente</span>
+    <div class="small"><span class="sev sev-HIGH">Haute</span> · <span class="reason">EPSS 12,3 %</span></div></td>
+  <td data-label="CVSS" class="num">7,5</td>
+  <td data-label="EPSS" class="num">12,3 %</td>
   <td data-label="Vulnérabilité"><a href="/findings/2">CVE-2025-0002</a></td>
   <td data-label="Actif"><a href="/assets/1">fortios 7.2.4</a></td>
   <td data-label="Corrigée en"></td>
@@ -140,9 +142,10 @@
 
 <tr>
   <td class="select" data-label="Sélection"><input type="checkbox" name="id" value="4" form="bulk" aria-label="Sélectionner GHSA-29mw-wpgm-hmr9 sur lodash"></td>
-  <td data-label="Priorité"><span class="sev sev-MEDIUM">Moyenne</span></td>
-  <td data-label="CVSS">5,3</td>
-  <td data-label="EPSS"><span class="muted">—</span></td>
+  <td data-label="Priorité"><span class="level level-watch">À surveiller</span>
+    <div class="small"><span class="sev sev-MEDIUM">Moyenne</span></div></td>
+  <td data-label="CVSS" class="num">5,3</td>
+  <td data-label="EPSS" class="num"><span class="muted">—</span></td>
   <td data-label="Vulnérabilité"><a href="/findings/4">GHSA-29mw-wpgm-hmr9</a><br><small>CVE-2025-0004</small></td>
   <td data-label="Actif"><a href="/assets/2">lodash 4.17.15</a></td>
   <td data-label="Corrigée en">4.17.21</td>
@@ -154,9 +157,10 @@
 
 <tr>
   <td class="select" data-label="Sélection"><input type="checkbox" name="id" value="5" form="bulk" aria-label="Sélectionner CVE-2025-0005 sur lodash"></td>
-  <td data-label="Priorité"><span class="sev sev-LOW">Basse</span></td>
-  <td data-label="CVSS"><span class="muted">—</span></td>
-  <td data-label="EPSS"><span class="muted">—</span></td>
+  <td data-label="Priorité"><span class="level level-watch">À surveiller</span>
+    <div class="small"><span class="sev sev-LOW">Basse</span></div></td>
+  <td data-label="CVSS" class="num"><span class="muted">—</span></td>
+  <td data-label="EPSS" class="num"><span class="muted">—</span></td>
   <td data-label="Vulnérabilité"><a href="/findings/5">CVE-2025-0005</a></td>
   <td data-label="Actif"><a href="/assets/2">lodash 4.17.15</a></td>
   <td data-label="Corrigée en"></td>
@@ -168,9 +172,10 @@
 
 <tr>
   <td class="select" data-label="Sélection"><input type="checkbox" name="id" value="3" form="bulk" aria-label="Sélectionner CVE-2025-0003 sur fortios"></td>
-  <td data-label="Priorité"><span class="sev sev-UNKNOWN">Inconnue</span></td>
-  <td data-label="CVSS">0,0</td>
-  <td data-label="EPSS">0,0 %</td>
+  <td data-label="Priorité"><span class="level level-watch">À surveiller</span>
+    <div class="small"><span class="sev sev-UNKNOWN">Inconnue</span></div></td>
+  <td data-label="CVSS" class="num">0,0</td>
+  <td data-label="EPSS" class="num">0,0 %</td>
   <td data-label="Vulnérabilité"><a href="/findings/3">CVE-2025-0003</a></td>
   <td data-label="Actif"><a href="/assets/1">fortios 7.2.4</a></td>
   <td data-label="Corrigée en"></td>
