@@ -1236,7 +1236,13 @@ l'inventaire ou un groupe (`digests.group_id`) : les digests périodiques sont c
 et un par groupe ayant un canal de digests actif (`digest.Run`), chacun « depuis le précédent » de son
 groupe (A19) ; dans l'interface, on génère celui de tout l'inventaire ou d'un de ses groupes. Un compte
 limité lit les digests de ses groupes, jamais celui de tout l'inventaire ; un compte sans restriction
-les lit tous. La marque « déjà alertée » d'une vulnérabilité reste unique : un canal de groupe ajouté
+les lit tous. Depuis la revue de la 0.5.0 (W6), ce que couvre le digest demandé par la page se décide dans
+`scope.go` (`digestGroup` : le groupe, que le compte doit voir, ou tout l'inventaire, réservé à qui voit
+tout), et `digest.Generate` reçoit la portée de l'appelant, qu'il réduit au groupe sans jamais l'élargir :
+le digest du groupe zéro ne lit plus `store.Everything` pour quiconque le demande. Les canaux qui reçoivent
+le digest d'un périmètre sont désignés en un seul endroit (`store.Webhook.ReceivesDigest`), pour l'envoi,
+les digests périodiques et la page ; celle-ci ne dit « envoyé » que si un canal l'a reçu (`SendDigest`
+rend leur nombre, W8 et C5 : un canal d'alertes seules suffisait à l'annoncer envoyé). La marque « déjà alertée » d'une vulnérabilité reste unique : un canal de groupe ajouté
 plus tard ne reçoit pas les alertes déjà envoyées, comme un canal ajouté aujourd'hui. Un groupe auquel
 un canal est limité ne se supprime pas (il recevrait sinon tout l'inventaire) ; ses digests partent
 avec lui. *Écritures* : un compte limité ne fait entrer un actif que dans ses

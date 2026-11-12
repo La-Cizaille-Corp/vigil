@@ -125,7 +125,7 @@ func newGroupFixture(t *testing.T) *groupFixture {
 		fx.rule[name] = rules[0].ID
 	}
 	for name, g := range map[string]store.Group{"d": {}, "dA": {ID: fx.groupA, Name: "Équipe A"}, "dB": {ID: fx.groupB, Name: "Groupe temoinb"}} {
-		d, err := digest.Generate(ctx, st, g)
+		d, err := digest.Generate(ctx, st, store.Everything, g)
 		must(err)
 		fx.digests[name] = d.ID
 	}

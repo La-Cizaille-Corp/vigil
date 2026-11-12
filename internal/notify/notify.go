@@ -96,9 +96,10 @@ type message struct {
 }
 
 // SendDigest delivers a digest to the channels receiving digests of what it
-// covers: the whole inventory, or its group (A68). Failures are recorded per
+// covers: the whole inventory, or its group (A68, store.Webhook.ReceivesDigest).
+// It returns how many channels received it; failures are recorded per
 // channel and joined.
-func (n *Notifier) SendDigest(ctx context.Context, d store.Digest, link string) error {
+func (n *Notifier) SendDigest(ctx context.Context, d store.Digest, link string) (int, error) {
 	// Cut once, below the chat limit, so that the note and the link survive.
 	tail := ""
 	if link != "" {
@@ -131,7 +132,7 @@ func (n *Notifier) SendDigest(ctx context.Context, d store.Digest, link string) 
 			"group":      d.GroupName,
 		},
 	}
-	return n.deliver(ctx, m, func(h store.Webhook) bool { return h.Digests && h.Group == d.Group })
+	return n.deliver(ctx, m, func(h store.Webhook) bool { return h.ReceivesDigest(d.Group) })
 }
 
 // SendAlerts notifies the open findings that became urgent since the last
@@ -175,7 +176,8 @@ func (n *Notifier) SendAlerts(ctx context.Context) error {
 				continue
 			}
 			m := n.alertMessage(selected)
-			errs = append(errs, n.deliver(ctx, m, func(h store.Webhook) bool { return h.Alerts == level && h.Group == group }))
+			_, err := n.deliver(ctx, m, func(h store.Webhook) bool { return h.Alerts == level && h.Group == group })
+			errs = append(errs, err)
 		}
 	}
 	if err := n.Store.MarkAlerted(ctx, alerts); err != nil {
@@ -279,12 +281,14 @@ func alertReason(a store.Alert) string {
 	return strings.Join(parts, ", ")
 }
 
-// deliver sends m to every enabled channel accepted by want.
-func (n *Notifier) deliver(ctx context.Context, m message, want func(store.Webhook) bool) error {
+// deliver sends m to every enabled channel accepted by want, and returns how
+// many received it.
+func (n *Notifier) deliver(ctx context.Context, m message, want func(store.Webhook) bool) (int, error) {
 	hooks, err := n.Store.ListWebhooks(ctx)
 	if err != nil {
-		return err
+		return 0, err
 	}
+	sent := 0
 	var errs []error
 	for _, h := range hooks {
 		if !h.Enabled || !want(h) {
@@ -294,12 +298,14 @@ func (n *Notifier) deliver(ctx context.Context, m message, want func(store.Webho
 		if sendErr != nil {
 			n.Log.Warn("notification failed", "channel", h.Name, "err", sendErr)
 			errs = append(errs, fmt.Errorf("%s: %w", h.Name, sendErr))
+		} else {
+			sent++
 		}
 		if err := n.Store.RecordWebhookResult(ctx, h.ID, sendErr); err != nil {
-			return err
+			return sent, err
 		}
 	}
-	return errors.Join(errs...)
+	return sent, errors.Join(errs...)
 }
 
 func (n *Notifier) send(ctx context.Context, h store.Webhook, m message) error {

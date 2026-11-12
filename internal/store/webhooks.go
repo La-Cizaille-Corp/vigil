@@ -25,6 +25,12 @@ type Webhook struct {
 	GroupName string
 }
 
+// ReceivesDigest reports whether the channel receives the digest of group, 0
+// for the whole inventory (A68): enabled, with digests, and limited to that
+// group, or to none for the whole inventory. Sending, the periodic digests
+// and the page that generates one all ask it here.
+func (w Webhook) ReceivesDigest(group int64) bool { return w.Enabled && w.Digests && w.Group == group }
+
 // AlertLevels are the immediate alert settings of a channel, with the lowest
 // alert class each one receives.
 var AlertLevels = map[string]int{"priority": AlertPriority, "severe": AlertSevere}

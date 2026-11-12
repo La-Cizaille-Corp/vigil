@@ -109,7 +109,7 @@ func TestRenderSnapshots(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	d, err := digest.Generate(ctx, st, store.Group{})
+	d, err := digest.Generate(ctx, st, store.Everything, store.Group{})
 	if err != nil {
 		t.Fatal(err)
 	}

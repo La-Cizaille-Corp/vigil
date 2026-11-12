@@ -400,7 +400,10 @@ func every(ctx context.Context, period time.Duration, now bool, fn func()) {
 // generateAndSend makes the periodic digests, that of the whole inventory and
 // one per group with a channel (digest.Run), and sends each to its channels.
 func generateAndSend(ctx context.Context, st *store.Store, n *notify.Notifier, baseURL string) error {
-	_, err := digest.Run(ctx, st, func(d store.Digest) error { return n.SendDigest(ctx, d, digestLink(baseURL, d.ID)) })
+	_, err := digest.Run(ctx, st, func(d store.Digest) error {
+		_, err := n.SendDigest(ctx, d, digestLink(baseURL, d.ID))
+		return err
+	})
 	return err
 }
 
@@ -467,7 +470,8 @@ func runDigest(ctx context.Context, log *slog.Logger, args []string) error {
 		if *noHooks {
 			return nil
 		}
-		return notifier.SendDigest(ctx, d, digestLink(*o.baseURL, d.ID))
+		_, err := notifier.SendDigest(ctx, d, digestLink(*o.baseURL, d.ID))
+		return err
 	})
 	return err
 }

@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -49,6 +50,25 @@ func listScope(r *http.Request, q url.Values) (store.Scope, int64) {
 		return sc.Only(g), g
 	}
 	return sc, 0
+}
+
+// errWholeInventory refuses the digest of the whole inventory to an account
+// limited to groups.
+var errWholeInventory = errors.New("digest of the whole inventory asked by a restricted account")
+
+// digestGroup is what the digest asked by a form covers (A68): the group id
+// names, which the account must see (store.ErrNotFound otherwise), or for id
+// 0 the whole inventory, the zero Group, which only an account that sees
+// every asset may ask for (errWholeInventory otherwise). The digest then
+// reads what the account sees of it (readScope, see digest.Generate).
+func (s *Server) digestGroup(r *http.Request, id int64) (store.Group, error) {
+	if id != 0 {
+		return s.Store.Group(r.Context(), readScope(r), id)
+	}
+	if sess, _ := sessionFrom(r.Context()); sess.User.Restricted() {
+		return store.Group{}, errWholeInventory
+	}
+	return store.Group{}, nil
 }
 
 // groupParam reads the group filter of a list, 0 for none.

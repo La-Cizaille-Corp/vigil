@@ -592,7 +592,7 @@ func TestChannelsOfAGroup(t *testing.T) {
 	if err := n.SendAlerts(ctx); err != nil {
 		t.Fatal(err)
 	}
-	made, err := digest.Run(ctx, fx.st, func(d store.Digest) error { return n.SendDigest(ctx, d, "") })
+	made, err := digest.Run(ctx, fx.st, func(d store.Digest) error { _, err := n.SendDigest(ctx, d, ""); return err })
 	if err != nil || len(made) != 3 {
 		t.Fatalf("digests made: %d, %v (whole inventory, A, B)", len(made), err)
 	}

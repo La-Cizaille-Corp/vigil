@@ -39,13 +39,19 @@ func TestSendDigest(t *testing.T) {
 		{Digests: true, Name: "siem", Kind: "generic", URL: srv.URL + "/generic-SECRET", Enabled: true},
 		{Digests: true, Name: "down", Kind: "mattermost", URL: srv.URL + "/broken-SECRET", Enabled: true},
 		{Digests: true, Name: "off", Kind: "slack", URL: srv.URL + "/off-SECRET", Enabled: false},
+		{Alerts: "severe", Name: "alertes", Kind: "slack", URL: srv.URL + "/alerts-SECRET", Enabled: true},
 	} {
 		if _, err := st.CreateWebhook(ctx, h); err != nil {
 			t.Fatal(err)
 		}
 	}
 	n := &Notifier{Store: st, HTTP: srv.Client(), UserAgent: "test", Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
-	err = n.SendDigest(ctx, store.Digest{ID: 7, Markdown: "# Digest\nCVE-2021-44228"}, "https://vigil.example/digests/7")
+	sent, err := n.SendDigest(ctx, store.Digest{ID: 7, Markdown: "# Digest\nCVE-2021-44228"}, "https://vigil.example/digests/7")
+	// W8 of the 0.5.0 review: the channels that received it are counted; the
+	// failing one, the disabled one and that of alerts only are not.
+	if sent != 2 {
+		t.Errorf("digest received by %d channels, want 2", sent)
+	}
 
 	if err == nil || !strings.Contains(err.Error(), "down") {
 		t.Fatalf("failure of one webhook not reported: %v", err)
@@ -59,8 +65,10 @@ func TestSendDigest(t *testing.T) {
 	if bodies["/generic-SECRET"]["event"] != "digest" || bodies["/generic-SECRET"]["digest_id"] != float64(7) {
 		t.Errorf("generic payload = %v", bodies["/generic-SECRET"])
 	}
-	if _, called := bodies["/off-SECRET"]; called {
-		t.Error("disabled webhook called")
+	for _, path := range []string{"/off-SECRET", "/alerts-SECRET"} {
+		if _, called := bodies[path]; called {
+			t.Errorf("%s called with a digest", path)
+		}
 	}
 	hooks, _ := st.ListWebhooks(ctx)
 	for _, h := range hooks {
@@ -106,7 +114,7 @@ func TestLongDigestKeepsLink(t *testing.T) {
 	st.CreateWebhook(ctx, store.Webhook{Name: "chat", Kind: "slack", URL: srv.URL + "/h", Enabled: true, Digests: true})
 	n := &Notifier{Store: st, HTTP: srv.Client(), UserAgent: "test", Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	long := strings.Repeat("é", maxText) // 2 bytes each: twice the limit
-	if err := n.SendDigest(ctx, store.Digest{ID: 9, Markdown: long}, "https://vigil.example/digests/9"); err != nil {
+	if _, err := n.SendDigest(ctx, store.Digest{ID: 9, Markdown: long}, "https://vigil.example/digests/9"); err != nil {
 		t.Fatal(err)
 	}
 	if len(text) > maxText || !strings.HasSuffix(text, "https://vigil.example/digests/9") ||

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -31,7 +32,7 @@ func TestGenerate(t *testing.T) {
 	st.InsertCTIItem(ctx, feed, store.CTIItem{GUID: "3", Title: "<!channel> [Correctif](https://evil.example) hôpitaux", Link: "https://example.org/3",
 		Published: time.Now(), Countries: []string{"FR"}})
 
-	d, err := Generate(ctx, st, store.Group{})
+	d, err := Generate(ctx, st, store.Everything, store.Group{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +62,7 @@ func TestGenerate(t *testing.T) {
 		t.Error("summary not escaped in HTML digest")
 	}
 	// The next digest only covers what happened since this one.
-	next, err := Generate(ctx, st, store.Group{})
+	next, err := Generate(ctx, st, store.Everything, store.Group{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +102,7 @@ func TestDigestByLevels(t *testing.T) {
 			st.SetFindingStatus(ctx, store.Everything, list[0].ID, 0, store.StatusResolved, "", "")
 		}
 	}
-	d, err := Generate(ctx, st, store.Group{})
+	d, err := Generate(ctx, st, store.Everything, store.Group{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +155,7 @@ func TestDigestBound(t *testing.T) {
 		// Past the 15-day deadline of a critical one: every one is overdue.
 		st.ObserveFinding(ctx, asset, id, "", time.Now().Add(-20*24*time.Hour+time.Duration(i)*time.Second))
 	}
-	d, err := Generate(ctx, st, store.Group{})
+	d, err := Generate(ctx, st, store.Everything, store.Group{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +191,7 @@ func TestDigestOnlyUrgentNew(t *testing.T) {
 	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-2026-0001", Severity: "HIGH", CVSS: -1, EPSS: -1})
 	st.SetExploitSignals(ctx, store.ExploitSignal{ID: "CVE-2026-0001", KEV: true, EPSS: -1})
 	st.ObserveFinding(ctx, asset, "CVE-2026-0001", "", time.Now())
-	d, err := Generate(ctx, st, store.Group{})
+	d, err := Generate(ctx, st, store.Everything, store.Group{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,5 +253,56 @@ func TestLinkCannotBreakOut(t *testing.T) {
 	got := link("Correctif urgent", "https://evil.example/a\n@channel please read")
 	if strings.ContainsAny(got, "\r\n") || got != "[Correctif urgent](https://evil.example/a%0A@channel%20please%20read)" {
 		t.Errorf("link = %q", got)
+	}
+}
+
+// W6 of the 0.5.0 review: a digest covers what its caller sees of the group
+// it names, never more. The digest of the zero Group used to read
+// store.Everything whoever asked for it.
+func TestGenerateKeepsToTheScope(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "d.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	groups := map[string]int64{}
+	for _, name := range []string{"a", "b"} {
+		asset, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "actif-" + name, Version: "1", Kind: "package",
+			Criticality: "high", Source: "manual", Tags: []string{name}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-2026-000" + name, Severity: "HIGH", CVSS: 8, EPSS: -1})
+		if _, err := st.ObserveFinding(ctx, asset, "CVE-2026-000"+name, "", time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		if groups[name], err = st.CreateGroup(ctx, "groupe "+name); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.SetGroupRules(ctx, groups[name], []string{name}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, c := range []struct {
+		name  string
+		sc    store.Scope
+		group store.Group
+		want  []string
+	}{
+		{"everything, whole inventory", store.Everything, store.Group{}, []string{"actif-a", "actif-b"}},
+		{"everything, group a", store.Everything, store.Group{ID: groups["a"]}, []string{"actif-a"}},
+		{"group a, whole inventory", store.InGroups(groups["a"]), store.Group{}, []string{"actif-a"}},
+		{"group a, group b", store.InGroups(groups["a"]), store.Group{ID: groups["b"]}, nil},
+	} {
+		d, err := Generate(ctx, st, c.sc, c.group)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, asset := range []string{"actif-a", "actif-b"} {
+			if strings.Contains(d.Markdown, asset) != slices.Contains(c.want, asset) {
+				t.Errorf("%s: %s listed: %v", c.name, asset, !slices.Contains(c.want, asset))
+			}
+		}
 	}
 }

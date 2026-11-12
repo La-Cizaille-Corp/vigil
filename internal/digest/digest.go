@@ -233,11 +233,14 @@ func (g *vendorGroup) add(f store.Finding) {
 // Generate builds and stores the digest of a group, or of the whole inventory
 // for the zero Group (A68), covering findings first seen since its previous
 // digest (or defaultWindow for the first one). The news of the watch are the
-// same for every digest; the rest is that of the group.
-func Generate(ctx context.Context, st *store.Store, group store.Group) (store.Digest, error) {
-	sc := store.Everything
+// same for every digest; the rest is that of the group, as sc sees it.
+// SECURITY: sc is the scope of the caller (store.Everything for the system,
+// that of the account for a page), narrowed to the group: a digest never
+// covers more than its caller sees, whatever group it names (W6 of the 0.5.0
+// review: the zero Group used to read store.Everything for anyone).
+func Generate(ctx context.Context, st *store.Store, sc store.Scope, group store.Group) (store.Digest, error) {
 	if group.ID != 0 {
-		sc = store.InGroups(group.ID)
+		sc = sc.Only(group.ID)
 	}
 	last, err := st.LastDigestTime(ctx, group.ID)
 	if err != nil {
@@ -330,7 +333,7 @@ func Run(ctx context.Context, st *store.Store, send func(store.Digest) error) ([
 	}
 	targets := []store.Group{{}}
 	for _, h := range hooks {
-		if h.Enabled && h.Digests && h.Group != 0 &&
+		if h.Group != 0 && h.ReceivesDigest(h.Group) &&
 			!slices.ContainsFunc(targets, func(g store.Group) bool { return g.ID == h.Group }) {
 			targets = append(targets, store.Group{ID: h.Group, Name: h.GroupName})
 		}
@@ -338,7 +341,7 @@ func Run(ctx context.Context, st *store.Store, send func(store.Digest) error) ([
 	var made []store.Digest
 	var errs []error
 	for _, g := range targets {
-		d, err := Generate(ctx, st, g)
+		d, err := Generate(ctx, st, store.Everything, g)
 		if err != nil {
 			return made, errors.Join(append(errs, err)...)
 		}
