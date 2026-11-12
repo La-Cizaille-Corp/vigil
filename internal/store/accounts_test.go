@@ -79,7 +79,7 @@ func TestCreateFirstAdmin(t *testing.T) {
 	if _, err := st.CreateFirstAdmin(ctx, "a", "hash"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateFirstAdmin(ctx, "b", "hash"); !errors.Is(err, ErrNotFound) {
+	if _, err := st.CreateFirstAdmin(ctx, "b", "hash"); !errors.Is(err, ErrExists) {
 		t.Errorf("second first admin: %v", err)
 	}
 }

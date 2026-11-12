@@ -200,10 +200,10 @@ func init() {
 			"ResetPassword", "ResetTOTP", "ResetAllTOTP", "TOTPPolicy", "SetTOTPPolicy", "UserTOTP",
 			"SetTOTPPending", "EnableTOTP", "DisableTOTP", "DisableTOTPByName", "UseTOTPStep"},
 		"threat-intelligence watch: public news and shared settings": {
-			"ListFeeds", "CreateFeed", "SetFeedEnabled", "DeleteFeed", "RecordFeedFetch", "InsertCTIItem",
+			"ListFeeds", "Feed", "CreateFeed", "SetFeedEnabled", "DeleteFeed", "RecordFeedFetch", "InsertCTIItem",
 			"MentionsOf", "PurgeCTIItems", "Setting", "SetSetting", "UpdateFeedTags", "FeedItems", "SetCTIItemTags"},
 		"shared settings, channels and API tokens, managed by administrators": {
-			"SLA", "SetSLA", "ListWebhooks", "CreateWebhook", "DeleteWebhook", "RecordWebhookResult",
+			"SLA", "SetSLA", "ListWebhooks", "Webhook", "CreateWebhook", "DeleteWebhook", "RecordWebhookResult",
 			"SetWebhookDelivery", "SetWebhookEnabled", "ListAPITokens", "CreateAPIToken", "APITokenByHash", "DeleteAPIToken"},
 		"advisories: public data, the same for everyone": {"Vulnerability"},
 		"synchronisation, notifications and digest generation only": {

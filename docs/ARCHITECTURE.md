@@ -540,7 +540,10 @@ ligne malgré la limitation des tentatives, ou hors ligne sur une base volée. L
 de 12 caractères ou plus, tirés de SecLists (provenance, extraction et licence dans
 [DEPENDENCIES.md](DEPENDENCIES.md)), sont embarqués dans le binaire (`//go:embed`, 42 Ko) et
 refusés, casse ignorée, par `auth.HashPassword`, par où passe déjà tout mot de passe choisi :
-installation, « Mon compte », `vigil user add` et `vigil user reset-password`. Les mots de passe
+installation, « Mon compte », `vigil user add` et `vigil user reset-password`. Les aides le disent,
+d'une seule phrase (`auth.PasswordHelp` : « 12 caractères minimum, et pas l'un des plus courants ») :
+à côté des champs de l'installation et de « Mon compte », avec le mot de passe provisoire de
+Paramètres → Utilisateurs, et dans l'aide et l'invite de la ligne de commande. Les mots de passe
 provisoires y passent aussi, sans effet : aucune entrée n'a leur forme (vérifié par test). Écarté :
 - *le service Pwned Passwords* (Have I Been Pwned, par k-anonymat) : un hôte sortant de plus à
   chaque choix de mot de passe, un échec quand la machine ne l'atteint pas (réseau fermé), un
@@ -565,7 +568,8 @@ soumise à un code, autres sessions fermées à chaque changement, récupératio
 autres sessions se ferment aussi à la demande (audit de novembre 2026, S13) : « Fermer mes autres
 sessions » sur Mon compte, pour tous les rôles, après une connexion sur un poste partagé ou un doute
 sur un appareil ; la session en cours reste ouverte, l'action entre au journal d'audit
-(`sessions_close`). Même fonction que les fermetures automatiques (`endOtherSessions`). La liste
+(`sessions_close`). Même requête que les fermetures automatiques (`deleteOtherSessions`), qui, elles,
+journalisent un échec sans faire échouer le changement déjà fait (A73). La liste
 des sessions ouvertes (appareil, adresse, date) est différée : il faudrait enregistrer ces
 informations à la connexion, donc une migration.
 
@@ -606,7 +610,8 @@ Audit de novembre 2026, S16 et S17.
   (l'installation, `CreateFirstAdmin`, ne crée un compte que sur une base vide). La comparaison se
   fait en Go (`strings.EqualFold`, qui replie aussi « É » et « é »), dans la même transaction que
   l'insertion : deux créations simultanées ne passent pas toutes les deux. Erreur `store.ErrExists`,
-  réutilisable pour les autres doublons. Écartés : `COLLATE NOCASE` sur la colonne, qui demande une
+  réutilisée depuis pour les autres doublons et pour le même nom inséré entre-temps par un autre
+  processus (contrainte `UNIQUE` traduite par `mapUnique`, A73). Écartés : `COLLATE NOCASE` sur la colonne, qui demande une
   migration, échouerait sur une base où deux comptes se chevauchent déjà, et ne replie que l'ASCII ;
   renommer les comptes existants qui se chevauchent (ils restent) ; une connexion insensible à la
   casse (le nom se tape toujours exactement).
@@ -814,7 +819,48 @@ l'inventaire, la donnée la plus sensible ; et une fuite se traite par rotation 
 **A43. Triage par lot et journal d'audit consultable.** Le triage par lot applique une même
 décision à des vulnérabilités cochées, avec un événement d'historique pour chacune (pas de
 raccourci qui perdrait la traçabilité). Le journal d'audit, déjà écrit, devient lisible par les
-administrateurs (exigence fréquente des audits NIS2 ou ISO 27001).
+administrateurs (exigence fréquente des audits NIS2 ou ISO 27001). Format du détail : A73.
+
+**A73. Un seul format pour le détail du journal d'audit, un seul chemin pour lire et modifier un objet
+par son identifiant.** L'audit de code de novembre 2026 (R1, R5, R7, R12) relevait quatre formes de
+détail (`12`, `id=12`, `12 → resolved`, `12 texte`), sept façons de lire un identifiant dans le chemin
+et des erreurs avalées ou mal nommées dans les handlers.
+- *Journal d'audit* : le détail d'une entrée nouvelle est une suite de paires `clé=valeur` séparées
+  par une espace, l'identifiant de l'objet d'abord (`id=12 status=resolved`,
+  `id=3 name="CERT FR" url=https://cert.example/…`). Une valeur vide, ou qui contient une espace, un
+  guillemet, un signe `=`, un caractère non imprimable ou de l'UTF-8 invalide, est écrite entre
+  guillemets et échappée comme en Go (`text="a\nb"`) : un nom ou un texte saisi ne peut ajouter ni
+  champ ni ligne, dans la base comme dans le journal du service. Les clés sont des codes en anglais,
+  comme les valeurs fixes (`role=analyst`, `enabled=false`, `trigger=manual`). Une seule fonction
+  l'écrit, `store.AuditDetail`, par où passent l'interface (`audit` ne prend plus que des paires ; un
+  test vérifie que chaque appel en passe) et la ligne de commande (`auditCLI`, qui ajoute
+  `source=cli`). Les entrées déjà en base gardent leur forme ; la page du journal montre les deux
+  telles quelles. Écartés : JSON, lourd à lire sur la page ; des phrases, illisibles pour un SIEM ;
+  récrire les entrées anciennes, ce qui modifierait la trace même que le journal doit garder.
+- *Lire et modifier par identifiant* : `pathID` lit un identifiant du chemin (404 s'il n'est pas un
+  nombre), `load` lit l'objet qu'il désigne (404 s'il n'existe pas, 500 si la base échoue ;
+  `inScope` y lie la portée de la requête pour l'inventaire) et `change` applique une modification
+  par identifiant, l'inscrit au journal une fois réussie, puis redirige ; `userChange` y ajoute les
+  refus propres aux comptes (son propre compte, dernier administrateur actif). Ils remplacent
+  `loadAsset`, `loadFinding`, `loadDigest`, `byID`, `audited`, `userAction` et les lectures en
+  ligne. `redirect` ajoute son message à une adresse qui a déjà une requête : après un import SBOM,
+  le message restait collé au nom du projet (`/assets?project=app?msg=…`), qui ne filtrait plus rien.
+- *Doublon ou panne* : `store.mapUnique` traduit une contrainte d'unicité violée (codes SQLite
+  `UNIQUE` et `PRIMARY KEY`) en `store.ErrExists` : création d'un flux (même URL) et d'un compte (le
+  même nom inséré entre-temps par un autre processus, `vigil user add`, n'est plus une erreur
+  interne) ; `CreateFirstAdmin` répond aussi `ErrExists` quand un compte existe déjà. Seul un vrai
+  doublon affiche « Ce flux existe déjà » ; toute autre panne est une erreur interne.
+- *Erreurs* : la création d'un digest lit d'abord les canaux ; si la lecture échoue, rien n'est
+  généré (le digest se disait « généré » sans être envoyé à personne). La modification d'un flux et
+  le test d'un canal lisent l'objet par son identifiant (`Store.Feed`, `Store.Webhook`) au lieu de
+  relire toute la liste, et l'audit suit la réussite. La fermeture des autres sessions après un
+  changement de mot de passe ou de double authentification suit une seule règle : le changement est
+  fait, un échec est journalisé sans le faire échouer (c'était une erreur 500 pour la double
+  authentification, un avertissement pour le mot de passe) ; ces sessions finissent alors à leur
+  expiration, ou par « Fermer mes autres sessions », qui, lui, signale l'échec.
+
+*Conséquence* : un outil qui lit le journal (SIEM) lit les entrées nouvelles par paires ; les
+anciennes restent en texte libre.
 
 ### Construction, distribution, exploitation
 

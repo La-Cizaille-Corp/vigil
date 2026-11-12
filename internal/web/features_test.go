@@ -26,11 +26,12 @@ import (
 // admin "admin" and an analyst "analyst" (password "a-strong-password").
 func newServerWith(t *testing.T, setup func(*Server)) (*store.Store, string) {
 	t.Helper()
-	return newServerAt(t, filepath.Join(t.TempDir(), "web.db"), setup)
+	return newServerIn(t, filepath.Join(t.TempDir(), "web.db"), setup)
 }
 
-// newServerAt is newServerWith on the database file path.
-func newServerAt(t *testing.T, path string, setup func(*Server)) (*store.Store, string) {
+// newServerIn is newServerWith on the database file path, for the tests that
+// break the database on purpose (see breakDB).
+func newServerIn(t *testing.T, path string, setup func(*Server)) (*store.Store, string) {
 	t.Helper()
 	st, err := store.Open(context.Background(), path)
 	if err != nil {

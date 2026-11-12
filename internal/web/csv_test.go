@@ -2,7 +2,6 @@ package web
 
 import (
 	"context"
-	"database/sql"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -92,17 +91,10 @@ func TestCSVExportsByteForByte(t *testing.T) {
 // file left the first ones in the inventory.
 func TestCSVImportAllOrNothing(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "web.db")
-	st, base := newServerAt(t, path, nil)
+	st, base := newServerIn(t, path, nil)
 	// A write that fails in the middle of the file, as a full disk would.
-	db, err := sql.Open("sqlite", path) // the driver of the store
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	if _, err := db.Exec(`CREATE TRIGGER failing_write BEFORE INSERT ON assets WHEN NEW.name = 'panne'
-		BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END`); err != nil {
-		t.Fatal(err)
-	}
+	breakDB(t, path, `CREATE TRIGGER failing_write BEFORE INSERT ON assets WHEN NEW.name = 'panne'
+		BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END`)
 	c := loginAs(t, base, "analyst", "a-strong-password")
 	code, _ := c.upload("/assets/import-csv", "csv", "inventaire.csv", "name\navant\npanne\naprès\n", url.Values{"csrf": {c.csrf()}})
 	assets, err := st.ListAssets(context.Background(), store.Everything)

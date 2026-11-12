@@ -50,35 +50,55 @@ type CTIFilter struct {
 	Limit         int
 }
 
+// selectFeed reads the columns of a Feed (see scanFeed).
+const selectFeed = `SELECT id, name, url, country, sectors, regulations, enabled, last_fetched, last_error FROM cti_feeds `
+
+// scanFeed reads a row of selectFeed; no row is ErrNotFound.
+func scanFeed(row interface{ Scan(...any) error }) (Feed, error) {
+	var f Feed
+	var fetched string
+	err := row.Scan(&f.ID, &f.Name, &f.URL, &f.Country, &f.Sectors, &f.Regulations, &f.Enabled, &fetched, &f.LastError)
+	if errors.Is(err, sql.ErrNoRows) {
+		return f, ErrNotFound
+	}
+	f.LastFetched = parseTime(fetched)
+	return f, err
+}
+
 // ListFeeds returns every feed.
 func (s *Store) ListFeeds(ctx context.Context) ([]Feed, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, name, url, country, sectors, regulations, enabled, last_fetched, last_error
-		FROM cti_feeds ORDER BY name COLLATE NOCASE`)
+	rows, err := s.db.QueryContext(ctx, selectFeed+`ORDER BY name COLLATE NOCASE`)
 	if err != nil {
 		return nil, fmt.Errorf("list feeds: %w", err)
 	}
 	defer rows.Close()
 	var out []Feed
 	for rows.Next() {
-		var f Feed
-		var fetched string
-		if err := rows.Scan(&f.ID, &f.Name, &f.URL, &f.Country, &f.Sectors, &f.Regulations, &f.Enabled, &fetched, &f.LastError); err != nil {
+		f, err := scanFeed(rows)
+		if err != nil {
 			return nil, err
 		}
-		f.LastFetched = parseTime(fetched)
 		out = append(out, f)
 	}
 	return out, rows.Err()
 }
 
-// CreateFeed adds a feed.
+// Feed returns one feed, ErrNotFound if none has this id.
+func (s *Store) Feed(ctx context.Context, id int64) (Feed, error) {
+	f, err := scanFeed(s.db.QueryRowContext(ctx, selectFeed+`WHERE id = ?`, id))
+	if err != nil {
+		return f, fmt.Errorf("feed %d: %w", id, err)
+	}
+	return f, nil
+}
+
+// CreateFeed adds a feed; ErrExists when another feed has the same URL.
 func (s *Store) CreateFeed(ctx context.Context, f Feed) (int64, error) {
 	res, err := s.db.ExecContext(ctx,
 		`INSERT INTO cti_feeds (name, url, country, sectors, regulations, enabled) VALUES (?, ?, ?, ?, ?, ?)`,
 		f.Name, f.URL, f.Country, f.Sectors, f.Regulations, f.Enabled)
 	if err != nil {
-		return 0, fmt.Errorf("create feed: %w", err)
+		return 0, fmt.Errorf("create feed: %w", mapUnique(err))
 	}
 	return res.LastInsertId()
 }

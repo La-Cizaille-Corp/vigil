@@ -12,7 +12,7 @@ Merci de ne pas ouvrir d'issue publique. Utilisez le signalement privé de GitHu
 | Injection SQL | Requêtes exclusivement paramétrées (`internal/store`) |
 | XSS | Rendu `html/template` (échappement contextuel), CSP stricte sans script ; le texte des flux CTI est réduit à du texte brut et seuls les liens http(s) sont conservés |
 | CSRF | Jeton synchroniseur par session, cookies `SameSite=Strict`, contrôle `Origin` / `Sec-Fetch-Site` |
-| Authentification | argon2id (m=64 Mio, t=3, p=2), 12 caractères minimum, limitation des échecs par IP, temps de réponse constant |
+| Authentification | argon2id (m=64 Mio, t=3, p=2), 12 caractères minimum, les 3 000 mots de passe les plus courants refusés, limitation des échecs par IP, temps de réponse constant |
 | Sessions | Jeton aléatoire 256 bits, seul son SHA-256 est stocké, `HttpOnly`, `Secure` en HTTPS, expiration 12 h |
 | Contrôle d'accès | Rôle vérifié côté serveur sur chaque route |
 | SSRF | Flux CTI et webhooks : https uniquement, sans identifiants dans l'URL ; adresses privées, locales et link-local refusées au moment de la connexion (après résolution DNS), y compris après redirection |
