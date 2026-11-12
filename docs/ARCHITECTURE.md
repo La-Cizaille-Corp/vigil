@@ -843,6 +843,12 @@ l'actif, sous un message trompeur. Lors d'un essai réel, le noyau Ubuntu 22.04 
 *Écarté* : relire toute la requête depuis la première page, soit 25 minutes pour ce noyau ; garder une
 page en mémoire pour la relire, alors qu'elle peut dépasser 64 Mo (A55).
 
+*Correction (revue de la 0.5.0) : les quatre sources sont renvoyées.* KEV et EPSS ne passaient pas par
+`Retry` : un seul 503 sur l'un des lots d'EPSS faisait échouer l'enrichissement de toute la base. Les deux
+y passent désormais (`sources.Get` : requête, lecture, nouvelles tentatives), et la règle des attentes,
+écrite deux fois (OSV, NVD), n'est plus qu'une (`sources.Delays`) : 5 puis 15 secondes, 10 puis 30 pour
+la NVD, aucune pour un serveur de test ou un miroir.
+
 *Plafonds de lecture, mesurés (revue de la 0.5.0).* Chaque réponse est lue dans une borne (`limit.Reader`),
 bien au-dessus des réponses réelles de la base de l'audit :
 - OSV : une page de `/v1/query`, 1 Gio, pour 72 Mo en moyenne (la plus lourde n'est pas mesurée) ; un avis,

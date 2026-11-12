@@ -35,10 +35,7 @@ func (c *Client) Catalogue(ctx context.Context) (map[string]Entry, error) {
 	var doc struct {
 		Vulnerabilities []Entry `json:"vulnerabilities"`
 	}
-	req, err := sources.NewRequest(ctx, http.MethodGet, cmp.Or(c.URL, DefaultURL), c.UserAgent, nil)
-	if err == nil {
-		err = sources.Do(c.HTTP, req, maxBody, &doc)
-	}
+	err := sources.Get(ctx, c.HTTP, cmp.Or(c.URL, DefaultURL), c.UserAgent, sources.Delays(c.URL, DefaultURL, nil), maxBody, &doc)
 	if err != nil {
 		return nil, fmt.Errorf("kev: %w", err)
 	}

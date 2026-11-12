@@ -32,3 +32,20 @@ func TestEmptyCatalogueRefused(t *testing.T) {
 		srv.Close()
 	}
 }
+
+// A temporary failure is asked again, as for the other sources: one 503 failed
+// the enrichment of the whole synchronisation.
+func TestCatalogueRetried(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls++; calls == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		io.WriteString(w, `{"vulnerabilities":[{"cveID":"CVE-2024-0001"}]}`)
+	}))
+	defer srv.Close()
+	if got, err := (&Client{URL: srv.URL, HTTP: srv.Client()}).Catalogue(context.Background()); err != nil || len(got) != 1 || calls != 2 {
+		t.Errorf("%d calls: %v, %v", calls, got, err)
+	}
+}

@@ -245,12 +245,8 @@ func rateLimited(err error) bool {
 // Read as an empty answer, it would mark every open finding of the assets
 // tracked through the NVD as fixed.
 func (c *Client) get(ctx context.Context, q url.Values) ([]CVE, int, error) {
-	delays := retryDelays
-	if !c.public() {
-		delays = make([]time.Duration, len(retryDelays)) // tests and mirrors
-	}
 	var r response
-	err := sources.Retry(ctx, delays, func() (bool, error) {
+	err := sources.Retry(ctx, sources.Delays(c.URL, DefaultURL, retryDelays), func() (bool, error) {
 		err := c.send(ctx, cmp.Or(c.URL, DefaultURL)+"?"+q.Encode(), maxBody, &r)
 		return rateLimited(err) || sources.Temporary(err), err
 	})

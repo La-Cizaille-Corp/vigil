@@ -828,18 +828,9 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	})
 }
 
-// retryDelays are the waits before asking again after a temporary failure: a
-// network glitch on the batch request would fail the whole synchronisation.
-var retryDelays = []time.Duration{5 * time.Second, 15 * time.Second}
-
-// delays returns the waits before asking again: retryDelays for OSV, none for
-// a test server or a mirror.
-func (c *Client) delays() []time.Duration {
-	if cmp.Or(c.URL, DefaultURL) != DefaultURL {
-		return make([]time.Duration, len(retryDelays))
-	}
-	return retryDelays
-}
+// delays returns the waits before asking again after a temporary failure
+// (sources.Delays): none for a test server or a mirror.
+func (c *Client) delays() []time.Duration { return sources.Delays(c.URL, DefaultURL, nil) }
 
 // send makes a request to path and has it sent by call (sources.Do or Open),
 // again after a temporary failure.

@@ -165,6 +165,39 @@ func reason(resp *http.Response) string {
 	return clip.Text(strings.Join(words, " "), 200)
 }
 
+// retryDelays are the waits before asking a source again after a temporary
+// failure, unless it gives its own: a network glitch on a request would fail
+// the whole synchronisation (OSV), or the enrichment (KEV, EPSS).
+var retryDelays = []time.Duration{5 * time.Second, 15 * time.Second}
+
+// Delays returns the waits before asking again a source whose client has the
+// address url (empty for its public API, public): delays, or retryDelays
+// without them, for the public API; as many waits of zero for another address,
+// a test server or a mirror, which is asked again at once.
+func Delays(url, public string, delays []time.Duration) []time.Duration {
+	if delays == nil {
+		delays = retryDelays
+	}
+	if url != "" && url != public {
+		return make([]time.Duration, len(delays))
+	}
+	return delays
+}
+
+// Get asks for url with c, as the client named userAgent, and decodes the
+// JSON answer into out, read whole and at most max bytes (Do), again after
+// each of delays while it fails with a temporary error (Retry).
+func Get(ctx context.Context, c *http.Client, url, userAgent string, delays []time.Duration, max int64, out any) error {
+	return Retry(ctx, delays, func() (bool, error) {
+		req, err := NewRequest(ctx, http.MethodGet, url, userAgent, nil)
+		if err != nil {
+			return false, err
+		}
+		err = Do(c, req, max, out)
+		return Temporary(err), err
+	})
+}
+
 // Retry calls fn, and again after each of delays while it fails with a
 // temporary error. It returns the last error, or that of ctx when ctx ends
 // during a wait. Without delays, fn is called once.

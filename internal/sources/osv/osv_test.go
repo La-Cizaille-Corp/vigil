@@ -472,7 +472,7 @@ func TestAdvisoriesCutPage(t *testing.T) {
 	if err == nil || strings.Contains(err.Error(), "illisible") || !strings.Contains(err.Error(), "lecture interrompue") {
 		t.Errorf("lasting cut: %v", err)
 	}
-	if n != 2 || len(tokens) != 1+len(retryDelays) {
+	if n != 2 || len(tokens) != 1+len(c.delays()) {
 		t.Errorf("lasting cut: %d advisories, %d requests", n, len(tokens))
 	}
 }

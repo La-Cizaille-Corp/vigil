@@ -41,11 +41,7 @@ func (c *Client) Scores(ctx context.Context, cves []string) (map[string]float64,
 			} `json:"data"`
 		}
 		u := cmp.Or(c.URL, DefaultURL) + "?cve=" + url.QueryEscape(strings.Join(cves[start:end], ","))
-		req, err := sources.NewRequest(ctx, http.MethodGet, u, c.UserAgent, nil)
-		if err == nil {
-			err = sources.Do(c.HTTP, req, maxBody, &doc)
-		}
-		if err != nil {
+		if err := sources.Get(ctx, c.HTTP, u, c.UserAgent, sources.Delays(c.URL, DefaultURL, nil), maxBody, &doc); err != nil {
 			return nil, fmt.Errorf("epss: %w", err)
 		}
 		// SECURITY: an empty list is an answer (CVEs that FIRST does not score

@@ -43,3 +43,20 @@ func TestAnswerWithoutList(t *testing.T) {
 		t.Errorf("empty list: %v, %v", got, err)
 	}
 }
+
+// A temporary failure is asked again, as for the other sources: one 503 on one
+// batch failed the enrichment of every vulnerability.
+func TestScoresRetried(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls++; calls == 1 {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		io.WriteString(w, `{"data":[{"cve":"CVE-1","epss":"0.25"}]}`)
+	}))
+	defer srv.Close()
+	if got, err := (&Client{URL: srv.URL, HTTP: srv.Client()}).Scores(context.Background(), []string{"CVE-1"}); err != nil || got["CVE-1"] != 0.25 || calls != 2 {
+		t.Errorf("%d calls: %v, %v", calls, got, err)
+	}
+}
