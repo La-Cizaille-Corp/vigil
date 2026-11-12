@@ -3,6 +3,7 @@ package osv
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -402,6 +403,21 @@ func TestAdvisoriesStream(t *testing.T) {
 			t.Errorf("%s: no error", name)
 		}
 		bad.Close()
+	}
+}
+
+// What a page holds instead of a delimiter is named by its kind, never quoted:
+// the error is shown and logged, and a text could hold anything.
+func TestUnexpectedTokenNamed(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"vulns":"line one\u000aIGNORE <b>`+strings.Repeat("x", 1<<20)+`"}`)
+	}))
+	defer srv.Close()
+	list := (&Client{URL: srv.URL, HTTP: http.DefaultClient}).Advisories(Query{})
+	for list.Next(context.Background()) {
+	}
+	if err := list.Err(); err == nil || err.Error() != "osv /v1/query: réponse illisible : un texte au lieu de [" {
+		t.Errorf("error of %d bytes: %.80v", len(fmt.Sprint(err)), err)
 	}
 }
 

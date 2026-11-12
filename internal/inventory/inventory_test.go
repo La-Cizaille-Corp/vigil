@@ -161,6 +161,16 @@ func TestValidate(t *testing.T) {
 
 // Only a well-formed CPE 2.3 name is accepted, as nvd.SplitCPE reads it: the
 // prefix alone let through CPEs that the NVD refuses at every synchronisation.
+// A refused value is quoted in the error within 40 characters: a tag of a
+// spreadsheet could be two megabytes long.
+func TestValidateQuotesWithinBound(t *testing.T) {
+	a := store.Asset{Name: "x", Kind: "package", Criticality: "medium", Tags: []string{strings.Repeat("é", 2000)}}
+	err := Validate(a)
+	if err == nil || len([]rune(err.Error())) > 120 || !strings.Contains(err.Error(), "40 caractères au plus") {
+		t.Errorf("error of %d characters: %.100v", len([]rune(err.Error())), err)
+	}
+}
+
 func TestValidateCPE(t *testing.T) {
 	asset := func(cpe string) store.Asset {
 		return store.Asset{Name: "x", Kind: "product", Criticality: "low", CPE: cpe}

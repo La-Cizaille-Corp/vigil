@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"strings"
 )
 
 // TooLargeError is the failure of a reading of the network that goes past its
@@ -141,6 +142,27 @@ func AdmitJSON(data []byte) (done func(), err error) {
 	}
 	decoding <- struct{}{}
 	return func() { <-decoding }, nil
+}
+
+// JSONKind names a kind of JSON value in French, for an error shown about a
+// document that is not the one expected: given as encoding/json names it (the
+// value found: "string", "number"…) or as a Go kind (the value expected:
+// "slice", "struct"…). A value received is named by its kind, never quoted.
+func JSONKind(kind string) string {
+	switch kind {
+	case "array", "slice":
+		return "une liste"
+	case "object", "struct", "map":
+		return "un objet"
+	case "string":
+		return "un texte"
+	case "bool":
+		return "vrai ou faux"
+	}
+	if strings.HasPrefix(kind, "number") || strings.HasPrefix(kind, "int") || strings.HasPrefix(kind, "float") {
+		return "un nombre"
+	}
+	return "une autre valeur"
 }
 
 // size writes a bound in megabytes when it is a whole number of them, as the

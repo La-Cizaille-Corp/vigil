@@ -782,15 +782,34 @@ func (a *Advisories) readField() error {
 }
 
 // expect reads a delimiter of the page, which must be the one given.
+// SECURITY: what came instead is named by its kind, never quoted: the error
+// is shown and logged, and a text of the page could hold anything, up to the
+// bound of the page.
 func (a *Advisories) expect(delim json.Delim) error {
 	token, err := a.dec.Token()
 	if err != nil {
 		return err
 	}
 	if token != delim {
-		return fmt.Errorf("%v au lieu de %v", token, delim)
+		return fmt.Errorf("%s au lieu de %v", tokenKind(token), delim)
 	}
 	return nil
+}
+
+// tokenKind names a token of a page: a delimiter as it is, any other value by
+// its kind (limit.JSONKind).
+func tokenKind(token json.Token) string {
+	switch token := token.(type) {
+	case json.Delim:
+		return string(token)
+	case string:
+		return limit.JSONKind("string")
+	case bool:
+		return limit.JSONKind("bool")
+	case nil:
+		return limit.JSONKind("null")
+	}
+	return limit.JSONKind("number")
 }
 
 // Vuln fetches the full record of a vulnerability.
