@@ -37,9 +37,8 @@ func (s *Server) totpAttempt(w http.ResponseWriter, r *http.Request, userID int6
 	return key, true
 }
 
-// endOtherSessions logs out the user's other browsers after a security
-// change, or on demand (see closeOtherSessions).
-func (s *Server) endOtherSessions(r *http.Request, userID int64) error {
+// deleteOtherSessions ends every session of the user but the one of r.
+func (s *Server) deleteOtherSessions(r *http.Request, userID int64) error {
 	cookie, err := r.Cookie(s.cookieName())
 	if err != nil {
 		return err
@@ -47,16 +46,26 @@ func (s *Server) endOtherSessions(r *http.Request, userID int64) error {
 	return s.Store.DeleteOtherSessions(r.Context(), userID, auth.HashToken(cookie.Value))
 }
 
+// endOtherSessions logs out the user's other browsers after a change of
+// password or second factor. The change is made by then: a failure is
+// logged, not reported as a failed change. SECURITY: those sessions then
+// end when they expire (sessionDuration), or on demand (closeOtherSessions).
+func (s *Server) endOtherSessions(r *http.Request, userID int64) {
+	if err := s.deleteOtherSessions(r, userID); err != nil {
+		s.Log.Error("end other sessions", "user_id", userID, "err", err)
+	}
+}
+
 // closeOtherSessions ends the sessions of the signed-in user in other
 // browsers, keeping this one: after signing in on a shared computer, or when
 // a device may be compromised.
 func (s *Server) closeOtherSessions(w http.ResponseWriter, r *http.Request) {
 	sess, _ := sessionFrom(r.Context())
-	if err := s.endOtherSessions(r, sess.User.ID); err != nil {
+	if err := s.deleteOtherSessions(r, sess.User.ID); err != nil {
 		s.serverError(w, r, err)
 		return
 	}
-	s.audit(r, "sessions_close", "")
+	s.audit(r, "sessions_close")
 	redirect(w, r, "/account", "sessions-closed")
 }
 
@@ -127,11 +136,8 @@ func (s *Server) totpConfirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.limiter.Reset(key)
-	if err := s.endOtherSessions(r, sess.User.ID); err != nil {
-		s.serverError(w, r, err)
-		return
-	}
-	s.audit(r, "totp_enable", "")
+	s.endOtherSessions(r, sess.User.ID)
+	s.audit(r, "totp_enable")
 	redirect(w, r, "/account", "totp-enabled")
 }
 
@@ -156,11 +162,8 @@ func (s *Server) totpDisable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.limiter.Reset(key)
-	if err := s.endOtherSessions(r, sess.User.ID); err != nil {
-		s.serverError(w, r, err)
-		return
-	}
-	s.audit(r, "totp_disable", "")
+	s.endOtherSessions(r, sess.User.ID)
+	s.audit(r, "totp_disable")
 	redirect(w, r, "/account", "totp-disabled")
 }
 
@@ -226,9 +229,7 @@ func (s *Server) passwordChange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.limiter.Reset(key)
-	if err := s.endOtherSessions(r, user.ID); err != nil {
-		s.Log.Warn("end other sessions", "err", err)
-	}
-	s.audit(r, "password_change", "")
+	s.endOtherSessions(r, user.ID)
+	s.audit(r, "password_change")
 	redirect(w, r, "/account", "password-changed")
 }

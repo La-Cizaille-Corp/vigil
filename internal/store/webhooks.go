@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -25,25 +27,46 @@ type Webhook struct {
 // alert class each one receives.
 var AlertLevels = map[string]int{"priority": AlertPriority, "severe": AlertSevere}
 
+// selectWebhook reads the columns of a Webhook (see scanWebhook).
+const selectWebhook = `SELECT id, name, kind, url, enabled, last_error, created_at, digests, alerts FROM webhooks `
+
+// scanWebhook reads a row of selectWebhook; no row is ErrNotFound.
+func scanWebhook(row interface{ Scan(...any) error }) (Webhook, error) {
+	var w Webhook
+	var created string
+	err := row.Scan(&w.ID, &w.Name, &w.Kind, &w.URL, &w.Enabled, &w.LastError, &created, &w.Digests, &w.Alerts)
+	if errors.Is(err, sql.ErrNoRows) {
+		return w, ErrNotFound
+	}
+	w.CreatedAt = parseTime(created)
+	return w, err
+}
+
 // ListWebhooks returns every webhook.
 func (s *Store) ListWebhooks(ctx context.Context) ([]Webhook, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, kind, url, enabled, last_error, created_at, digests, alerts FROM webhooks ORDER BY name COLLATE NOCASE`)
+	rows, err := s.db.QueryContext(ctx, selectWebhook+`ORDER BY name COLLATE NOCASE`)
 	if err != nil {
 		return nil, fmt.Errorf("list webhooks: %w", err)
 	}
 	defer rows.Close()
 	var out []Webhook
 	for rows.Next() {
-		var w Webhook
-		var created string
-		if err := rows.Scan(&w.ID, &w.Name, &w.Kind, &w.URL, &w.Enabled, &w.LastError, &created, &w.Digests, &w.Alerts); err != nil {
+		w, err := scanWebhook(rows)
+		if err != nil {
 			return nil, err
 		}
-		w.CreatedAt = parseTime(created)
 		out = append(out, w)
 	}
 	return out, rows.Err()
+}
+
+// Webhook returns one webhook, ErrNotFound if none has this id.
+func (s *Store) Webhook(ctx context.Context, id int64) (Webhook, error) {
+	w, err := scanWebhook(s.db.QueryRowContext(ctx, selectWebhook+`WHERE id = ?`, id))
+	if err != nil {
+		return w, fmt.Errorf("webhook %d: %w", id, err)
+	}
+	return w, nil
 }
 
 // CreateWebhook adds a webhook.

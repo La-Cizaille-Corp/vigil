@@ -3,7 +3,6 @@ package web
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -64,8 +63,8 @@ func (s *Server) apiSBOM(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusInternalServerError, "erreur interne")
 		return
 	}
-	s.audit(r, "sbom_import_api", fmt.Sprintf("%s (jeton %q): %s +%d =%d -%d (%d ignorés)",
-		project, tok.Name, doc.Format, res.Added, res.Kept, res.Removed, doc.Skipped))
+	s.audit(r, "sbom_import_api", "project", project, "token", tok.Name, "format", doc.Format,
+		"added", res.Added, "kept", res.Kept, "removed", res.Removed, "skipped", doc.Skipped)
 	if s.Syncer != nil {
 		go s.runSync()
 	}
@@ -104,17 +103,18 @@ func (s *Server) tokenCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	secret := tokenPrefix + raw
 	sess, _ := sessionFrom(r.Context())
-	if _, err := s.Store.CreateAPIToken(r.Context(), t, auth.HashToken(secret), sess.User.ID); err != nil {
+	id, err := s.Store.CreateAPIToken(r.Context(), t, auth.HashToken(secret), sess.User.ID)
+	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
-	s.audit(r, "api_token_create", t.Name+" → "+t.Project)
+	s.audit(r, "api_token_create", "id", id, "name", t.Name, "project", t.Project)
 	// SECURITY: the secret is displayed once, on the page this redirects to.
 	s.keepOnce(r, onceToken, secret)
 	redirect(w, r, "/settings", "token-created")
 }
 
 func (s *Server) tokenDelete(w http.ResponseWriter, r *http.Request) {
-	s.byID(w, r, s.audited(r, "api_token_delete", "", func(id int64) error { return s.Store.DeleteAPIToken(r.Context(), id) }),
-		"/settings", "token-deleted")
+	s.change(w, r, change{action: "api_token_delete", to: "/settings", msg: "token-deleted",
+		apply: func(id int64) error { return s.Store.DeleteAPIToken(r.Context(), id) }})
 }

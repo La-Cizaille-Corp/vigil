@@ -3,7 +3,6 @@ package web
 import (
 	"errors"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
@@ -49,7 +48,7 @@ func (s *Server) userTOTPPolicy(w http.ResponseWriter, r *http.Request) {
 		s.renderUsers(w, r, http.StatusBadRequest, "Choix inconnu.", nil)
 		return
 	}
-	s.audit(r, "totp_policy", "required="+policy)
+	s.audit(r, "totp_policy", "required", policy)
 	redirect(w, r, "/settings/users", "totp-policy-saved")
 }
 
@@ -74,7 +73,7 @@ func (s *Server) userCreate(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	s.audit(r, "user_create", "id="+strconv.FormatInt(id, 10)+" "+username+" role="+role)
+	s.audit(r, "user_create", "id", id, "user", username, "role", role)
 	// SECURITY: the password is displayed once, on the page this redirects to.
 	s.keepOnce(r, oncePassword, &newPassword{Username: username, Password: password})
 	redirect(w, r, "/settings/users", "user-created")
@@ -87,37 +86,31 @@ func (s *Server) userRole(w http.ResponseWriter, r *http.Request) {
 		s.renderUsers(w, r, http.StatusBadRequest, "Rôle inconnu.", nil)
 		return
 	}
-	s.userAction(w, r, "user_role", "role="+role, "user-updated", func(id int64) error {
-		return s.Store.SetRole(r.Context(), id, role)
-	})
+	s.userChange(w, r, change{action: "user_role", detail: []any{"role", role}, msg: "user-updated",
+		apply: func(id int64) error { return s.Store.SetRole(r.Context(), id, role) }})
 }
 
 func (s *Server) userDisable(w http.ResponseWriter, r *http.Request) {
-	s.userAction(w, r, "user_disable", "", "user-disabled", func(id int64) error {
-		return s.Store.SetDisabled(r.Context(), id, true)
-	})
+	s.userChange(w, r, change{action: "user_disable", msg: "user-disabled",
+		apply: func(id int64) error { return s.Store.SetDisabled(r.Context(), id, true) }})
 }
 
 func (s *Server) userEnable(w http.ResponseWriter, r *http.Request) {
-	s.userAction(w, r, "user_enable", "", "user-enabled", func(id int64) error {
-		return s.Store.SetDisabled(r.Context(), id, false)
-	})
+	s.userChange(w, r, change{action: "user_enable", msg: "user-enabled",
+		apply: func(id int64) error { return s.Store.SetDisabled(r.Context(), id, false) }})
 }
 
 // userTOTPReset removes the second factor of a user who lost it, and ends
 // that user's sessions.
 func (s *Server) userTOTPReset(w http.ResponseWriter, r *http.Request) {
-	s.userAction(w, r, "totp_reset", "", "user-totp-reset", func(id int64) error {
-		return s.Store.ResetTOTP(r.Context(), id)
-	})
+	s.userChange(w, r, change{action: "totp_reset", msg: "user-totp-reset",
+		apply: func(id int64) error { return s.Store.ResetTOTP(r.Context(), id) }})
 }
 
 // userPassword replaces the password of another account with a generated
 // temporary one and ends its sessions.
 func (s *Server) userPassword(w http.ResponseWriter, r *http.Request) {
-	var target store.Account
-	var password string
-	ok := s.userAction(w, r, "password_reset", "", "", func(id int64) error {
+	s.userChange(w, r, change{action: "password_reset", msg: "password-reset", apply: func(id int64) error {
 		a, err := s.Store.AccountByID(r.Context(), id)
 		if err != nil {
 			return err
@@ -125,49 +118,48 @@ func (s *Server) userPassword(w http.ResponseWriter, r *http.Request) {
 		if a.Disabled {
 			return store.ErrNotFound
 		}
-		pw, hash, err := temporaryPassword()
+		password, hash, err := temporaryPassword()
 		if err != nil {
 			return err
 		}
-		target, password = a, pw
-		return s.Store.ResetPassword(r.Context(), id, hash)
-	})
-	if ok {
-		s.keepOnce(r, oncePassword, &newPassword{Username: target.Username, Password: password})
-		redirect(w, r, "/settings/users", "password-reset")
-	}
+		if err := s.Store.ResetPassword(r.Context(), id, hash); err != nil {
+			return err
+		}
+		// SECURITY: the password is displayed once, on the page this redirects to.
+		s.keepOnce(r, oncePassword, &newPassword{Username: a.Username, Password: password})
+		return nil
+	}})
 }
 
-// userAction applies a change to the account named in the path, never the
-// administrator's own (no self-lockout), audits it, then redirects to the
-// list with msg; with msg "" it leaves the response to the caller.
-func (s *Server) userAction(w http.ResponseWriter, r *http.Request, action, detail, msg string, change func(int64) error) bool {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		s.notFound(w)
-		return false
-	}
+// errOwnAccount refuses a change of the administrator's own account from the
+// list of users: it is made in « Mon compte » (no self-lockout).
+var errOwnAccount = errors.New("own account")
+
+// userChange applies c to the account named in the path, never the
+// administrator's own, then goes back to the list of users; a refusal (own
+// account, last active administrator) is shown on the list.
+func (s *Server) userChange(w http.ResponseWriter, r *http.Request, c change) {
 	sess, _ := sessionFrom(r.Context())
-	if id == sess.User.ID {
-		s.renderUsers(w, r, http.StatusBadRequest, "Modifiez votre propre compte dans « Mon compte ».", nil)
-		return false
+	apply := c.apply
+	c.apply = func(id int64) error {
+		if id == sess.User.ID {
+			return errOwnAccount
+		}
+		return apply(id)
 	}
-	switch err := change(id); {
-	case errors.Is(err, store.ErrLastAdmin):
-		s.renderUsers(w, r, http.StatusConflict, "Il doit rester au moins un administrateur actif.", nil)
-		return false
-	case errors.Is(err, store.ErrNotFound):
-		s.notFound(w)
-		return false
-	case err != nil:
-		s.serverError(w, r, err)
-		return false
+	c.to = "/settings/users"
+	c.refuse = func(err error) bool {
+		switch {
+		case errors.Is(err, errOwnAccount):
+			s.renderUsers(w, r, http.StatusBadRequest, "Modifiez votre propre compte dans « Mon compte ».", nil)
+		case errors.Is(err, store.ErrLastAdmin):
+			s.renderUsers(w, r, http.StatusConflict, "Il doit rester au moins un administrateur actif.", nil)
+		default:
+			return false
+		}
+		return true
 	}
-	s.audit(r, action, strings.TrimSpace("id="+strconv.FormatInt(id, 10)+" "+detail))
-	if msg != "" {
-		redirect(w, r, "/settings/users", msg)
-	}
-	return true
+	s.change(w, r, c)
 }
 
 // temporaryPassword returns a random password and its hash.

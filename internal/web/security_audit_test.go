@@ -258,7 +258,7 @@ func TestVEXImportResults(t *testing.T) {
 		t.Errorf("two analyses in order: %s %q, history %+v", f.Status, f.Comment, events)
 	}
 	entries, _ := st.ListAudit(ctx, 10)
-	if len(entries) == 0 || entries[0].Action != "vex_import" || entries[0].Detail != "3 appliquées, 3 ignorées" {
+	if len(entries) == 0 || entries[0].Action != "vex_import" || entries[0].Detail != "applied=3 ignored=3" {
 		t.Errorf("audit: %+v", entries)
 	}
 }
