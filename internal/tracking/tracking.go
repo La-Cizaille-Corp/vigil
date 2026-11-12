@@ -760,7 +760,7 @@ func reportable(a store.Asset, l listed, exploited func() map[string]bool) bool 
 // comes from a package too large for a batch answer.
 func (s *Syncer) readAdvisories(ctx context.Context, pending *advisories, a store.Asset, q osv.Query, found osv.BatchResult, sg *signals) ([]string, map[string]described, error) {
 	if found.More {
-		return s.readLargePackage(ctx, pending, a, q, sg)
+		return s.readLargePackage(ctx, pending, a, q, len(found.Vulns), sg)
 	}
 	reported := make([]string, 0, len(found.Vulns))
 	for _, ref := range found.Vulns {
@@ -778,9 +778,9 @@ func (s *Syncer) readAdvisories(ctx context.Context, pending *advisories, a stor
 // are stored; the others are still reported, to count them as older. They are
 // read in full the first time, then only those changed since (A90); the list
 // kept of them is stored with the asset's advisories.
-func (s *Syncer) readLargePackage(ctx context.Context, pending *advisories, a store.Asset, q osv.Query, sg *signals) ([]string, map[string]described, error) {
+func (s *Syncer) readLargePackage(ctx context.Context, pending *advisories, a store.Asset, q osv.Query, firstPage int, sg *signals) ([]string, map[string]described, error) {
 	key := listKey(q)
-	r, readAt, err := s.readChanged(ctx, pending, a, q, key, sg.exploited)
+	r, readAt, err := s.readChanged(ctx, pending, a, q, key, firstPage, sg.exploited)
 	if err == nil && r == nil { // nothing to start from: every advisory is read
 		readAt = time.Now()
 		r, err = s.readWhole(ctx, pending, a, q, sg.exploited)

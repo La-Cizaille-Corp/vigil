@@ -90,11 +90,12 @@ func (r *packageRead) encode() string {
 // readChanged reads, of the advisories reported for a large package, those
 // new or modified since its list was kept, and takes the others from it, with
 // the time of the full read that made it. It returns nil, for a full read,
-// without a list kept, without the short list of OSV, or when more than a
-// tenth of the advisories would be read again: those changed, and those the
-// asset can report that are not stored as they are (its period moved back, a
-// CVE became exploited).
-func (s *Syncer) readChanged(ctx context.Context, pending *advisories, a store.Asset, q osv.Query, key string, exploited func() map[string]bool) (*packageRead, time.Time, error) {
+// without a list kept, without the short list of OSV or with one shorter than
+// firstPage, the advisories of the first page of the batch answer, or when
+// more than a tenth of the advisories would be read again: those changed, and
+// those the asset can report that are not stored as they are (its period moved
+// back, a CVE became exploited).
+func (s *Syncer) readChanged(ctx context.Context, pending *advisories, a store.Asset, q osv.Query, key string, firstPage int, exploited func() map[string]bool) (*packageRead, time.Time, error) {
 	kept, err := s.Store.OSVList(ctx, key)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil, time.Time{}, nil
@@ -110,6 +111,14 @@ func (s *Syncer) readChanged(ctx context.Context, pending *advisories, a store.A
 	refs, err := s.OSV.Refs(ctx, q)
 	if err != nil {
 		s.Log.Warn("osv short list failed: the package is read in full", "asset", a.Name, "err", err)
+		return nil, time.Time{}, nil
+	}
+	// SECURITY: the list cannot be shorter than its first page, which the
+	// batch answer gave a moment ago: OSV answered in part, and taken as the
+	// whole list, it would mark the findings of the advisories missing fixed.
+	if len(refs) < firstPage {
+		s.Log.Warn("osv short list shorter than its first page: the package is read in full", "asset", a.Name,
+			"advisories", len(refs), "first page", firstPage)
 		return nil, time.Time{}, nil
 	}
 	byID := make(map[string]listed, len(entries))
