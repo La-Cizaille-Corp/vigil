@@ -17,7 +17,7 @@ type Stats struct {
 	Overdue        int // open and past the remediation deadline (see SLA)
 	OverdueKEV     int // of which exploited
 	ToTriage       int
-	StaleTriage    int     // to triage for more than StaleAfter
+	StaleTriage    int     // to triage for more than staleAfter
 	Closed90       int     // closed (fixed or dismissed) in the last 90 days, found after the first sync of their asset
 	MeanDaysToFix  float64 // mean days from detection to closing, over Closed90; -1 without data
 	Weeks          []WeekCount
@@ -45,8 +45,8 @@ type AssetLoad struct {
 func (a AssetLoad) Total() int { return a.Critical + a.High + a.Medium + a.Other }
 
 const (
-	// StaleAfter is when a finding waiting for triage is reported as late.
-	StaleAfter = 30 * 24 * time.Hour
+	// staleAfter is when a finding waiting for triage is reported as late.
+	staleAfter = 30 * 24 * time.Hour
 	statsWeeks = 12
 	topAssets  = 6
 )
@@ -76,12 +76,20 @@ func (s *Store) openStats(ctx context.Context, sc Scope, now time.Time, st *Stat
 	if err != nil {
 		return err
 	}
-	today := now.UTC().Format(time.DateOnly)
+	today := day(now)
 	cond, condArgs := sc.cond("a")
 	args := append(append(sla.args(), today), sla.args()...)
-	args = append(append(args, today, formatTime(now.Add(-StaleAfter))), condArgs...)
+	args = append(append(args, today, formatTime(now.Add(-staleAfter))), condArgs...)
+	type severityStats struct {
+		severity                                       string
+		n, prio, kev, overdue, overdueKEV, triage, old int
+	}
 	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
-	rows, err := s.db.QueryContext(ctx, `
+	list, err := collect(ctx, s.db, "open findings", func(row scanner) (severityStats, error) {
+		var r severityStats
+		err := row.Scan(&r.severity, &r.n, &r.prio, &r.kev, &r.overdue, &r.overdueKEV, &r.triage, &r.old)
+		return r, err
+	}, `
 		SELECT `+severityExpr+`, COUNT(*),
 		       SUM(`+urgentExpr+`),
 		       SUM(v.kev),
@@ -95,23 +103,17 @@ func (s *Store) openStats(ctx context.Context, sc Scope, now time.Time, st *Stat
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var sev string
-		var n, prio, kev, overdue, overdueKEV, triage, stale int
-		if err := rows.Scan(&sev, &n, &prio, &kev, &overdue, &overdueKEV, &triage, &stale); err != nil {
-			return err
-		}
-		st.OpenBySeverity[sev] = n
-		st.Open += n
-		st.Priority += prio
-		st.OpenKEV += kev
-		st.Overdue += overdue
-		st.OverdueKEV += overdueKEV
-		st.ToTriage += triage
-		st.StaleTriage += stale
+	for _, r := range list {
+		st.OpenBySeverity[r.severity] = r.n
+		st.Open += r.n
+		st.Priority += r.prio
+		st.OpenKEV += r.kev
+		st.Overdue += r.overdue
+		st.OverdueKEV += r.overdueKEV
+		st.ToTriage += r.triage
+		st.StaleTriage += r.old
 	}
-	return rows.Err()
+	return nil
 }
 
 // closedStats measures the time to close findings, from their detection to
@@ -138,7 +140,7 @@ func (s *Store) closedStats(ctx context.Context, sc Scope, now time.Time, st *St
 		WHERE f.status IN `+closedStatuses+` AND c.closed_at >= ? AND f.first_seen > fs.at AND `+cond,
 		append([]any{formatTime(now.Add(-90 * 24 * time.Hour))}, args...)...).Scan(&st.Closed90, &mean)
 	if err != nil {
-		return err
+		return fmt.Errorf("closed findings: %w", err)
 	}
 	if mean.Valid {
 		st.MeanDaysToFix = max(mean.Float64, 0)
@@ -166,21 +168,16 @@ func (s *Store) weeklyStats(ctx context.Context, sc Scope, now time.Time, st *St
 	cond, condArgs := sc.cond("a")
 	args := append([]any{formatTime(start)}, condArgs...)
 	count := func(query string, add func(*WeekCount)) error {
-		rows, err := s.db.QueryContext(ctx, query, args...)
+		times, err := collect(ctx, s.db, "weekly activity", value[string], query, args...)
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
-		for rows.Next() {
-			var ts string
-			if err := rows.Scan(&ts); err != nil {
-				return err
-			}
+		for _, ts := range times {
 			if i := index(ts); i >= 0 {
 				add(&st.Weeks[i])
 			}
 		}
-		return rows.Err()
+		return nil
 	}
 	if err := count(`SELECT f.first_seen FROM findings f JOIN assets a ON a.id = f.asset_id
 		WHERE f.first_seen >= ? AND `+cond,
@@ -200,7 +197,11 @@ func (s *Store) weeklyStats(ctx context.Context, sc Scope, now time.Time, st *St
 func (s *Store) topAssets(ctx context.Context, sc Scope, _ time.Time, st *Stats) error {
 	cond, args := sc.cond("a")
 	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
-	rows, err := s.db.QueryContext(ctx, `
+	list, err := collect(ctx, s.db, "top assets", func(row scanner) (AssetLoad, error) {
+		var a AssetLoad
+		err := row.Scan(&a.ID, &a.Name, &a.Version, &a.Critical, &a.High, &a.Medium, &a.Other)
+		return a, err
+	}, `
 		SELECT a.id, a.name, a.version,
 		       SUM(v.severity = 'CRITICAL'), SUM(v.severity = 'HIGH'), SUM(v.severity = 'MEDIUM'),
 		       SUM(v.severity NOT IN ('CRITICAL', 'HIGH', 'MEDIUM'))
@@ -209,27 +210,17 @@ func (s *Store) topAssets(ctx context.Context, sc Scope, _ time.Time, st *Stats)
 		GROUP BY a.id
 		ORDER BY 4 DESC, 5 DESC, COUNT(*) DESC, a.name
 		LIMIT ?`, append(args, topAssets)...)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var a AssetLoad
-		if err := rows.Scan(&a.ID, &a.Name, &a.Version, &a.Critical, &a.High, &a.Medium, &a.Other); err != nil {
-			return err
-		}
-		st.TopAssets = append(st.TopAssets, a)
-	}
-	return rows.Err()
+	st.TopAssets = list
+	return err
 }
 
 func (s *Store) ctiStats(ctx context.Context, sc Scope, now time.Time, st *Stats) error {
 	month := formatTime(now.Add(-30 * 24 * time.Hour))
 	with, args := openCVEs(sc)
-	return s.db.QueryRowContext(ctx, with+`
+	return wrap("news", s.db.QueryRowContext(ctx, with+`
 		SELECT COALESCE(SUM(published >= ?), 0), COALESCE(SUM(regulations <> '' AND published >= ?), 0),
 		       COALESCE(SUM(published >= ? AND EXISTS (SELECT 1 FROM cti_mentions m
 		                    WHERE m.item_id = i.id AND m.cve IN (SELECT cve FROM open_cves))), 0)
 		FROM cti_items i`,
-		append(args, formatTime(now.Add(-7*24*time.Hour)), month, month)...).Scan(&st.CTIWeek, &st.Regulatory30, &st.Concerning30)
+		append(args, formatTime(now.Add(-7*24*time.Hour)), month, month)...).Scan(&st.CTIWeek, &st.Regulatory30, &st.Concerning30))
 }

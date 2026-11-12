@@ -60,8 +60,8 @@ func TestCTIMentions(t *testing.T) {
 		"XCVE-2024-1234 CVE-2024-12345678 CVE-2024-123 CVE-2024-1234a CVE-":  nil,
 		"fin CVE-2026-42897": {"CVE-2026-42897"},
 	} {
-		if got := ExtractCVEs(text); !reflect.DeepEqual(got, want) {
-			t.Errorf("ExtractCVEs(%q) = %v, want %v", text, got, want)
+		if got := extractCVEs(text); !reflect.DeepEqual(got, want) {
+			t.Errorf("extractCVEs(%q) = %v, want %v", text, got, want)
 		}
 	}
 	feeds, _ := st.ListFeeds(ctx)
@@ -81,7 +81,7 @@ func TestCTIMentions(t *testing.T) {
 	if len(all) != 3 || all[1].Concerns != nil {
 		t.Errorf("all items: %+v", all)
 	}
-	mentions, err := st.MentionsOf(ctx, []string{"GHSA-jfh8-c2jp-5v3q", "CVE-2021-44228"}, 5)
+	mentions, err := st.ListMentions(ctx, []string{"GHSA-jfh8-c2jp-5v3q", "CVE-2021-44228"}, 5)
 	if err != nil || len(mentions) != 1 || mentions[0].FeedName == "" {
 		t.Errorf("mentions: %+v, %v", mentions, err)
 	}

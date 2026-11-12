@@ -150,3 +150,37 @@ func TestMeanDaysToFixAfterFirstSync(t *testing.T) {
 		t.Errorf("%d closings this week, want 4", closed)
 	}
 }
+
+// A list judges deadlines at the time it is given, as the dashboard figures
+// computed with it: "late" and the overdue filter agree with them.
+func TestFindingsJudgedAtTheGivenTime(t *testing.T) {
+	ctx := context.Background()
+	st := openTest(t)
+	assetID, err := st.CreateAsset(ctx, Everything, Asset{Name: "nginx", Kind: "technology", Criticality: "high", Source: "manual"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UpsertVulnerability(ctx, Vulnerability{ID: "CVE-1", Severity: "CRITICAL", EPSS: -1, CVSS: -1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.ObserveFinding(ctx, assetID, "CVE-1", "", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		at   time.Time
+		late bool
+	}{{time.Now(), false}, {time.Now().AddDate(0, 0, 20), true}} { // critical: 15 days
+		all, err := st.ListFindings(ctx, Everything, FindingFilter{Now: c.at})
+		if err != nil || len(all) != 1 || all[0].Late != c.late {
+			t.Fatalf("at %s: %+v, %v; want late %v", c.at, all, err, c.late)
+		}
+		overdue, err := st.ListFindings(ctx, Everything, FindingFilter{Overdue: true, Now: c.at})
+		if err != nil || (len(overdue) == 1) != c.late {
+			t.Errorf("overdue at %s: %d, %v", c.at, len(overdue), err)
+		}
+		stats, err := st.DashboardStats(ctx, Everything, c.at)
+		if err != nil || (stats.Overdue == 1) != c.late {
+			t.Errorf("dashboard at %s: %d overdue, %v", c.at, stats.Overdue, err)
+		}
+	}
+}

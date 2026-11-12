@@ -105,7 +105,9 @@ Garanties (registre A36 de [ARCHITECTURE.md](ARCHITECTURE.md)) :
   valeur est conservée.
 
 Seules les trois copies `.bak` les plus récentes sont gardées (chacune contient tous les secrets
-de la base) ; effacez-les une fois la nouvelle version validée.
+de la base), d'après la date écrite dans leur nom ; une copie renommée à la main
+(`vigil.db.schema-9.avant-maj.bak`) n'est ni comptée ni effacée. Effacez-les une fois la nouvelle
+version validée.
 
 ## Surveiller
 

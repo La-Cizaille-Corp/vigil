@@ -172,7 +172,13 @@ une copie incohérente (le WAL contient les dernières transactions). `VACUUM IN
 instantané cohérent même pendant les écritures ; la copie est vérifiée (`integrity_check`),
 créée en `0600`, écrite dans un fichier temporaire puis renommée (une sauvegarde ratée n'écrase
 jamais une bonne). Sauvegardes planifiées avec rotation dans `serve`, commande `backup`
-ponctuelle, Litestream documenté pour le continu. Voir [OPERATIONS.md](OPERATIONS.md).
+ponctuelle, Litestream documenté pour le continu. Voir [OPERATIONS.md](OPERATIONS.md). Une seule
+rotation sert aux sauvegardes planifiées et aux copies prises avant une mise à jour du schéma : elle
+les ordonne par la date écrite dans leur nom, qu'une copie déplacée ou restaurée ne change pas
+(les copies `.bak` étaient ordonnées par la date du fichier) ; un fichier dont le nom n'est pas
+celui qu'elle écrit, comme une copie faite à la main, n'est ni compté ni effacé ; le fichier
+temporaire d'une copie interrompue, copie complète de la base, est retiré après une heure, pour les
+copies `.bak` comme pour les sauvegardes.
 
 **A7. Pilote `modernc.org/sqlite` (Go pur).** `mattn/go-sqlite3` exige CGO : compilation
 croisée et image distroless plus complexes. modernc garde le binaire statique, au prix d'une
@@ -749,6 +755,29 @@ par réflexion les méthodes du stockage et exige pour chacune un cas d'isolatio
 n'atteint rien et ne change rien) ou une raison d'en être exemptée ; dans `internal/web`, seul
 `scope.go` accorde `store.Everything`, les méthodes de la synchronisation ne sont pas appelées, et
 les routes forment une table que les tests parcourent.
+
+**A71. Le stockage lit et écrit d'une seule façon.** L'audit de la 0.4.2 (D1, D3, D5, D6) comptait
+environ 25 copies de la boucle de lecture SQL, trois interfaces locales équivalentes, `RowsAffected`
+ignoré sept fois et une soixantaine d'erreurs sans contexte. Une liste s'écrit désormais
+`collect(ctx, q, étiquette, scan, requête, args...)` : `collect` lit et ferme toutes les lignes avant
+de rendre la main, ce qui la rend sûre dans une transaction (connexion unique, A5), et préfixe ses
+erreurs de l'étiquette ; `querier` (`*sql.DB`, `*sql.Tx`, `*sql.Conn`) et `scanner` sont les deux
+seules interfaces. Une écriture qui doit toucher une ligne passe par `expectRow` (`ErrNotFound`
+sinon, l'erreur de `RowsAffected` remontée) ; toute erreur interne porte une étiquette en anglais
+(`wrap`), les messages destinés à l'écran restent tels quels (A4). Noms : `ListX` pour une liste,
+le nom simple pour la clé primaire (`User`, `Session`), `XByY` pour une autre clé ; un seul type
+`User` pour la table des comptes (`Account` a disparu). `UserByName` garde son sens, comptes actifs
+seulement, pour la connexion ; la recherche qui inclut les comptes désactivés prend un nom nouveau,
+`AnyUserByName`, pour qu'un appel écrit dans une autre branche ne change pas de sens en silence à
+la fusion. Échéances : « hors délai » et le filtre des vulnérabilités en retard se jugent à la même
+heure, `FindingFilter.Now`, que le tableau de bord et le digest passent avec celle de leurs
+chiffres (l'heure courante sinon), au lieu de trois horloges (`time.Now()` à la lecture,
+`date('now')` dans le filtre, celle de l'appelant au tableau de bord). Rangement : helpers
+génériques dans `store.go`, réglages dans `settings.go`. Écartés : sqlx ou un ORM (une dépendance de
+plus, A26, pour une boucle de vingt lignes) ; une horloge portée par le `Store`, qui resterait une
+deuxième horloge à côté de celle de l'appelant ; donner à `UserByName` le sens « tous les comptes »,
+piège de fusion décrit plus haut. *Conséquences* : une liste nouvelle tient en un appel et une
+fonction de lecture ; une erreur du journal nomme l'opération du stockage qui a échoué.
 
 ### Notifications, délais et échanges (0.3)
 

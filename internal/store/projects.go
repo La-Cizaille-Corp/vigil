@@ -29,26 +29,20 @@ func (s *Store) ReplaceProjectAssets(ctx context.Context, sc Scope, project stri
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
 		type known struct {
 			id      int64
+			purl    string
 			retired bool
 		}
-		existing := map[string]known{}
-		rows, err := tx.QueryContext(ctx,
-			`SELECT id, purl, retired_at <> '' FROM assets WHERE project = ? AND source = 'sbom'`, project)
+		list, err := collect(ctx, tx, "project components", func(row scanner) (known, error) {
+			var k known
+			err := row.Scan(&k.id, &k.purl, &k.retired)
+			return k, err
+		}, `SELECT id, purl, retired_at <> '' FROM assets WHERE project = ? AND source = 'sbom'`, project)
 		if err != nil {
 			return err
 		}
-		for rows.Next() {
-			var k known
-			var purl string
-			if err := rows.Scan(&k.id, &purl, &k.retired); err != nil {
-				_ = rows.Close() // already failing, or fully read
-				return err
-			}
-			existing[purl] = k
-		}
-		_ = rows.Close() // already failing, or fully read
-		if err := rows.Err(); err != nil {
-			return err
+		existing := make(map[string]known, len(list))
+		for _, k := range list {
+			existing[k.purl] = k
 		}
 
 		seen := map[string]bool{}
@@ -66,10 +60,9 @@ func (s *Store) ReplaceProjectAssets(ctx context.Context, sc Scope, project stri
 				res.Kept++
 				continue
 			}
-			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO assets (name, kind, ecosystem, version, purl, cpe, track_since, criticality, owner, notes, source, project, created_at, updated_at)
-				VALUES (?, ?, '', ?, ?, ?, ?, 'medium', '', '', 'sbom', ?, ?, ?)`,
-				a.Name, a.Kind, a.Version, a.PURL, a.CPE, a.TrackSince, project, ts, ts); err != nil {
+			// Only what an SBOM tells: the rest takes the values of a new component.
+			if _, err := insertAsset(ctx, tx, Asset{Name: a.Name, Kind: a.Kind, Version: a.Version, PURL: a.PURL, CPE: a.CPE,
+				TrackSince: a.TrackSince, Criticality: "medium", Source: "sbom", Project: project}, ts); err != nil {
 				return err
 			}
 			res.Added++
@@ -93,30 +86,13 @@ func (s *Store) ReplaceProjectAssets(ctx context.Context, sc Scope, project stri
 
 // retireAsset marks an asset retired and resolves its open findings, with an
 // event in their history.
-func retireAsset(ctx context.Context, tx *sql.Tx, id int64, project, ts string) error {
+func retireAsset(ctx context.Context, tx querier, id int64, project, ts string) error {
 	if _, err := tx.ExecContext(ctx, `UPDATE assets SET retired_at = ?, updated_at = ? WHERE id = ?`, ts, ts, id); err != nil {
 		return err
 	}
-	rows, err := tx.QueryContext(ctx,
-		`SELECT id, status FROM findings WHERE asset_id = ? AND status IN ('in_triage', 'exploitable')`, id)
+	list, err := collect(ctx, tx, "open findings", scanFindingState,
+		`SELECT id, status, vuln_id FROM findings WHERE asset_id = ? AND status IN ('in_triage', 'exploitable')`, id)
 	if err != nil {
-		return err
-	}
-	type open struct {
-		id     int64
-		status string
-	}
-	var list []open
-	for rows.Next() {
-		var o open
-		if err := rows.Scan(&o.id, &o.status); err != nil {
-			_ = rows.Close() // already failing
-			return err
-		}
-		list = append(list, o)
-	}
-	_ = rows.Close() // fully read
-	if err := rows.Err(); err != nil {
 		return err
 	}
 	for _, o := range list {
@@ -137,19 +113,6 @@ func retireAsset(ctx context.Context, tx *sql.Tx, id int64, project, ts string) 
 func (s *Store) ListProjects(ctx context.Context, sc Scope) ([]string, error) {
 	cond, args := sc.cond("a")
 	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
-	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT a.project FROM assets a
+	return collect(ctx, s.db, "list projects", value[string], `SELECT DISTINCT a.project FROM assets a
 		WHERE a.project <> '' AND a.retired_at = '' AND `+cond+` ORDER BY a.project COLLATE NOCASE`, args...)
-	if err != nil {
-		return nil, fmt.Errorf("list projects: %w", err)
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var p string
-		if err := rows.Scan(&p); err != nil {
-			return nil, err
-		}
-		out = append(out, p)
-	}
-	return out, rows.Err()
 }

@@ -29,7 +29,7 @@ func (s *Server) require(role string, next http.HandlerFunc) http.Handler {
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}
-		sess, err := s.Store.SessionByHash(r.Context(), auth.HashToken(cookie.Value))
+		sess, err := s.Store.Session(r.Context(), auth.HashToken(cookie.Value))
 		if errors.Is(err, store.ErrNotFound) {
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return

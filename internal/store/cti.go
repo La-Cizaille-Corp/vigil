@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 )
 
 // Feed is a CTI RSS/Atom source.
@@ -54,7 +52,7 @@ type CTIFilter struct {
 const selectFeed = `SELECT id, name, url, country, sectors, regulations, enabled, last_fetched, last_error FROM cti_feeds `
 
 // scanFeed reads a row of selectFeed; no row is ErrNotFound.
-func scanFeed(row interface{ Scan(...any) error }) (Feed, error) {
+func scanFeed(row scanner) (Feed, error) {
 	var f Feed
 	var fetched string
 	err := row.Scan(&f.ID, &f.Name, &f.URL, &f.Country, &f.Sectors, &f.Regulations, &f.Enabled, &fetched, &f.LastError)
@@ -67,20 +65,7 @@ func scanFeed(row interface{ Scan(...any) error }) (Feed, error) {
 
 // ListFeeds returns every feed.
 func (s *Store) ListFeeds(ctx context.Context) ([]Feed, error) {
-	rows, err := s.db.QueryContext(ctx, selectFeed+`ORDER BY name COLLATE NOCASE`)
-	if err != nil {
-		return nil, fmt.Errorf("list feeds: %w", err)
-	}
-	defer rows.Close()
-	var out []Feed
-	for rows.Next() {
-		f, err := scanFeed(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, f)
-	}
-	return out, rows.Err()
+	return collect(ctx, s.db, "list feeds", scanFeed, selectFeed+`ORDER BY name COLLATE NOCASE`)
 }
 
 // Feed returns one feed, ErrNotFound if none has this id.
@@ -100,28 +85,25 @@ func (s *Store) CreateFeed(ctx context.Context, f Feed) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("create feed: %w", mapUnique(err))
 	}
-	return res.LastInsertId()
+	id, err := res.LastInsertId()
+	return id, wrap("create feed", err)
 }
 
 // SetFeedEnabled turns a feed on or off.
 func (s *Store) SetFeedEnabled(ctx context.Context, id int64, enabled bool) error {
-	return expectRow(s.db.ExecContext(ctx, `UPDATE cti_feeds SET enabled = ? WHERE id = ?`, enabled, id))
+	return wrap("set feed enabled", expectRow(s.db.ExecContext(ctx, `UPDATE cti_feeds SET enabled = ? WHERE id = ?`, enabled, id)))
 }
 
 // DeleteFeed removes a feed and its items.
 func (s *Store) DeleteFeed(ctx context.Context, id int64) error {
-	return expectRow(s.db.ExecContext(ctx, `DELETE FROM cti_feeds WHERE id = ?`, id))
+	return wrap("delete feed", expectRow(s.db.ExecContext(ctx, `DELETE FROM cti_feeds WHERE id = ?`, id)))
 }
 
 // RecordFeedFetch stores the outcome of a fetch.
 func (s *Store) RecordFeedFetch(ctx context.Context, id int64, fetchErr error) error {
-	msg := ""
-	if fetchErr != nil {
-		msg = clip.Text(fetchErr.Error(), 300)
-	}
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE cti_feeds SET last_fetched = ?, last_error = ? WHERE id = ?`, now(), msg, id)
-	return err
+		`UPDATE cti_feeds SET last_fetched = ?, last_error = ? WHERE id = ?`, now(), errText(fetchErr), id)
+	return wrap("record feed fetch", err)
 }
 
 // InsertCTIItem stores an item unless the feed already has it, or another feed
@@ -136,11 +118,10 @@ func (s *Store) InsertCTIItem(ctx context.Context, feedID int64, it CTIItem) (bo
 			ON CONFLICT (feed_id, guid) DO NOTHING`,
 			feedID, it.GUID, it.Title, it.Link, it.Summary, formatTime(it.Published),
 			joinTags(it.Countries), joinTags(it.Sectors), joinTags(it.Regulations), now(), it.Link, it.Link)
-		if err != nil {
+		if err := expectRow(res, err); errors.Is(err, ErrNotFound) {
+			return nil // already known
+		} else if err != nil {
 			return err
-		}
-		if n, _ := res.RowsAffected(); n == 0 {
-			return nil
 		}
 		created = true
 		id, err := res.LastInsertId()
@@ -158,9 +139,9 @@ func (s *Store) InsertCTIItem(ctx context.Context, feedID int64, it CTIItem) (bo
 // maxMentions bounds the identifiers kept per item (bulletins list dozens).
 const maxMentions = 100
 
-// ExtractCVEs returns the distinct CVE identifiers cited in text (CVE-YYYY-N
+// extractCVEs returns the distinct CVE identifiers cited in text (CVE-YYYY-N
 // with 4 to 7 digits, any case), upper case, in order of appearance.
-func ExtractCVEs(text string) []string {
+func extractCVEs(text string) []string {
 	var out []string
 	seen := map[string]bool{}
 	upper := strings.ToUpper(text)
@@ -205,11 +186,9 @@ func isWordByte(b byte) bool {
 	return b == '_' || (b >= '0' && b <= '9') || (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z')
 }
 
-func insertMentions(ctx context.Context, tx interface {
-	ExecContext(context.Context, string, ...any) (sql.Result, error)
-}, itemID int64, text string) error {
-	for _, cve := range ExtractCVEs(text) {
-		if _, err := tx.ExecContext(ctx,
+func insertMentions(ctx context.Context, q querier, itemID int64, text string) error {
+	for _, cve := range extractCVEs(text) {
+		if _, err := q.ExecContext(ctx,
 			`INSERT OR IGNORE INTO cti_mentions (item_id, cve) VALUES (?, ?)`, itemID, cve); err != nil {
 			return err
 		}
@@ -220,37 +199,24 @@ func insertMentions(ctx context.Context, tx interface {
 // backfillMentions indexes the CVE identifiers of news collected before
 // migration 9.
 func backfillMentions(ctx context.Context, conn *sql.Conn) error {
-	rows, err := conn.QueryContext(ctx, `SELECT id, title || ' ' || summary FROM cti_items`)
+	items, err := collect(ctx, conn, "backfill mentions", func(row scanner) (CTIItem, error) {
+		var it CTIItem
+		err := row.Scan(&it.ID, &it.Summary)
+		return it, err
+	}, `SELECT id, title || ' ' || summary FROM cti_items`)
 	if err != nil {
 		return err
 	}
-	texts := map[int64]string{}
-	for rows.Next() {
-		var id int64
-		var text string
-		if err := rows.Scan(&id, &text); err != nil {
-			_ = rows.Close() // the scan error is the one to report
-			return err
-		}
-		texts[id] = text
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		return err
-	}
-	if err := rows.Close(); err != nil {
-		return err
-	}
-	for id, text := range texts {
-		if err := insertMentions(ctx, conn, id, text); err != nil {
-			return err
+	for _, it := range items {
+		if err := insertMentions(ctx, conn, it.ID, it.Summary); err != nil {
+			return fmt.Errorf("backfill mentions: %w", err)
 		}
 	}
 	return nil
 }
 
-// MentionsOf returns the most recent news citing any of the identifiers.
-func (s *Store) MentionsOf(ctx context.Context, ids []string, limit int) ([]CTIItem, error) {
+// ListMentions returns the most recent news citing any of the identifiers.
+func (s *Store) ListMentions(ctx context.Context, ids []string, limit int) ([]CTIItem, error) {
 	var cves []string
 	for _, id := range ids {
 		if strings.HasPrefix(strings.ToUpper(id), "CVE-") {
@@ -263,26 +229,17 @@ func (s *Store) MentionsOf(ctx context.Context, ids []string, limit int) ([]CTII
 	where, args := inClause(nil, nil, "m.cve", cves)
 	args = append(args, limit)
 	// #nosec G202 -- where[0] is "m.cve IN (?, ...)": the values are parameters.
-	rows, err := s.db.QueryContext(ctx, `
+	return collect(ctx, s.db, "mentions", func(row scanner) (CTIItem, error) {
+		var it CTIItem
+		var published string
+		err := row.Scan(&it.ID, &it.FeedName, &it.Title, &it.Link, &published)
+		it.Published = parseTime(published)
+		return it, err
+	}, `
 		SELECT DISTINCT i.id, fd.name, i.title, i.link, i.published
 		FROM cti_mentions m JOIN cti_items i ON i.id = m.item_id JOIN cti_feeds fd ON fd.id = i.feed_id
 		WHERE `+where[0]+`
 		ORDER BY i.published DESC LIMIT ?`, args...)
-	if err != nil {
-		return nil, fmt.Errorf("mentions: %w", err)
-	}
-	defer rows.Close()
-	var out []CTIItem
-	for rows.Next() {
-		var it CTIItem
-		var published string
-		if err := rows.Scan(&it.ID, &it.FeedName, &it.Title, &it.Link, &published); err != nil {
-			return nil, err
-		}
-		it.Published = parseTime(published)
-		out = append(out, it)
-	}
-	return out, rows.Err()
 }
 
 // ListCTIItems returns items matching f, most recent first. News are the same
@@ -329,118 +286,51 @@ func (s *Store) ListCTIItems(ctx context.Context, sc Scope, f CTIFilter) ([]CTII
 		limit = 200
 	}
 	args = append(args, limit)
-
-	rows, err := s.db.QueryContext(ctx, q, args...)
-	if err != nil {
-		return nil, fmt.Errorf("list cti items: %w", err)
-	}
-	defer rows.Close()
-	var out []CTIItem
-	for rows.Next() {
-		var it CTIItem
-		var published, countries, sectors, regulations, concerns string
-		if err := rows.Scan(&it.ID, &it.FeedName, &it.GUID, &it.Title, &it.Link, &it.Summary,
-			&published, &countries, &sectors, &regulations, &concerns); err != nil {
-			return nil, err
-		}
-		if concerns != "" {
-			it.Concerns = strings.Split(concerns, ",")
-		}
-		it.Published = parseTime(published)
-		it.Countries, it.Sectors, it.Regulations = splitTags(countries), splitTags(sectors), splitTags(regulations)
-		out = append(out, it)
-	}
-	return out, rows.Err()
+	return collect(ctx, s.db, "list cti items", scanCTIItem, q, args...)
 }
 
-// PurgeCTIItems deletes items older than before, to keep the database small.
-func (s *Store) PurgeCTIItems(ctx context.Context, before time.Time) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM cti_items WHERE published < ?`, formatTime(before))
-	return err
-}
-
-// Setting returns a setting value, or "" when unset.
-func (s *Store) Setting(ctx context.Context, key string) (string, error) {
-	var v string
-	err := s.db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = ?`, key).Scan(&v)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil
+// scanCTIItem reads a row of ListCTIItems.
+func scanCTIItem(row scanner) (CTIItem, error) {
+	var it CTIItem
+	var published, countries, sectors, regulations, concerns string
+	if err := row.Scan(&it.ID, &it.FeedName, &it.GUID, &it.Title, &it.Link, &it.Summary,
+		&published, &countries, &sectors, &regulations, &concerns); err != nil {
+		return it, err
 	}
-	return v, err
-}
-
-// SetSetting stores a setting value.
-func (s *Store) SetSetting(ctx context.Context, key, value string) error {
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO settings (key, value) VALUES (?, ?)
-		ON CONFLICT (key) DO UPDATE SET value = excluded.value`, key, value)
-	return err
-}
-
-// joinTags stores a list of tags as ",FR,US,", so that hasTag can find one of
-// them with a single LIKE.
-func joinTags(tags []string) string {
-	if len(tags) == 0 {
-		return ""
+	if concerns != "" {
+		it.Concerns = strings.Split(concerns, ",")
 	}
-	return "," + strings.Join(tags, ",") + ","
+	it.Published = parseTime(published)
+	it.Countries, it.Sectors, it.Regulations = splitTags(countries), splitTags(sectors), splitTags(regulations)
+	return it, nil
 }
 
-func splitTags(s string) []string {
-	var out []string
-	for _, t := range strings.Split(s, ",") {
-		if t != "" {
-			out = append(out, t)
-		}
-	}
-	return out
-}
-
-// hasTag is the condition "the list stored in column (see joinTags) holds
-// tag", and its argument.
-// SECURITY: the LIKE wildcards of tag are escaped, so that "pci_dss" or a
-// user's tag never matches another one.
-func hasTag(column, tag string) (cond string, arg any) {
-	return column + ` LIKE ? ESCAPE '\'`, "%," + likeEscaper.Replace(tag) + ",%"
-}
-
-func expectRow(res sql.Result, err error) error {
-	if err != nil {
-		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
-	}
-	return nil
+// PurgeCTIItems deletes items older than before, to keep the database small;
+// it returns how many were deleted.
+func (s *Store) PurgeCTIItems(ctx context.Context, before time.Time) (int, error) {
+	n, err := purge(ctx, s.db, `DELETE FROM cti_items WHERE published < ?`, before)
+	return n, wrap("purge cti items", err)
 }
 
 // UpdateFeedTags replaces the tags a feed applies to its items.
 func (s *Store) UpdateFeedTags(ctx context.Context, id int64, country, sectors, regulations string) error {
-	return expectRow(s.db.ExecContext(ctx,
-		`UPDATE cti_feeds SET country = ?, sectors = ?, regulations = ? WHERE id = ?`, country, sectors, regulations, id))
+	return wrap("update feed tags", expectRow(s.db.ExecContext(ctx,
+		`UPDATE cti_feeds SET country = ?, sectors = ?, regulations = ? WHERE id = ?`, country, sectors, regulations, id)))
 }
 
-// FeedItems returns the items of a feed, with their tags.
-func (s *Store) FeedItems(ctx context.Context, feedID int64) ([]CTIItem, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, title, summary FROM cti_items WHERE feed_id = ?`, feedID)
-	if err != nil {
-		return nil, fmt.Errorf("feed items: %w", err)
-	}
-	defer rows.Close()
-	var out []CTIItem
-	for rows.Next() {
+// ListFeedItems returns the items of a feed with what tagging reads: their title
+// and summary.
+func (s *Store) ListFeedItems(ctx context.Context, feedID int64) ([]CTIItem, error) {
+	return collect(ctx, s.db, "feed items", func(row scanner) (CTIItem, error) {
 		var it CTIItem
-		if err := rows.Scan(&it.ID, &it.Title, &it.Summary); err != nil {
-			return nil, err
-		}
-		out = append(out, it)
-	}
-	return out, rows.Err()
+		err := row.Scan(&it.ID, &it.Title, &it.Summary)
+		return it, err
+	}, `SELECT id, title, summary FROM cti_items WHERE feed_id = ?`, feedID)
 }
 
 // SetCTIItemTags replaces the tags of an item.
 func (s *Store) SetCTIItemTags(ctx context.Context, id int64, countries, sectors, regulations []string) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE cti_items SET countries = ?, sectors = ?, regulations = ? WHERE id = ?`,
 		joinTags(countries), joinTags(sectors), joinTags(regulations), id)
-	return err
+	return wrap("set cti item tags", err)
 }

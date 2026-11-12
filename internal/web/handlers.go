@@ -152,7 +152,7 @@ func (s *Server) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		// end up in the database and the service log. The lookup runs on
 		// every failure, in a single query whether the name exists or not.
 		detail := []any{"ip", ip}
-		if a, err := s.Store.AccountByName(r.Context(), username); err == nil {
+		if a, err := s.Store.AnyUserByName(r.Context(), username); err == nil {
 			detail = append(detail, "user", a.Username)
 		} else if !errors.Is(err, store.ErrNotFound) {
 			s.Log.Warn("failed login: account lookup", "err", err)
@@ -224,7 +224,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	recent, err := s.Store.ListFindings(ctx, readScope(r), store.FindingFilter{Since: now.Add(-7 * 24 * time.Hour)})
+	recent, err := s.Store.ListFindings(ctx, readScope(r), store.FindingFilter{Since: now.Add(-7 * 24 * time.Hour), Now: now})
 	if err != nil {
 		s.serverError(w, r, err)
 		return
@@ -321,7 +321,7 @@ func (s *Server) assetList(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	tags, err := s.Store.AssetTags(r.Context(), readScope(r))
+	tags, err := s.Store.ListAssetTags(r.Context(), readScope(r))
 	if err != nil {
 		s.serverError(w, r, err)
 		return
@@ -384,7 +384,7 @@ func (s *Server) renderAsset(w http.ResponseWriter, r *http.Request, status int,
 		s.serverError(w, r, err)
 		return
 	}
-	rules, err := s.Store.DismissalRules(r.Context(), readScope(r), a.ID)
+	rules, err := s.Store.ListDismissalRules(r.Context(), readScope(r), a.ID)
 	if err != nil {
 		s.serverError(w, r, err)
 		return
@@ -533,7 +533,7 @@ func (s *Server) renderFindings(w http.ResponseWriter, r *http.Request, status i
 		s.serverError(w, r, err)
 		return
 	}
-	tags, err := s.Store.AssetTags(r.Context(), readScope(r))
+	tags, err := s.Store.ListAssetTags(r.Context(), readScope(r))
 	if err != nil {
 		s.serverError(w, r, err)
 		return
@@ -722,12 +722,12 @@ func (s *Server) renderFinding(w http.ResponseWriter, r *http.Request, status in
 		s.serverError(w, r, err)
 		return
 	}
-	events, err := s.Store.FindingEvents(r.Context(), readScope(r), f.ID)
+	events, err := s.Store.ListFindingEvents(r.Context(), readScope(r), f.ID)
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
-	mentions, err := s.Store.MentionsOf(r.Context(), append([]string{v.ID}, v.Aliases...), 10)
+	mentions, err := s.Store.ListMentions(r.Context(), append([]string{v.ID}, v.Aliases...), 10)
 	if err != nil {
 		s.serverError(w, r, err)
 		return

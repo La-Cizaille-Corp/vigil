@@ -21,40 +21,28 @@ type APIToken struct {
 
 // ListAPITokens returns every token (without secrets).
 func (s *Store) ListAPITokens(ctx context.Context) ([]APIToken, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	return collect(ctx, s.db, "list api tokens", func(row scanner) (APIToken, error) {
+		var t APIToken
+		var created, used string
+		err := row.Scan(&t.ID, &t.Name, &t.Project, &t.CreatedBy, &t.Suspended, &created, &used)
+		t.CreatedAt, t.LastUsedAt = parseTime(created), parseTime(used)
+		return t, err
+	}, `
 		SELECT t.id, t.name, t.project, COALESCE(u.username, ''), COALESCE(u.disabled_at, '') <> '',
 			t.created_at, t.last_used_at
 		FROM api_tokens t LEFT JOIN users u ON u.id = t.created_by ORDER BY t.project, t.name`)
-	if err != nil {
-		return nil, fmt.Errorf("list api tokens: %w", err)
-	}
-	defer rows.Close()
-	var out []APIToken
-	for rows.Next() {
-		var t APIToken
-		var created, used string
-		if err := rows.Scan(&t.ID, &t.Name, &t.Project, &t.CreatedBy, &t.Suspended, &created, &used); err != nil {
-			return nil, err
-		}
-		t.CreatedAt, t.LastUsedAt = parseTime(created), parseTime(used)
-		out = append(out, t)
-	}
-	return out, rows.Err()
 }
 
 // CreateAPIToken stores a token by the hash of its secret.
 func (s *Store) CreateAPIToken(ctx context.Context, t APIToken, tokenHash string, createdBy int64) (int64, error) {
-	var uid any
-	if createdBy != 0 {
-		uid = createdBy
-	}
 	res, err := s.db.ExecContext(ctx,
 		`INSERT INTO api_tokens (name, project, token_hash, created_by, created_at) VALUES (?, ?, ?, ?, ?)`,
-		t.Name, t.Project, tokenHash, uid, now())
+		t.Name, t.Project, tokenHash, nullID(createdBy), now())
 	if err != nil {
 		return 0, fmt.Errorf("create api token: %w", err)
 	}
-	return res.LastInsertId()
+	id, err := res.LastInsertId()
+	return id, wrap("create api token", err)
 }
 
 // APITokenByHash finds a token and records its use. SECURITY: a token is
@@ -84,5 +72,5 @@ func (s *Store) APITokenByHash(ctx context.Context, tokenHash string) (APIToken,
 
 // DeleteAPIToken revokes a token.
 func (s *Store) DeleteAPIToken(ctx context.Context, id int64) error {
-	return expectRow(s.db.ExecContext(ctx, `DELETE FROM api_tokens WHERE id = ?`, id))
+	return wrap("delete api token", expectRow(s.db.ExecContext(ctx, `DELETE FROM api_tokens WHERE id = ?`, id)))
 }

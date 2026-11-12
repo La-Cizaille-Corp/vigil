@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strconv"
+	"time"
 )
 
 // LikelyEPSS is the EPSS probability from which exploitation is considered
@@ -53,36 +54,29 @@ func (s *Store) PendingAlerts(ctx context.Context, sc Scope) ([]Alert, error) {
 		return nil, err
 	}
 	cond, args := sc.cond("a")
+	today := day(time.Now())
 	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
-	rows, err := s.db.QueryContext(ctx, `SELECT `+findingColumns+`, f.alerted`+findingFrom+`
-		WHERE f.status IN `+openStatuses+` AND `+alertClassExpr+` > f.alerted AND `+cond+`
-		ORDER BY alert_class DESC, v.cvss DESC, f.id`, append(sla.args(), args...)...)
-	if err != nil {
-		return nil, fmt.Errorf("pending alerts: %w", err)
-	}
-	defer rows.Close()
-	var out []Alert
-	for rows.Next() {
+	return collect(ctx, s.db, "pending alerts", func(row scanner) (Alert, error) {
 		var a Alert
 		var alerted int
-		if a.Finding, err = scanFinding(rows, &alerted); err != nil {
-			return nil, fmt.Errorf("pending alerts: %w", err)
-		}
+		var err error
+		a.Finding, err = scanFinding(row, today, &alerted)
 		a.Raised = alerted > AlertNone
-		out = append(out, a)
-	}
-	return out, rows.Err()
+		return a, err
+	}, `SELECT `+findingColumns+`, f.alerted`+findingFrom+`
+		WHERE f.status IN `+openStatuses+` AND `+alertClassExpr+` > f.alerted AND `+cond+`
+		ORDER BY alert_class DESC, v.cvss DESC, f.id`, append(sla.args(), args...)...)
 }
 
 // MarkAlerted records that the given alerts were notified.
 func (s *Store) MarkAlerted(ctx context.Context, alerts []Alert) error {
-	return s.inTx(ctx, func(tx *sql.Tx) error {
+	return wrap("mark alerted", s.inTx(ctx, func(tx *sql.Tx) error {
 		for _, a := range alerts {
 			if _, err := tx.ExecContext(ctx,
 				`UPDATE findings SET alerted = MAX(alerted, ?) WHERE id = ?`, a.Class, a.ID); err != nil {
-				return fmt.Errorf("mark alerted: %w", err)
+				return fmt.Errorf("finding %d: %w", a.ID, err)
 			}
 		}
 		return nil
-	})
+	}))
 }

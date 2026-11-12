@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/La-Cizaille-Corp/vigil/internal/clip"
+
 	"modernc.org/sqlite" // pure Go driver, no CGO
 	sqlite3 "modernc.org/sqlite/lib"
 )
@@ -137,9 +139,14 @@ func LatestSchema() int {
 
 // SchemaVersion returns the schema version of the open database.
 func (s *Store) SchemaVersion(ctx context.Context) (int, error) {
+	return schemaVersion(ctx, s.db)
+}
+
+// schemaVersion reads the highest applied migration.
+func schemaVersion(ctx context.Context, q querier) (int, error) {
 	var v int
-	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&v)
-	return v, err
+	err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&v)
+	return v, wrap("schema version", err)
 }
 
 // UpgradeBackup returns the copy of the database written before the schema
@@ -161,7 +168,7 @@ func (s *Store) migrate(ctx context.Context, path string) error {
 	}
 	current, err := s.SchemaVersion(ctx)
 	if err != nil {
-		return fmt.Errorf("read schema version: %w", err)
+		return err
 	}
 	if latest := list[len(list)-1].version; current > latest {
 		// SECURITY: older code on a newer schema could silently lose data.
@@ -169,21 +176,13 @@ func (s *Store) migrate(ctx context.Context, path string) error {
 			"installez une version à jour de Vigil, ou restaurez la copie .bak écrite avant la mise à jour",
 			ErrNewerSchema, path, current, latest)
 	}
-	applied := map[int]bool{}
-	rows, err := s.db.QueryContext(ctx, `SELECT version FROM schema_migrations`)
+	versions, err := collect(ctx, s.db, "read applied migrations", value[int], `SELECT version FROM schema_migrations`)
 	if err != nil {
-		return fmt.Errorf("read applied migrations: %w", err)
+		return err
 	}
-	for rows.Next() {
-		var v int
-		if err := rows.Scan(&v); err != nil {
-			_ = rows.Close() // the scan error is the one to report
-			return fmt.Errorf("read applied migrations: %w", err)
-		}
+	applied := map[int]bool{}
+	for _, v := range versions {
 		applied[v] = true
-	}
-	if err := rows.Close(); err != nil {
-		return fmt.Errorf("read applied migrations: %w", err)
 	}
 
 	for _, m := range list {
@@ -205,46 +204,19 @@ func (s *Store) migrate(ctx context.Context, path string) error {
 // backupBeforeUpgrade writes <db>.schema-<N>.<UTC time>.bak. Without it, a
 // failed or unwanted upgrade could only be undone from the operator's backups.
 func (s *Store) backupBeforeUpgrade(ctx context.Context, path string, current int) error {
-	dest := fmt.Sprintf("%s.schema-%d.%s.bak", path, current, time.Now().UTC().Format("20060102-150405"))
-	if err := s.Backup(ctx, dest); err != nil {
+	dest := fmt.Sprintf("%s.schema-%d.%s.bak", path, current, time.Now().UTC().Format(stampLayout))
+	if err := backup(ctx, s.db, dest); err != nil {
 		return fmt.Errorf("copie de sécurité avant mise à jour du schéma (espace disque, droits ?) : %w", err)
 	}
 	s.upgradeBackup = dest
-	pruneUpgradeBackups(path, keepUpgradeBackups)
+	// A copy that cannot be deleted only stays behind: the upgrade goes on.
+	_ = pruneUpgradeBackups(path, keepUpgradeBackups)
 	return nil
 }
 
 // keepUpgradeBackups is how many copies taken before a schema upgrade are
 // kept next to the database: each holds every secret of the database.
 const keepUpgradeBackups = 3
-
-// pruneUpgradeBackups deletes the oldest copies taken before a schema
-// upgrade beyond keep. Failures only leave extra files behind.
-func pruneUpgradeBackups(path string, keep int) {
-	entries, err := os.ReadDir(filepath.Dir(path))
-	if err != nil {
-		return
-	}
-	type copyFile struct {
-		name string
-		mod  time.Time
-	}
-	var copies []copyFile
-	prefix := filepath.Base(path) + ".schema-"
-	for _, e := range entries {
-		n := e.Name()
-		if !e.Type().IsRegular() || !strings.HasPrefix(n, prefix) || !strings.HasSuffix(n, ".bak") {
-			continue
-		}
-		if info, err := e.Info(); err == nil {
-			copies = append(copies, copyFile{n, info.ModTime()})
-		}
-	}
-	sort.Slice(copies, func(i, j int) bool { return copies[i].mod.After(copies[j].mod) })
-	for _, c := range copies[min(keep, len(copies)):] {
-		_ = os.Remove(filepath.Join(filepath.Dir(path), c.name))
-	}
-}
 
 // apply runs one migration in a transaction. Another process (vigil sync
 // while vigil serve starts) may have applied it meanwhile: the check is
@@ -284,7 +256,8 @@ func (s *Store) apply(ctx context.Context, m migration) error {
 }
 
 // afterMigration holds data transformations that SQL alone cannot express,
-// run in the same transaction as the migration of the same version.
+// run in the same transaction as the migration of the same version (the
+// "Go step" announced by the comments of migration 009 is backfillMentions).
 var afterMigration = map[int]func(context.Context, *sql.Conn) error{
 	9: backfillMentions,
 }
@@ -301,6 +274,167 @@ func (s *Store) inTx(ctx context.Context, fn func(*sql.Tx) error) error {
 	return tx.Commit()
 }
 
+// scanner is a row to read: a *sql.Row or the current row of *sql.Rows.
+type scanner interface {
+	Scan(dest ...any) error
+}
+
+// querier runs statements: a *sql.DB, *sql.Tx or *sql.Conn. With a single
+// connection, a statement made inside a transaction must go through it.
+type querier interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// collect runs a query and reads each row with scan. It reads and closes every
+// row before returning, so that the next statement of a transaction finds the
+// connection free. Its errors start with label.
+func collect[T any](ctx context.Context, q querier, label string, scan func(scanner) (T, error), query string, args ...any) ([]T, error) {
+	rows, err := q.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", label, err)
+	}
+	defer rows.Close() // after a failure; a no-op once closed below
+	var out []T
+	for rows.Next() {
+		v, err := scan(rows)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", label, err)
+		}
+		out = append(out, v)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("%s: %w", label, err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("%s: %w", label, err)
+	}
+	return out, nil
+}
+
+// value reads a row of a single column, for collect.
+func value[T any](row scanner) (T, error) {
+	var v T
+	err := row.Scan(&v)
+	return v, err
+}
+
+// count is a key and a number of rows, as GROUP BY gives them.
+type count struct {
+	key string
+	n   int
+}
+
+func scanCount(row scanner) (count, error) {
+	var c count
+	err := row.Scan(&c.key, &c.n)
+	return c, err
+}
+
+// expectRow turns a statement that changed no row into ErrNotFound.
+func expectRow(res sql.Result, err error) error {
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// purge runs a DELETE of the rows older than before, the one parameter of
+// query, and returns how many went.
+func purge(ctx context.Context, q querier, query string, before time.Time) (int, error) {
+	res, err := q.ExecContext(ctx, query, formatTime(before))
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	return int(n), err
+}
+
+// wrap prefixes a failure with what was being done; nil stays nil.
+func wrap(label string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%s: %w", label, err)
+}
+
+// nullID stores the user 0 (the system, the command line) as NULL.
+func nullID(id int64) any {
+	if id == 0 {
+		return nil
+	}
+	return id
+}
+
+// maxErrorText bounds a failure kept with a feed or a channel, in characters.
+const maxErrorText = 300
+
+// errText is a failure as kept with a feed or a channel, "" for none.
+func errText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return clip.Text(err.Error(), maxErrorText)
+}
+
+// nonNil keeps a list stored as JSON an array, never null.
+func nonNil(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
+}
+
+// inClause adds "column IN (?, ?...)" for a non-empty list.
+func inClause(where []string, args []any, column string, values []string) ([]string, []any) {
+	if len(values) == 0 {
+		return where, args
+	}
+	marks := strings.TrimSuffix(strings.Repeat("?, ", len(values)), ", ")
+	for _, v := range values {
+		args = append(args, v)
+	}
+	return append(where, column+" IN ("+marks+")"), args
+}
+
+// likeEscaper protects LIKE wildcards in user search terms.
+var likeEscaper = strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`)
+
+// joinTags stores a list of tags as ",FR,US,", so that hasTag can find one of
+// them with a single LIKE.
+func joinTags(tags []string) string {
+	if len(tags) == 0 {
+		return ""
+	}
+	return "," + strings.Join(tags, ",") + ","
+}
+
+func splitTags(s string) []string {
+	var out []string
+	for _, t := range strings.Split(s, ",") {
+		if t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// hasTag is the condition "the list stored in column (see joinTags) holds
+// tag", and its argument.
+// SECURITY: the LIKE wildcards of tag are escaped, so that "pci_dss" or a
+// user's tag never matches another one.
+func hasTag(column, tag string) (cond string, arg any) {
+	return column + ` LIKE ? ESCAPE '\'`, "%," + likeEscaper.Replace(tag) + ",%"
+}
+
 // now returns the current time as stored in the database.
 func now() string { return formatTime(time.Now()) }
 
@@ -310,3 +444,9 @@ func parseTime(s string) time.Time {
 	t, _ := time.Parse(time.RFC3339, s)
 	return t
 }
+
+// day is the date of t as compared with the deadlines: 'YYYY-MM-DD', in UTC.
+func day(t time.Time) string { return t.UTC().Format(time.DateOnly) }
+
+// stampLayout dates the backup files, in UTC: it sorts chronologically.
+const stampLayout = "20060102-150405"
