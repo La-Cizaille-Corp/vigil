@@ -229,14 +229,15 @@ func TestSyncStateOfARestrictedAccount(t *testing.T) {
 		Result: tracking.Result{Created: 7, Failed: 2}, Failures: []string{"temoinb-echec : HTTP 503"}}
 	done := tracking.Status{Finished: time.Now(), Result: tracking.Result{Created: 7, Resolved: 3, Failed: 1},
 		Failures: []string{"temoinb-echec : HTTP 503"}}
-	if got := render(running, restricted); strings.Contains(got, witness) || strings.Contains(got, "40") ||
+	if got := render(running, restricted); strings.Contains(got, witness) || strings.Contains(got, "sur 40") ||
 		!strings.Contains(got, ": 25 %") || !strings.Contains(got, `<progress value="25" max="100"`) {
 		t.Errorf("running, restricted: %s", got)
 	}
 	if got := render(failed, restricted); strings.Contains(got, witness) || strings.Contains(got, "503") || !strings.Contains(got, "échec") {
 		t.Errorf("failed, restricted: %s", got)
 	}
-	if got := render(done, restricted); strings.Contains(got, witness) || strings.Contains(got, "7") || !strings.Contains(got, "terminée") {
+	if got := render(done, restricted); strings.Contains(got, witness) || strings.Contains(got, "nouvelle") ||
+		strings.Contains(got, "non vérifié") || !strings.Contains(got, "terminée") {
 		t.Errorf("done, restricted: %s", got)
 	}
 	for _, st := range []tracking.Status{running, failed, done} {
