@@ -538,9 +538,12 @@ func (s *Server) auditAs(r *http.Request, userID int64, action string, kv ...any
 	// it survives a lost or altered database. SECURITY: the detail may hold a
 	// typed username or feed name; AuditDetail quotes a value holding a line
 	// break, so that it cannot forge another log entry, whatever the log
-	// handler.
+	// handler. Line breaks are still removed from the copy sent to the
+	// journal: a no-op for a detail made by AuditDetail, it keeps the barrier
+	// at the point where the journal is written, where code scanning sees it.
 	detail := store.AuditDetail(kv...)
-	s.Log.Info("audit", "action", action, "user_id", userID, "detail", detail, "ip", s.clientIP(r))
+	line := strings.ReplaceAll(strings.ReplaceAll(detail, "\n", " "), "\r", " ")
+	s.Log.Info("audit", "action", action, "user_id", userID, "detail", line, "ip", s.clientIP(r))
 	if err := s.Store.Audit(r.Context(), userID, action, detail); err != nil {
 		s.Log.Error("audit log write failed", "action", action, "err", err)
 	}
