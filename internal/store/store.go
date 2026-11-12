@@ -24,6 +24,10 @@ var migrationsFS embed.FS
 // ErrNotFound is returned when a requested row does not exist.
 var ErrNotFound = errors.New("not found")
 
+// ErrExists is returned when a new row would duplicate an existing one, such
+// as a user name differing from another only by case.
+var ErrExists = errors.New("already exists")
+
 // Store wraps the database handle.
 type Store struct {
 	db            *sql.DB

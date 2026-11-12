@@ -121,7 +121,8 @@ de la base) ; effacez-les une fois la nouvelle version validée.
 - La page Paramètres affiche la dernière erreur de chaque flux CTI et de chaque canal de
   notification (webhook ou e-mail) ; le journal trace aussi les alertes en échec.
 - Paramètres → Journal d'audit (administrateurs) : connexions, comptes, inventaire, triage par lot,
-  réglages. Chaque entrée est aussi écrite dans le journal du service (`msg=audit`) : envoyé à un
+  réglages. Un échec de connexion garde l'adresse, et le nom saisi seulement s'il est celui d'un
+  compte (un mot de passe tapé dans le champ du nom n'y figure pas). Chaque entrée est aussi écrite dans le journal du service (`msg=audit`) : envoyé à un
   serveur de journaux (journald distant, syslog, SIEM), il garde une trace hors de la base, que
   l'altération ou la perte de la base n'efface pas.
 
@@ -134,9 +135,14 @@ de la base) ; effacez-les une fois la nouvelle version validée.
   `VIGIL_AUDIT_RETENTION_DAYS`) purge les entrées plus anciennes, chaque heure.
 - **Arrivée** : Paramètres → Utilisateurs → « Ajouter un utilisateur ». Un mot de passe provisoire
   s'affiche une fois ; transmettez-le par un canal sûr, l'utilisateur le change dans « Mon compte ».
+  Un nom qui ne diffère d'un compte existant que par la casse (« Alice » et « alice ») est refusé.
 - **Départ ou compte compromis** : « Désactiver… ». La connexion est refusée et les sessions sont
-  fermées aussitôt ; le nom reste dans l'historique de triage et le journal d'audit. Révoquez aussi
-  les jetons d'API que la personne utilisait.
+  fermées aussitôt ; le nom reste dans l'historique de triage et le journal d'audit. Les jetons
+  d'API créés par ce compte sont suspendus tant qu'il reste désactivé (Paramètres → Jetons d'API
+  l'indique) : si une CI en dépend encore, créez-lui un jeton depuis un autre compte. Révoquez
+  aussi les jetons que la personne utilisait sans les avoir créés.
+- **Session oubliée sur un autre poste, appareil douteux** : chacun peut fermer ses autres sessions
+  dans « Mon compte » → « Fermer mes autres sessions » ; celle en cours reste ouverte.
 - **Mot de passe oublié, téléphone perdu** : « Nouveau mot de passe… » ou « Retirer la double
   authentification… ».
 - **Plus aucun administrateur ne peut se connecter** : sur le serveur, `vigil user list`, puis

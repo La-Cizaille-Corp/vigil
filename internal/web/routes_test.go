@@ -71,6 +71,9 @@ var wantPolicy = map[string]string{
 	"POST /account/totp/confirm": auth.RoleViewer,
 	"POST /account/totp/disable": auth.RoleViewer,
 	"POST /account/password":     auth.RoleViewer,
+
+	"POST /account/sessions/close-others": auth.RoleViewer,
+
 	"GET /{$}":                   auth.RoleViewer,
 	"GET /sync":                  auth.RoleViewer,
 	"POST /sync":                 auth.RoleAnalyst,

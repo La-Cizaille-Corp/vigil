@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -79,6 +81,48 @@ func TestCreateFirstAdmin(t *testing.T) {
 	}
 	if _, err := st.CreateFirstAdmin(ctx, "b", "hash"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("second first admin: %v", err)
+	}
+}
+
+// A new name that differs from an existing one only by case is refused,
+// accented letters included, and concurrent creations of case variants let
+// only one through. Accounts that already overlap stay, and sign-in still
+// looks a name up as typed.
+func TestUserNamesIgnoreCase(t *testing.T) {
+	ctx := context.Background()
+	st := openTest(t)
+	if _, err := st.CreateUser(ctx, "Élise", "hash", "viewer"); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"Élise", "élise", "ÉLISE"} {
+		if _, err := st.CreateUser(ctx, name, "hash", "viewer"); !errors.Is(err, ErrExists) {
+			t.Errorf("%s: %v, want ErrExists", name, err)
+		}
+	}
+	if _, err := st.CreateUser(ctx, "Elise", "hash", "viewer"); err != nil {
+		t.Errorf("a name without the accent is another name: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	var created atomic.Int32
+	for _, name := range []string{"bob", "Bob", "BOB", "bOb"} {
+		wg.Go(func() {
+			if _, err := st.CreateUser(ctx, name, "hash", "viewer"); err == nil {
+				created.Add(1)
+			}
+		})
+	}
+	wg.Wait()
+	if n := created.Load(); n != 1 {
+		t.Errorf("%d case variants of bob created concurrently", n)
+	}
+
+	if _, err := st.db.ExecContext(ctx, `INSERT INTO users (username, password_hash, role, created_at)
+		VALUES ('alice', 'lower', 'viewer', ?), ('Alice', 'upper', 'viewer', ?)`, now(), now()); err != nil {
+		t.Fatal(err)
+	}
+	if u, err := st.UserByName(ctx, "Alice"); err != nil || u.PasswordHash != "upper" {
+		t.Errorf("sign-in lookup of an overlapping account: %+v %v", u, err)
 	}
 }
 

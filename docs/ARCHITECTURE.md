@@ -474,7 +474,13 @@ administrateur) vérifiés sur chaque route.
 
 **A21. TOTP implémenté en interne.** RFC 6238 en une trentaine de lignes (vecteurs de la RFC en
 test) plutôt qu'une bibliothèque. Anti-rejeu atomique en base, essais limités, désactivation
-soumise à un code, autres sessions fermées à chaque changement, récupération par la CLI.
+soumise à un code, autres sessions fermées à chaque changement, récupération par la CLI. Les
+autres sessions se ferment aussi à la demande (audit de novembre 2026, S13) : « Fermer mes autres
+sessions » sur Mon compte, pour tous les rôles, après une connexion sur un poste partagé ou un doute
+sur un appareil ; la session en cours reste ouverte, l'action entre au journal d'audit
+(`sessions_close`). Même fonction que les fermetures automatiques (`endOtherSessions`). La liste
+des sessions ouvertes (appareil, adresse, date) est différée : il faudrait enregistrer ces
+informations à la connexion, donc une migration.
 
 **A22. Le premier administrateur ne se crée que depuis la machine elle-même.** Sinon un serveur
 fraîchement exposé peut être réclamé par n'importe qui. Derrière un reverse proxy, toutes les
@@ -494,7 +500,36 @@ plus, en HTTPS, la clé NVD retirée si l'hôte change).
 **A25. API par jeton limité à un projet.** Les pipelines CI poussent leur SBOM via
 `PUT /api/v1/projects/{projet}/sbom`. Un jeton n'écrit qu'un seul projet (moindre privilège),
 est stocké haché, affiché une seule fois, préfixé `vgl_` (repérable par les scanners de secrets).
-*Limite assumée* : pas d'expiration, révocation manuelle.
+*Limite assumée* : pas d'expiration, révocation manuelle. Un jeton est suspendu tant que le compte
+qui l'a créé est désactivé, comme les sessions de ce compte : le départ d'un administrateur ne
+laisse pas de jeton actif derrière lui, et la réactivation du compte rend ses jetons utilisables.
+Le contrôle est une jointure sur `users` à chaque appel (sans migration) ; la liste des jetons de
+Paramètres montre le jeton suspendu et nomme le compte, pour qu'un administrateur comprenne
+pourquoi une CI échoue (l'API répond « jeton invalide », comme pour un jeton révoqué). Un jeton
+sans créateur connu (colonne vide : aucun chemin de Vigil n'en crée aujourd'hui) reste valide.
+Écartés : révoquer les jetons à la désactivation, ce qu'une réactivation ne pourrait pas défaire ;
+une réponse distincte de l'API, qui dirait à qui détient le jeton que le compte est désactivé.
+
+**A70. Noms de compte : uniques à la casse près, et absents du journal s'ils sont inconnus.**
+Audit de novembre 2026, S16 et S17.
+- *Création* : « Alice » et « alice » pouvaient coexister (contrainte `UNIQUE` sensible à la casse)
+  et se confondre dans l'historique de triage et le journal d'audit ; le limiteur de connexion, lui,
+  les comptait déjà ensemble. Un nom qui ne diffère d'un nom existant que par la casse est refusé, à
+  un seul endroit : `Store.CreateUser`, partagé par Paramètres → Utilisateurs et `vigil user add`
+  (l'installation, `CreateFirstAdmin`, ne crée un compte que sur une base vide). La comparaison se
+  fait en Go (`strings.EqualFold`, qui replie aussi « É » et « é »), dans la même transaction que
+  l'insertion : deux créations simultanées ne passent pas toutes les deux. Erreur `store.ErrExists`,
+  réutilisable pour les autres doublons. Écartés : `COLLATE NOCASE` sur la colonne, qui demande une
+  migration, échouerait sur une base où deux comptes se chevauchent déjà, et ne replie que l'ASCII ;
+  renommer les comptes existants qui se chevauchent (ils restent) ; une connexion insensible à la
+  casse (le nom se tape toujours exactement).
+- *Échec de connexion* : `login_failed` gardait le nom tapé ; un mot de passe saisi dans le champ du
+  nom finissait dans la base et le journal du service. Le nom n'est plus gardé que s'il est celui
+  d'un compte, désactivé compris (tentative d'un ancien collègue) ; sinon seule l'adresse est
+  enregistrée, au même format (`ip=… user=…`). La recherche du compte a lieu à chaque échec, en une
+  requête, quel que soit le nom, et la réponse ne change pas : même page, même calcul argon2 (factice
+  pour un nom inconnu). Écartés : ne jamais garder le nom, qui effacerait la trace d'une force brute
+  visant un compte ; une empreinte du nom, illisible pour l'administrateur et facile à retrouver.
 
 ### Notifications, délais et échanges (0.3)
 

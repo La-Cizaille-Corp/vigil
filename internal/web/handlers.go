@@ -143,7 +143,17 @@ func (s *Server) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !valid {
-		s.audit(r, "login_failed", "ip="+ip+" user="+clip.Text(username, auth.MaxUsernameLength))
+		// SECURITY: the typed name is kept only when an account bears it,
+		// disabled or not: a password typed in the name field would otherwise
+		// end up in the database and the service log. The lookup runs on
+		// every failure, in a single query whether the name exists or not.
+		detail := "ip=" + ip
+		if a, err := s.Store.AccountByName(r.Context(), username); err == nil {
+			detail += " user=" + a.Username
+		} else if !errors.Is(err, store.ErrNotFound) {
+			s.Log.Warn("failed login: account lookup", "err", err)
+		}
+		s.audit(r, "login_failed", detail)
 		// SECURITY: same message whether the user exists or not.
 		s.render(w, r, http.StatusUnauthorized, "login", page{Title: "Connexion", Error: "Identifiants invalides."})
 		return

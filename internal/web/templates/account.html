@@ -39,4 +39,12 @@ Paramètres → Utilisateurs, ou sur le serveur avec <code>vigil user reset-totp
   <button type="submit">Changer le mot de passe</button>
 </form>
 <p class="small muted">Vos autres sessions sont fermées après le changement.</p>
+
+<h2>Sessions</h2>
+<p>Après une connexion sur un poste partagé, ou si vous doutez d'un appareil : fermez les sessions
+ouvertes dans vos autres navigateurs. Celle-ci reste ouverte.</p>
+<form method="post" action="/account/sessions/close-others">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <button type="submit">Fermer mes autres sessions</button>
+</form>
 {{end}}
