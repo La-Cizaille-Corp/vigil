@@ -155,6 +155,10 @@ func TestDashboardCardsLinkToTheirList(t *testing.T) {
 		!strings.Contains(page, `<a class="kpi" href="/findings">`) || strings.Contains(page, "%3d") {
 		t.Error("dashboard cards do not link to the open findings")
 	}
+	// The mean time to fix says what it counts.
+	if !strings.Contains(page, "traitée(s) en 90 jours, hors celles trouvées à la première analyse de leur actif") {
+		t.Error("the mean time to fix does not say what it counts")
+	}
 }
 
 // Every page opens on a skip link to its content and names its menu; the bulk
