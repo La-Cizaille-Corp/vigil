@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/La-Cizaille-Corp/vigil/internal/sources/osv"
 )
 
 // TestSourceRedirects: the clients given to the fixed sources follow
@@ -20,6 +22,12 @@ import (
 func TestSourceRedirects(t *testing.T) {
 	ctx := context.Background()
 	sv := newServices(nil, slog.New(slog.NewTextHandler(io.Discard, nil)), false, nil, "")
+	// One client for the sources, and a copy for OSV with its own time limit.
+	s := sv.syncer
+	if s.KEV.HTTP != s.NVD.HTTP || s.EPSS.HTTP != s.NVD.HTTP || s.OSV.HTTP == s.NVD.HTTP ||
+		s.OSV.HTTP.Timeout != osv.Timeout || s.OSV.HTTP.CheckRedirect == nil {
+		t.Errorf("source clients: OSV %+v, NVD %+v", s.OSV.HTTP, s.NVD.HTTP)
+	}
 
 	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, `{"id":"GHSA-x"}`)
@@ -30,7 +38,7 @@ func TestSourceRedirects(t *testing.T) {
 	}))
 	defer secure.Close()
 	o := sv.syncer.OSV
-	o.BaseURL, o.HTTP.Transport = secure.URL, secure.Client().Transport
+	o.URL, o.HTTP.Transport = secure.URL, secure.Client().Transport
 	if v, err := o.Vuln(ctx, "GHSA-x"); err == nil {
 		t.Errorf("OSV followed a redirect to %s: %q", plain.URL, v.ID)
 	}
@@ -57,6 +65,38 @@ func TestSourceRedirects(t *testing.T) {
 	}
 	if keys["again"] != "secret" || keys["other"] != "" {
 		t.Errorf("NVD key seen on the same host: %q, on another host: %q", keys["again"], keys["other"])
+	}
+}
+
+// S16: vigil user add refuses a name that differs from an existing one only
+// by case, and says why.
+func TestUserAddIgnoresCase(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	db := filepath.Join(dir, "vigil.db")
+	add := func(name string) error {
+		t.Helper()
+		f, err := os.CreateTemp(dir, "password")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		if _, err := f.WriteString("a-strong-password\n"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.Seek(0, io.SeekStart); err != nil {
+			t.Fatal(err)
+		}
+		stdin := os.Stdin
+		os.Stdin = f
+		defer func() { os.Stdin = stdin }()
+		return runUser(ctx, []string{"add", "-db", db, "-username", name, "-role", "viewer"})
+	}
+	if err := add("alice"); err != nil {
+		t.Fatal(err)
+	}
+	if err := add("Alice"); err == nil || !strings.Contains(err.Error(), "majuscules et minuscules") {
+		t.Errorf("case variant of an existing name: %v", err)
 	}
 }
 

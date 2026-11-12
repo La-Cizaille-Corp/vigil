@@ -53,9 +53,11 @@ func NewMailer(addr, mode, username, password, from string) (*Mailer, error) {
 	default:
 		return nil, fmt.Errorf("mode TLS SMTP %q : starttls, tls ou none", mode)
 	}
+	// SECURITY: the sender goes into MAIL FROM:<…> and the From header, as a
+	// recipient goes into RCPT TO: the same rule applies (see plainAddress).
 	sender, err := mail.ParseAddress(from)
-	if err != nil {
-		return nil, fmt.Errorf("expéditeur SMTP %q invalide", from)
+	if err != nil || !plainAddress(sender.Address) {
+		return nil, fmt.Errorf("expéditeur SMTP (-smtp-from) %q invalide : adresse simple attendue (%s dans l'adresse)", from, plainRule)
 	}
 	return &Mailer{Addr: addr, TLS: mode, Username: username, Password: password,
 		From: sender.Address, Timeout: 30 * time.Second}, nil
@@ -72,19 +74,25 @@ func (m *Mailer) Cleartext() bool {
 	return host != "localhost" && (ip == nil || !ip.IsLoopback())
 }
 
-// addressSpecials may not appear in a recipient address itself; its display
-// name may hold them.
+// addressSpecials may not appear in an address itself; its display name may
+// hold them.
 const addressSpecials = `<>()[],;:\"`
 
+// plainRule tells the user what plainAddress accepts.
+const plainRule = "un seul @, ni espace ni caractère " + addressSpecials
+
 // plainAddress reports whether an address, as net/mail returns it, holds
-// neither addressSpecials nor a space or control character.
+// exactly one '@' and neither addressSpecials nor a space or control
+// character. It applies to the recipients (ParseRecipients) and the sender
+// (NewMailer).
 //
 // SECURITY: net/mail unquotes a quoted local part: "x> NOTIFY=NEVER"@example.com
 // becomes x> NOTIFY=NEVER@example.com, written as is into RCPT TO:<…> and the
-// To header, where '>' and the spaces add SMTP parameters. A plain address
-// never needs these characters.
+// To header, where '>' and the spaces add SMTP parameters; "a@b"@example.com
+// becomes a@b@example.com, which a server may route by its first '@'. A
+// plain address never needs these characters.
 func plainAddress(a string) bool {
-	return !strings.ContainsAny(a, addressSpecials) &&
+	return strings.Count(a, "@") == 1 && !strings.ContainsAny(a, addressSpecials) &&
 		!strings.ContainsFunc(a, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) })
 }
 
@@ -102,7 +110,7 @@ func ParseRecipients(list string) ([]string, error) {
 	out := make([]string, len(parsed))
 	for i, a := range parsed {
 		if !plainAddress(a.Address) {
-			return nil, fmt.Errorf("adresse e-mail refusée : %q (ni espace ni caractère %s dans l'adresse)", a.Address, addressSpecials)
+			return nil, fmt.Errorf("adresse e-mail refusée : %q (%s dans l'adresse)", a.Address, plainRule)
 		}
 		out[i] = a.Address
 	}

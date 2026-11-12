@@ -110,8 +110,7 @@ func TestQueryPages(t *testing.T) {
 		w.Write([]byte(`{"vulns":[{"id":"GHSA-2","affected":[{"package":{"purl":"pkg:npm/x"}}]}]}`))
 	}))
 	defer srv.Close()
-	c := New(http.DefaultClient, "test")
-	c.BaseURL = srv.URL
+	c := &Client{URL: srv.URL, HTTP: http.DefaultClient}
 	vulns := query(t, c, Query{Package: Package{PURL: "pkg:npm/x"}})
 	if len(vulns) != 2 || vulns[0].ID != "GHSA-1" || vulns[1].ID != "GHSA-2" || len(vulns[1].Affected) != 1 {
 		t.Fatalf("vulns = %+v", vulns)
@@ -132,8 +131,7 @@ func TestQueryBatchMore(t *testing.T) {
 		w.Write([]byte(`{"results":[{"vulns":[{"id":"DEBIAN-CVE-2004-0230"}],"next_page_token":"p2"},{"vulns":[{"id":"GHSA-1"}]},{}]}`))
 	}))
 	defer srv.Close()
-	c := New(http.DefaultClient, "test")
-	c.BaseURL = srv.URL
+	c := &Client{URL: srv.URL, HTTP: http.DefaultClient}
 	got, err := c.QueryBatch(context.Background(), make([]Query, 3))
 	if err != nil {
 		t.Fatal(err)
@@ -290,8 +288,7 @@ func TestAdvisoriesStream(t *testing.T) {
 		w.Write([]byte(`{"next_page_token":"","other":[1,{"a":2}],"vulns":[{"id":"A"},{"id":"B"}]}`))
 	}))
 	defer srv.Close()
-	c := New(http.DefaultClient, "test")
-	c.BaseURL = srv.URL
+	c := &Client{URL: srv.URL, HTTP: http.DefaultClient}
 	if got := query(t, c, Query{}); len(got) != 2 || got[1].ID != "B" {
 		t.Errorf("advisories = %+v", got)
 	}
@@ -303,7 +300,7 @@ func TestAdvisoriesStream(t *testing.T) {
 	list.Close()
 	for name, doc := range map[string]string{"truncated": `{"vulns":[{"id":"A"}`, "cut after the list": `{"vulns":[{"id":"A"}]`, "not an object": `[]`, "not a list": `{"vulns":3}`, "empty": ``} {
 		bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(doc)) }))
-		c.BaseURL = bad.URL
+		c.URL = bad.URL
 		list := c.Advisories(Query{})
 		for list.Next(context.Background()) {
 		}
@@ -322,8 +319,7 @@ func TestAdvisoriesPagesBound(t *testing.T) {
 		w.Write([]byte(`{"next_page_token":"more"}`))
 	}))
 	defer srv.Close()
-	c := New(http.DefaultClient, "test")
-	c.BaseURL = srv.URL
+	c := &Client{URL: srv.URL, HTTP: http.DefaultClient}
 	list := c.Advisories(Query{})
 	for list.Next(context.Background()) {
 	}
@@ -350,8 +346,7 @@ func TestRetries(t *testing.T) {
 		w.Write([]byte(`{"results":[{}]}`))
 	}))
 	defer srv.Close()
-	c := New(http.DefaultClient, "test")
-	c.BaseURL = srv.URL
+	c := &Client{URL: srv.URL, HTTP: http.DefaultClient}
 	if _, err := c.QueryBatch(context.Background(), make([]Query, 1)); err != nil || calls != 3 {
 		t.Errorf("temporary failures: %d calls, %v", calls, err)
 	}

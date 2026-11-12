@@ -28,6 +28,8 @@ import (
 	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
 	"github.com/La-Cizaille-Corp/vigil/internal/notify"
 	"github.com/La-Cizaille-Corp/vigil/internal/sbom"
+	"github.com/La-Cizaille-Corp/vigil/internal/sources/epss"
+	"github.com/La-Cizaille-Corp/vigil/internal/sources/kev"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/nvd"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/osv"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
@@ -158,13 +160,19 @@ func newServices(st *store.Store, log *slog.Logger, allowPrivate bool, mail *not
 	// OSV, NVD, KEV, EPSS: fixed public hosts, reached in HTTPS only.
 	// SECURITY: the NVD key is dropped if a redirect changes host.
 	fixed := &http.Client{Timeout: 60 * time.Second, CheckRedirect: netsafe.CheckRedirect("apiKey")}
+	// OSV gets a copy, same transport and redirect policy, with its longer time limit.
+	osvHTTP := *fixed
+	osvHTTP.Timeout = osv.Timeout
 	// SECURITY: feeds and webhooks are user-supplied URLs, guarded against SSRF.
 	userURLs := netsafe.NewClient(60*time.Second, allowPrivate)
 	ua := userAgent()
 	sv := services{
-		syncer: &tracking.Syncer{Store: st, OSV: osv.New(fixed, ua), Log: log, HTTP: fixed, UserAgent: ua,
+		syncer: &tracking.Syncer{Store: st, Log: log,
+			OSV: &osv.Client{HTTP: &osvHTTP, UserAgent: ua},
 			// The optional key (free, https://nvd.nist.gov/developers/request-an-api-key) raises the rate limit.
-			NVD: &nvd.Client{URL: nvd.DefaultURL, HTTP: fixed, UserAgent: ua, APIKey: os.Getenv("VIGIL_NVD_API_KEY")}},
+			NVD:  &nvd.Client{HTTP: fixed, UserAgent: ua, APIKey: os.Getenv("VIGIL_NVD_API_KEY")},
+			KEV:  &kev.Client{HTTP: fixed, UserAgent: ua},
+			EPSS: &epss.Client{HTTP: fixed, UserAgent: ua}},
 		cti:      &cti.Collector{Store: st, HTTP: userURLs, UserAgent: ua, Log: log},
 		notifier: &notify.Notifier{Store: st, HTTP: userURLs, Mail: mail, BaseURL: baseURL, UserAgent: ua, Log: log},
 	}
@@ -464,6 +472,9 @@ func runUser(ctx context.Context, args []string) error {
 	}
 	defer st.Close()
 	id, err := st.CreateUser(ctx, *username, hash, *role)
+	if errors.Is(err, store.ErrExists) {
+		return fmt.Errorf("le nom d'utilisateur %q existe déjà (majuscules et minuscules ne comptent pas)", *username)
+	}
 	if err != nil {
 		return err
 	}

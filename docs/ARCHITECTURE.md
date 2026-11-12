@@ -37,6 +37,7 @@ internal/store         SQLite, migrations, toutes les requêtes SQL, sauvegardes
 internal/inventory     Validation et normalisation des actifs
 internal/sbom          Lecture CycloneDX / SPDX (JSON) → actifs
 internal/vex           Export / import VEX CycloneDX
+internal/sources       Requête commune des sources : statut, lecture bornée, décodage, essais
 internal/sources/osv   Client OSV.dev (paquets identifiés par purl)
 internal/sources/nvd   Client NVD API 2.0 (produits identifiés par CPE)
 internal/sources/kev   Catalogue CISA Known Exploited Vulnerabilities
@@ -368,6 +369,31 @@ sévérités déjà traduites (aucune version publiée n'a stocké `MODERATE`). 
 en base est corrigée à sa prochaine écriture (chaque synchronisation pour la NVD, la prochaine
 modification de l'avis pour OSV).
 
+**A75. Une seule façon d'interroger une source.** Les clients d'OSV, de la NVD, de KEV et d'EPSS
+refaisaient chacun la requête, l'en-tête `User-Agent`, le contrôle du statut, la lecture bornée et le
+décodage, avec trois formes de message (`status 503`, `HTTP 503`, `nvd : HTTP 404`), deux boucles de
+nouvelles tentatives et trois attentes annulables. Deux lectures d'OSV s'arrêtaient en silence à leur
+borne (`io.LimitReader`) : la réponse tronquée échouait ensuite en erreur de décodage trompeuse. Un refus
+d'OSV recopiait 512 octets de la réponse dans le message affiché. Le paquet `sources` remplace ces copies :
+`NewRequest` (agent, corps JSON), `Open` et `Do` (statut, lecture bornée, décodage), `StatusError`,
+`Temporary`, `Retry` et `Sleep`. Tout statut autre que 200 est une erreur, affichée `HTTP 404 (raison)` :
+la raison est l'en-tête `message` de la NVD ou le champ `message` d'une réponse JSON (OSV), sur une ligne
+de 200 caractères au plus. Une lecture qui dépasse sa borne échoue (`netsafe.LimitReader`, sur lequel
+repose désormais `ReadLimited`), en flux aussi pour les pages de `/v1/query`. Une requête est renvoyée
+après une panne du réseau, à l'aller comme pendant la lecture, un 429 ou un 5xx, et le 403 de la limite
+de débit de la NVD ; pas après un autre refus, ni après une réponse trop grosse ou illisible, qui
+échoueraient de même. Les plafonds de lecture ne changent pas. Les clients ont la même forme : `URL` (vide : l'API publique), `HTTP` (donné par
+`main`), `UserAgent` ; `kev.Client.Catalogue` et `epss.Client.Scores` remplacent les fonctions libres, et
+le `Syncer` porte ces deux clients au lieu d'un client HTTP et de deux URL. OSV reçoit de `main` une copie
+du client commun, avec sa politique de redirection, au délai `osv.Timeout` (5 minutes). *Écarté* : un
+client commun incorporé à chaque source, qui alourdit chaque déclaration ; des délais de nouvelle
+tentative réglables par client pour les seuls tests, alors qu'un miroir ou un serveur de test est déjà
+réinterrogé sans attente ; les flux CTI et les webhooks, dont les URL sont saisies par les utilisateurs,
+dont les erreurs taisent l'adresse et dont la réponse n'est pas du JSON : ils gardent leur requête.
+*Conséquences* : des messages d'erreur affichés changent (`HTTP 503` pour toutes les sources, `réponse
+illisible`, plus de `temporarily unavailable`) ; une lecture d'OSV coupée en route est désormais renvoyée,
+comme pour la NVD, et une réponse trop grosse de la NVD ne l'est plus.
+
 **A13. Statuts CycloneDX / VEX.** Des statuts maison auraient été plus « parlants » mais non
 interopérables. Les états VEX (`in_triage`, `exploitable`, `resolved`, `not_affected` +
 justification, `false_positive`) sont libellés en français dans l'interface, et l'export /
@@ -510,7 +536,13 @@ chaque archive de release.
 
 **A21. TOTP implémenté en interne.** RFC 6238 en une trentaine de lignes (vecteurs de la RFC en
 test) plutôt qu'une bibliothèque. Anti-rejeu atomique en base, essais limités, désactivation
-soumise à un code, autres sessions fermées à chaque changement, récupération par la CLI.
+soumise à un code, autres sessions fermées à chaque changement, récupération par la CLI. Les
+autres sessions se ferment aussi à la demande (audit de novembre 2026, S13) : « Fermer mes autres
+sessions » sur Mon compte, pour tous les rôles, après une connexion sur un poste partagé ou un doute
+sur un appareil ; la session en cours reste ouverte, l'action entre au journal d'audit
+(`sessions_close`). Même fonction que les fermetures automatiques (`endOtherSessions`). La liste
+des sessions ouvertes (appareil, adresse, date) est différée : il faudrait enregistrer ces
+informations à la connexion, donc une migration.
 
 **A22. Le premier administrateur ne se crée que depuis la machine elle-même.** Sinon un serveur
 fraîchement exposé peut être réclamé par n'importe qui. Derrière un reverse proxy, toutes les
@@ -530,7 +562,36 @@ plus, en HTTPS, la clé NVD retirée si l'hôte change).
 **A25. API par jeton limité à un projet.** Les pipelines CI poussent leur SBOM via
 `PUT /api/v1/projects/{projet}/sbom`. Un jeton n'écrit qu'un seul projet (moindre privilège),
 est stocké haché, affiché une seule fois, préfixé `vgl_` (repérable par les scanners de secrets).
-*Limite assumée* : pas d'expiration, révocation manuelle.
+*Limite assumée* : pas d'expiration, révocation manuelle. Un jeton est suspendu tant que le compte
+qui l'a créé est désactivé, comme les sessions de ce compte : le départ d'un administrateur ne
+laisse pas de jeton actif derrière lui, et la réactivation du compte rend ses jetons utilisables.
+Le contrôle est une jointure sur `users` à chaque appel (sans migration) ; la liste des jetons de
+Paramètres montre le jeton suspendu et nomme le compte, pour qu'un administrateur comprenne
+pourquoi une CI échoue (l'API répond « jeton invalide », comme pour un jeton révoqué). Un jeton
+sans créateur connu (colonne vide : aucun chemin de Vigil n'en crée aujourd'hui) reste valide.
+Écartés : révoquer les jetons à la désactivation, ce qu'une réactivation ne pourrait pas défaire ;
+une réponse distincte de l'API, qui dirait à qui détient le jeton que le compte est désactivé.
+
+**A70. Noms de compte : uniques à la casse près, et absents du journal s'ils sont inconnus.**
+Audit de novembre 2026, S16 et S17.
+- *Création* : « Alice » et « alice » pouvaient coexister (contrainte `UNIQUE` sensible à la casse)
+  et se confondre dans l'historique de triage et le journal d'audit ; le limiteur de connexion, lui,
+  les comptait déjà ensemble. Un nom qui ne diffère d'un nom existant que par la casse est refusé, à
+  un seul endroit : `Store.CreateUser`, partagé par Paramètres → Utilisateurs et `vigil user add`
+  (l'installation, `CreateFirstAdmin`, ne crée un compte que sur une base vide). La comparaison se
+  fait en Go (`strings.EqualFold`, qui replie aussi « É » et « é »), dans la même transaction que
+  l'insertion : deux créations simultanées ne passent pas toutes les deux. Erreur `store.ErrExists`,
+  réutilisable pour les autres doublons. Écartés : `COLLATE NOCASE` sur la colonne, qui demande une
+  migration, échouerait sur une base où deux comptes se chevauchent déjà, et ne replie que l'ASCII ;
+  renommer les comptes existants qui se chevauchent (ils restent) ; une connexion insensible à la
+  casse (le nom se tape toujours exactement).
+- *Échec de connexion* : `login_failed` gardait le nom tapé ; un mot de passe saisi dans le champ du
+  nom finissait dans la base et le journal du service. Le nom n'est plus gardé que s'il est celui
+  d'un compte, désactivé compris (tentative d'un ancien collègue) ; sinon seule l'adresse est
+  enregistrée, au même format (`ip=… user=…`). La recherche du compte a lieu à chaque échec, en une
+  requête, quel que soit le nom, et la réponse ne change pas : même page, même calcul argon2 (factice
+  pour un nom inconnu). Écartés : ne jamais garder le nom, qui effacerait la trace d'une force brute
+  visant un compte ; une empreinte du nom, illisible pour l'administrateur et facile à retrouver.
 
 **A67. Une portée obligatoire dans chaque requête du stockage.** Regrouper les actifs puis limiter
 des comptes à des groupes (modèle retenu en novembre 2026 : groupes définis par des étiquettes et
@@ -578,7 +639,12 @@ adresses simples : `net/mail` retire les guillemets d'une partie locale, et
 `"x> NOTIFY=NEVER"@example.com` arrivait tel quel dans `RCPT TO:<…>`, où `>` et les espaces
 ajoutent des paramètres SMTP. Une adresse qui contient une espace ou l'un de `<>()[],;:\"` est donc
 refusée, adresse IP entre crochets comprise ; un nom affiché (`Équipe <soc@example.org>`) reste
-accepté, et seule l'adresse est utilisée.
+accepté, et seule l'adresse est utilisée. L'adresse doit aussi porter exactement un `@` :
+`"a@b"@example.com` devenait `a@b@example.com`, qu'un serveur peut acheminer selon le premier `@`.
+L'expéditeur (`-smtp-from`) suit la même règle (`plainAddress`, commune aux deux), puisqu'il entre
+dans `MAIL FROM:<…>` et l'en-tête `From` : une adresse refusée empêche Vigil de démarrer, avec la
+règle dans le message. Écartée : une validation complète de la RFC 5322, inutile pour des adresses
+saisies par l'exploitant et l'administrateur, et qui accepterait justement les formes ci-dessus.
 
 **A39. Délais de traitement calculés à partir de la détection, par sévérité.** DefectDojo et les
 politiques internes (NIS2 : traitement « dans des délais appropriés ») suivent des échéances.
@@ -642,7 +708,11 @@ se saisissent librement dans un champ (séparées par des virgules), sans liste 
 sont mises en minuscules pour qu'une même étiquette ne se dédouble pas (« Prod », « prod »).
 Stockage comme les étiquettes de la veille (`,prod,web,`, migration 010). Filtres de l'inventaire et
 des vulnérabilités, export et import CSV. Écarté : une table d'étiquettes avec administration
-(complexité sans besoin avéré).
+(complexité sans besoin avéré). Une étiquette compte 40 caractères au plus (`inventory.MaxTagLen`),
+20 par actif (`MaxTags`). Les deux filtres lisent l'étiquette demandée comme elle est stockée
+(`tagParam`, par `inventory.NormalizeTags`) et ignorent une étiquette plus longue que cette borne,
+qu'aucun actif ne peut porter : le filtre des vulnérabilités en acceptait 100 caractères, celui de
+l'inventaire la prenait telle que tapée (« Prod » n'y trouvait rien).
 
 **A47. Digest regroupé par éditeur.** Le digest commence par un tableau éditeur × sévérité
 (critiques, hautes, moyennes, basses, inconnues, total, exploitées), puis liste les vulnérabilités

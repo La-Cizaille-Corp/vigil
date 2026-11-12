@@ -70,6 +70,22 @@ func TestSearchCPE(t *testing.T) {
 	}
 }
 
+// A search is made while someone waits: over the rate limit, it says so at
+// once instead of asking again.
+func TestSearchCPERateLimit(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+	c := &Client{URL: srv.URL, CPEURL: srv.URL, HTTP: srv.Client()}
+	_, err := c.SearchCPE(context.Background(), "fortios")
+	if err == nil || err.Error() != "nvd: HTTP 429 : limite de requêtes atteinte ? réessayez dans 30 secondes" || calls != 1 {
+		t.Errorf("%d calls, %v", calls, err)
+	}
+}
+
 // An entry whose product has escaped colons keeps its product, version and
 // whole-product name.
 func TestSearchCPEEscapedColons(t *testing.T) {

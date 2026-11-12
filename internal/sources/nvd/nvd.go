@@ -16,8 +16,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
+	"github.com/La-Cizaille-Corp/vigil/internal/sources"
 )
 
 // DefaultURL is the public CVE API.
@@ -40,11 +40,11 @@ const (
 // Client queries the NVD. Without an API key the NVD allows 5 requests per
 // 30 seconds, with one 50: the client spaces its requests accordingly.
 type Client struct {
-	URL       string
+	URL       string // CVE API, empty: DefaultURL
 	HTTP      *http.Client
 	UserAgent string
 	APIKey    string // optional
-	CPEURL    string // CPE dictionary API, defaults to DefaultCPEURL
+	CPEURL    string // CPE dictionary API, empty: DefaultCPEURL
 
 	mu   sync.Mutex // spaces requests made by syncs and CPE searches alike
 	last time.Time
@@ -222,73 +222,60 @@ func (c *Client) pages(ctx context.Context, q url.Values) ([]CVE, error) {
 	}
 }
 
-// reason is the explanation the NVD gives of a refusal in its "message"
-// header ("Invalid apiKey."), for the error shown to the operator.
-func reason(resp *http.Response) string {
-	if m := strings.TrimSpace(resp.Header.Get("message")); m != "" {
-		return " (" + clip.Text(m, 200) + ")"
-	}
-	return ""
-}
-
 // retryDelays are the waits before asking again after a temporary failure:
 // the NVD often answers 503 for a moment, and one failed request out of the
 // several of an asset would leave it unchecked.
 var retryDelays = []time.Duration{10 * time.Second, 30 * time.Second}
 
-// errTemporary marks a failure worth trying again.
-var errTemporary = errors.New("temporarily unavailable")
+// public reports whether the client asks the NVD itself, whose rate limit it
+// respects; a mirror or a test server is asked without waiting.
+func (c *Client) public() bool { return cmp.Or(c.URL, DefaultURL) == DefaultURL }
 
-func (c *Client) get(ctx context.Context, q url.Values) ([]CVE, int, error) {
-	for attempt := 0; ; attempt++ {
-		list, total, err := c.fetch(ctx, q)
-		if err == nil || !errors.Is(err, errTemporary) || attempt == len(retryDelays) || ctx.Err() != nil {
-			return list, total, err
-		}
-		delay := retryDelays[attempt]
-		if c.URL != DefaultURL && c.URL != "" {
-			delay = 0 // tests and mirrors
-		}
-		select {
-		case <-ctx.Done():
-			return nil, 0, ctx.Err()
-		case <-time.After(delay):
-		}
-	}
+// rateLimited reports whether the NVD refused a request for its rate limit:
+// it answers 403, sometimes 429.
+func rateLimited(err error) bool {
+	var status *sources.StatusError
+	return errors.As(err, &status) && (status.Code == http.StatusForbidden || status.Code == http.StatusTooManyRequests)
 }
 
-func (c *Client) fetch(ctx context.Context, q url.Values) ([]CVE, int, error) {
+// get fetches a page of results, asked again after a temporary failure.
+// SECURITY: a 404 does not mean "no CVE", it is an error like any answer other
+// than 200 (sources.StatusError). The NVD answers it to a refused API key
+// ("Invalid apiKey."), while an unknown CPE name gets a 200 without results.
+// Read as an empty answer, it would mark every open finding of the assets
+// tracked through the NVD as fixed.
+func (c *Client) get(ctx context.Context, q url.Values) ([]CVE, int, error) {
+	delays := retryDelays
+	if !c.public() {
+		delays = make([]time.Duration, len(retryDelays)) // tests and mirrors
+	}
+	var r response
+	err := sources.Retry(ctx, delays, func() (bool, error) {
+		err := c.send(ctx, cmp.Or(c.URL, DefaultURL)+"?"+q.Encode(), maxBody, &r)
+		return rateLimited(err) || sources.Temporary(err), err
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	return parse(r), r.TotalResults, nil
+}
+
+// send waits its turn, then asks the NVD and decodes its answer into out.
+func (c *Client) send(ctx context.Context, url string, max int64, out any) error {
 	if err := c.wait(ctx); err != nil {
-		return nil, 0, err
+		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.URL+"?"+q.Encode(), nil)
+	req, err := sources.NewRequest(ctx, http.MethodGet, url, c.UserAgent, nil)
+	if err == nil {
+		if c.APIKey != "" {
+			req.Header.Set("apiKey", c.APIKey)
+		}
+		err = sources.Do(c.HTTP, req, max, out)
+	}
 	if err != nil {
-		return nil, 0, err
+		return fmt.Errorf("nvd: %w", err)
 	}
-	req.Header.Set("User-Agent", c.UserAgent)
-	if c.APIKey != "" {
-		req.Header.Set("apiKey", c.APIKey)
-	}
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return nil, 0, fmt.Errorf("nvd: %w: %w", errTemporary, err)
-	}
-	defer resp.Body.Close()
-	switch {
-	case resp.StatusCode == http.StatusForbidden, resp.StatusCode == http.StatusTooManyRequests, resp.StatusCode >= 500:
-		return nil, 0, fmt.Errorf("nvd: HTTP %d%s: %w", resp.StatusCode, reason(resp), errTemporary) // 403: its rate limit
-	case resp.StatusCode != http.StatusOK:
-		// SECURITY: a 404 does not mean "no CVE". The NVD answers it to a
-		// refused API key ("Invalid apiKey."), while an unknown CPE name gets
-		// a 200 without results. Read as an empty answer, it would mark every
-		// open finding of the assets tracked through the NVD as fixed.
-		return nil, 0, fmt.Errorf("nvd: HTTP %d%s", resp.StatusCode, reason(resp))
-	}
-	data, err := netsafe.ReadLimited(resp.Body, maxBody)
-	if err != nil {
-		return nil, 0, fmt.Errorf("nvd: %w: %w", errTemporary, err)
-	}
-	return parse(data)
+	return nil
 }
 
 // wait spaces requests to respect the NVD rate limit.
@@ -299,15 +286,11 @@ func (c *Client) wait(ctx context.Context) error {
 	if c.APIKey != "" {
 		gap = 700 * time.Millisecond
 	}
-	if c.URL != DefaultURL && c.URL != "" {
+	if !c.public() {
 		gap = 0 // tests and mirrors
 	}
-	if d := time.Until(c.last.Add(gap)); d > 0 {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(d):
-		}
+	if err := sources.Sleep(ctx, time.Until(c.last.Add(gap))); err != nil {
+		return err
 	}
 	c.last = time.Now()
 	return nil
@@ -341,11 +324,8 @@ type record struct {
 	} `json:"references"`
 }
 
-func parse(data []byte) ([]CVE, int, error) {
-	var r response
-	if err := json.Unmarshal(data, &r); err != nil {
-		return nil, 0, fmt.Errorf("nvd: réponse invalide : %w", err)
-	}
+// parse keeps the records of a page that can be read and are not rejected.
+func parse(r response) []CVE {
 	out := make([]CVE, 0, len(r.Vulnerabilities))
 	for _, v := range r.Vulnerabilities {
 		var rec record
@@ -373,5 +353,5 @@ func parse(data []byte) ([]CVE, int, error) {
 		}
 		out = append(out, c)
 	}
-	return out, r.TotalResults, nil
+	return out
 }

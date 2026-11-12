@@ -16,7 +16,8 @@ func TestScoresIgnoresInvalid(t *testing.T) {
 			{"cve":"CVE-3","epss":"1e9"},{"cve":"CVE-4","epss":"-0.1"}]}`)
 	}))
 	defer srv.Close()
-	got, err := Scores(context.Background(), srv.Client(), srv.URL, "test", []string{"CVE-1", "CVE-2", "CVE-3", "CVE-4"})
+	c := &Client{URL: srv.URL, HTTP: srv.Client()}
+	got, err := c.Scores(context.Background(), []string{"CVE-1", "CVE-2", "CVE-3", "CVE-4"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -184,7 +184,8 @@ la section correspondante du digest (sans sélection : toutes les réglementatio
 </form>
 
 <h2 id="jetons">Jetons d'API (CI/CD)</h2>
-<p class="muted">Un jeton permet à un pipeline de pousser le SBOM d'un seul projet.</p>
+<p class="muted">Un jeton permet à un pipeline de pousser le SBOM d'un seul projet. Il est suspendu tant que
+le compte qui l'a créé est désactivé.</p>
 {{if .Data.NewToken}}
 <div class="card">
   <p><strong>Copiez ce jeton maintenant, il ne sera plus affiché :</strong></p>
@@ -199,7 +200,8 @@ la section correspondante du digest (sans sélection : toutes les réglementatio
 <tbody>
 {{range .Data.Tokens}}
 <tr>
-  <td>{{.Name}}</td><td>{{.Project}}</td><td>{{date .CreatedAt}}</td>
+  <td>{{.Name}}{{if .Suspended}} <span class="late">(suspendu : le compte {{.CreatedBy}} est désactivé)</span>{{end}}</td>
+  <td>{{.Project}}</td><td>{{date .CreatedAt}}</td>
   <td>{{if .LastUsedAt.IsZero}}<span class="muted">jamais</span>{{else}}{{date .LastUsedAt}}{{end}}</td>
   <td>
     <details class="confirm">

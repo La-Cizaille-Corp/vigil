@@ -13,14 +13,18 @@ type APIToken struct {
 	ID         int64
 	Name       string
 	Project    string
+	CreatedBy  string // name of the account that created it, "" if unknown (listed only)
+	Suspended  bool   // that account is disabled: the token is refused (listed only)
 	CreatedAt  time.Time
 	LastUsedAt time.Time
 }
 
 // ListAPITokens returns every token (without secrets).
 func (s *Store) ListAPITokens(ctx context.Context) ([]APIToken, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, project, created_at, last_used_at FROM api_tokens ORDER BY project, name`)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT t.id, t.name, t.project, COALESCE(u.username, ''), COALESCE(u.disabled_at, '') <> '',
+			t.created_at, t.last_used_at
+		FROM api_tokens t LEFT JOIN users u ON u.id = t.created_by ORDER BY t.project, t.name`)
 	if err != nil {
 		return nil, fmt.Errorf("list api tokens: %w", err)
 	}
@@ -29,7 +33,7 @@ func (s *Store) ListAPITokens(ctx context.Context) ([]APIToken, error) {
 	for rows.Next() {
 		var t APIToken
 		var created, used string
-		if err := rows.Scan(&t.ID, &t.Name, &t.Project, &created, &used); err != nil {
+		if err := rows.Scan(&t.ID, &t.Name, &t.Project, &t.CreatedBy, &t.Suspended, &created, &used); err != nil {
 			return nil, err
 		}
 		t.CreatedAt, t.LastUsedAt = parseTime(created), parseTime(used)
@@ -53,12 +57,17 @@ func (s *Store) CreateAPIToken(ctx context.Context, t APIToken, tokenHash string
 	return res.LastInsertId()
 }
 
-// APITokenByHash finds a token and records its use.
+// APITokenByHash finds a token and records its use. SECURITY: a token is
+// refused (ErrNotFound) while the account that created it is disabled, as
+// that account's sessions are, and works again once it is enabled. A token
+// whose creator is unknown keeps working.
 func (s *Store) APITokenByHash(ctx context.Context, tokenHash string) (APIToken, error) {
 	var t APIToken
 	var created string
-	err := s.db.QueryRowContext(ctx,
-		`SELECT id, name, project, created_at FROM api_tokens WHERE token_hash = ?`, tokenHash).
+	err := s.db.QueryRowContext(ctx, `
+		SELECT t.id, t.name, t.project, t.created_at
+		FROM api_tokens t LEFT JOIN users u ON u.id = t.created_by
+		WHERE t.token_hash = ? AND COALESCE(u.disabled_at, '') = ''`, tokenHash).
 		Scan(&t.ID, &t.Name, &t.Project, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return t, ErrNotFound

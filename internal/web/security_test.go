@@ -116,17 +116,7 @@ func TestLimitKeys(t *testing.T) {
 // Both now take the same key, each in its own scope.
 func TestAPILimiterCountsIPv6Block(t *testing.T) {
 	_, base := newServerWith(t, func(s *Server) { s.BehindProxy = true })
-	put := func(from string) int {
-		req, _ := http.NewRequest(http.MethodPut, base+"/api/v1/projects/p/sbom", strings.NewReader("{}"))
-		req.Header.Set("Authorization", "Bearer vgl_wrong")
-		req.Header.Set("X-Forwarded-For", from)
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		resp.Body.Close()
-		return resp.StatusCode
-	}
+	put := func(from string) int { return putSBOM(t, base, "p", "vgl_wrong", "{}", "X-Forwarded-For", from) }
 	var codes []int
 	for i := 1; i <= 7; i++ {
 		codes = append(codes, put("2001:db8::"+strconv.Itoa(i)))

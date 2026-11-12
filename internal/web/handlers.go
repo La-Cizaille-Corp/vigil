@@ -143,7 +143,17 @@ func (s *Server) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !valid {
-		s.audit(r, "login_failed", "ip="+ip+" user="+clip.Text(username, auth.MaxUsernameLength))
+		// SECURITY: the typed name is kept only when an account bears it,
+		// disabled or not: a password typed in the name field would otherwise
+		// end up in the database and the service log. The lookup runs on
+		// every failure, in a single query whether the name exists or not.
+		detail := "ip=" + ip
+		if a, err := s.Store.AccountByName(r.Context(), username); err == nil {
+			detail += " user=" + a.Username
+		} else if !errors.Is(err, store.ErrNotFound) {
+			s.Log.Warn("failed login: account lookup", "err", err)
+		}
+		s.audit(r, "login_failed", detail)
 		// SECURITY: same message whether the user exists or not.
 		s.render(w, r, http.StatusUnauthorized, "login", page{Title: "Connexion", Error: "Identifiants invalides."})
 		return
@@ -290,7 +300,7 @@ func (s *Server) assetList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	q := r.URL.Query()
-	project, tag := q.Get("project"), q.Get("tag")
+	project, tag := q.Get("project"), tagParam(q)
 	if project != "" || tag != "" {
 		var filtered []store.Asset
 		for _, a := range assets {
@@ -681,14 +691,22 @@ func findingFilterFrom(q url.Values) store.FindingFilter {
 		MinCVSS:    number("cvss", 10),
 		MinEPSS:    number("epss", 100) / 100, // entered as a percentage
 		Project:    q.Get("project"),
-		Tag:        strings.ToLower(strings.TrimSpace(q.Get("tag"))),
+		Tag:        tagParam(q),
 		Search:     strings.TrimSpace(q.Get("q")),
-	}
-	if !clip.Fits(f.Tag, 100) {
-		f.Tag = ""
 	}
 	f.Search = clip.Prefix(f.Search, 200)
 	return f
+}
+
+// tagParam reads the tag filter of a list as tags are stored (see
+// inventory.NormalizeTags); a tag longer than inventory.MaxTagLen, which no
+// asset can bear, filters nothing.
+func tagParam(q url.Values) string {
+	tags := inventory.NormalizeTags([]string{q.Get("tag")})
+	if len(tags) == 0 || !clip.Fits(tags[0], inventory.MaxTagLen) {
+		return ""
+	}
+	return tags[0]
 }
 
 var severities = tracking.Severities
