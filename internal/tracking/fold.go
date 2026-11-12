@@ -325,7 +325,7 @@ func (l likelyOlder) candidate(ref osv.VulnRef, d described) {
 // period lets through what is exploited or likely to be, as the dismissal
 // rules and the levels do (A31). The exploited ones (KEV) were kept already.
 // Without EPSS, nothing more is kept: the failure is logged.
-func (s *Syncer) storeLikely(ctx context.Context, pending *advisories, older likelyOlder) error {
+func (s *Syncer) storeLikely(ctx context.Context, pending *advisories, older likelyOlder, sg *signals) error {
 	if s.EPSS == nil || len(older) == 0 {
 		return nil
 	}
@@ -333,8 +333,7 @@ func (s *Syncer) storeLikely(ctx context.Context, pending *advisories, older lik
 	for _, cve := range older {
 		cves = append(cves, cve)
 	}
-	slices.Sort(cves)
-	scores, err := s.EPSS.Scores(ctx, slices.Compact(cves))
+	scores, err := sg.epssScores(ctx, cves)
 	if err != nil {
 		s.Log.Warn("epss of older vulnerabilities failed", "err", err)
 		return nil

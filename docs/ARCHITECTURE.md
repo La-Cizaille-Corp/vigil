@@ -76,9 +76,10 @@ modification, ou sur demande), par l'API après un import SBOM, ou par `vigil sy
    passagère. Un actif qu'une source n'a pas pu vérifier est signalé et ne bloque pas les autres.
    Les avis d'un actif sont enregistrés ensemble, une fois ses sources lues (A57).
 3. Enrichissement : CVE croisées avec CISA KEV et EPSS, avant les findings (voir A31) ; le
-   catalogue KEV est lu une fois par synchronisation, chaque CVE demandée une fois à EPSS, et seuls
-   les changements écrits, en une transaction. Une panne de ces sources est journalisée sans faire
-   échouer la synchronisation.
+   catalogue KEV est lu une fois par synchronisation, chaque CVE demandée une fois à EPSS (y compris
+   celles des avis anciens relus pour la garde de A31), et seuls les changements écrits, en une
+   transaction ; l'analyse d'un seul actif n'enrichit que ses avis. Une panne de ces sources est
+   journalisée sans faire échouer la synchronisation.
 4. `findings` : une ligne par CVE (A80), les avis groupés et les seconds avis d'une CVE repliés ;
    création si nouveau et dans la période de suivi de l'actif, réouverture si résolu
    automatiquement puis signalé à nouveau, résolution automatique si la source ne le signale plus
@@ -937,6 +938,17 @@ d'EPSS est journalisée et ne laisse passer que KEV, comme avant. Sur la base de
 entrent ainsi, toutes urgentes : 9 pour le noyau Ubuntu (dont CVE-2026-43284, EPSS 94 %) et 4 pour le noyau
 Debian, dont CVE-2004-0230 et CVE-2008-4609 (TCP), que Debian dit toujours affecter le paquet. *Limite* : la NVD n'est interrogée que
 sur la période et sur KEV (`hasKev`) ; une CVE probable plus ancienne n'y est pas cherchée.
+
+*Correction (revue de la 0.5.0) : chaque CVE demandée une fois à EPSS.* Chaque paquet lu en entier
+demandait à EPSS ses CVE anciennes, puis l'enrichissement redemandait celles en base : deux noyaux qui
+partagent leurs CVE (Debian et Ubuntu) les faisaient demander deux fois, et les probables trois (essai :
+1 850 demandes pour 1 000 CVE, 20 requêtes au lieu de 10). L'analyse d'un seul actif, à son ajout ou à sa
+modification, enrichissait toute la base : environ 77 requêtes pour les 7 629 vulnérabilités des deux
+noyaux de l'audit, pour un actif qui n'en a peut-être aucune. Une mémoire des scores, le temps d'une
+synchronisation (`signals.epssScores`), ne demande que les CVE pas encore demandées, à la garde comme à
+l'enrichissement ; l'analyse d'un actif n'enrichit que les avis qu'il signale, la synchronisation
+périodique tout le reste. *Écarté* : garder les scores d'une synchronisation à l'autre, alors qu'EPSS
+change chaque jour.
 
 **A32. État de la synchronisation visible, analyse d'un seul actif.** Sans JavaScript, une
 synchronisation en arrière-plan ne donnait aucun retour. Le bouton « Synchroniser l'inventaire »

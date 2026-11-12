@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -234,7 +235,7 @@ func (s *Syncer) run(ctx context.Context, assetID int64) (res Result, err error)
 			}
 		})
 	}()
-	res, err = s.scan(ctx, assets)
+	res, err = s.scan(ctx, assets, assetID == 0)
 	if err != nil {
 		return res, err
 	}
@@ -258,7 +259,9 @@ type observation struct {
 	known    map[string]described
 }
 
-func (s *Syncer) scan(ctx context.Context, assets []store.Asset) (Result, error) {
+// scan checks assets: the whole inventory, or one asset (whole false), whose
+// advisories alone are then enriched.
+func (s *Syncer) scan(ctx context.Context, assets []store.Asset, whole bool) (Result, error) {
 	var res Result
 	start := time.Now().UTC().Truncate(time.Second)
 
@@ -295,15 +298,7 @@ func (s *Syncer) scan(ctx context.Context, assets []store.Asset) (Result, error)
 	// 1. Ask the sources and store the advisories. An asset that cannot be
 	// checked must not block the others: it is reported, its findings kept.
 	var seen []observation
-	// The KEV catalogue is read once: for the tracked period here, for the
-	// exploitation signals below.
-	catalogue := sync.OnceValues(func() (map[string]kev.Entry, error) {
-		if s.KEV == nil {
-			return nil, nil
-		}
-		return s.KEV.Catalogue(ctx)
-	})
-	exploited := sync.OnceValue(func() map[string]bool { return s.exploitedCVEs(catalogue) })
+	sg := s.newSignals(ctx)
 	pending := &advisories{store: s.Store}
 	// finish stores the advisories read for assets, or drops them if the
 	// sources failed: what is kept of an asset is all it reported, or nothing.
@@ -334,7 +329,7 @@ func (s *Syncer) scan(ctx context.Context, assets []store.Asset) (Result, error)
 		}
 		for i, a := range targets {
 			s.working(a.Name)
-			reported, known, err := s.readAdvisories(ctx, pending, a, queries[i], results[i], exploited)
+			reported, known, err := s.readAdvisories(ctx, pending, a, queries[i], results[i], sg)
 			if finish(err, a) {
 				seen = append(seen, observation{a, reported, known})
 			}
@@ -343,7 +338,7 @@ func (s *Syncer) scan(ctx context.Context, assets []store.Asset) (Result, error)
 	for _, pkg := range packages {
 		list := byPackage[pkg]
 		s.working(list[0].Name)
-		reported, known, err := s.readPackage(ctx, pending, pkg, list, exploited)
+		reported, known, err := s.readPackage(ctx, pending, pkg, list, sg)
 		if finish(err, list...) {
 			for _, a := range list {
 				seen = append(seen, observation{a, reported[a.ID], known})
@@ -372,11 +367,21 @@ func (s *Syncer) scan(ctx context.Context, assets []store.Asset) (Result, error)
 	}
 
 	// 2. Exploitation signals before the findings: an old vulnerability is
-	// kept outside the tracked period unless it is known to be exploited.
+	// kept outside the tracked period unless it is known to be exploited. The
+	// check of one asset enriches its advisories, not the whole database.
 	if s.KEV != nil && s.EPSS != nil {
 		s.working("scores d'exploitation (KEV, EPSS)")
+		var only map[string]bool
+		if !whole {
+			only = map[string]bool{}
+			for _, o := range seen {
+				for _, id := range o.reported {
+					only[id] = true
+				}
+			}
+		}
 		// Enrichment failures are logged but do not fail the sync.
-		if err := s.enrich(ctx, catalogue); err != nil {
+		if err := s.enrich(ctx, sg, only); err != nil {
 			s.Log.Warn("kev/epss enrichment failed", "err", err)
 		}
 	}
@@ -689,7 +694,7 @@ func (s *Syncer) readCPE(ctx context.Context, pending *advisories, a store.Asset
 // that designate it, and returns their ids by asset. The ranges of each one are
 // compared here: at its latest release an asset is affected by those without a
 // fixed version, and OSV does not compare versions in every ecosystem.
-func (s *Syncer) readPackage(ctx context.Context, pending *advisories, pkg osv.Package, assets []store.Asset, exploited func() map[string]bool) (map[int64][]string, map[string]described, error) {
+func (s *Syncer) readPackage(ctx context.Context, pending *advisories, pkg osv.Package, assets []store.Asset, sg *signals) (map[int64][]string, map[string]described, error) {
 	reported := make(map[int64][]string, len(assets))
 	known, older := map[string]described{}, likelyOlder{}
 	list := s.OSV.Advisories(osv.Query{Package: pkg})
@@ -708,7 +713,7 @@ func (s *Syncer) readPackage(ctx context.Context, pending *advisories, pkg osv.P
 			}
 			if affected {
 				reported[a.ID] = append(reported[a.ID], v.ID)
-				keep = keep || reportable(a, l, exploited)
+				keep = keep || reportable(a, l, sg.exploited)
 				affects = true
 			}
 		}
@@ -727,7 +732,7 @@ func (s *Syncer) readPackage(ctx context.Context, pending *advisories, pkg osv.P
 	if err := list.Err(); err != nil {
 		return nil, nil, err
 	}
-	return reported, known, s.storeLikely(ctx, pending, older)
+	return reported, known, s.storeLikely(ctx, pending, older, sg)
 }
 
 // reportable reports whether an asset can report an advisory: published in
@@ -744,9 +749,9 @@ func reportable(a store.Asset, l listed, exploited func() map[string]bool) bool 
 // readAdvisories stores the advisories found for an asset and returns their
 // ids, and what those read whole name: each one is stored here, unless it
 // comes from a package too large for a batch answer.
-func (s *Syncer) readAdvisories(ctx context.Context, pending *advisories, a store.Asset, q osv.Query, found osv.BatchResult, exploited func() map[string]bool) ([]string, map[string]described, error) {
+func (s *Syncer) readAdvisories(ctx context.Context, pending *advisories, a store.Asset, q osv.Query, found osv.BatchResult, sg *signals) ([]string, map[string]described, error) {
 	if found.More {
-		return s.readLargePackage(ctx, pending, a, q, exploited)
+		return s.readLargePackage(ctx, pending, a, q, sg)
 	}
 	reported := make([]string, 0, len(found.Vulns))
 	for _, ref := range found.Vulns {
@@ -764,17 +769,17 @@ func (s *Syncer) readAdvisories(ctx context.Context, pending *advisories, a stor
 // are stored; the others are still reported, to count them as older. They are
 // read in full the first time, then only those changed since (A90); the list
 // kept of them is stored with the asset's advisories.
-func (s *Syncer) readLargePackage(ctx context.Context, pending *advisories, a store.Asset, q osv.Query, exploited func() map[string]bool) ([]string, map[string]described, error) {
+func (s *Syncer) readLargePackage(ctx context.Context, pending *advisories, a store.Asset, q osv.Query, sg *signals) ([]string, map[string]described, error) {
 	key := listKey(q)
-	r, readAt, err := s.readChanged(ctx, pending, a, q, key, exploited)
+	r, readAt, err := s.readChanged(ctx, pending, a, q, key, sg.exploited)
 	if err == nil && r == nil { // nothing to start from: every advisory is read
 		readAt = time.Now()
-		r, err = s.readWhole(ctx, pending, a, q, exploited)
+		r, err = s.readWhole(ctx, pending, a, q, sg.exploited)
 	}
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := s.storeLikely(ctx, pending, r.older); err != nil {
+	if err := s.storeLikely(ctx, pending, r.older, sg); err != nil {
 		return nil, nil, err
 	}
 	pending.keepList(store.OSVList{Query: key, ReadAt: readAt, Advisories: r.encode()})
@@ -801,6 +806,65 @@ func (s *Syncer) readWhole(ctx context.Context, pending *advisories, a store.Ass
 		}
 	}
 	return r, list.Err()
+}
+
+// signals are the exploitation signals of a synchronisation, each source asked
+// once: the KEV catalogue, read once, for the tracked period (exploited) and
+// for the signals (enrich); the EPSS scores, each CVE asked once, for the
+// advisories older than the period (storeLikely) as for those stored (enrich).
+type signals struct {
+	catalogue func() (map[string]kev.Entry, error)
+	exploited func() map[string]bool // the CVEs of the catalogue
+	epss      *epss.Client
+	scores    map[string]float64 // the CVEs asked to EPSS: probability, -1 without one
+}
+
+func (s *Syncer) newSignals(ctx context.Context) *signals {
+	catalogue := sync.OnceValues(func() (map[string]kev.Entry, error) {
+		if s.KEV == nil {
+			return nil, nil
+		}
+		return s.KEV.Catalogue(ctx)
+	})
+	return &signals{
+		catalogue: catalogue,
+		exploited: sync.OnceValue(func() map[string]bool { return s.exploitedCVEs(catalogue) }),
+		epss:      s.EPSS,
+		scores:    map[string]float64{},
+	}
+}
+
+// epssScores returns the EPSS probability of each of cves that FIRST scores,
+// asking only for those not asked yet in the synchronisation. After a
+// failure, those not answered are asked again at the next call.
+func (sg *signals) epssScores(ctx context.Context, cves []string) (map[string]float64, error) {
+	var missing []string
+	for _, cve := range cves {
+		if _, asked := sg.scores[cve]; !asked {
+			missing = append(missing, cve)
+		}
+	}
+	slices.Sort(missing) // a CVE can be the alias of several advisories
+	missing = slices.Compact(missing)
+	if len(missing) > 0 {
+		got, err := sg.epss.Scores(ctx, missing)
+		if err != nil {
+			return nil, err
+		}
+		for _, cve := range missing {
+			sg.scores[cve] = -1
+			if p, ok := got[cve]; ok {
+				sg.scores[cve] = p
+			}
+		}
+	}
+	out := make(map[string]float64, len(cves))
+	for _, cve := range cves {
+		if p := sg.scores[cve]; p >= 0 {
+			out[cve] = p
+		}
+	}
+	return out, nil
 }
 
 // exploitedCVEs returns the CVEs of the KEV catalogue. Without it, only the
@@ -873,14 +937,18 @@ func (s *Syncer) storeOSV(ctx context.Context, pending *advisories, v osv.Vuln, 
 	return pending.add(ctx, sv)
 }
 
-// enrich refreshes the KEV flag and EPSS score of every stored vulnerability:
-// each CVE is asked once to EPSS, and only the changes are written.
-func (s *Syncer) enrich(ctx context.Context, catalogue func() (map[string]kev.Entry, error)) error {
+// enrich refreshes the KEV flag and EPSS score of every stored vulnerability,
+// or of those in only when it is not nil: each CVE is asked once to EPSS in
+// the synchronisation (signals.epssScores), and only the changes are written.
+func (s *Syncer) enrich(ctx context.Context, sg *signals, only map[string]bool) error {
 	byVuln, err := s.Store.ListVulnCVEs(ctx)
+	if only != nil {
+		maps.DeleteFunc(byVuln, func(id string, _ []string) bool { return !only[id] })
+	}
 	if err != nil || len(byVuln) == 0 {
 		return err
 	}
-	entries, err := catalogue()
+	entries, err := sg.catalogue()
 	if err != nil {
 		return err
 	}
@@ -888,25 +956,24 @@ func (s *Syncer) enrich(ctx context.Context, catalogue func() (map[string]kev.En
 	for _, list := range byVuln {
 		cves = append(cves, list...)
 	}
-	slices.Sort(cves) // a CVE can be the alias of several advisories
-	scores, err := s.EPSS.Scores(ctx, slices.Compact(cves))
+	scores, err := sg.epssScores(ctx, cves)
 	if err != nil {
 		return err
 	}
-	signals := make([]store.ExploitSignal, 0, len(byVuln))
+	changes := make([]store.ExploitSignal, 0, len(byVuln))
 	for id, list := range byVuln {
-		sg := store.ExploitSignal{ID: id, EPSS: -1}
+		change := store.ExploitSignal{ID: id, EPSS: -1}
 		for _, cve := range list {
 			if e, ok := entries[cve]; ok {
-				sg.KEV, sg.KEVDue = true, e.DueDate
+				change.KEV, change.KEVDue = true, e.DueDate
 			}
-			if p, ok := scores[cve]; ok && p > sg.EPSS {
-				sg.EPSS = p
+			if p, ok := scores[cve]; ok && p > change.EPSS {
+				change.EPSS = p
 			}
 		}
-		signals = append(signals, sg)
+		changes = append(changes, change)
 	}
-	_, err = s.Store.SetExploitSignals(ctx, signals...)
+	_, err = s.Store.SetExploitSignals(ctx, changes...)
 	return err
 }
 
