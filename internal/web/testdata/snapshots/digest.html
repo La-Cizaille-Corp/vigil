@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Digest du MAINTENANT · Vigil</title>
+
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<a class="skip" href="#contenu">Aller au contenu</a>
+<header>
+  <a class="brand" href="/"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="logo-shield" d="M12 2 4 5v6c0 5 3.4 9.3 8 11 4.6-1.7 8-6 8-11V5l-8-3Z"/><path class="logo-eye" d="M12 8.5c-2.6 0-4.7 1.6-5.5 3.5.8 1.9 2.9 3.5 5.5 3.5s4.7-1.6 5.5-3.5c-.8-1.9-2.9-3.5-5.5-3.5Zm0 5.5a2 2 0 1 1 0-4 2 2 0 0 1 0 4Z"/></svg>Vigil</a>
+  
+  <nav aria-label="Navigation principale">
+    <a href="/" >Tableau de bord</a>
+    <a href="/assets" >Inventaire</a>
+    <a href="/findings" >Vulnérabilités</a>
+    <a href="/cti" >Veille</a>
+    <a href="/digests" aria-current="page">Digests</a>
+    <a href="/settings" >Paramètres</a>
+  </nav>
+  <form method="post" action="/logout" class="inline">
+    <input type="hidden" name="csrf" value="CSRF">
+    <a class="account-link" href="/account" title="Mon compte" >analyst</a>
+    <span class="muted small">analyste</span>
+    <button type="submit" class="link">Déconnexion</button>
+  </form>
+  
+</header>
+<main id="contenu">
+  <h1>Digest du MAINTENANT</h1>
+  
+  
+  
+<p><a href="/digests">← Digests</a> · <a href="/digests/1/markdown">Télécharger en Markdown</a></p>
+<section class="digest">
+<p>Généré le MAINTENANT — période depuis le IL-Y-A-7-JOURS.</p>
+
+<h2>Nouvelles vulnérabilités (0)</h2>
+
+<p>Aucune nouvelle vulnérabilité sur la période.</p>
+
+
+
+<h2>Hors délai de traitement (5)</h2>
+<ul>
+
+<li><span class="sev sev-CRITICAL">Critique</span> <span class="kev">Exploitée</span> <a href="/findings/1">CVE-2025-0001</a> — fortios 7.2.4 — échéance 19/03/2025</li>
+
+<li><span class="sev sev-HIGH">Haute</span> <a href="/findings/2">CVE-2025-0002</a> — fortios 7.2.4 — échéance 03/04/2025</li>
+
+<li><span class="sev sev-MEDIUM">Moyenne</span> <a href="/findings/4">GHSA-29mw-wpgm-hmr9</a> — lodash 4.17.15 — échéance 02/06/2025</li>
+
+<li><span class="sev sev-LOW">Basse</span> <a href="/findings/5">CVE-2025-0005</a> — lodash 4.17.15 — échéance 31/08/2025</li>
+
+<li><span class="sev sev-UNKNOWN">Inconnue</span> <a href="/findings/3">CVE-2025-0003</a> — fortios 7.2.4 — échéance 02/06/2025</li>
+
+</ul>
+
+
+
+
+<h2>Vulnérabilités ouvertes (5)</h2>
+
+
+<table class="breakdown">
+<thead><tr><th>Éditeur</th><th class="num">Critiques</th><th class="num">Hautes</th><th class="num">Moyennes</th><th class="num">Basses</th><th class="num">Inconnues</th><th class="num">Total</th><th class="num">Exploitées (KEV)</th></tr></thead>
+<tbody>
+<tr><td>Fortinet</td><td class="num">1</td><td class="num">1</td><td class="num"><span class="muted">0</span></td><td class="num"><span class="muted">0</span></td><td class="num">1</td><td class="num">3</td><td class="num">1</td></tr>
+<tr><td>Paquets npm</td><td class="num"><span class="muted">0</span></td><td class="num"><span class="muted">0</span></td><td class="num">1</td><td class="num">1</td><td class="num"><span class="muted">0</span></td><td class="num">2</td><td class="num"><span class="muted">0</span></td></tr>
+</tbody>
+<tfoot><tr><th>Total</th><th class="num">1</th><th class="num">1</th><th class="num">1</th><th class="num">1</th><th class="num">1</th><th class="num">5</th><th class="num">1</th></tr></tfoot>
+</table>
+
+
+<h3>Fortinet (3)</h3>
+<p class="muted">1 critique, 1 haute, 1 de sévérité inconnue, dont 1 exploitée</p>
+<ul>
+
+<li><span class="kev">Exploitée</span> <span class="sev sev-CRITICAL">Critique</span> <small>CVSS 9.8</small> <small>EPSS 97.3 %</small> <a href="/findings/1">CVE-2025-0001</a> — fortios 7.2.4 — À analyser</li>
+
+<li><span class="sev sev-HIGH">Haute</span> <small>CVSS 7.5</small> <small>EPSS 12.3 %</small> <a href="/findings/2">CVE-2025-0002</a> — fortios 7.2.4 — À analyser</li>
+
+<li><span class="sev sev-UNKNOWN">Inconnue</span> <small>EPSS 0.0 %</small> <a href="/findings/3">CVE-2025-0003</a> — fortios 7.2.4 — À analyser</li>
+
+
+</ul>
+
+<h3>Paquets npm (2)</h3>
+<p class="muted">1 moyenne, 1 basse</p>
+<ul>
+
+<li><span class="sev sev-MEDIUM">Moyenne</span> <small>CVSS 5.3</small> <a href="/findings/4">GHSA-29mw-wpgm-hmr9</a> — lodash 4.17.15 — À analyser</li>
+
+<li><span class="sev sev-LOW">Basse</span> <a href="/findings/5">CVE-2025-0005</a> — lodash 4.17.15 — À analyser</li>
+
+
+</ul>
+
+
+
+<h2>Synthèse par statut</h2>
+<ul>
+<li>À analyser : 5</li><li>Exploitable – à traiter : 0</li><li>Corrigé : 0</li><li>Non affecté : 0</li><li>Faux positif : 0</li>
+</ul>
+
+<h2>Veille menaces (0)</h2>
+<p class="muted">tous pays et secteurs</p>
+
+<p>Aucune actualité correspondante sur la période.</p>
+
+
+<h2>Veille réglementaire (0)</h2>
+<p class="muted">toutes les réglementations et normes</p>
+
+<p>Aucune actualité réglementaire sur la période.</p>
+
+</section>
+
+
+
+
+</main>
+</body>
+</html>

@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fortios 7.2.4 · Vigil</title>
+
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<a class="skip" href="#contenu">Aller au contenu</a>
+<header>
+  <a class="brand" href="/"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="logo-shield" d="M12 2 4 5v6c0 5 3.4 9.3 8 11 4.6-1.7 8-6 8-11V5l-8-3Z"/><path class="logo-eye" d="M12 8.5c-2.6 0-4.7 1.6-5.5 3.5.8 1.9 2.9 3.5 5.5 3.5s4.7-1.6 5.5-3.5c-.8-1.9-2.9-3.5-5.5-3.5Zm0 5.5a2 2 0 1 1 0-4 2 2 0 0 1 0 4Z"/></svg>Vigil</a>
+  
+  <nav aria-label="Navigation principale">
+    <a href="/" >Tableau de bord</a>
+    <a href="/assets" aria-current="page">Inventaire</a>
+    <a href="/findings" >Vulnérabilités</a>
+    <a href="/cti" >Veille</a>
+    <a href="/digests" >Digests</a>
+    <a href="/settings" >Paramètres</a>
+  </nav>
+  <form method="post" action="/logout" class="inline">
+    <input type="hidden" name="csrf" value="CSRF">
+    <a class="account-link" href="/account" title="Mon compte" >analyst</a>
+    <span class="muted small">analyste</span>
+    <button type="submit" class="link">Déconnexion</button>
+  </form>
+  
+</header>
+<main id="contenu">
+  <h1>fortios 7.2.4</h1>
+  
+  
+  
+
+<p><a href="/assets">← Inventaire</a></p>
+
+<div class="toolbar">
+  
+  <form method="post" action="/assets/1/scan" class="inline">
+    <input type="hidden" name="csrf" value="CSRF">
+    <button type="submit">Analyser cet actif</button>
+  </form>
+  
+  <span class="muted small">Aucune synchronisation depuis le démarrage du serveur.</span>
+</div>
+
+
+<h2>Détails</h2>
+<dl class="card">
+  <dt>Type</dt><dd>Système d&#39;exploitation</dd>
+  <dt>Version</dt><dd>7.2.4</dd>
+  
+  
+  <dt>CPE</dt><dd><code>cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*</code></dd>
+  <dt>Détection</dt><dd>NVD, vulnérabilités publiées depuis le 01/01/2025</dd>
+  <dt>Criticité</dt><dd>Haute</dd>
+  
+  
+  
+</dl>
+
+<details class="card edit">
+  <summary>Modifier l'actif</summary>
+  <form method="post" action="/assets/1">
+    <input type="hidden" name="csrf" value="CSRF">
+    
+<div class="grid">
+  <label>Nom * <input name="name" value="fortios" required maxlength="200" placeholder="lodash, nginx, Windows Server…"></label>
+  <label>Version <input name="version" value="7.2.4" maxlength="100" placeholder="4.17.21, ou latest"></label>
+  <label>Type
+    <select name="kind"><option value="package" >Paquet / dépendance</option><option value="technology" >Technologie</option><option value="product" >Produit</option><option value="os" selected>Système d&#39;exploitation</option></select>
+  </label>
+  <label>Criticité
+    <select name="criticality"><option value="low" >Faible</option><option value="medium" >Moyenne</option><option value="high" selected>Haute</option><option value="critical" >Critique</option></select>
+  </label>
+  <label>Responsable <input name="owner" value="" maxlength="200"></label>
+  <label>Projet <input name="project" value="" maxlength="200"></label>
+  <label>Étiquettes, séparées par des virgules <input name="tags" value="" maxlength="900"
+    placeholder="prod, équipe web, site de Lyon…"></label>
+</div>
+
+<fieldset class="plain">
+  <legend>Détection des vulnérabilités</legend>
+  <p class="muted small">Renseignez un purl, ou un écosystème avec une version : l'actif est vérifié dans OSV.
+    Si le purl porte une autre version que le champ Version, c'est le champ Version qui est vérifié.
+    Pour une distribution, précisez sa version (<code>Debian:12</code>) et nommez le paquet source (<code>openssl</code>, pas <code>libssl3</code>).
+    Pour un produit ou une technologie sans purl, renseignez un CPE : il est vérifié dans la NVD
+    (pour le trouver : « Trouver son CPE » sur la page Inventaire ; mettez « * » à la place de la version pour suivre le produit
+    entier, et aussi à la place du produit pour suivre tout l'éditeur : <code>cpe:2.3:*:fortinet:*:*:*:*:*:*:*:*:*</code>).
+    Sans purl ni CPE, Vigil cherche le nom de l'actif dans les descriptions des CVE de la NVD : donnez-lui le nom employé
+    par l'éditeur (« Ivanti Connect Secure », « FortiOS »). Moins précise, cette recherche donne des résultats à vérifier.</p>
+  <p class="muted small">Le noyau Linux est un paquet comme un autre : <code>linux</code> dans <code>Debian:12</code>, <code>kernel</code>
+    dans <code>AlmaLinux:9</code>, ou l'écosystème <code>Linux</code> pour le noyau officiel, avec sa version.</p>
+  <p class="muted small">Version <code>latest</code> : l'actif est tenu à jour sur la dernière version publiée. Seules les
+    vulnérabilités sans version corrigée connue sont signalées, et elles sont marquées corrigées dès que le correctif sort.</p>
+  <div class="grid">
+    <label>purl <input name="purl" value="" maxlength="500" placeholder="pkg:npm/lodash@4.17.15"></label>
+    <label>Écosystème
+      <select name="ecosystem">
+        <option value="">—</option>
+        <option >npm</option><option >PyPI</option><option >Go</option><option >Maven</option><option >NuGet</option><option >crates.io</option><option >RubyGems</option><option >Packagist</option><option >Pub</option><option >Hex</option><option >Debian:11</option><option >Debian:12</option><option >Debian:13</option><option >Debian:14</option><option >Debian</option><option >Ubuntu:20.04:LTS</option><option >Ubuntu:22.04:LTS</option><option >Ubuntu:24.04:LTS</option><option >Ubuntu:26.04:LTS</option><option >Ubuntu</option><option >Alpine:v3.20</option><option >Alpine:v3.21</option><option >Alpine:v3.22</option><option >Alpine:v3.23</option><option >Alpine</option><option >Rocky Linux:8</option><option >Rocky Linux:9</option><option >Rocky Linux:10</option><option >Rocky Linux</option><option >AlmaLinux:8</option><option >AlmaLinux:9</option><option >AlmaLinux:10</option><option >AlmaLinux</option><option >Red Hat</option><option >Linux</option>
+      </select>
+    </label>
+    <label>CPE <input name="cpe" value="cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*" maxlength="500" placeholder="cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*"></label>
+    <label>Versions suivies dans la NVD (CPE)
+      <select name="cpe_mode"><option value="" selected>Version de l&#39;actif (CPE ou champ Version)</option><option value="all" >Toutes les versions du produit</option><option value="from" >Versions à partir de…</option></select>
+    </label>
+    <label>À partir de la version <input name="cpe_from" value="" maxlength="100" placeholder="7.2.0"></label>
+    <label>Vulnérabilités publiées depuis le <input type="date" name="track_since" value="2025-01-01"></label>
+  </div>
+  <p class="muted small">Période de suivi : par défaut, les 120 jours précédant l'ajout de l'actif, puis toutes les nouvelles
+    vulnérabilités. Celles publiées avant ne sont signalées que si elles sont activement exploitées (CISA KEV).
+    Videz la date pour suivre tout l'historique.</p>
+</fieldset>
+<label>Notes <textarea name="notes" maxlength="4000" rows="2"></textarea></label>
+
+    <button type="submit">Enregistrer</button>
+  </form>
+  <details class="confirm">
+    <summary>Supprimer l'actif…</summary>
+    <form method="post" action="/assets/1/delete" class="inline">
+      <input type="hidden" name="csrf" value="CSRF">
+      <span>L'actif, ses vulnérabilités et leur historique de suivi seront supprimés.</span>
+      <button type="submit" class="danger">Confirmer la suppression</button>
+    </form>
+  </details>
+</details>
+
+
+<h2>Vulnérabilités de cet actif</h2>
+<p class="muted small">Période de suivi : vulnérabilités publiées depuis le 01/01/2025, plus les plus anciennes
+  activement exploitées (CISA KEV). Pour voir tout l'historique, videz la date de début ci-dessous.
+  
+  
+  </p>
+
+<form method="get" action="/assets/1" class="delivery">
+  <label>Chercher dans ces vulnérabilités
+    <input type="search" name="q" value="" maxlength="100" placeholder="wifi:, CVE-2026-…"></label>
+  <button type="submit">Chercher</button>
+  
+</form>
+
+
+
+
+<table class="cards">
+<thead><tr><th class="no-sort">Priorité</th><th class="no-sort">CVSS</th><th class="no-sort">EPSS</th><th class="no-sort">Vulnérabilité</th><th class="no-sort">Actif</th><th class="no-sort">Corrigée en</th><th class="no-sort">Statut</th><th class="no-sort">Détectée le</th><th class="no-sort">Échéance</th><th class="no-sort">Résumé</th></tr></thead>
+<tbody>
+
+<tr>
+  
+  <td data-label="Priorité"><span class="sev sev-UNKNOWN">Inconnue</span></td>
+  <td data-label="CVSS">0.0</td>
+  <td data-label="EPSS">0.0 %</td>
+  <td data-label="Vulnérabilité"><a href="/findings/3">CVE-2025-0003</a></td>
+  <td data-label="Actif"><a href="/assets/1">fortios 7.2.4</a></td>
+  <td data-label="Corrigée en"></td>
+  <td data-label="Statut">À analyser</td>
+  <td data-label="Détectée le">04/03/2025 12:20</td>
+  <td data-label="Échéance"><span class="late">Hors délai</span><br><small>02/06/2025</small></td>
+  <td data-label="Résumé" class="text">Score nul.</td>
+</tr>
+
+<tr>
+  
+  <td data-label="Priorité"><span class="sev sev-HIGH">Haute</span></td>
+  <td data-label="CVSS">7.5</td>
+  <td data-label="EPSS">12.3 %</td>
+  <td data-label="Vulnérabilité"><a href="/findings/2">CVE-2025-0002</a></td>
+  <td data-label="Actif"><a href="/assets/1">fortios 7.2.4</a></td>
+  <td data-label="Corrigée en"></td>
+  <td data-label="Statut">À analyser</td>
+  <td data-label="Détectée le">04/03/2025 11:20</td>
+  <td data-label="Échéance"><span class="late">Hors délai</span><br><small>03/04/2025</small></td>
+  <td data-label="Résumé" class="text">Déni de service.</td>
+</tr>
+
+<tr>
+  
+  <td data-label="Priorité"><span class="kev">Exploitée</span><br><span class="sev sev-CRITICAL">Critique</span></td>
+  <td data-label="CVSS">9.8</td>
+  <td data-label="EPSS">97.3 %</td>
+  <td data-label="Vulnérabilité"><a href="/findings/1">CVE-2025-0001</a></td>
+  <td data-label="Actif"><a href="/assets/1">fortios 7.2.4</a></td>
+  <td data-label="Corrigée en"></td>
+  <td data-label="Statut">À analyser</td>
+  <td data-label="Détectée le">04/03/2025 10:20</td>
+  <td data-label="Échéance"><span class="late">Hors délai</span><br><small>19/03/2025</small></td>
+  <td data-label="Résumé" class="text">Contournement de l&#39;authentification.</td>
+</tr>
+
+</tbody>
+</table>
+
+
+
+</main>
+</body>
+</html>

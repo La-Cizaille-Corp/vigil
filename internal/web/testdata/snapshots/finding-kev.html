@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CVE-2025-0001 · Vigil</title>
+
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<a class="skip" href="#contenu">Aller au contenu</a>
+<header>
+  <a class="brand" href="/"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="logo-shield" d="M12 2 4 5v6c0 5 3.4 9.3 8 11 4.6-1.7 8-6 8-11V5l-8-3Z"/><path class="logo-eye" d="M12 8.5c-2.6 0-4.7 1.6-5.5 3.5.8 1.9 2.9 3.5 5.5 3.5s4.7-1.6 5.5-3.5c-.8-1.9-2.9-3.5-5.5-3.5Zm0 5.5a2 2 0 1 1 0-4 2 2 0 0 1 0 4Z"/></svg>Vigil</a>
+  
+  <nav aria-label="Navigation principale">
+    <a href="/" >Tableau de bord</a>
+    <a href="/assets" >Inventaire</a>
+    <a href="/findings" aria-current="page">Vulnérabilités</a>
+    <a href="/cti" >Veille</a>
+    <a href="/digests" >Digests</a>
+    <a href="/settings" >Paramètres</a>
+  </nav>
+  <form method="post" action="/logout" class="inline">
+    <input type="hidden" name="csrf" value="CSRF">
+    <a class="account-link" href="/account" title="Mon compte" >analyst</a>
+    <span class="muted small">analyste</span>
+    <button type="submit" class="link">Déconnexion</button>
+  </form>
+  
+</header>
+<main id="contenu">
+  <h1>CVE-2025-0001</h1>
+  
+  
+  
+
+<p><a href="/findings">← Vulnérabilités</a></p>
+<dl class="card">
+  <dt>Sévérité</dt><dd><span class="sev sev-CRITICAL">Critique</span> — CVSS 9.8</dd>
+  <dt>Exploitation</dt><dd><span class="kev">Exploitée activement (CISA KEV)</span> — échéance CISA 01/03/2025
+     · probabilité EPSS 97.3 %</dd>
+  <dt>Correction</dt><dd><span class="muted">non indiquée par la source</span></dd>
+  
+  <dt>Actif</dt><dd><a href="/assets/1">fortios 7.2.4</a>
+    
+    </dd>
+  <dt>Statut</dt><dd>À analyser</dd>
+  <dt>Détectée le</dt><dd>04/03/2025 10:20</dd>
+  <dt>Échéance de traitement</dt><dd>19/03/2025 <span class="late">Hors délai</span>
+    <small class="muted">(selon la sévérité ; exploitée : délai « critique »)</small></dd>
+  <dt>Publiée le</dt><dd>10/02/2025</dd>
+</dl>
+
+<h2>Résumé</h2>
+<p>Contournement de l&#39;authentification.</p>
+
+
+
+
+
+
+
+<h2>Mettre à jour le suivi</h2>
+<form method="post" action="/findings/1" class="card">
+  <input type="hidden" name="csrf" value="CSRF">
+  <label>Statut
+    <select name="status"><option value="in_triage" selected>À analyser</option><option value="exploitable" >Exploitable – à traiter</option><option value="resolved" >Corrigé</option><option value="not_affected" >Non affecté</option><option value="false_positive" >Faux positif</option></select>
+  </label>
+  <label>Justification (si « Non affecté »)
+    <select name="justification">
+      <option value="">—</option>
+      <option value="code_not_present" >Code vulnérable absent</option><option value="code_not_reachable" >Code vulnérable non atteignable</option><option value="requires_configuration" >Nécessite une configuration absente</option><option value="requires_dependency" >Nécessite une dépendance absente</option><option value="requires_environment" >Nécessite un environnement absent</option><option value="protected_by_compiler" >Protégé par le compilateur</option><option value="protected_at_runtime" >Protégé à l&#39;exécution</option><option value="protected_at_perimeter" >Protégé en périphérie</option><option value="protected_by_mitigating_control" >Protégé par une mesure compensatoire</option>
+    </select>
+  </label>
+  <label>Commentaire <textarea name="comment" maxlength="4000" rows="3"></textarea></label>
+  <button type="submit">Enregistrer</button>
+</form>
+
+
+<h2>Historique</h2>
+<p class="muted">Aucun changement.</p>
+
+</main>
+</body>
+</html>
