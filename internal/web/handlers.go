@@ -300,7 +300,7 @@ func (s *Server) assetList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	q := r.URL.Query()
-	project, tag := q.Get("project"), q.Get("tag")
+	project, tag := q.Get("project"), tagParam(q)
 	if project != "" || tag != "" {
 		var filtered []store.Asset
 		for _, a := range assets {
@@ -691,14 +691,22 @@ func findingFilterFrom(q url.Values) store.FindingFilter {
 		MinCVSS:    number("cvss", 10),
 		MinEPSS:    number("epss", 100) / 100, // entered as a percentage
 		Project:    q.Get("project"),
-		Tag:        strings.ToLower(strings.TrimSpace(q.Get("tag"))),
+		Tag:        tagParam(q),
 		Search:     strings.TrimSpace(q.Get("q")),
-	}
-	if !clip.Fits(f.Tag, 100) {
-		f.Tag = ""
 	}
 	f.Search = clip.Prefix(f.Search, 200)
 	return f
+}
+
+// tagParam reads the tag filter of a list as tags are stored (see
+// inventory.NormalizeTags); a tag longer than inventory.MaxTagLen, which no
+// asset can bear, filters nothing.
+func tagParam(q url.Values) string {
+	tags := inventory.NormalizeTags([]string{q.Get("tag")})
+	if len(tags) == 0 || !clip.Fits(tags[0], inventory.MaxTagLen) {
+		return ""
+	}
+	return tags[0]
 }
 
 var severities = tracking.Severities

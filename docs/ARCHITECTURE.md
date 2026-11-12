@@ -587,7 +587,12 @@ adresses simples : `net/mail` retire les guillemets d'une partie locale, et
 `"x> NOTIFY=NEVER"@example.com` arrivait tel quel dans `RCPT TO:<…>`, où `>` et les espaces
 ajoutent des paramètres SMTP. Une adresse qui contient une espace ou l'un de `<>()[],;:\"` est donc
 refusée, adresse IP entre crochets comprise ; un nom affiché (`Équipe <soc@example.org>`) reste
-accepté, et seule l'adresse est utilisée.
+accepté, et seule l'adresse est utilisée. L'adresse doit aussi porter exactement un `@` :
+`"a@b"@example.com` devenait `a@b@example.com`, qu'un serveur peut acheminer selon le premier `@`.
+L'expéditeur (`-smtp-from`) suit la même règle (`plainAddress`, commune aux deux), puisqu'il entre
+dans `MAIL FROM:<…>` et l'en-tête `From` : une adresse refusée empêche Vigil de démarrer, avec la
+règle dans le message. Écartée : une validation complète de la RFC 5322, inutile pour des adresses
+saisies par l'exploitant et l'administrateur, et qui accepterait justement les formes ci-dessus.
 
 **A39. Délais de traitement calculés à partir de la détection, par sévérité.** DefectDojo et les
 politiques internes (NIS2 : traitement « dans des délais appropriés ») suivent des échéances.
@@ -651,7 +656,11 @@ se saisissent librement dans un champ (séparées par des virgules), sans liste 
 sont mises en minuscules pour qu'une même étiquette ne se dédouble pas (« Prod », « prod »).
 Stockage comme les étiquettes de la veille (`,prod,web,`, migration 010). Filtres de l'inventaire et
 des vulnérabilités, export et import CSV. Écarté : une table d'étiquettes avec administration
-(complexité sans besoin avéré).
+(complexité sans besoin avéré). Une étiquette compte 40 caractères au plus (`inventory.MaxTagLen`),
+20 par actif (`MaxTags`). Les deux filtres lisent l'étiquette demandée comme elle est stockée
+(`tagParam`, par `inventory.NormalizeTags`) et ignorent une étiquette plus longue que cette borne,
+qu'aucun actif ne peut porter : le filtre des vulnérabilités en acceptait 100 caractères, celui de
+l'inventaire la prenait telle que tapée (« Prod » n'y trouvait rien).
 
 **A47. Digest regroupé par éditeur.** Le digest commence par un tableau éditeur × sévérité
 (critiques, hautes, moyennes, basses, inconnues, total, exploitées), puis liste les vulnérabilités
