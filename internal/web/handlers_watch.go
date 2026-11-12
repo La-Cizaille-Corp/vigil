@@ -104,12 +104,17 @@ func (s *Server) renderSettings(w http.ResponseWriter, r *http.Request, status i
 	}
 	var hooks []store.Webhook
 	var tokens []store.APIToken
+	var groups []store.Group
 	if sess, _ := sessionFrom(ctx); auth.RoleAtLeast(sess.User.Role, auth.RoleAdmin) {
 		if hooks, err = s.Store.ListWebhooks(ctx); err != nil {
 			s.serverError(w, r, err)
 			return
 		}
 		if tokens, err = s.Store.ListAPITokens(ctx); err != nil {
+			s.serverError(w, r, err)
+			return
+		}
+		if groups, err = s.Store.ListGroups(ctx, readScope(r)); err != nil {
 			s.serverError(w, r, err)
 			return
 		}
@@ -126,12 +131,20 @@ func (s *Server) renderSettings(w http.ResponseWriter, r *http.Request, status i
 	}
 	s.render(w, r, status, "settings", page{Title: "Paramètres", Error: formErr, Data: map[string]any{
 		"Watch": watch, "Feeds": feeds, "Webhooks": hooks, "NewsPerDay": newsPerDay, "NewsFrequencies": cti.NewsFrequencies,
-		"Tokens": tokens, "NewToken": s.newToken(r), "BaseURL": s.BaseURL,
+		"Tokens": tokens, "NewToken": s.newToken(r), "BaseURL": s.BaseURL, "Groups": groups,
 		"SLA": sla, "Mail": s.Notifier != nil && s.Notifier.Mail != nil,
 	}})
 }
 
+// saveWatch sets the watched countries, sectors and regulations: a setting
+// common to every account, so that an account restricted to groups may not
+// change what the others see (A68, D4).
 func (s *Server) saveWatch(w http.ResponseWriter, r *http.Request) {
+	if sess, _ := sessionFrom(r.Context()); sess.User.Restricted() {
+		s.renderSettings(w, r, http.StatusForbidden,
+			"Les filtres de veille sont communs à tous les comptes : seul un compte qui voit tout l'inventaire peut les changer.")
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Formulaire invalide.", http.StatusBadRequest)
 		return
@@ -378,6 +391,10 @@ func (s *Server) sbomImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, err := s.Store.ReplaceProjectAssets(r.Context(), writeScope(r), project, doc.Assets)
+	if refusal := sbomRefusal(project, err); refusal != "" {
+		s.renderNewAsset(w, r, http.StatusBadRequest, defaultAssetForm(), refusal)
+		return
+	}
 	if err != nil {
 		s.serverError(w, r, err)
 		return
@@ -386,6 +403,22 @@ func (s *Server) sbomImport(w http.ResponseWriter, r *http.Request) {
 		"added", res.Added, "kept", res.Kept, "removed", res.Removed, "skipped", doc.Skipped)
 	go s.runSync()
 	redirect(w, r, "/assets?project="+url.QueryEscape(project), "sbom-imported")
+}
+
+// sbomRefusal explains an SBOM import refused to an account restricted to
+// groups (A68), "" for any other outcome: its components go to the groups
+// naming the project, which must exist and all be the account's.
+func sbomRefusal(project string, err error) string {
+	var e *store.OutsideGroupsError
+	if !errors.As(err, &e) {
+		return ""
+	}
+	if len(e.ForeignProjects) > 0 {
+		return "Import refusé : le projet « " + project + " » relève d'un groupe dont vous ne faites pas partie. " +
+			"Un compte qui voit tout l'inventaire peut l'importer."
+	}
+	return "Import refusé : le projet « " + project + " » ne fait partie d'aucun de vos groupes. " +
+		"Un administrateur peut l'ajouter à l'un d'eux (Paramètres → Groupes)."
 }
 
 // defaultAssetForm prefills the form of a new asset: it is checked for the

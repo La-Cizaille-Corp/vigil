@@ -236,18 +236,34 @@ func sentences(msg string) string {
 }
 
 // assetForm is an asset shown in its form, with the tags in use as hints under
-// the tags field.
+// the tags field and, for an account restricted to groups, the tags and
+// projects that keep an asset in them (A68).
 type assetForm struct {
 	store.Asset
-	KnownTags []store.TagCount
+	KnownTags                []store.TagCount
+	GroupTags, GroupProjects []string
 }
 
 // newAssetForm prepares the form of a, with the tags the account may see as
 // hints.
 func (s *Server) newAssetForm(r *http.Request, a store.Asset) (assetForm, error) {
-	tags, err := s.Store.ListAssetTags(r.Context(), readScope(r))
-	if err != nil {
-		return assetForm{}, fmt.Errorf("asset tags: %w", err)
+	f := assetForm{Asset: a}
+	var err error
+	if f.KnownTags, err = s.Store.ListAssetTags(r.Context(), readScope(r)); err != nil {
+		return f, fmt.Errorf("asset tags: %w", err)
 	}
-	return assetForm{Asset: a, KnownTags: tags}, nil
+	if sess, _ := sessionFrom(r.Context()); sess.User.Restricted() {
+		groups, err := s.Store.ListGroups(r.Context(), readScope(r))
+		if err != nil {
+			return f, err
+		}
+		for _, g := range groups {
+			f.GroupTags = append(f.GroupTags, g.Tags...)
+			f.GroupProjects = append(f.GroupProjects, g.Projects...)
+		}
+		slices.Sort(f.GroupTags)
+		slices.Sort(f.GroupProjects)
+		f.GroupTags, f.GroupProjects = slices.Compact(f.GroupTags), slices.Compact(f.GroupProjects)
+	}
+	return f, nil
 }

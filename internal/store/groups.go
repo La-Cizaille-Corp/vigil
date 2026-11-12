@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -69,13 +70,13 @@ func (s *Store) groups(ctx context.Context, sc Scope, id int64) ([]Group, error)
 	if err != nil || len(list) == 0 {
 		return list, err
 	}
-	type rule struct {
-		group       int64
-		kind, value string
+	type groupRule struct {
+		group int64
+		rule
 	}
 	// #nosec G202 -- where is made of fixed expressions; the values are parameters.
-	rules, err := collect(ctx, s.q(ctx), "group rules", func(row scanner) (rule, error) {
-		var r rule
+	rules, err := collect(ctx, s.q(ctx), "group rules", func(row scanner) (groupRule, error) {
+		var r groupRule
 		err := row.Scan(&r.group, &r.kind, &r.value)
 		return r, err
 	}, `SELECT gr.group_id, gr.kind, gr.value FROM group_rules gr JOIN asset_groups g ON g.id = gr.group_id
@@ -83,17 +84,12 @@ func (s *Store) groups(ctx context.Context, sc Scope, id int64) ([]Group, error)
 	if err != nil {
 		return nil, err
 	}
-	index := make(map[int64]*Group, len(list))
-	for i := range list {
-		index[list[i].ID] = &list[i]
-	}
+	byGroup := map[int64][]rule{}
 	for _, r := range rules {
-		g := index[r.group]
-		if r.kind == "tag" {
-			g.Tags = append(g.Tags, r.value)
-		} else {
-			g.Projects = append(g.Projects, r.value)
-		}
+		byGroup[r.group] = append(byGroup[r.group], r.rule)
+	}
+	for i := range list {
+		list[i].Tags, list[i].Projects = splitRules(byGroup[list[i].ID])
 	}
 	return list, nil
 }
@@ -122,6 +118,99 @@ func (s *Store) UngroupedAssets(ctx context.Context, sc Scope) (int, error) {
 	err := s.q(ctx).QueryRowContext(ctx, `SELECT COUNT(*) FROM assets a WHERE a.retired_at = '' AND `+cond+`
 		AND NOT EXISTS (SELECT 1 FROM group_rules gr WHERE `+ruleMatch("a")+`)`, args...).Scan(&n)
 	return n, wrap("ungrouped assets", err)
+}
+
+// groupsOf returns the groups an asset with these tags and this project
+// belongs to, by the condition of Scope.cond, whether it is stored or not.
+func groupsOf(ctx context.Context, q querier, a Asset) ([]int64, error) {
+	return collect(ctx, q, "groups of an asset", value[int64], `SELECT DISTINCT gr.group_id
+		FROM (SELECT ? AS project, ? AS tags) ga JOIN group_rules gr ON `+ruleMatch("ga")+` ORDER BY 1`,
+		a.Project, joinTags(a.Tags))
+}
+
+// maxSuggestions bounds the tags and projects a refusal suggests.
+const maxSuggestions = 10
+
+// checkMove refuses, with an OutsideGroupsError, a write of the scope that
+// would move an asset across groups the scope does not hold (A68): before is
+// the asset as stored, nil for a new one; after the asset as written, nil
+// when it is deleted. Everything may write anything.
+func checkMove(ctx context.Context, q querier, sc Scope, before, after *Asset) error {
+	if sc.all {
+		return nil
+	}
+	var from, to []int64
+	var err error
+	if before != nil {
+		if from, err = groupsOf(ctx, q, *before); err != nil {
+			return err
+		}
+	}
+	if after != nil {
+		if to, err = groupsOf(ctx, q, *after); err != nil {
+			return err
+		}
+	}
+	foreign, stays := sc.moves(from, to, after == nil)
+	if len(foreign) == 0 && stays {
+		return nil
+	}
+	refused := &OutsideGroupsError{Deleting: after == nil}
+	named := after
+	if named == nil {
+		named = before
+	}
+	refused.Asset = strings.TrimSpace(named.Name + " " + named.Version)
+	// The values responsible are the asset's own, before or after the write:
+	// the user has them under its eyes, nothing of the other groups is told.
+	if len(foreign) > 0 {
+		var states [2]Asset
+		for i, a := range []*Asset{before, after} {
+			if a != nil {
+				states[i] = *a
+			}
+		}
+		where, args := inClause(nil, []any{states[0].Project, joinTags(states[0].Tags), states[1].Project, joinTags(states[1].Tags)},
+			"gr.group_id", foreign)
+		rules, err := collect(ctx, q, "foreign rules", scanRule, `SELECT DISTINCT gr.kind, gr.value
+			FROM (SELECT ? AS project, ? AS tags UNION ALL SELECT ?, ?) ga JOIN group_rules gr ON `+ruleMatch("ga")+`
+			WHERE `+where[0]+` ORDER BY gr.value`, args...)
+		if err != nil {
+			return err
+		}
+		refused.ForeignTags, refused.ForeignProjects = splitRules(rules)
+	}
+	if !stays && len(sc.groups) > 0 { // without a group, nothing to suggest
+		where, args := inClause(nil, nil, "group_id", sc.groups)
+		rules, err := collect(ctx, q, "rules of the scope", scanRule, `SELECT DISTINCT kind, value FROM group_rules
+			WHERE `+where[0]+` ORDER BY value LIMIT ?`, append(args, maxSuggestions)...)
+		if err != nil {
+			return err
+		}
+		refused.Tags, refused.Projects = splitRules(rules)
+	}
+	return refused
+}
+
+// rule is a rule of a group without the group: its kind and its value.
+type rule struct{ kind, value string }
+
+func scanRule(row scanner) (rule, error) {
+	var r rule
+	err := row.Scan(&r.kind, &r.value)
+	return r, err
+}
+
+// splitRules separates tags from projects.
+func splitRules(rules []rule) (tags, projects []string) {
+	for _, r := range rules {
+		if r.kind == "tag" {
+			tags = append(tags, r.value)
+		} else {
+			projects = append(projects, r.value)
+		}
+	}
+	return tags, projects
 }
 
 // CreateGroup adds a group without rules and returns its id; ErrExists when

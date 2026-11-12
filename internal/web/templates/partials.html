@@ -80,6 +80,10 @@
 </div>
 {{with .KnownTags}}<p class="muted small">Étiquettes existantes : {{range $i, $t := .}}{{if $i}}, {{end}}{{$t.Tag}}{{end}}.
   Toute nouvelle étiquette est créée à l'enregistrement.</p>{{end}}
+{{- if or .GroupTags .GroupProjects}}
+<p class="muted small">Votre compte est limité à des groupes : pour y rester, l'actif doit
+  {{with .GroupTags}}porter une de ces étiquettes : {{join . ", "}}{{end}}{{if and .GroupTags .GroupProjects}}, ou {{end}}
+  {{- with .GroupProjects}}appartenir à un de ces projets : {{join . ", "}}{{end}}.</p>{{end}}
 <fieldset class="plain">
   <legend>Détection des vulnérabilités</legend>
   <p class="muted small">Renseignez un purl, ou un écosystème avec une version : l'actif est vérifié dans OSV.

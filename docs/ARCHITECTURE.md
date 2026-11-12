@@ -799,7 +799,22 @@ inconnu. Ce que le compte voit le suit partout : listes, pages, compteurs et gra
 bord, actualités « qui concernent l'inventaire », exports CSV et VEX, étiquettes, projets et groupes
 proposés. L'état de la synchronisation parcourt tout l'inventaire : un compte limité y voit si elle
 tourne et son avancement en pourcentage, sans nom ni compteur. Les digests couvrent tout l'inventaire :
-un compte limité n'en voit aucun. Administration : Paramètres → Groupes (nom, étiquettes et projets
+un compte limité n'en voit aucun. *Écritures* : un compte limité ne fait entrer un actif que dans ses
+groupes, ne l'en fait sortir que de ses groupes, et l'y laisse dans au moins un, sauf pour le
+supprimer ; formellement, avec G avant et G après les groupes de l'actif, (G avant Δ G après) ⊆ ses
+groupes et G après rencontre ses groupes. La même règle couvre la création (G avant vide), la
+modification, la suppression (G après vide : un actif partagé avec un autre groupe ne se supprime pas
+depuis un compte limité), l'import CSV (tout ou rien, A41) et l'import SBOM (les composants nouveaux,
+sans étiquette, sont dans les groupes de leur projet : ces groupes existent et sont tous les siens ;
+un composant gardé ou retiré ne change pas de groupe). Elle est vérifiée dans la transaction de
+`CreateAssets`, `UpdateAsset`, `DeleteAsset` et `ReplaceProjectAssets` (`checkMove`), les groupes de
+l'actif avant et après calculés par la même condition que la lecture (`ruleMatch`). Le refus
+(`store.OutsideGroupsError`) dit quoi corriger, avec les seules valeurs de l'actif, que l'utilisateur a
+sous les yeux : l'étiquette ou le projet qui le rattache à un groupe d'autrui, ou ceux qui le
+garderaient dans les siens ; le formulaire d'un actif les rappelle à un compte limité. Les filtres de
+veille, réglage commun à tous, sont réservés aux comptes sans restriction ; la synchronisation complète
+reste permise (les imports la lancent déjà). À la création d'un jeton d'API, un administrateur peut
+ajouter son projet à un groupe. Administration : Paramètres → Groupes (nom, étiquettes et projets
 cochés parmi ceux en usage, avec leur nombre d'actifs, ou une valeur pas encore utilisée ; nombre
 d'actifs hors de tout groupe) ; l'accès se choisit dans Paramètres → Utilisateurs, obligatoirement à la
 création (bouton radio `required`), et en ligne de commande (`vigil user add -groups`,
@@ -930,7 +945,9 @@ de l'inventaire en virgules ou points-virgules (Excel en français), en-têtes e
 acceptés. Import tout ou rien : la moindre ligne invalide refuse le fichier, avec les numéros de
 ligne, et les actifs sont écrits en une transaction (`Store.CreateAssets`) : une panne au milieu de
 l'écriture n'en ajoute aucun, comme le dit la page (audit de novembre 2026, R12 ; ils étaient créés un
-par un). Les exports utilisent le point-virgule et la virgule décimale, comme Excel en français.
+par un). Pour un compte limité à des groupes (A68), les lignes identiques à un actif existant ne
+sont cherchées que parmi ceux qu'il voit (l'import ne dit rien des autres), et une ligne qui sortirait
+de ses groupes refuse le fichier entier. Les exports utilisent le point-virgule et la virgule décimale, comme Excel en français.
 *Sécurité* : toute cellule commençant par `=`, `+`, `-`, `@` est préfixée d'une apostrophe
 (injection de formules à l'ouverture dans un tableur), de même qu'un tel caractère placé dans une
 valeur après une virgule, un point-virgule, une tabulation ou un saut de ligne, éventuellement

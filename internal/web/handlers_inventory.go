@@ -298,7 +298,12 @@ func (s *Server) assetCSVImport(w http.ResponseWriter, r *http.Request) {
 	added, skipped := len(fresh), len(assets)-len(fresh)
 	// One transaction: a failure in the middle adds none, as the page says.
 	if added > 0 {
-		if _, err := s.Store.CreateAssets(r.Context(), writeScope(r), fresh); err != nil {
+		_, err := s.Store.CreateAssets(r.Context(), writeScope(r), fresh)
+		if msg, refused := outsideGroups(err); refused {
+			s.renderNewAsset(w, r, http.StatusBadRequest, defaultAssetForm(), "Import CSV refusé, aucun actif ajouté : "+msg)
+			return
+		}
+		if err != nil {
 			s.serverError(w, r, err)
 			return
 		}

@@ -366,6 +366,130 @@ func (c *client) newPassword(t *testing.T, id int64) string {
 	return m[1]
 }
 
+// T6: an analyst of A makes an asset enter only its groups and leave only
+// its groups, by the form, a deletion, a CSV or an SBOM import: what would
+// break it is refused with the reason, and changes nothing. The watch
+// filters, common to every account, are not its to change (D4).
+func TestRestrictedWritesThroughThePages(t *testing.T) {
+	fx := newGroupFixture(t)
+	ctx := context.Background()
+	c := fx.client["ana-a"]
+	assets := func() int {
+		list, err := fx.st.ListAssets(ctx, store.Everything)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(list)
+	}
+	count, stateB, stateP := assets(), fx.state(t, "b"), fx.state(t, "p")
+	form := func(tags string) url.Values {
+		return url.Values{"csrf": {c.csrf()}, "name": {"nouveau"}, "kind": {"package"}, "criticality": {"low"}, "tags": {tags}}
+	}
+	p := "/assets/" + strconv.FormatInt(fx.asset["p"], 10)
+	if _, body := c.get("/assets/new"); !strings.Contains(body, "porter une de ces étiquettes : equipe-a") {
+		t.Error("the form does not tell which tags keep an asset in the groups of the account")
+	}
+	for _, refusal := range []struct {
+		label, path string
+		form        url.Values
+		want        string
+	}{
+		{"created in no group", "/assets", form(""), "donnez-lui l&#39;étiquette « equipe-a »"},
+		{"created in B too", "/assets", form("equipe-a, equipe-b"), "l&#39;étiquette « equipe-b » le rattache à un groupe"},
+		{"B removed from p", p, url.Values{"csrf": {c.csrf()}, "name": {"partage"}, "version": {"1.0.0"}, "kind": {"package"},
+			"criticality": {"high"}, "purl": {"pkg:npm/partage@1.0.0"}, "tags": {"equipe-a"}}, "l&#39;étiquette « equipe-b »"},
+		{"p deleted", p + "/delete", url.Values{"csrf": {c.csrf()}}, "seul un compte qui voit tout l&#39;inventaire peut le supprimer"},
+	} {
+		code, body := c.postBody(refusal.path, refusal.form)
+		if code != http.StatusBadRequest || !strings.Contains(body, refusal.want) {
+			t.Errorf("%s: %d, want 400 with %q", refusal.label, code, refusal.want)
+		}
+	}
+	for _, csv := range []string{"nom;étiquettes\nautre;equipe-a\nencore;equipe-b\n",
+		"nom;version;projet;purl\ntemoinb-nom;1.0.0;temoinb-projet;pkg:npm/temoinb@1.0.0\n"} {
+		code, body := c.upload("/assets/import-csv", "csv", "inventaire.csv", csv, url.Values{"csrf": {c.csrf()}})
+		if code != http.StatusBadRequest || !strings.Contains(body, "Import CSV refusé, aucun actif ajouté") {
+			t.Errorf("CSV with a line of B: %d", code)
+		}
+	}
+	bom := `{"bomFormat":"CycloneDX","specVersion":"1.5","components":[
+		{"type":"library","name":"lodash","version":"4.17.15","purl":"pkg:npm/lodash@4.17.15"}]}`
+	for project, want := range map[string]string{"temoinb-projet": "relève d&#39;un groupe dont vous ne faites pas partie",
+		"inconnu": "ne fait partie d&#39;aucun de vos groupes"} {
+		code, body := c.upload("/assets/import", "sbom", "bom.json", bom, url.Values{"csrf": {c.csrf()}, "project": {project}})
+		if code != http.StatusBadRequest || !strings.Contains(body, want) {
+			t.Errorf("SBOM of the project %s: %d, want %q", project, code, want)
+		}
+	}
+	if code, _ := c.postBody("/settings/watch", url.Values{"csrf": {c.csrf()}, "country": {"FR"}}); code != http.StatusForbidden {
+		t.Errorf("watch filters changed by a restricted account: %d", code)
+	}
+	if _, body := c.get("/settings"); strings.Contains(body, `action="/settings/watch"`) {
+		t.Error("the watch filters form is offered to a restricted account")
+	}
+	if assets() != count || fx.state(t, "b") != stateB || fx.state(t, "p") != stateP {
+		t.Fatal("a refused write changed the inventory")
+	}
+	if watched, _ := fx.st.Setting(ctx, "cti_countries"); watched != "" {
+		t.Errorf("watch filters: %q", watched)
+	}
+
+	// Within its groups, the analyst of A writes as anyone.
+	if code := c.post("/assets", form("equipe-a")); code != http.StatusSeeOther {
+		t.Errorf("created in A: %d", code)
+	}
+	if code, _ := c.upload("/assets/import-csv", "csv", "inventaire.csv", "nom;étiquettes\nautre;equipe-a\n",
+		url.Values{"csrf": {c.csrf()}}); code != http.StatusSeeOther {
+		t.Errorf("CSV of A: %d", code)
+	}
+	if code := c.post("/assets/"+strconv.FormatInt(fx.asset["a"], 10)+"/delete", url.Values{"csrf": {c.csrf()}}); code != http.StatusSeeOther {
+		t.Errorf("an asset of A alone deleted: %d", code)
+	}
+	if code := fx.client["analyst"].post("/settings/watch", url.Values{"csrf": {fx.client["analyst"].csrf()}, "country": {"FR"}}); code != http.StatusSeeOther {
+		t.Errorf("watch filters changed by an account that sees everything: %d", code)
+	}
+}
+
+// An administrator creating a token may add its project to a group: the
+// components the pipeline pushes are then seen by the accounts of the group.
+func TestTokenProjectJoinsAGroup(t *testing.T) {
+	fx := newGroupFixture(t)
+	ctx := context.Background()
+	admin := fx.client["admin"]
+	if code := admin.post("/settings/tokens", url.Values{"csrf": {admin.csrf()}, "name": {"ci"}, "project": {"ci-app"},
+		"group": {"999"}}); code != http.StatusNotFound {
+		t.Errorf("token with an unknown group: %d", code)
+	}
+	if tokens, _ := fx.st.ListAPITokens(ctx); len(tokens) != 0 {
+		t.Error("token created for an unknown group")
+	}
+	if code := admin.post("/settings/tokens", url.Values{"csrf": {admin.csrf()}, "name": {"ci"}, "project": {"ci-app"},
+		"group": {strconv.FormatInt(fx.groupA, 10)}}); code != http.StatusSeeOther {
+		t.Fatalf("token: %d", code)
+	}
+	g, err := fx.st.Group(ctx, store.Everything, fx.groupA)
+	if err != nil || !slices.Equal(g.Projects, []string{"ci-app"}) {
+		t.Fatalf("projects of A: %v, %v", g.Projects, err)
+	}
+	entries, _ := fx.st.ListAudit(ctx, 1)
+	if want := fmt.Sprintf("id=%d tags=equipe-a projects=ci-app", fx.groupA); len(entries) != 1 || entries[0].Detail != want {
+		t.Errorf("audit: %+v, want %q", entries, want)
+	}
+	tokens, _ := fx.st.ListAPITokens(ctx)
+	secret := "vgl_group-test-secret"
+	if _, err := fx.st.CreateAPIToken(ctx, store.APIToken{Name: "ci2", Project: "ci-app"}, auth.HashToken(secret), 0); err != nil || len(tokens) != 1 {
+		t.Fatal(err)
+	}
+	bom := `{"bomFormat":"CycloneDX","specVersion":"1.5","components":[
+		{"type":"library","name":"pousse-par-ci","version":"1.0.0","purl":"pkg:npm/pousse-par-ci@1.0.0"}]}`
+	if code := putSBOM(t, fx.base, "ci-app", secret, bom); code != http.StatusOK {
+		t.Fatalf("SBOM by the API: %d", code)
+	}
+	if _, body := fx.client["lec-a"].get("/assets"); !strings.Contains(body, "pousse-par-ci") {
+		t.Error("the components pushed for the project are not seen by its group")
+	}
+}
+
 // The group filter narrows a list to a group of the account, and to nothing
 // for a group it does not see; an account that sees everything may filter by
 // any group.

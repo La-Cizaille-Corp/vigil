@@ -362,6 +362,10 @@ func (s *Server) assetCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id, err := s.Store.CreateAsset(r.Context(), writeScope(r), a)
+	if msg, refused := outsideGroups(err); refused {
+		s.renderNewAsset(w, r, http.StatusBadRequest, a, msg)
+		return
+	}
 	if err != nil {
 		s.serverError(w, r, err)
 		return
@@ -467,7 +471,12 @@ func (s *Server) assetUpdate(w http.ResponseWriter, r *http.Request) {
 		s.renderAsset(w, r, http.StatusBadRequest, old, a, err.Error())
 		return
 	}
-	if err := s.Store.UpdateAsset(r.Context(), writeScope(r), a); err != nil {
+	err := s.Store.UpdateAsset(r.Context(), writeScope(r), a)
+	if msg, refused := outsideGroups(err); refused {
+		s.renderAsset(w, r, http.StatusBadRequest, old, a, msg)
+		return
+	}
+	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
@@ -512,7 +521,12 @@ func (s *Server) assetDelete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := s.Store.DeleteAsset(r.Context(), writeScope(r), a.ID); err != nil {
+	err := s.Store.DeleteAsset(r.Context(), writeScope(r), a.ID)
+	if msg, refused := outsideGroups(err); refused {
+		s.renderAsset(w, r, http.StatusBadRequest, a, a, msg)
+		return
+	}
+	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}

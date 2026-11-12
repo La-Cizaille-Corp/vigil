@@ -195,6 +195,46 @@ func (s *Server) groupDelete(w http.ResponseWriter, r *http.Request) {
 	redirect(w, r, "/settings/groups", "group-deleted")
 }
 
+// ruleValues names tags and projects in a sentence: « l'étiquette « web »,
+// le projet « boutique » ou l'étiquette « prod » », joined by conj.
+func ruleValues(tags, projects []string, conj string) string {
+	var parts []string
+	for _, t := range tags {
+		parts = append(parts, "l'étiquette « "+t+" »")
+	}
+	for _, p := range projects {
+		parts = append(parts, "le projet « "+p+" »")
+	}
+	if len(parts) < 2 {
+		return strings.Join(parts, "")
+	}
+	return strings.Join(parts[:len(parts)-1], ", ") + " " + conj + " " + parts[len(parts)-1]
+}
+
+// outsideGroups explains a write refused because it would move an asset
+// across groups the account does not hold (A68): which of its tags and
+// projects tie it to the groups of others, or which ones would keep it in
+// the account's. refused is false for any other error.
+func outsideGroups(err error) (msg string, refused bool) {
+	var e *store.OutsideGroupsError
+	if !errors.As(err, &e) {
+		return "", false
+	}
+	foreign := ruleValues(e.ForeignTags, e.ForeignProjects, "et")
+	switch {
+	case e.Deleting:
+		return "« " + e.Asset + " » fait aussi partie d'un groupe dont vous ne faites pas partie (" + foreign +
+			") : seul un compte qui voit tout l'inventaire peut le supprimer.", true
+	case foreign != "":
+		return "« " + e.Asset + " » : " + foreign + " le rattache à un groupe dont vous ne faites pas partie ; " +
+			"vous ne pouvez ni l'ajouter ni le retirer.", true
+	case len(e.Tags)+len(e.Projects) > 0:
+		return "« " + e.Asset + " » doit rester dans un de vos groupes : donnez-lui " +
+			ruleValues(e.Tags, e.Projects, "ou") + ".", true
+	}
+	return "« " + e.Asset + " » ne serait dans aucun groupe, et votre compte n'en a aucun : demandez à un administrateur.", true
+}
+
 // accessFromForm reads the access chosen for an account (A68): everything,
 // or the groups checked. chosen is false when the form says neither: the
 // choice is required, and the database refuses by default.
