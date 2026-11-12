@@ -803,7 +803,7 @@ aussi pour les pages de `/v1/query`. Une requête est renvoyée
 après une panne du réseau, à l'aller comme pendant la lecture, un 429 ou un 5xx, et le 403 de la limite
 de débit de la NVD ; pas après un autre refus, une redirection refusée par `netsafe.CheckRedirect`
 (`netsafe.RedirectError` : vers une URL non https, ou plus de 5), une réponse trop grosse ou illisible, qui
-échoueraient de même. Les plafonds de lecture ne changent pas. Les clients ont la même forme : `URL` (vide : l'API publique), `HTTP` (donné par
+échoueraient de même. Les plafonds de lecture sont ceux mesurés plus bas. Les clients ont la même forme : `URL` (vide : l'API publique), `HTTP` (donné par
 `main`), `UserAgent` ; `kev.Client.Catalogue` et `epss.Client.Scores` remplacent les fonctions libres, et
 le `Syncer` porte ces deux clients au lieu d'un client HTTP et de deux URL. OSV reçoit de `main` une copie
 du client commun, avec sa politique de redirection, au délai `osv.Timeout` (5 minutes). *Écarté* : un
@@ -834,6 +834,21 @@ l'actif, sous un message trompeur. Lors d'un essai réel, le noyau Ubuntu 22.04 
 
 *Écarté* : relire toute la requête depuis la première page, soit 25 minutes pour ce noyau ; garder une
 page en mémoire pour la relire, alors qu'elle peut dépasser 64 Mo (A55).
+
+*Plafonds de lecture, mesurés (revue de la 0.5.0).* Chaque réponse est lue dans une borne (`limit.Reader`),
+bien au-dessus des réponses réelles de la base de l'audit :
+- OSV : une page de `/v1/query`, 1 Gio, pour 72 Mo en moyenne (la plus lourde n'est pas mesurée) ; un avis,
+  lu seul (`/v1/vulns`) ou dans une page, et une réponse de `querybatch`, 32 Mio, pour 708 Ko au plus ;
+- NVD : une page de 2 000 CVE, 64 Mio, pour 12 Mo ; le dictionnaire des CPE, 48 Mio ;
+- KEV : 32 Mio ; EPSS : 4 Mio par lot de 100 CVE ;
+- la raison d'un refus : 64 Kio.
+
+Au-delà, la lecture échoue (« réponse supérieure à … octets »), n'est pas renvoyée, et l'actif reste « non
+vérifié ». Dans une page, la borne d'un avis compte ce qui est lu pour lui (`limit.Limited.Renew`, à chaque
+avis) ; le décodeur lisant d'avance, il en tient au plus le double. *Correction* : un avis lu dans une page
+n'était borné que par la page, soit 1 Gio en mémoire pour un seul avis (essai : un avis de 200 Mo accepté,
+1,3 Go alloués). *Écarté* : borner la page plus bas, qui n'en protège pas un seul avis et refuserait une
+page réelle plus lourde que la moyenne.
 
 **A74. Une seule lecture bornée, hors de `netsafe`, et une seule écriture CSV.** L'audit de code de
 novembre 2026 (R6) relevait que le BOM UTF-8 se retirait de trois façons (SBOM, VEX, CSV), que la

@@ -110,3 +110,25 @@ func TestAdmitJSON(t *testing.T) {
 		t.Fatal("the second document still waits")
 	}
 }
+
+// Renewed, a reader bounds the next part of a stream, not the stream; past
+// its bound, it stays failed.
+func TestRenew(t *testing.T) {
+	r := Reader(strings.NewReader("12345678"), 4)
+	buf := make([]byte, 3)
+	for range 2 {
+		if n, err := io.ReadFull(r, buf); n != 3 || err != nil {
+			t.Fatalf("part of 3 bytes: %d, %v", n, err)
+		}
+		r.Renew()
+	}
+	r = Reader(strings.NewReader("123456"), 4)
+	if _, err := io.ReadAll(r); err == nil {
+		t.Fatal("no error past the bound")
+	}
+	r.Renew()
+	var tooLarge *TooLargeError
+	if _, err := r.Read(buf); !errors.As(err, &tooLarge) {
+		t.Errorf("renewed after failing: %v", err)
+	}
+}

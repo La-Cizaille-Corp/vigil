@@ -461,6 +461,40 @@ func TestAdvisoriesCutPage(t *testing.T) {
 	}
 }
 
+// An advisory of a page is bounded as one read alone (maxBody), not only by
+// the page: a page of 1 GB held one advisory of 1 GB in memory. Advisories
+// that together pass maxBody are read. The bound is that of the bytes read for
+// one advisory, the decoder reading ahead: twice maxBody is always refused.
+func TestAdvisoryBound(t *testing.T) {
+	advisory := func(id string, size int) string {
+		return `{"id":"` + id + `","details":"` + strings.Repeat("a", size) + `"}`
+	}
+	page := ""
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, page) }))
+	defer srv.Close()
+	c := &Client{URL: srv.URL, HTTP: http.DefaultClient}
+
+	page = `{"vulns":[` + advisory("A", maxBody/3) + "," + advisory("B", maxBody/3) + "," + advisory("C", maxBody/3) + "," +
+		advisory("D", maxBody/3) + `],"other":"` + strings.Repeat("x", maxBody/2) + `"}`
+	if got := query(t, c, Query{}); len(got) != 4 {
+		t.Errorf("%d advisories of a third of the bound each", len(got))
+	}
+	for name, doc := range map[string]string{
+		"advisory": `{"vulns":[` + advisory("A", 10) + "," + advisory("B", 2*maxBody) + `]}`,
+		"field":    `{"other":"` + strings.Repeat("x", 2*maxBody) + `","vulns":[]}`,
+	} {
+		page = doc
+		list := c.Advisories(Query{})
+		n := 0
+		for list.Next(context.Background()) {
+			n++
+		}
+		if err := list.Err(); n != 1 && name == "advisory" || err == nil || !strings.Contains(err.Error(), "réponse supérieure à 33554432 octets") {
+			t.Errorf("%s past the bound: %d advisories, %v", name, n, err)
+		}
+	}
+}
+
 // A reply that never ends is cut.
 func TestAdvisoriesPagesBound(t *testing.T) {
 	calls := 0

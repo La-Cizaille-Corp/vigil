@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/cvss"
+	"github.com/La-Cizaille-Corp/vigil/internal/limit"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources"
 	"github.com/La-Cizaille-Corp/vigil/internal/versions"
 )
@@ -29,11 +30,12 @@ const Timeout = 5 * time.Minute
 // maxBatch is the OSV limit of queries per querybatch call.
 const maxBatch = 1000
 
-// maxBody bounds every response read at once, maxPage a page of /v1/query, read
-// advisory by advisory: thousands of them, each listing many packages. A page
-// can exceed 64 MB and an Ubuntu advisory weighs 600 KB (ARCHITECTURE.md, A55
-// and A62); the heaviest page is not measured, hence the margin. One advisory
-// at a time is held in memory.
+// maxBody bounds every response read at once, and every advisory, read alone
+// or in a page; maxPage a page of /v1/query, read advisory by advisory:
+// thousands of them, each listing many packages. A page weighs 72 MB on
+// average and the heaviest advisory 708 KB (ARCHITECTURE.md, A55, A62 and
+// A75); the heaviest page is not measured, hence the margin. One advisory at a
+// time is held in memory.
 const (
 	maxBody = 32 << 20
 	maxPage = 1 << 30
@@ -636,7 +638,8 @@ type Advisories struct {
 	token     string // of the next page
 	pages     int
 	done      bool
-	body      io.Closer // of the page being read
+	body      io.Closer      // of the page being read
+	part      *limit.Limited // the page, bounded advisory by advisory
 	dec       *json.Decoder
 	inVulns   bool
 	vuln      Vuln
@@ -662,7 +665,7 @@ func (a *Advisories) Err() error { return a.err }
 func (a *Advisories) Close() {
 	if a.body != nil {
 		_ = a.body.Close() // only read from: nothing to lose
-		a.body, a.dec = nil, nil
+		a.body, a.part, a.dec = nil, nil, nil
 	}
 }
 
@@ -739,11 +742,17 @@ func (a *Advisories) openPage(ctx context.Context) error {
 		return err
 	}
 	a.body = page
-	a.dec = json.NewDecoder(page)
+	a.part = limit.Reader(page, maxBody)
+	a.dec = json.NewDecoder(a.part)
 	return nil
 }
 
+// decodeVuln reads the next advisory of the page, within maxBody bytes as one
+// read alone: a page of 1 GB could otherwise hold one advisory of 1 GB. The
+// bytes counted are those read for it, the decoder reading ahead: it holds at
+// most twice maxBody.
 func (a *Advisories) decodeVuln() error {
+	a.part.Renew()
 	var v Vuln
 	if err := a.dec.Decode(&v); err != nil {
 		return err
@@ -754,6 +763,7 @@ func (a *Advisories) decodeVuln() error {
 
 // readField reads a field of the page, up to the first advisory of its list.
 func (a *Advisories) readField() error {
+	a.part.Renew()
 	key, err := a.dec.Token()
 	if err != nil {
 		return err

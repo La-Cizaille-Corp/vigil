@@ -23,16 +23,26 @@ func (e *TooLargeError) Error() string {
 // *TooLargeError if r holds more. io.LimitReader would end there as if the
 // data were whole: a document cut at the bound must not pass for a complete
 // one, nor fail as a malformed one.
-func Reader(r io.Reader, max int64) io.Reader {
-	return &reader{r: r, max: max, left: max}
+func Reader(r io.Reader, max int64) *Limited {
+	return &Limited{r: r, max: max, left: max}
 }
 
-type reader struct {
+// Limited is the reader of Reader.
+type Limited struct {
 	r         io.Reader
 	max, left int64 // left < 0 once r went past max
 }
 
-func (l *reader) Read(p []byte) (int, error) {
+// Renew gives the reader its whole bound again, for the next part of a stream
+// read part by part, such as the advisories of a page of OSV: each part is
+// then bounded, rather than the stream. A reader past its bound stays failed.
+func (l *Limited) Renew() {
+	if l.left >= 0 {
+		l.left = l.max
+	}
+}
+
+func (l *Limited) Read(p []byte) (int, error) {
 	if l.left < 0 {
 		return 0, &TooLargeError{Max: l.max}
 	}
