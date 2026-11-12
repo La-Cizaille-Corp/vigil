@@ -155,7 +155,7 @@ func checkUpgradedData(ctx context.Context, t *testing.T, st *Store) {
 	if ok, _ := auth.VerifyPassword("un-mot-de-passe-solide", admin.PasswordHash); !ok || admin.Role != "admin" {
 		t.Error("the administrator can no longer log in")
 	}
-	findings, err := st.ListFindings(ctx, FindingFilter{})
+	findings, err := st.ListFindings(ctx, Everything, FindingFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func checkUpgradedData(ctx context.Context, t *testing.T, st *Store) {
 	if triaged != 3 {
 		t.Errorf("%d triaged findings kept, want 3", triaged)
 	}
-	assets, err := st.ListAssets(ctx)
+	assets, err := st.ListAssets(ctx, Everything)
 	if err != nil || len(assets) < 4 {
 		t.Fatalf("assets: %d, %v", len(assets), err)
 	}
@@ -200,7 +200,7 @@ func checkUpgradedData(ctx context.Context, t *testing.T, st *Store) {
 	if hooks, _ := st.ListWebhooks(ctx); len(hooks) != 1 || hooks[0].Name != "Équipe sécu" {
 		t.Errorf("webhooks: %+v", hooks)
 	}
-	if _, err := st.DashboardStats(ctx, time.Now()); err != nil {
+	if _, err := st.DashboardStats(ctx, Everything, time.Now()); err != nil {
 		t.Error(err)
 	}
 }

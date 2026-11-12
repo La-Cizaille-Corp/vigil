@@ -229,14 +229,6 @@ func backfillMentions(ctx context.Context, conn *sql.Conn) error {
 	return nil
 }
 
-// openCVEs selects the CVE identifiers (id or alias) of open findings.
-const openCVEs = `
-	SELECT v.id FROM findings f JOIN vulnerabilities v ON v.id = f.vuln_id
-	WHERE f.status IN ` + openStatuses + ` AND v.id LIKE 'CVE-%'
-	UNION
-	SELECT j.value FROM findings f JOIN vulnerabilities v ON v.id = f.vuln_id, json_each(v.aliases) j
-	WHERE f.status IN ` + openStatuses + ` AND j.value LIKE 'CVE-%'`
-
 // MentionsOf returns the most recent news citing any of the identifiers.
 func (s *Store) MentionsOf(ctx context.Context, ids []string, limit int) ([]CTIItem, error) {
 	var cves []string
@@ -273,10 +265,11 @@ func (s *Store) MentionsOf(ctx context.Context, ids []string, limit int) ([]CTII
 	return out, rows.Err()
 }
 
-// ListCTIItems returns items matching f, most recent first.
-func (s *Store) ListCTIItems(ctx context.Context, f CTIFilter) ([]CTIItem, error) {
+// ListCTIItems returns items matching f, most recent first. News are the same
+// for everyone; whether one concerns the inventory depends on the scope.
+func (s *Store) ListCTIItems(ctx context.Context, sc Scope, f CTIFilter) ([]CTIItem, error) {
 	var where []string
-	var args []any
+	with, args := openCVEs(sc) // first in the query, so are its arguments
 	anyTag := func(column string, values []string) {
 		if len(values) == 0 {
 			return
@@ -300,10 +293,11 @@ func (s *Store) ListCTIItems(ctx context.Context, f CTIFilter) ([]CTIItem, error
 		args = append(args, formatTime(f.Since))
 	}
 	if f.Concerning {
-		where = append(where, "EXISTS (SELECT 1 FROM cti_mentions m WHERE m.item_id = i.id AND m.cve IN ("+openCVEs+"))")
+		where = append(where, "EXISTS (SELECT 1 FROM cti_mentions m WHERE m.item_id = i.id AND m.cve IN (SELECT cve FROM open_cves))")
 	}
-	q := `SELECT i.id, fd.name, i.guid, i.title, i.link, i.summary, i.published, i.countries, i.sectors, i.regulations,
-		       COALESCE((SELECT group_concat(m.cve) FROM cti_mentions m WHERE m.item_id = i.id AND m.cve IN (` + openCVEs + `)), '')
+	// #nosec G202 -- with is the fixed clause of openCVEs; the values are parameters.
+	q := with + `SELECT i.id, fd.name, i.guid, i.title, i.link, i.summary, i.published, i.countries, i.sectors, i.regulations,
+		       COALESCE((SELECT group_concat(m.cve) FROM cti_mentions m WHERE m.item_id = i.id AND m.cve IN (SELECT cve FROM open_cves)), '')
 		FROM cti_items i JOIN cti_feeds fd ON fd.id = i.feed_id`
 	if len(where) > 0 {
 		// #nosec G202 -- only fixed column expressions are joined; values are parameters.

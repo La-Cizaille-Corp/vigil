@@ -13,7 +13,7 @@ import (
 func TestBackupWhileWriting(t *testing.T) {
 	ctx := context.Background()
 	st := openTest(t)
-	if _, err := st.CreateAsset(ctx, Asset{Name: "before", Kind: "package", Criticality: "low", Source: "manual"}); err != nil {
+	if _, err := st.CreateAsset(ctx, Everything, Asset{Name: "before", Kind: "package", Criticality: "low", Source: "manual"}); err != nil {
 		t.Fatal(err)
 	}
 	// A writer keeps going during the backup.
@@ -21,7 +21,7 @@ func TestBackupWhileWriting(t *testing.T) {
 	go func() {
 		defer close(done)
 		for i := 0; i < 50; i++ {
-			st.CreateAsset(ctx, Asset{Name: "during", Kind: "package", Criticality: "low", Source: "manual"})
+			st.CreateAsset(ctx, Everything, Asset{Name: "during", Kind: "package", Criticality: "low", Source: "manual"})
 		}
 	}()
 	dest := filepath.Join(t.TempDir(), "copy.db")
@@ -35,7 +35,7 @@ func TestBackupWhileWriting(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer copyStore.Close()
-	assets, err := copyStore.ListAssets(ctx)
+	assets, err := copyStore.ListAssets(ctx, Everything)
 	if err != nil || len(assets) == 0 || assets[0].Name == "" {
 		t.Fatalf("restored assets = %v, %v", assets, err)
 	}

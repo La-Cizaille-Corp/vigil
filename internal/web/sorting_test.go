@@ -42,7 +42,7 @@ func TestSortAssets(t *testing.T) {
 		{Name: "charlie", Kind: "package", Criticality: "high", Project: "web", Owner: "Ana", Tags: []string{"prod"}},
 	} {
 		a.Source = "manual"
-		if _, err := st.CreateAsset(ctx, a); err != nil {
+		if _, err := st.CreateAsset(ctx, store.Everything, a); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -89,7 +89,7 @@ func TestSortFindings(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	seedFindings(t, st) // critical now, high 20 days ago, low 40 days ago
 	ctx := context.Background()
-	other, _ := st.CreateAsset(ctx, store.Asset{Name: "apache", Version: "2.4", Kind: "product", Criticality: "low", Source: "manual"})
+	other, _ := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "apache", Version: "2.4", Kind: "product", Criticality: "low", Source: "manual"})
 	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-2024-10000", Severity: "HIGH", EPSS: 0.5, CVSS: -1})
 	st.ObserveFinding(ctx, other, "CVE-2024-10000", "", time.Now().Add(-5*24*time.Hour))
 	st.SetExploitSignals(ctx, "CVE-2024-10000", false, "", 0.5)
@@ -115,10 +115,10 @@ func TestSortFindings(t *testing.T) {
 	}
 
 	// A status keeps its own order, not the alphabetical one.
-	list, _ := st.ListFindings(ctx, store.FindingFilter{})
+	list, _ := st.ListFindings(ctx, store.Everything, store.FindingFilter{})
 	for _, f := range list {
 		if f.VulnID == high {
-			st.SetFindingStatus(ctx, f.ID, 0, "resolved", "", "")
+			st.SetFindingStatus(ctx, store.Everything, f.ID, 0, "resolved", "", "")
 		}
 	}
 	_, body := c.get("/findings?level=all&sort=status&dir=desc")
@@ -197,13 +197,13 @@ func TestFindingLevels(t *testing.T) {
 	st.ObserveFinding(ctx, assetID, "CVE-2024-0006", "", time.Now())
 	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-2024-0007", Severity: "HIGH", EPSS: -1, CVSS: 8})
 	st.ObserveFinding(ctx, assetID, "CVE-2024-0007", "", time.Now())
-	list, _ := st.ListFindings(ctx, store.FindingFilter{})
+	list, _ := st.ListFindings(ctx, store.Everything, store.FindingFilter{})
 	for _, f := range list {
 		switch f.VulnID {
 		case "CVE-2024-0006":
-			st.SetFindingStatus(ctx, f.ID, 0, "false_positive", "", "")
+			st.SetFindingStatus(ctx, store.Everything, f.ID, 0, "false_positive", "", "")
 		case "CVE-2024-0007":
-			st.SetFindingStatus(ctx, f.ID, 0, "resolved", "", "")
+			st.SetFindingStatus(ctx, store.Everything, f.ID, 0, "resolved", "", "")
 		}
 	}
 	_ = ids
@@ -262,7 +262,7 @@ func TestFindingLevels(t *testing.T) {
 func TestDismissalFlow(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	ctx := context.Background()
-	asset, _ := st.CreateAsset(ctx, store.Asset{Name: "linux", Kind: "os", Criticality: "high", Source: "manual"})
+	asset, _ := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "linux", Kind: "os", Criticality: "high", Source: "manual"})
 	for id, summary := range map[string]string{"CVE-1": "wifi: fix", "CVE-2": "wifi: other", "CVE-3": "ipv4: fix"} {
 		st.UpsertVulnerability(ctx, store.Vulnerability{ID: id, Summary: summary, EPSS: -1, CVSS: -1})
 		st.ObserveFinding(ctx, asset, id, "", time.Now())
@@ -308,7 +308,7 @@ func TestDismissalFlow(t *testing.T) {
 		t.Errorf("reader's view:\n%s", body)
 	}
 
-	rules, _ := st.DismissalRules(ctx, asset)
+	rules, _ := st.DismissalRules(ctx, store.Everything, asset)
 	rule := page + "/dismissals/" + strconv.FormatInt(rules[0].ID, 10) + "/delete"
 	if code := c.post(page+"/dismissals/999/delete", url.Values{"csrf": {c.csrf()}}); code != 404 {
 		t.Errorf("unknown rule: %d", code)

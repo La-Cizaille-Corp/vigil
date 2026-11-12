@@ -34,9 +34,12 @@ const exploitedExpr = `(v.kev = 1 OR v.epss >= 0.1)`
 
 func dismissalComment(text string) string { return "Écartée par la règle « " + text + " »" }
 
-// CreateDismissalRule adds a rule to an asset and applies it; a rule that
-// already exists is left as it is.
-func (s *Store) CreateDismissalRule(ctx context.Context, assetID int64, text string) error {
+// CreateDismissalRule adds a rule to an asset of the scope and applies it; a
+// rule that already exists is left as it is.
+func (s *Store) CreateDismissalRule(ctx context.Context, sc Scope, assetID int64, text string) error {
+	if err := assetInScope(ctx, s.db, sc, assetID); err != nil {
+		return err
+	}
 	if _, err := s.db.ExecContext(ctx, `
 		INSERT INTO dismissal_rules (asset_id, text, created_at) VALUES (?, ?, ?)
 		ON CONFLICT (asset_id, text) DO NOTHING`, assetID, text, now()); err != nil {
@@ -46,12 +49,16 @@ func (s *Store) CreateDismissalRule(ctx context.Context, assetID int64, text str
 	return err
 }
 
-// DismissalRules returns the rules of an asset, with the findings each sets aside.
-func (s *Store) DismissalRules(ctx context.Context, assetID int64) ([]DismissalRule, error) {
+// DismissalRules returns the rules of an asset of the scope, with the findings
+// each sets aside.
+func (s *Store) DismissalRules(ctx context.Context, sc Scope, assetID int64) ([]DismissalRule, error) {
+	cond, args := sc.cond("a")
+	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT r.id, r.asset_id, r.text, r.created_at,
 		       (SELECT count(*) FROM findings f WHERE f.dismissed_by = r.id)
-		FROM dismissal_rules r WHERE r.asset_id = ? ORDER BY r.text COLLATE NOCASE`, assetID)
+		FROM dismissal_rules r JOIN assets a ON a.id = r.asset_id
+		WHERE r.asset_id = ? AND `+cond+` ORDER BY r.text COLLATE NOCASE`, append([]any{assetID}, args...)...)
 	if err != nil {
 		return nil, fmt.Errorf("dismissal rules: %w", err)
 	}
@@ -69,11 +76,13 @@ func (s *Store) DismissalRules(ctx context.Context, assetID int64) ([]DismissalR
 	return out, rows.Err()
 }
 
-// DeleteDismissalRule removes a rule of an asset: the findings it set aside are
-// to analyse again.
-func (s *Store) DeleteDismissalRule(ctx context.Context, assetID, id int64) error {
+// DeleteDismissalRule removes a rule of an asset of the scope: the findings it
+// set aside are to analyse again.
+func (s *Store) DeleteDismissalRule(ctx context.Context, sc Scope, assetID, id int64) error {
 	var text string
-	err := s.db.QueryRowContext(ctx, `SELECT text FROM dismissal_rules WHERE id = ? AND asset_id = ?`, id, assetID).Scan(&text)
+	cond, args := sc.cond("a")
+	err := s.db.QueryRowContext(ctx, `SELECT r.text FROM dismissal_rules r JOIN assets a ON a.id = r.asset_id
+		WHERE r.id = ? AND r.asset_id = ? AND `+cond, append([]any{id, assetID}, args...)...).Scan(&text)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return ErrNotFound

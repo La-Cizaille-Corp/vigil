@@ -28,16 +28,18 @@ type Alert struct {
 	Raised bool // notified before at a lower class: it became more urgent
 }
 
-// PendingAlerts returns the open findings not notified at their current
-// class, most urgent first.
-func (s *Store) PendingAlerts(ctx context.Context) ([]Alert, error) {
+// PendingAlerts returns the open findings of the scope not notified at their
+// current class, most urgent first.
+func (s *Store) PendingAlerts(ctx context.Context, sc Scope) ([]Alert, error) {
 	sla, err := s.SLA(ctx)
 	if err != nil {
 		return nil, err
 	}
+	cond, args := sc.cond("a")
+	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
 	rows, err := s.db.QueryContext(ctx, `SELECT `+findingColumns+`, `+alertClassExpr+` AS alert_class, f.alerted`+findingFrom+`
-		WHERE f.status IN `+openStatuses+` AND `+alertClassExpr+` > f.alerted
-		ORDER BY alert_class DESC, v.cvss DESC, f.id`, sla.args()...)
+		WHERE f.status IN `+openStatuses+` AND `+alertClassExpr+` > f.alerted AND `+cond+`
+		ORDER BY alert_class DESC, v.cvss DESC, f.id`, append(sla.args(), args...)...)
 	if err != nil {
 		return nil, fmt.Errorf("pending alerts: %w", err)
 	}

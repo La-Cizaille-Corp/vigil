@@ -143,7 +143,7 @@ func (n *Notifier) SendDigest(ctx context.Context, d store.Digest, link string) 
 // a failing channel shows its error in the settings, and the next digest
 // lists the findings anyway.
 func (n *Notifier) SendAlerts(ctx context.Context) error {
-	alerts, err := n.Store.PendingAlerts(ctx)
+	alerts, err := n.Store.PendingAlerts(ctx, store.Everything)
 	if err != nil || len(alerts) == 0 {
 		return err
 	}

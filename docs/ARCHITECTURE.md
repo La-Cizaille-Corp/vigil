@@ -496,6 +496,24 @@ plus, en HTTPS, la clé NVD retirée si l'hôte change).
 est stocké haché, affiché une seule fois, préfixé `vgl_` (repérable par les scanners de secrets).
 *Limite assumée* : pas d'expiration, révocation manuelle.
 
+**A67. Une portée obligatoire dans chaque requête du stockage.** Regrouper les actifs puis limiter
+des comptes à des groupes (modèle retenu en novembre 2026 : groupes définis par des étiquettes et
+des projets, rôle global restreint à des groupes, livré par étapes) demande un contrôle par objet,
+en plus du rôle vérifié à chaque route. Il se fait dans `internal/store` : chaque méthode qui lit ou
+écrit un actif, ou ce qui en dépend (vulnérabilités trouvées, historique, règles d'écart, digests,
+chiffres du tableau de bord, alertes, mention « concerne l'inventaire » de la veille), reçoit une
+portée (`store.Scope`) qui entre dans le `WHERE` de chaque requête. La valeur nulle ne couvre rien :
+une page qui l'oublierait serait vide, sans rien montrer d'autre. `store.Everything` couvre tout, pour
+la synchronisation, les notifications, la ligne de commande et, tant qu'aucun groupe n'existe, chaque
+compte. Hors portée, un identifiant répond « Introuvable », comme s'il n'existait pas. Écartés : le
+contrôle dans chaque page (un oubli y est une fuite, et le triage par lot comme l'import VEX prennent
+leurs identifiants dans le contenu de la requête) ; la base elle-même (SQLite n'a pas de sécurité par
+ligne, et la connexion unique, A5, interdit des vues par utilisateur). *Vérification* : un test liste
+par réflexion les méthodes du stockage et exige pour chacune un cas d'isolation (la portée nulle
+n'atteint rien et ne change rien) ou une raison d'en être exemptée ; dans `internal/web`, seul
+`scope.go` accorde `store.Everything`, les méthodes de la synchronisation ne sont pas appelées, et
+les routes forment une table que les tests parcourent.
+
 ### Notifications, délais et échanges (0.3)
 
 Ces décisions viennent d'un comparatif avec OpenCVE, Dependency-Track, DefectDojo, CIRCL
