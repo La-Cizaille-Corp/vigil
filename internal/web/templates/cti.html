@@ -23,7 +23,7 @@
 <div class="toolbar">
   {{if $analyst}}
   <form method="post" action="/cti/refresh" class="inline">
-    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    {{template "csrf" .CSRF}}
     <button type="submit">Collecter les flux</button>
   </form>
   {{end}}

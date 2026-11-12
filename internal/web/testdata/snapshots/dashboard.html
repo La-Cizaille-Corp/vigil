@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tableau de bord · Vigil</title>
+
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<a class="skip" href="#contenu">Aller au contenu</a>
+<header>
+  <a class="brand" href="/"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="logo-shield" d="M12 2 4 5v6c0 5 3.4 9.3 8 11 4.6-1.7 8-6 8-11V5l-8-3Z"/><path class="logo-eye" d="M12 8.5c-2.6 0-4.7 1.6-5.5 3.5.8 1.9 2.9 3.5 5.5 3.5s4.7-1.6 5.5-3.5c-.8-1.9-2.9-3.5-5.5-3.5Zm0 5.5a2 2 0 1 1 0-4 2 2 0 0 1 0 4Z"/></svg>Vigil</a>
+  
+  <nav aria-label="Navigation principale">
+    <a href="/" aria-current="page">Tableau de bord</a>
+    <a href="/assets" >Inventaire</a>
+    <a href="/findings" >Vulnérabilités</a>
+    <a href="/cti" >Veille</a>
+    <a href="/digests" >Digests</a>
+    <a href="/settings" >Paramètres</a>
+  </nav>
+  <form method="post" action="/logout" class="inline">
+    <input type="hidden" name="csrf" value="CSRF">
+    <a class="account-link" href="/account" title="Mon compte" >analyst</a>
+    <span class="muted small">analyste</span>
+    <button type="submit" class="link">Déconnexion</button>
+  </form>
+  
+</header>
+<main id="contenu">
+  <h1>Tableau de bord</h1>
+  
+  
+  
+
+
+
+<div class="toolbar">
+  
+  <form method="post" action="/sync" class="inline">
+    <input type="hidden" name="csrf" value="CSRF">
+    <input type="hidden" name="next" value="/">
+    <button type="submit" >Synchroniser l'inventaire</button>
+  </form>
+  
+  <span class="muted small">Aucune synchronisation depuis le démarrage du serveur.</span>
+</div>
+
+
+
+<section class="kpis" aria-label="Indicateurs clés">
+  <a class="kpi kpi-hero" href="/findings?priority=1">
+    <span class="kpi-label">À traiter en priorité</span>
+    <span class="kpi-value">2</span>
+    <span class="kpi-note">dont 1 exploitée(s) (CISA KEV), les autres probables (EPSS ≥ 10 %) ou jugées exploitables</span>
+  </a>
+  <a class="kpi" href="/findings">
+    <span class="kpi-label">Vulnérabilités ouvertes</span>
+    <span class="kpi-value">5</span>
+    <span class="kpi-note">dont 2 critique(s) ou haute(s)</span>
+  </a>
+  <a class="kpi" href="/findings?overdue=1">
+    <span class="kpi-label">Hors délai</span>
+    <span class="kpi-value">5</span>
+    <span class="kpi-note"><span class="alert">▲ dont 1 exploitée(s)</span></span>
+  </a>
+  <a class="kpi" href="/findings?status=in_triage&amp;sort=recent">
+    <span class="kpi-label">À analyser</span>
+    <span class="kpi-value">5</span>
+    <span class="kpi-note"><span class="alert">▲ 5 en attente depuis plus de 30 jours</span></span>
+  </a>
+  <div class="kpi">
+    <span class="kpi-label">Délai moyen de traitement</span>
+    <span class="kpi-value">—</span>
+    <span class="kpi-note">0 vulnérabilité(s) traitée(s) en 90 jours, hors celles trouvées à la première analyse de leur actif</span>
+  </div>
+  <a class="kpi" href="/assets">
+    <span class="kpi-label">Couverture de détection</span>
+    <span class="kpi-value">100 %</span>
+    <span class="kpi-note">2 actif(s) sur 2 vérifié(s) automatiquement</span>
+  </a>
+</section>
+
+<section class="dash-grid">
+  <article class="card chart-card">
+    <h2>Ouvertes par sévérité</h2>
+    
+    <div class="donut-wrap">
+      <svg class="donut" viewBox="0 0 120 120" role="img" aria-label="Vulnérabilités ouvertes par sévérité">
+        <circle class="donut-track" cx="60" cy="60" r="46"/>
+        <a href="/findings?status=in_triage&amp;status=exploitable&amp;severity=CRITICAL"><circle class="donut-seg viz-sev-critical" cx="60" cy="60" r="46" stroke-dasharray="56.31 232.72" stroke-dashoffset="-0" transform="rotate(-90 60 60)"><title>Critique : 1 (20 %)</title></circle></a><a href="/findings?status=in_triage&amp;status=exploitable&amp;severity=HIGH"><circle class="donut-seg viz-sev-high" cx="60" cy="60" r="46" stroke-dasharray="56.31 232.72" stroke-dashoffset="-57.81" transform="rotate(-90 60 60)"><title>Haute : 1 (20 %)</title></circle></a><a href="/findings?status=in_triage&amp;status=exploitable&amp;severity=MEDIUM"><circle class="donut-seg viz-sev-medium" cx="60" cy="60" r="46" stroke-dasharray="56.31 232.72" stroke-dashoffset="-115.61" transform="rotate(-90 60 60)"><title>Moyenne : 1 (20 %)</title></circle></a><a href="/findings?status=in_triage&amp;status=exploitable&amp;severity=LOW"><circle class="donut-seg viz-sev-low" cx="60" cy="60" r="46" stroke-dasharray="56.31 232.72" stroke-dashoffset="-173.42" transform="rotate(-90 60 60)"><title>Basse : 1 (20 %)</title></circle></a><a href="/findings?status=in_triage&amp;status=exploitable&amp;severity=UNKNOWN"><circle class="donut-seg viz-sev-unknown" cx="60" cy="60" r="46" stroke-dasharray="56.31 232.72" stroke-dashoffset="-231.22" transform="rotate(-90 60 60)"><title>Inconnue : 1 (20 %)</title></circle></a>
+        <text class="donut-total" x="60" y="62" text-anchor="middle">5</text>
+        <text class="donut-caption" x="60" y="77" text-anchor="middle">ouvertes</text>
+      </svg>
+      <ul class="legend">
+        <li><span class="swatch viz-sev-critical"></span><a href="/findings?status=in_triage&amp;status=exploitable&amp;severity=CRITICAL">Critique</a><strong>1</strong><span class="muted">20 %</span></li><li><span class="swatch viz-sev-high"></span><a href="/findings?status=in_triage&amp;status=exploitable&amp;severity=HIGH">Haute</a><strong>1</strong><span class="muted">20 %</span></li><li><span class="swatch viz-sev-medium"></span><a href="/findings?status=in_triage&amp;status=exploitable&amp;severity=MEDIUM">Moyenne</a><strong>1</strong><span class="muted">20 %</span></li><li><span class="swatch viz-sev-low"></span><a href="/findings?status=in_triage&amp;status=exploitable&amp;severity=LOW">Basse</a><strong>1</strong><span class="muted">20 %</span></li><li><span class="swatch viz-sev-unknown"></span><a href="/findings?status=in_triage&amp;status=exploitable&amp;severity=UNKNOWN">Inconnue</a><strong>1</strong><span class="muted">20 %</span></li>
+      </ul>
+    </div>
+    
+  </article>
+
+  <article class="card chart-card span-2">
+    <h2>Activité des 12 dernières semaines</h2>
+    <p class="empty">Aucune vulnérabilité détectée ou traitée sur la période.</p>
+  </article>
+
+  <article class="card chart-card span-2">
+    <h2>Actifs les plus exposés</h2>
+    
+    <ul class="legend inline">
+      <li><span class="swatch viz-sev-critical"></span>Critique</li>
+      <li><span class="swatch viz-sev-high"></span>Haute</li>
+      <li><span class="swatch viz-sev-medium"></span>Moyenne</li>
+      <li><span class="swatch viz-sev-other"></span>Basse ou inconnue</li>
+    </ul>
+    <svg class="chart" viewBox="0 0 600 68" role="img" aria-label="Vulnérabilités ouvertes des actifs les plus exposés, par sévérité">
+      
+      <a href="/assets/1"><text class="row-label" x="0" y="12">fortios 7.2.4</text></a>
+      <path class="bar viz-sev-critical" d="M0 17H184.67V31H0Z"><title>fortios : 1 critique</title></path><path class="bar viz-sev-high" d="M186.67 17H371.33V31H186.67Z"><title>fortios : 1 haute</title></path><path class="bar viz-sev-other" d="M373.33 17H557Q560 17 560 20V28Q560 31 557 31H373.33Z"><title>fortios : 1 basse ou inconnue</title></path>
+      <text class="value" x="568" y="28">3</text>
+      
+      <a href="/assets/2"><text class="row-label" x="0" y="46">lodash 4.17.15</text></a>
+      <path class="bar viz-sev-medium" d="M0 51H184.67V65H0Z"><title>lodash : 1 moyenne</title></path><path class="bar viz-sev-other" d="M186.67 51H370.33Q373.33 51 373.33 54V62Q373.33 65 370.33 65H186.67Z"><title>lodash : 1 basse ou inconnue</title></path>
+      <text class="value" x="381.33" y="62">2</text>
+      
+    </svg>
+    <details class="data-table">
+      <summary>Voir les données</summary>
+      <table>
+        <thead><tr><th>Actif</th><th>Critiques</th><th>Hautes</th><th>Moyennes</th><th>Basses ou inconnues</th><th>Total</th></tr></thead>
+        <tbody><tr><td><a href="/assets/1">fortios 7.2.4</a></td><td class="num">1</td><td class="num">1</td><td class="num">0</td><td class="num">1</td><td class="num">3</td></tr><tr><td><a href="/assets/2">lodash 4.17.15</a></td><td class="num">0</td><td class="num">0</td><td class="num">1</td><td class="num">1</td><td class="num">2</td></tr></tbody>
+      </table>
+    </details>
+    
+  </article>
+
+  <article class="card">
+    <h2>Suivi</h2>
+    <ul class="stat-list">
+      <li><a href="/findings?status=in_triage">À analyser</a><strong>5</strong></li><li><a href="/findings?status=exploitable">Exploitable – à traiter</a><strong>0</strong></li><li><a href="/findings?status=resolved">Corrigé</a><strong>0</strong></li><li><a href="/findings?status=not_affected">Non affecté</a><strong>0</strong></li><li><a href="/findings?status=false_positive">Faux positif</a><strong>0</strong></li>
+    </ul>
+    <h2>Veille</h2>
+    <ul class="stat-list">
+      <li><a href="/cti">Actualités des 7 derniers jours</a><strong>0</strong></li>
+      <li><a href="/cti?view=regulatory">Actualités réglementaires (30 jours)</a><strong>0</strong></li>
+      <li><a href="/cti?all=1&amp;concerning=1">Citant vos vulnérabilités ouvertes (30 jours)</a><strong>0</strong></li>
+    </ul>
+  </article>
+</section>
+
+<h2>Nouvelles vulnérabilités (7 derniers jours)</h2>
+
+
+<p class="muted">Aucune vulnérabilité.</p>
+
+
+<p><a href="/findings?sort=recent">Voir toutes les vulnérabilités</a></p>
+
+</main>
+</body>
+</html>

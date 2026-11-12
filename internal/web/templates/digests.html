@@ -1,7 +1,7 @@
 {{define "content"}}
 {{if can .User.Role "analyst"}}
 <form method="post" action="/digests" class="inline">
-  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  {{template "csrf" .CSRF}}
   <button type="submit">Générer un digest</button>
 </form>
 {{end}}
