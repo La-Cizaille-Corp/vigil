@@ -368,7 +368,9 @@ lues, par lots de 500 (ou 8 Mo) pour une liste longue, car un seul avis à la fo
 (A62). Un échec annule le lot de cet actif seulement : il est compté « non vérifié » avec la raison,
 garde ses vulnérabilités telles qu'elles étaient, et les autres actifs continuent (une erreur
 d'écriture arrêtait toute la synchronisation, en laissant l'actif à moitié enregistré). Les avis
-d'un actif dont une source échoue en cours de lecture ne sont pas gardés. Le réseau n'est jamais lu
+d'un actif dont une source échoue en cours de lecture ne sont pas gardés, sauf, pour une liste longue,
+les lots de 500 déjà enregistrés avant l'échec : ce sont des fiches justes, que la synchronisation suivante
+retrouve telles quelles, et l'actif n'en reçoit aucune vulnérabilité, ni sa liste légère (A90). Le réseau n'est jamais lu
 pendant une transaction : elle tient la seule connexion à la base (A5), que l'interface attend.
 Écartés : une transaction pour toute la synchronisation (une panne en fin de course perdrait tout,
 et l'interface attendrait des minutes) ; garder tous les avis d'un actif en mémoire jusqu'à la fin,
