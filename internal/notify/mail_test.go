@@ -164,6 +164,18 @@ func TestMailerSettings(t *testing.T) {
 	if _, err := ParseRecipients(strings.Repeat("a@b.c,", 21) + "a@b.c"); err == nil {
 		t.Error("too many recipients accepted")
 	}
+	// The sender follows the rule of the recipients (ParseRecipients): Vigil
+	// refuses to start with one it would not accept as a recipient.
+	for _, from := range []string{`"a@b"@example.org`, `"x> NOTIFY=NEVER"@example.org`, `vigil@[192.0.2.1]`, `Vigil <"a b"@example.org>`} {
+		if _, err := NewMailer("smtp.example.org:587", "", "", "", from); err == nil || !strings.Contains(err.Error(), "-smtp-from") {
+			t.Errorf("sender %s: %v", from, err)
+		}
+	}
+	for from, want := range map[string]string{"vigil@example.org": "vigil@example.org", "Vigil <vigil@example.org>": "vigil@example.org"} {
+		if m, err := NewMailer("smtp.example.org:587", "", "", "", from); err != nil || m.From != want {
+			t.Errorf("sender %s: %+v %v", from, m, err)
+		}
+	}
 	if msg, err := buildMessage("vigil@example.org", []string{"a@example.org"}, "x\r\nBcc: evil@example.org", "t", time.Now()); err != nil ||
 		strings.Contains(string(msg), "\r\nBcc:") {
 		t.Errorf("line break in the subject reached the headers: %v", err)
@@ -185,6 +197,7 @@ func TestRecipientsArePlainAddresses(t *testing.T) {
 		`"a b"@example.com`, "\"a\tb\"@example.com", `"a,b"@example.com`, `"a\"b"@example.com`, `"a\\b"@example.com`,
 		`"a(b)"@example.com`, `"a[b]"@example.com`, `"a:b"@example.com`, `"a<b"@example.com`, `"a b" <"c d"@example.com>`,
 		`user@[192.0.2.1]`,
+		`"a@b"@example.com`, `"@"@example.com`, `Équipe <"soc@intra"@example.com>`, // a second '@' once unquoted
 	} {
 		to, err := ParseRecipients(list)
 		if err == nil {
