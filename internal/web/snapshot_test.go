@@ -73,7 +73,7 @@ func TestRenderSnapshots(t *testing.T) {
 		if err := st.UpsertVulnerability(ctx, v.vuln); err != nil {
 			t.Fatal(err)
 		}
-		if err := st.SetExploitSignals(ctx, v.vuln.ID, v.kev, v.due, v.epss); err != nil {
+		if _, err := st.SetExploitSignals(ctx, store.ExploitSignal{ID: v.vuln.ID, KEV: v.kev, KEVDue: v.due, EPSS: v.epss}); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := st.ObserveFinding(ctx, v.asset, v.vuln.ID, v.fixed, seen.Add(time.Duration(i)*time.Hour)); err != nil {

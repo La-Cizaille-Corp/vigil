@@ -19,7 +19,7 @@ func TestPendingAlerts(t *testing.T) {
 		st.UpsertVulnerability(ctx, v)
 		st.ObserveFinding(ctx, assetID, v.ID, "", time.Now())
 	}
-	st.SetExploitSignals(ctx, "CVE-KEV", true, "", 0.02)
+	st.SetExploitSignals(ctx, ExploitSignal{ID: "CVE-KEV", KEV: true, EPSS: 0.02})
 
 	alerts, err := st.PendingAlerts(ctx, Everything)
 	if err != nil {
@@ -36,14 +36,14 @@ func TestPendingAlerts(t *testing.T) {
 		t.Errorf("alerted twice: %+v", again)
 	}
 	// The high one becomes likely exploited: alerted again, as raised.
-	st.SetExploitSignals(ctx, "CVE-HIGH", false, "", 0.4)
+	st.SetExploitSignals(ctx, ExploitSignal{ID: "CVE-HIGH", EPSS: 0.4})
 	raised, _ := st.PendingAlerts(ctx, Everything)
 	if len(raised) != 1 || raised[0].VulnID != "CVE-HIGH" || !raised[0].Raised || raised[0].Class != AlertPriority {
 		t.Errorf("raised: %+v", raised)
 	}
 	// Closed findings are never alerted.
 	st.MarkAlerted(ctx, raised)
-	st.SetExploitSignals(ctx, "CVE-LOW", true, "", 0.9)
+	st.SetExploitSignals(ctx, ExploitSignal{ID: "CVE-LOW", KEV: true, EPSS: 0.9})
 	list, _ := st.ListFindings(ctx, Everything, FindingFilter{Search: "CVE-LOW"})
 	st.SetFindingStatus(ctx, Everything, list[0].ID, 0, "not_affected", "code_not_present", "")
 	if closed, _ := st.PendingAlerts(ctx, Everything); len(closed) != 0 {

@@ -110,7 +110,7 @@ func TestFindingLifecycle(t *testing.T) {
 	if modified, known, _ := st.VulnModified(ctx, "GHSA-1"); !known || modified != "m1" {
 		t.Errorf("VulnModified = %q %v", modified, known)
 	}
-	if err := st.SetExploitSignals(ctx, "GHSA-1", true, "2026-12-01", 0.9); err != nil {
+	if _, err := st.SetExploitSignals(ctx, ExploitSignal{ID: "GHSA-1", KEV: true, KEVDue: "2026-12-01", EPSS: 0.9}); err != nil {
 		t.Fatal(err)
 	}
 	if v, _ := st.Vulnerability(ctx, "GHSA-1"); !v.KEV || v.EPSS != 0.9 || v.CVSS != 7.5 {

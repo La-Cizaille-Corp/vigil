@@ -94,7 +94,7 @@ type FindingFilter struct {
 // VulnModified returns the stored "modified" date of a vulnerability.
 func (s *Store) VulnModified(ctx context.Context, id string) (string, bool, error) {
 	var m string
-	err := s.db.QueryRowContext(ctx, `SELECT modified FROM vulnerabilities WHERE id = ?`, id).Scan(&m)
+	err := s.q(ctx).QueryRowContext(ctx, `SELECT modified FROM vulnerabilities WHERE id = ?`, id).Scan(&m)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", false, nil
 	}
@@ -105,7 +105,7 @@ func (s *Store) VulnModified(ctx context.Context, id string) (string, bool, erro
 func (s *Store) UpsertVulnerability(ctx context.Context, v Vulnerability) error {
 	aliases, _ := json.Marshal(nonNil(v.Aliases))
 	refs, _ := json.Marshal(nonNil(v.Refs))
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.q(ctx).ExecContext(ctx, `
 		INSERT INTO vulnerabilities (id, aliases, summary, details, severity, cvss, published, modified, refs, raw, fetched_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
@@ -123,7 +123,7 @@ func (s *Store) UpsertVulnerability(ctx context.Context, v Vulnerability) error 
 func (s *Store) Vulnerability(ctx context.Context, id string) (Vulnerability, error) {
 	var v Vulnerability
 	var aliases, refs string
-	err := s.db.QueryRowContext(ctx, `
+	err := s.q(ctx).QueryRowContext(ctx, `
 		SELECT id, aliases, summary, details, severity, cvss, published, modified, refs, kev, kev_due, epss, raw
 		FROM vulnerabilities WHERE id = ?`, id).
 		Scan(&v.ID, &aliases, &v.Summary, &v.Details, &v.Severity, &v.CVSS, &v.Published, &v.Modified, &refs,
@@ -203,7 +203,7 @@ const inPeriod = `(? = '' OR v.kev OR v.published = '' OR substr(v.published, 1,
 // period, or the asset already has a finding for it.
 func (s *Store) InTrackedPeriod(ctx context.Context, assetID int64, vulnID, since string) (bool, error) {
 	var in bool
-	err := s.db.QueryRowContext(ctx, `
+	err := s.q(ctx).QueryRowContext(ctx, `
 		SELECT EXISTS (SELECT 1 FROM findings WHERE asset_id = ? AND vuln_id = ?)
 		    OR EXISTS (SELECT 1 FROM vulnerabilities v WHERE v.id = ? AND `+inPeriod+`)`,
 		assetID, vulnID, vulnID, since, since).Scan(&in)
@@ -342,7 +342,7 @@ func (s *Store) ListFindings(ctx context.Context, sc Scope, f FindingFilter) ([]
 	}
 	// #nosec G202 -- only fixed expressions, the scope's included, are joined; the values are parameters.
 	q := findingSelect + " WHERE " + strings.Join(where, " AND ") + " ORDER BY f.first_seen DESC, f.id DESC"
-	return collect(ctx, s.db, "list findings", func(row scanner) (Finding, error) {
+	return collect(ctx, s.q(ctx), "list findings", func(row scanner) (Finding, error) {
 		return scanFinding(row, today)
 	}, q, args...)
 }
@@ -355,7 +355,7 @@ func (s *Store) Finding(ctx context.Context, sc Scope, id int64) (Finding, error
 	}
 	cond, condArgs := sc.cond("a")
 	args := append(append(sla.args(), id), condArgs...)
-	fd, err := scanFinding(s.db.QueryRowContext(ctx, findingSelect+" WHERE f.id = ? AND "+cond, args...), day(time.Now()))
+	fd, err := scanFinding(s.q(ctx).QueryRowContext(ctx, findingSelect+" WHERE f.id = ? AND "+cond, args...), day(time.Now()))
 	if errors.Is(err, sql.ErrNoRows) {
 		return fd, ErrNotFound
 	}
@@ -466,26 +466,33 @@ func (s *Store) SetFindingStatuses(ctx context.Context, sc Scope, userID int64, 
 
 // ListFindingEvents returns the history of a finding of the scope, oldest first.
 func (s *Store) ListFindingEvents(ctx context.Context, sc Scope, findingID int64) ([]FindingEvent, error) {
-	cond, args := sc.cond("a")
-	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
-	return collect(ctx, s.db, "list finding events", func(row scanner) (FindingEvent, error) {
+	query, args := findingEventsQuery(sc, findingID)
+	return collect(ctx, s.q(ctx), "list finding events", func(row scanner) (FindingEvent, error) {
 		var e FindingEvent
 		var created string
 		err := row.Scan(&e.Username, &e.OldStatus, &e.NewStatus, &e.Comment, &created)
 		e.CreatedAt = parseTime(created)
 		return e, err
-	}, `
+	}, query, args...)
+}
+
+// findingEventsQuery reads the history of a finding of the scope, through
+// the index finding_events_finding (TestHistoryQueriesUseIndexes).
+func findingEventsQuery(sc Scope, findingID int64) (string, []any) {
+	cond, args := sc.cond("a")
+	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
+	return `
 		SELECT COALESCE(u.username, ''), e.old_status, e.new_status, e.comment, e.created_at
 		FROM finding_events e JOIN findings f ON f.id = e.finding_id JOIN assets a ON a.id = f.asset_id
 		LEFT JOIN users u ON u.id = e.user_id
-		WHERE e.finding_id = ? AND `+cond+` ORDER BY e.id`, append([]any{findingID}, args...)...)
+		WHERE e.finding_id = ? AND ` + cond + ` ORDER BY e.id`, append([]any{findingID}, args...)
 }
 
 // CountFindingsByStatus returns the number of findings of the scope per status.
 func (s *Store) CountFindingsByStatus(ctx context.Context, sc Scope) (map[string]int, error) {
 	cond, args := sc.cond("a")
 	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
-	counts, err := collect(ctx, s.db, "count findings", scanCount, `SELECT f.status, COUNT(*) FROM findings f JOIN assets a ON a.id = f.asset_id
+	counts, err := collect(ctx, s.q(ctx), "count findings", scanCount, `SELECT f.status, COUNT(*) FROM findings f JOIN assets a ON a.id = f.asset_id
 		WHERE `+cond+` GROUP BY f.status`, args...)
 	if err != nil {
 		return nil, err
@@ -521,7 +528,7 @@ func insertEvent(ctx context.Context, q querier, findingID, userID int64, old, s
 // ListVulnCVEs returns, for every stored vulnerability, its CVE identifiers
 // (its own id when it is a CVE, plus its CVE aliases).
 func (s *Store) ListVulnCVEs(ctx context.Context) (map[string][]string, error) {
-	pairs, err := collect(ctx, s.db, "list vulnerability CVEs", func(row scanner) ([2]string, error) {
+	pairs, err := collect(ctx, s.q(ctx), "list vulnerability CVEs", func(row scanner) ([2]string, error) {
 		var p [2]string
 		err := row.Scan(&p[0], &p[1])
 		return p, err
@@ -539,9 +546,40 @@ func (s *Store) ListVulnCVEs(ctx context.Context) (map[string][]string, error) {
 	return out, nil
 }
 
-// SetExploitSignals stores KEV and EPSS data for a vulnerability.
-func (s *Store) SetExploitSignals(ctx context.Context, id string, kev bool, kevDue string, epss float64) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE vulnerabilities SET kev = ?, kev_due = ?, epss = ? WHERE id = ?`, kev, kevDue, epss, id)
-	return wrap("set exploit signals of "+id, err)
+// ExploitSignal is what CISA KEV and EPSS tell of a vulnerability.
+type ExploitSignal struct {
+	ID     string
+	KEV    bool    // listed in CISA Known Exploited Vulnerabilities
+	KEVDue string  // CISA remediation due date
+	EPSS   float64 // exploitation probability, -1 when unknown
+}
+
+// SetExploitSignals stores the KEV and EPSS data of vulnerabilities in one
+// transaction, and writes only those that changed: a synchronisation gives
+// them for every stored vulnerability. It returns how many changed.
+func (s *Store) SetExploitSignals(ctx context.Context, signals ...ExploitSignal) (int, error) {
+	changed := 0
+	err := s.inTx(ctx, func(tx *sql.Tx) error {
+		stmt, err := tx.PrepareContext(ctx, `UPDATE vulnerabilities SET kev = ?, kev_due = ?, epss = ?
+			WHERE id = ? AND (kev <> ? OR kev_due <> ? OR epss <> ?)`)
+		if err != nil {
+			return err
+		}
+		defer stmt.Close()
+		for _, sg := range signals {
+			err := expectRow(stmt.ExecContext(ctx, sg.KEV, sg.KEVDue, sg.EPSS, sg.ID, sg.KEV, sg.KEVDue, sg.EPSS))
+			if errors.Is(err, ErrNotFound) {
+				continue // unchanged, or unknown
+			}
+			if err != nil {
+				return fmt.Errorf("%s: %w", sg.ID, err)
+			}
+			changed++
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, fmt.Errorf("set exploit signals: %w", err)
+	}
+	return changed, nil
 }

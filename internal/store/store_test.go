@@ -277,7 +277,7 @@ func TestDismissalRules(t *testing.T) {
 	ipv4 := add(asset, "CVE-3", "ipv4: validate")
 	elsewhere := add(other, "CVE-4", "wifi: on another asset")
 	exploited := add(asset, "CVE-5", "wifi: exploited")
-	st.SetExploitSignals(ctx, "CVE-5", true, "", 0.5)
+	st.SetExploitSignals(ctx, ExploitSignal{ID: "CVE-5", KEV: true, EPSS: 0.5})
 	decided := add(asset, "CVE-6", "wifi: analysed by someone")
 	st.SetFindingStatus(ctx, Everything, decided, user, "exploitable", "", "à traiter")
 	reset := add(asset, "CVE-7", "wifi: put back by someone")
@@ -319,7 +319,7 @@ func TestDismissalRules(t *testing.T) {
 	}
 
 	// Known to be exploited later: back to analyse, and not set aside again.
-	st.SetExploitSignals(ctx, "CVE-2", true, "", 0.5)
+	st.SetExploitSignals(ctx, ExploitSignal{ID: "CVE-2", KEV: true, EPSS: 0.5})
 	if _, err := st.ApplyDismissalRules(ctx); err != nil {
 		t.Fatal(err)
 	}

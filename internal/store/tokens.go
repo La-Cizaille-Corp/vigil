@@ -21,7 +21,7 @@ type APIToken struct {
 
 // ListAPITokens returns every token (without secrets).
 func (s *Store) ListAPITokens(ctx context.Context) ([]APIToken, error) {
-	return collect(ctx, s.db, "list api tokens", func(row scanner) (APIToken, error) {
+	return collect(ctx, s.q(ctx), "list api tokens", func(row scanner) (APIToken, error) {
 		var t APIToken
 		var created, used string
 		err := row.Scan(&t.ID, &t.Name, &t.Project, &t.CreatedBy, &t.Suspended, &created, &used)
@@ -35,7 +35,7 @@ func (s *Store) ListAPITokens(ctx context.Context) ([]APIToken, error) {
 
 // CreateAPIToken stores a token by the hash of its secret.
 func (s *Store) CreateAPIToken(ctx context.Context, t APIToken, tokenHash string, createdBy int64) (int64, error) {
-	res, err := s.db.ExecContext(ctx,
+	res, err := s.q(ctx).ExecContext(ctx,
 		`INSERT INTO api_tokens (name, project, token_hash, created_by, created_at) VALUES (?, ?, ?, ?, ?)`,
 		t.Name, t.Project, tokenHash, nullID(createdBy), now())
 	if err != nil {
@@ -52,7 +52,7 @@ func (s *Store) CreateAPIToken(ctx context.Context, t APIToken, tokenHash string
 func (s *Store) APITokenByHash(ctx context.Context, tokenHash string) (APIToken, error) {
 	var t APIToken
 	var created string
-	err := s.db.QueryRowContext(ctx, `
+	err := s.q(ctx).QueryRowContext(ctx, `
 		SELECT t.id, t.name, t.project, t.created_at
 		FROM api_tokens t LEFT JOIN users u ON u.id = t.created_by
 		WHERE t.token_hash = ? AND COALESCE(u.disabled_at, '') = ''`, tokenHash).
@@ -64,7 +64,7 @@ func (s *Store) APITokenByHash(ctx context.Context, tokenHash string) (APIToken,
 		return t, fmt.Errorf("api token: %w", err)
 	}
 	t.CreatedAt = parseTime(created)
-	if _, err := s.db.ExecContext(ctx, `UPDATE api_tokens SET last_used_at = ? WHERE id = ?`, now(), t.ID); err != nil {
+	if _, err := s.q(ctx).ExecContext(ctx, `UPDATE api_tokens SET last_used_at = ? WHERE id = ?`, now(), t.ID); err != nil {
 		return t, fmt.Errorf("touch api token: %w", err)
 	}
 	return t, nil
@@ -72,5 +72,5 @@ func (s *Store) APITokenByHash(ctx context.Context, tokenHash string) (APIToken,
 
 // DeleteAPIToken revokes a token.
 func (s *Store) DeleteAPIToken(ctx context.Context, id int64) error {
-	return wrap("delete api token", expectRow(s.db.ExecContext(ctx, `DELETE FROM api_tokens WHERE id = ?`, id)))
+	return wrap("delete api token", expectRow(s.q(ctx).ExecContext(ctx, `DELETE FROM api_tokens WHERE id = ?`, id)))
 }

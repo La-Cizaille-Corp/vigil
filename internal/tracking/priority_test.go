@@ -138,7 +138,7 @@ func TestUrgencyEverywhere(t *testing.T) {
 		if err := st.UpsertVulnerability(ctx, store.Vulnerability{ID: id, Severity: severity, CVSS: cvss}); err != nil {
 			t.Fatal(err)
 		}
-		if err := st.SetExploitSignals(ctx, id, kev, "", epss); err != nil {
+		if _, err := st.SetExploitSignals(ctx, store.ExploitSignal{ID: id, KEV: kev, EPSS: epss}); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := st.ObserveFinding(ctx, assetID, id, "", time.Now()); err != nil {

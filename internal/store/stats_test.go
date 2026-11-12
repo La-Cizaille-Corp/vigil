@@ -26,8 +26,8 @@ func TestDashboardStats(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	st.SetExploitSignals(ctx, "CVE-1", true, "2000-01-01", 0.9) // exploited, CISA deadline passed
-	st.SetExploitSignals(ctx, "CVE-2", false, "", 0.2)          // likely exploited
+	st.SetExploitSignals(ctx, ExploitSignal{ID: "CVE-1", KEV: true, KEVDue: "2000-01-01", EPSS: 0.9}) // exploited, CISA deadline passed
+	st.SetExploitSignals(ctx, ExploitSignal{ID: "CVE-2", EPSS: 0.2})                                  // likely exploited
 	for i, v := range vulns {
 		seen := now.Add(-time.Duration(i) * 24 * time.Hour)
 		switch i {
