@@ -25,9 +25,10 @@ type listed struct {
 	Others    []string `json:"others,omitempty"` // osv.Vuln.OtherIDs
 }
 
-// short returns what is kept of an advisory read in full.
-func short(v osv.Vuln) listed {
-	return listed{ID: v.ID, Modified: v.Modified, Published: v.Published, Others: v.OtherIDs()}
+// short returns what is kept of an advisory read in full, checked as what is
+// stored of it (listed.checked).
+func short(v osv.Vuln) (listed, error) {
+	return listed{ID: v.ID, Modified: v.Modified, Published: v.Published, Others: v.OtherIDs()}.checked()
 }
 
 func (l listed) ref() osv.VulnRef { return osv.VulnRef{ID: l.ID, Modified: l.Modified} }
@@ -149,7 +150,11 @@ func (s *Syncer) readChanged(ctx context.Context, pending *advisories, a store.A
 		if err != nil {
 			return nil, time.Time{}, err
 		}
-		if r.take(a, short(v), exploited) {
+		l, err := short(v)
+		if err != nil {
+			return nil, time.Time{}, err
+		}
+		if r.take(a, l, exploited) {
 			if err := s.storeOSV(ctx, pending, v, false); err != nil {
 				return nil, time.Time{}, err
 			}

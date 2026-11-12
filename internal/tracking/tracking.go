@@ -563,7 +563,11 @@ func (s *Syncer) storeNVD(ctx context.Context, pending *advisories, a store.Asse
 			continue
 		}
 		o.reported = append(o.reported, c.ID)
-		if err := pending.add(ctx, nvdVuln(c)); err != nil {
+		v, err := nvdVuln(c)
+		if err == nil {
+			err = pending.add(ctx, v)
+		}
+		if err != nil {
 			return o, err
 		}
 	}
@@ -592,7 +596,7 @@ func brief(description string) string {
 	return clip.Text(text, 300)
 }
 
-func nvdVuln(c nvd.CVE) store.Vulnerability {
+func nvdVuln(c nvd.CVE) (store.Vulnerability, error) {
 	return sanitize(store.Vulnerability{
 		ID: c.ID, Summary: brief(c.Description), Details: c.Description, Severity: c.Severity, CVSS: c.CVSS,
 		Published: c.Published, Modified: c.Modified, Refs: c.Refs, Raw: string(c.Raw),
@@ -607,17 +611,52 @@ func nvdVuln(c nvd.CVE) store.Vulnerability {
 const (
 	maxSummary = 1000      // characters
 	maxDetails = 64 * 1024 // characters
-	maxID      = 100       // characters of an alias
+	maxID      = 100       // characters of an identifier or an alias
 	maxList    = 2000      // aliases, references
+	maxDate    = 40        // bytes: 2026-11-12T17:20:40.464641664Z holds 30
 )
+
+// checked returns what identifies and dates an advisory as it may be kept,
+// in the database (sanitize) or in the list of a large package (short).
+// SECURITY: the identifier must be one, of maxID characters at most: an
+// advisory without one, or with a longer one, is an answer that cannot be
+// read, and the asset stays unchecked. A longer alias is not an identifier:
+// it is dropped, and maxList of them are kept at most. A date that does not
+// start with one, or is longer than maxDate, is unknown ("").
+func (l listed) checked() (listed, error) {
+	if l.ID == "" || !clip.Fits(l.ID, maxID) {
+		return l, fmt.Errorf("réponse illisible : identifiant d'avis vide ou de plus de %d caractères", maxID)
+	}
+	l.Others = slices.DeleteFunc(slices.Clone(l.Others), func(id string) bool { return !clip.Fits(id, maxID) })
+	l.Others = l.Others[:min(len(l.Others), maxList)]
+	l.Published, l.Modified = checkedDate(l.Published), checkedDate(l.Modified)
+	return l, nil
+}
+
+// checkedDate keeps a date of a source, written from the day: OSV writes
+// 2026-11-12T17:20:40.464641664Z, the NVD 2026-11-12T17:20:40.464.
+func checkedDate(date string) string {
+	if len(date) > maxDate || len(date) < len(time.DateOnly) {
+		return ""
+	}
+	if _, err := time.Parse(time.DateOnly, date[:len(time.DateOnly)]); err != nil {
+		return ""
+	}
+	return date
+}
 
 // sanitize returns an advisory as it may be stored. SECURITY: the sources
 // are fixed HTTPS hosts, but what they send is counted, filtered and shown:
-// a severity still outside Severities (osv.Vuln.SeverityLabel has translated
-// the scales of the databases) becomes unknown (""), like a missing one, a
-// CVSS score outside 0..10 becomes absent, texts and lists are bounded. A
-// longer alias is not an identifier: it is dropped.
-func sanitize(v store.Vulnerability) store.Vulnerability {
+// its identifier, aliases and dates are checked (listed.checked); a severity
+// still outside Severities (osv.Vuln.SeverityLabel has translated the scales
+// of the databases) becomes unknown (""), like a missing one, a CVSS score
+// outside 0..10 becomes absent, texts and lists are bounded.
+func sanitize(v store.Vulnerability) (store.Vulnerability, error) {
+	l, err := listed{ID: v.ID, Modified: v.Modified, Published: v.Published, Others: v.Aliases}.checked()
+	if err != nil {
+		return v, err
+	}
+	v.Aliases, v.Published, v.Modified = l.Others, l.Published, l.Modified
 	if v.Severity == "UNKNOWN" || !choice.Has(Severities, v.Severity) {
 		v.Severity = ""
 	}
@@ -626,10 +665,8 @@ func sanitize(v store.Vulnerability) store.Vulnerability {
 	}
 	v.Summary = clip.Text(v.Summary, maxSummary)
 	v.Details = clip.Text(v.Details, maxDetails)
-	v.Aliases = slices.DeleteFunc(slices.Clone(v.Aliases), func(id string) bool { return !clip.Fits(id, maxID) })
-	v.Aliases = v.Aliases[:min(len(v.Aliases), maxList)]
 	v.Refs = v.Refs[:min(len(v.Refs), maxList)]
-	return v
+	return v, nil
 }
 
 // readCPE stores the CVEs of an asset found by its CPE and returns their ids.
@@ -659,7 +696,10 @@ func (s *Syncer) readPackage(ctx context.Context, pending *advisories, pkg osv.P
 	defer list.Close()
 	for list.Next(ctx) {
 		v := list.Vuln()
-		l := short(v)
+		l, err := short(v)
+		if err != nil {
+			return nil, nil, err
+		}
 		keep, affects := false, false
 		for _, a := range assets {
 			affected := v.Affects(pkg, a.Version)
@@ -749,7 +789,11 @@ func (s *Syncer) readWhole(ctx context.Context, pending *advisories, a store.Ass
 	defer list.Close()
 	for list.Next(ctx) {
 		v := list.Vuln()
-		if !r.take(a, short(v), exploited) {
+		l, err := short(v)
+		if err != nil {
+			return nil, err
+		}
+		if !r.take(a, l, exploited) {
 			continue
 		}
 		if err := s.storeOSV(ctx, pending, v, false); err != nil {
@@ -811,7 +855,7 @@ func (s *Syncer) storeOSV(ctx context.Context, pending *advisories, v osv.Vuln, 
 			refs = append(refs, u)
 		}
 	}
-	return pending.add(ctx, sanitize(store.Vulnerability{
+	sv, err := sanitize(store.Vulnerability{
 		ID:        v.ID,
 		Aliases:   v.OtherIDs(),
 		Summary:   cmp.Or(v.Summary, brief(v.Details)), // a DEBIAN-CVE record has no summary
@@ -822,7 +866,11 @@ func (s *Syncer) storeOSV(ctx context.Context, pending *advisories, v osv.Vuln, 
 		Modified:  v.Modified,
 		Refs:      refs,
 		Raw:       string(v.Compact()),
-	}))
+	})
+	if err != nil {
+		return err
+	}
+	return pending.add(ctx, sv)
 }
 
 // enrich refreshes the KEV flag and EPSS score of every stored vulnerability:

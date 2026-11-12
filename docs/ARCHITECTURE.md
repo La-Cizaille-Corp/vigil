@@ -413,7 +413,8 @@ A55 relisait tout parce que suivre le jeton de `querybatch` puis télécharger c
 15 000 requêtes. Mais cette liste légère (identifiant et date de modification, mille par page) ne pèse que
 593 Ko pour ce noyau, en 9 pages et 40 secondes, et dit ce qui a changé. La synchronisation garde donc,
 pour chaque requête de ce genre (paquet, écosystème, version), ce qu'il lui faut de chaque avis signalé :
-identifiant, dates de modification et de publication, autres identifiants (alias, avis d'origine). C'est
+identifiant, dates de modification et de publication, autres identifiants (alias, avis d'origine),
+vérifiés comme ce que la base garde (A69, `listed.checked`). C'est
 ce que demandent la période de suivi et sa garde KEV et EPSS (A31) et le repli d'une CVE (A80), y compris
 pour les avis que la base ne garde pas (A62) : table `osv_lists`, migration 020, 1,4 Mo pour ce noyau.
 À la synchronisation suivante, d'après la liste légère :
@@ -765,7 +766,14 @@ Red Hat en `HIGH`) ; une valeur inconnue y est remplacée par la sévérité du 
 absente. Puis une seule fonction, `tracking.sanitize`, s'applique aux deux entrées (avis OSV, fiche NVD) :
 sévérité de la liste ou inconnue, score dans 0..10 ou absent, résumé, description, alias et références
 bornés, bien au-dessus des avis réels. L'échéance KEV, écrite à part, est vérifiée par son client, comme
-les scores EPSS. *Écarté* : stocker `UNKNOWN`, une deuxième forme de l'inconnu à côté de la sévérité vide,
+les scores EPSS. *Revue de la 0.5.0* : l'identifiant et les dates n'avaient pas de borne (un identifiant
+de 10 000 caractères était stocké tel quel, une date `<b>demain</b>` aussi), et la liste légère d'A90 gardait
+les autres identifiants tels que lus. Une seule fonction, `listed.checked`, vérifie désormais ce qui
+identifie et date un avis, pour la base (`sanitize`) comme pour cette liste (`short`) : un identifiant
+vide ou de plus de 100 caractères rend la réponse illisible (l'actif reste « non vérifié »), un alias plus
+long est retiré et 2 000 au plus sont gardés, une date qui ne commence pas par un jour, ou de plus de
+40 octets, devient inconnue. *Écarté* : couper un identifiant trop long, qui en ferait un autre, ou sauter
+l'avis, qui ne serait plus signalé. *Écarté* : stocker `UNKNOWN`, une deuxième forme de l'inconnu à côté de la sévérité vide,
 que le digest ne classerait plus d'après le score ; traduire aussi dans le digest, qui ne lit que des
 sévérités déjà traduites (aucune version publiée n'a stocké `MODERATE`). *Conséquence* : une fiche déjà
 en base est corrigée à sa prochaine écriture (chaque synchronisation pour la NVD, la prochaine
