@@ -83,7 +83,7 @@ func TestFeedErrorKeepsTheURLSecret(t *testing.T) {
 		t.Fatal(err)
 	}
 	viewer := loginAs(t, base, "viewer", "a-strong-password")
-	if code, body := viewer.get("/settings"); code != http.StatusOK || strings.Contains(body, secret) {
+	if code, body := viewer.get("/settings/feeds"); code != http.StatusOK || strings.Contains(body, secret) {
 		t.Errorf("settings as viewer: %d, secret shown: %v", code, strings.Contains(body, secret))
 	}
 }

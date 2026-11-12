@@ -434,7 +434,7 @@ func TestRestrictedWritesThroughThePages(t *testing.T) {
 	if code, _ := c.postBody("/settings/watch", url.Values{"csrf": {c.csrf()}, "country": {"FR"}}); code != http.StatusForbidden {
 		t.Errorf("watch filters changed by a restricted account: %d", code)
 	}
-	if _, body := c.get("/settings"); strings.Contains(body, `action="/settings/watch"`) {
+	if _, body := c.get("/settings/watch"); !strings.Contains(body, "seul un compte qui voit") || strings.Contains(body, `action="/settings/watch`) {
 		t.Error("the watch filters form is offered to a restricted account")
 	}
 	if assets() != count || fx.state(t, "b") != stateB || fx.state(t, "p") != stateP {
@@ -617,10 +617,13 @@ func TestChannelsOfAGroup(t *testing.T) {
 		t.Error("the channel of A does not receive exactly its assets")
 	}
 
-	_, body := admin.get("/settings")
-	if !strings.Contains(body, `aria-label="Périmètre de canal /a"`) || !strings.Contains(body, "Créer le jeton") ||
+	_, body := admin.get("/settings/webhooks")
+	if !strings.Contains(body, `aria-label="Périmètre de canal /a"`) ||
 		!strings.Contains(body, fmt.Sprintf(`<option value="%d" selected>groupe Équipe A</option>`, fx.groupA)) {
 		t.Error("the settings do not show the group of each channel")
+	}
+	if _, body = admin.get("/settings/tokens"); !strings.Contains(body, "Créer le jeton") || !strings.Contains(body, "Ajouter ce projet au groupe") {
+		t.Error("the tokens page does not offer to add their project to a group")
 	}
 	_, body = admin.get("/settings/groups/" + strconv.FormatInt(fx.groupA, 10))
 	if !strings.Contains(body, "2 canal(aux)") {

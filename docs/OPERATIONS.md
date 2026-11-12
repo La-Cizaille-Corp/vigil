@@ -120,8 +120,9 @@ version validée.
   actif suivi par CPE ou par nom demande environ une minute, et un noyau plusieurs minutes : gardez
   un intervalle plus long que la synchronisation.
 - `vigil check` vérifie l'intégrité de la base (utilisé comme healthcheck Docker).
-- La page Paramètres affiche la dernière erreur de chaque flux CTI et de chaque canal de
-  notification (webhook ou e-mail) ; le journal trace aussi les alertes en échec.
+- Paramètres → Flux affiche la dernière erreur de chaque flux CTI (le menu des paramètres compte
+  ceux en échec), Paramètres → Notifications celle de chaque canal de notification (webhook ou
+  e-mail) ; le journal trace aussi les alertes en échec.
 - Paramètres → Journal d'audit (administrateurs) : connexions, comptes, inventaire, triage par lot,
   réglages. Un échec de connexion garde l'adresse, et le nom saisi seulement s'il est celui d'un
   compte (un mot de passe tapé dans le champ du nom n'y figure pas). Le détail est une suite de
@@ -198,7 +199,7 @@ les jetons d'API (empreintes SHA-256) ne se retrouvent pas à partir de la base.
 2. **Canaux de notification** : chez le fournisseur, supprimez chaque webhook et créez-en un
    nouveau (Slack : application → *Incoming Webhooks* ; Mattermost : Intégrations → Webhooks
    entrants ; Teams : workflow du canal, avec « Qui peut déclencher le flux » sur « Tout le monde »),
-   puis dans Paramètres supprimez le canal et recréez-le avec la nouvelle URL. L'ancienne URL ne
+   puis dans Paramètres → Notifications supprimez le canal et recréez-le avec la nouvelle URL. L'ancienne URL ne
    permet plus d'écrire dans le canal.
 3. **Flux à clé** : faites changer la clé chez le fournisseur, puis supprimez et ajoutez à nouveau
    le flux.

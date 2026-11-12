@@ -20,15 +20,15 @@ func TestOnceValueWaitsForItsPage(t *testing.T) {
 	if code := admin.post("/settings/users", url.Values{"csrf": {token}, "username": {"bob"}, "role": {"analyst"}, "access": {"all"}}); code != http.StatusSeeOther {
 		t.Fatalf("create user: %d", code)
 	}
-	if _, body := admin.get("/settings"); passwordRe.MatchString(body) {
-		t.Error("temporary password shown by /settings")
+	if _, body := admin.get("/settings/tokens"); passwordRe.MatchString(body) {
+		t.Error("temporary password shown by /settings/tokens")
 	}
 	if code, body := admin.postBody("/settings/tokens", url.Values{"csrf": {token}, "name": {""}, "project": {"app"}}); code != http.StatusBadRequest ||
 		passwordRe.MatchString(body) {
 		t.Errorf("refused token form: %d", code)
 	}
 	if _, body := admin.get("/settings/users"); !passwordRe.MatchString(body) {
-		t.Fatal("temporary password lost after /settings")
+		t.Fatal("temporary password lost after /settings/tokens")
 	}
 	if _, body := admin.get("/settings/users"); passwordRe.MatchString(body) {
 		t.Error("temporary password shown twice")
@@ -40,10 +40,10 @@ func TestOnceValueWaitsForItsPage(t *testing.T) {
 	if _, body := admin.get("/settings/users"); strings.Contains(body, tokenPrefix) {
 		t.Error("API token shown by /settings/users")
 	}
-	if _, body := admin.get("/settings"); !strings.Contains(body, "<pre><code>"+tokenPrefix) {
+	if _, body := admin.get("/settings/tokens"); !strings.Contains(body, "<pre><code>"+tokenPrefix) {
 		t.Fatal("API token lost after /settings/users")
 	}
-	if _, body := admin.get("/settings"); strings.Contains(body, tokenPrefix) {
+	if _, body := admin.get("/settings/tokens"); strings.Contains(body, tokenPrefix) {
 		t.Error("API token shown twice")
 	}
 }

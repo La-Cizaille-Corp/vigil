@@ -1,0 +1,83 @@
+{{define "content"}}
+{{$admin := can .User.Role "admin"}}{{$csrf := .CSRF}}{{$perDay := .Data.NewsPerDay}}{{$form := .Data.Form}}
+<p class="muted">Les étiquettes d'un flux s'appliquent à toutes ses actualités, en plus de celles détectées dans leur texte.</p>
+{{if $admin}}
+<section id="collecte">
+{{template "formError" (errorAt . "collecte")}}
+<form method="post" action="/settings/news#collecte" class="delivery">
+  {{template "csrf" $csrf}}
+  <label>Collecter les flux
+    <select name="per_day">{{range .Data.NewsFrequencies}}<option value="{{.}}" {{if eq . $perDay}}selected{{end}}>{{if .}}{{.}} fois par jour{{else}}À la demande seulement{{end}}</option>{{end}}</select>
+  </label>
+  <button type="submit">Enregistrer</button>
+  <span class="muted small">En plus de chaque démarrage et du bouton « Collecter les flux » de la page Veille.</span>
+</form>
+</section>
+{{else}}
+<p class="muted small">Collecte des flux : {{if $perDay}}{{$perDay}} fois par jour{{else}}à la demande seulement{{end}}.</p>
+{{end}}
+{{if .Data.Feeds}}
+<table class="cards" role="table">
+<thead role="rowgroup"><tr role="row"><th role="columnheader">Nom</th><th role="columnheader">URL</th><th role="columnheader">Étiquettes du flux</th><th role="columnheader">Dernière collecte</th>{{if $admin}}<th role="columnheader"><span class="sr-only">Actions</span></th>{{end}}</tr></thead>
+<tbody role="rowgroup">
+{{range .Data.Feeds}}
+<tr role="row">
+  <td class="title" role="cell">{{.Name}}{{if not .Enabled}} <span class="muted">(désactivé)</span>{{end}}</td>
+  <td role="cell" data-label="URL"><code class="small">{{if $admin}}{{.URL}}{{else}}{{maskURL .URL}}{{end}}</code></td>
+  <td role="cell" data-label="Étiquettes">
+    {{range tags .Country}}<span class="tag">{{countryLabel .}}</span>{{end}}
+    {{range tags .Sectors}}<span class="tag tag-sector">{{sectorLabel .}}</span>{{end}}
+    {{range tags .Regulations}}<span class="tag tag-regulation">{{regulationLabel .}}</span>{{end}}
+    {{if $admin}}
+    <details>
+      <summary class="small">Modifier les étiquettes</summary>
+      <form method="post" action="/settings/feeds/{{.ID}}">
+        {{template "csrf" $csrf}}
+        {{template "tagFields" (dict3 (tags .Country) (tags .Sectors) (tags .Regulations))}}
+        <button type="submit">Enregistrer les étiquettes</button>
+      </form>
+    </details>
+    {{end}}
+  </td>
+  <td role="cell" data-label="Dernière collecte">{{if .LastFetched.IsZero}}<span class="muted">jamais</span>{{else}}{{date .LastFetched}}{{end}}
+      {{if .LastError}}<br><span class="danger-link small">Échec : {{.LastError}}</span>{{end}}</td>
+  {{if $admin}}<td class="actions" role="cell">
+    <form method="post" action="/settings/feeds/{{.ID}}/toggle" class="inline">
+      {{template "csrf" $csrf}}
+      <input type="hidden" name="enabled" value="{{if .Enabled}}0{{else}}1{{end}}">
+      <button type="submit" class="link">{{if .Enabled}}Désactiver{{else}}Activer{{end}}</button>
+    </form>
+    <details class="confirm">
+      <summary>Supprimer…</summary>
+      <form method="post" action="/settings/feeds/{{.ID}}/delete" class="inline">
+        {{template "csrf" $csrf}}
+        <button type="submit" class="danger">Supprimer le flux et ses actualités</button>
+      </form>
+    </details>
+  </td>{{end}}
+</tr>
+{{end}}
+</tbody>
+</table>
+{{else}}
+<p class="muted">Aucun flux configuré.</p>
+{{end}}
+
+{{if $admin}}
+{{- /* Folded: eleven feeds and their 47 boxes came before the channels (audit UX 8.1). */}}
+<details class="card" id="nouveau-flux"{{if errorAt . "nouveau-flux"}} open{{end}}>
+  <summary>Ajouter un flux</summary>
+  {{template "formError" (errorAt . "nouveau-flux")}}
+  <form method="post" action="/settings/feeds#nouveau-flux">
+    {{template "csrf" $csrf}}
+    <div class="grid">
+      <label>Nom <input name="name" value="{{$form.Name}}" required maxlength="100"></label>
+      <label>URL du flux RSS ou Atom (https) <input name="url" type="url" value="{{$form.URL}}" required maxlength="2000"></label>
+    </div>
+    <p class="muted small">Étiquettes appliquées à toutes les actualités du flux (plusieurs choix possibles) :</p>
+    {{template "tagFields" $form.Tags}}
+    <button type="submit">Ajouter le flux</button>
+  </form>
+</details>
+{{end}}
+{{end}}

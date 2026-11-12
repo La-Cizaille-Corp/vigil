@@ -228,7 +228,7 @@ func TestNotificationChannels(t *testing.T) {
 	if code := admin.post("/settings/webhooks/"+id, url.Values{"csrf": {admin.csrf()}, "alerts": {"all"}}); code != http.StatusBadRequest {
 		t.Errorf("unknown alert level: %d", code)
 	}
-	if _, body := admin.get("/settings"); strings.Contains(body, "secret") || !strings.Contains(body, "aucun serveur SMTP") {
+	if _, body := admin.get("/settings/webhooks"); strings.Contains(body, "secret") || !strings.Contains(body, "aucun serveur SMTP") {
 		t.Error("settings page: secret shown or SMTP state missing")
 	}
 }
@@ -368,7 +368,7 @@ func TestWebhookTestButton(t *testing.T) {
 	if code, loc := admin.postLocation(path, url.Values{"csrf": {admin.csrf()}}); code != http.StatusSeeOther || !strings.Contains(loc, "msg=hook-test-failed") {
 		t.Errorf("failed test: %d %s", code, loc)
 	}
-	_, body := admin.get("/settings")
+	_, body := admin.get("/settings/webhooks")
 	if !strings.Contains(body, "DirectApiAuthorizationRequired") || !strings.Contains(body, "Tout le monde") || strings.Contains(body, "SECRET") {
 		t.Errorf("state of the channel:\n%s", body)
 	}

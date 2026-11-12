@@ -47,6 +47,20 @@ func (l SLA) Valid() bool {
 	return true
 }
 
+// Ordered reports whether the deadlines decrease from Basse to Critique: a
+// less severe vulnerability has at least as long. 0, no deadline, is the
+// longest.
+func (l SLA) Ordered() bool {
+	days := []int{l.Low, l.Medium, l.High, l.Critical}
+	for i := 1; i < len(days); i++ {
+		lesser, graver := days[i-1], days[i]
+		if lesser != 0 && (graver == 0 || graver > lesser) {
+			return false
+		}
+	}
+	return true
+}
+
 // SLA returns the remediation deadlines, defaultSLA until they are set.
 func (s *Store) SLA(ctx context.Context) (SLA, error) {
 	v, err := s.Setting(ctx, slaKey)

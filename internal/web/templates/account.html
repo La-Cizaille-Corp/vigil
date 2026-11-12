@@ -14,10 +14,10 @@
   <button type="submit">Désactiver</button>
 </form>
 {{else if .Data.Pending}}
-<div class="card">
+<div class="card narrow">
   <p>Dans votre application d'authentification (Aegis, FreeOTP, Google Authenticator…), ajoutez un compte
-     avec cette clé :</p>
-  <pre><code>{{.Data.Pending}}</code></pre>
+     avec cette clé, par groupes de quatre caractères (les espaces ne comptent pas) :</p>
+  <pre><code>{{keyGroups .Data.Pending}}</code></pre>
   <p class="small muted">ou l'URI : <code>{{.Data.URI}}</code></p>
   <form method="post" action="/account/totp/confirm">
     {{template "csrf" .CSRF}}

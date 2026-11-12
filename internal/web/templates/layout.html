@@ -32,7 +32,10 @@
   <h1>{{.Title}}</h1>
   {{if .Flash}}<p class="flash" role="status">{{.Flash}}</p>{{end}}
   {{if and .Error (not .ErrorAt)}}<p class="error" role="alert">{{.Error}}</p>{{end}}
-  {{template "content" .}}
+  {{with .Menu}}<div class="settings">
+  {{template "settingsNav" .}}
+  <div class="settings-page">{{template "content" $}}</div>
+  </div>{{else}}{{template "content" .}}{{end}}
 </main>
 </body>
 </html>{{end}}

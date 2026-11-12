@@ -153,7 +153,7 @@ func TestTokenSuspendedWithItsCreator(t *testing.T) {
 		t.Errorf("token without a known creator: %d", code)
 	}
 	admin := loginAs(t, base, "admin", "a-strong-password")
-	if _, body := admin.get("/settings"); !strings.Contains(body, "suspendu : le compte alice est désactivé") {
+	if _, body := admin.get("/settings/tokens"); !strings.Contains(body, "suspendu : le compte alice est désactivé") {
 		t.Error("the token list does not show the token suspended")
 	}
 

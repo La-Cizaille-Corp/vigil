@@ -1,0 +1,678 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flux de veille · Vigil</title>
+
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<a class="skip" href="#contenu">Aller au contenu</a>
+<header>
+  <a class="brand" href="/"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="logo-shield" d="M12 2 4 5v6c0 5 3.4 9.3 8 11 4.6-1.7 8-6 8-11V5l-8-3Z"/><path class="logo-eye" d="M12 8.5c-2.6 0-4.7 1.6-5.5 3.5.8 1.9 2.9 3.5 5.5 3.5s4.7-1.6 5.5-3.5c-.8-1.9-2.9-3.5-5.5-3.5Zm0 5.5a2 2 0 1 1 0-4 2 2 0 0 1 0 4Z"/></svg>Vigil</a>
+  
+  <nav aria-label="Navigation principale">
+    <a href="/" >Tableau de bord</a>
+    <a href="/assets" >Inventaire</a>
+    <a href="/findings" >Vulnérabilités</a>
+    <a href="/cti" >Veille</a>
+    <a href="/digests" >Digests</a>
+    <a href="/settings" aria-current="page">Paramètres</a>
+  </nav>
+  <form method="post" action="/logout" class="inline">
+    <input type="hidden" name="csrf" value="CSRF">
+    <a class="account-link" href="/account" title="Mon compte" >admin</a>
+    <span class="muted small">administrateur</span>
+    <button type="submit" class="link">Déconnexion</button>
+  </form>
+  
+</header>
+<main id="contenu">
+  <h1>Flux de veille</h1>
+  
+  
+  <div class="settings">
+  <nav class="settings-nav" aria-label="Sections des paramètres">
+  <p class="settings-group">Alertes</p>
+  <ul><li><a href="/settings/webhooks">Notifications</a></li><li><a href="/settings/sla">Délais de traitement</a></li></ul>
+  <p class="settings-group">Veille</p>
+  <ul><li><a href="/settings/watch">Filtres de veille</a></li><li><a href="/settings/feeds" aria-current="page">Flux</a></li></ul>
+  <p class="settings-group">Accès</p>
+  <ul><li><a href="/settings/users">Utilisateurs</a></li><li><a href="/settings/groups">Groupes</a></li><li><a href="/settings/tokens">Jetons d&#39;API</a></li><li><a href="/settings/audit">Journal d&#39;audit</a></li></ul>
+  
+</nav>
+  <div class="settings-page">
+
+<p class="muted">Les étiquettes d'un flux s'appliquent à toutes ses actualités, en plus de celles détectées dans leur texte.</p>
+
+<section id="collecte">
+
+<form method="post" action="/settings/news#collecte" class="delivery">
+  <input type="hidden" name="csrf" value="CSRF">
+  <label>Collecter les flux
+    <select name="per_day"><option value="0" >À la demande seulement</option><option value="1" >1 fois par jour</option><option value="2" >2 fois par jour</option><option value="4" selected>4 fois par jour</option><option value="6" >6 fois par jour</option><option value="12" >12 fois par jour</option><option value="24" >24 fois par jour</option></select>
+  </label>
+  <button type="submit">Enregistrer</button>
+  <span class="muted small">En plus de chaque démarrage et du bouton « Collecter les flux » de la page Veille.</span>
+</form>
+</section>
+
+
+<table class="cards" role="table">
+<thead role="rowgroup"><tr role="row"><th role="columnheader">Nom</th><th role="columnheader">URL</th><th role="columnheader">Étiquettes du flux</th><th role="columnheader">Dernière collecte</th><th role="columnheader"><span class="sr-only">Actions</span></th></tr></thead>
+<tbody role="rowgroup">
+
+<tr role="row">
+  <td class="title" role="cell">BleepingComputer</td>
+  <td role="cell" data-label="URL"><code class="small">https://www.bleepingcomputer.com/feed/</code></td>
+  <td role="cell" data-label="Étiquettes">
+    
+    
+    
+    
+    <details>
+      <summary class="small">Modifier les étiquettes</summary>
+      <form method="post" action="/settings/feeds/5">
+        <input type="hidden" name="csrf" value="CSRF">
+        
+<div class="grid">
+  <fieldset><legend>Pays</legend>
+    <label class="check"><input type="checkbox" name="country" value="FR" > France</label><label class="check"><input type="checkbox" name="country" value="BE" > Belgique</label><label class="check"><input type="checkbox" name="country" value="CH" > Suisse</label><label class="check"><input type="checkbox" name="country" value="CA" > Canada</label><label class="check"><input type="checkbox" name="country" value="DE" > Allemagne</label><label class="check"><input type="checkbox" name="country" value="GB" > Royaume-Uni</label><label class="check"><input type="checkbox" name="country" value="US" > États-Unis</label><label class="check"><input type="checkbox" name="country" value="IT" > Italie</label><label class="check"><input type="checkbox" name="country" value="ES" > Espagne</label><label class="check"><input type="checkbox" name="country" value="NL" > Pays-Bas</label><label class="check"><input type="checkbox" name="country" value="PL" > Pologne</label><label class="check"><input type="checkbox" name="country" value="UA" > Ukraine</label><label class="check"><input type="checkbox" name="country" value="RU" > Russie</label><label class="check"><input type="checkbox" name="country" value="CN" > Chine</label><label class="check"><input type="checkbox" name="country" value="KP" > Corée du Nord</label><label class="check"><input type="checkbox" name="country" value="IR" > Iran</label><label class="check"><input type="checkbox" name="country" value="IL" > Israël</label><label class="check"><input type="checkbox" name="country" value="IN" > Inde</label><label class="check"><input type="checkbox" name="country" value="JP" > Japon</label><label class="check"><input type="checkbox" name="country" value="AU" > Australie</label><label class="check"><input type="checkbox" name="country" value="EU" > Union européenne</label>
+  </fieldset>
+  <fieldset><legend>Secteurs</legend>
+    <label class="check"><input type="checkbox" name="sector" value="energy" > Énergie</label><label class="check"><input type="checkbox" name="sector" value="health" > Santé</label><label class="check"><input type="checkbox" name="sector" value="finance" > Finance</label><label class="check"><input type="checkbox" name="sector" value="government" > Administration publique</label><label class="check"><input type="checkbox" name="sector" value="defense" > Défense</label><label class="check"><input type="checkbox" name="sector" value="transport" > Transports</label><label class="check"><input type="checkbox" name="sector" value="telecom" > Télécommunications</label><label class="check"><input type="checkbox" name="sector" value="education" > Éducation et recherche</label><label class="check"><input type="checkbox" name="sector" value="manufacturing" > Industrie</label><label class="check"><input type="checkbox" name="sector" value="retail" > Commerce</label><label class="check"><input type="checkbox" name="sector" value="water" > Eau</label><label class="check"><input type="checkbox" name="sector" value="digital" > Services numériques / IT</label>
+  </fieldset>
+  <fieldset><legend>Réglementations et normes</legend>
+    <label class="check"><input type="checkbox" name="regulation" value="nis2" > NIS2</label><label class="check"><input type="checkbox" name="regulation" value="cra" > Cyber Resilience Act</label><label class="check"><input type="checkbox" name="regulation" value="dora" > DORA</label><label class="check"><input type="checkbox" name="regulation" value="gdpr" > RGPD</label><label class="check"><input type="checkbox" name="regulation" value="ai_act" > AI Act</label><label class="check"><input type="checkbox" name="regulation" value="cybersecurity_act" > Cybersecurity Act / certification UE</label><label class="check"><input type="checkbox" name="regulation" value="eidas" > eIDAS</label><label class="check"><input type="checkbox" name="regulation" value="data_act" > Data Act</label><label class="check"><input type="checkbox" name="regulation" value="iso27001" > ISO/IEC 27001</label><label class="check"><input type="checkbox" name="regulation" value="secnumcloud" > SecNumCloud</label><label class="check"><input type="checkbox" name="regulation" value="hds" > HDS (données de santé)</label><label class="check"><input type="checkbox" name="regulation" value="pci_dss" > PCI DSS</label><label class="check"><input type="checkbox" name="regulation" value="lpm" > LPM / OIV</label><label class="check"><input type="checkbox" name="regulation" value="nist_csf" > NIST CSF / SP 800</label>
+  </fieldset>
+</div>
+
+        <button type="submit">Enregistrer les étiquettes</button>
+      </form>
+    </details>
+    
+  </td>
+  <td role="cell" data-label="Dernière collecte"><span class="muted">jamais</span>
+      </td>
+  <td class="actions" role="cell">
+    <form method="post" action="/settings/feeds/5/toggle" class="inline">
+      <input type="hidden" name="csrf" value="CSRF">
+      <input type="hidden" name="enabled" value="0">
+      <button type="submit" class="link">Désactiver</button>
+    </form>
+    <details class="confirm">
+      <summary>Supprimer…</summary>
+      <form method="post" action="/settings/feeds/5/delete" class="inline">
+        <input type="hidden" name="csrf" value="CSRF">
+        <button type="submit" class="danger">Supprimer le flux et ses actualités</button>
+      </form>
+    </details>
+  </td>
+</tr>
+
+<tr role="row">
+  <td class="title" role="cell">CERT-FR</td>
+  <td role="cell" data-label="URL"><code class="small">https://example.org/feed</code></td>
+  <td role="cell" data-label="Étiquettes">
+    <span class="tag">France</span>
+    
+    
+    
+    <details>
+      <summary class="small">Modifier les étiquettes</summary>
+      <form method="post" action="/settings/feeds/12">
+        <input type="hidden" name="csrf" value="CSRF">
+        
+<div class="grid">
+  <fieldset><legend>Pays</legend>
+    <label class="check"><input type="checkbox" name="country" value="FR" checked> France</label><label class="check"><input type="checkbox" name="country" value="BE" > Belgique</label><label class="check"><input type="checkbox" name="country" value="CH" > Suisse</label><label class="check"><input type="checkbox" name="country" value="CA" > Canada</label><label class="check"><input type="checkbox" name="country" value="DE" > Allemagne</label><label class="check"><input type="checkbox" name="country" value="GB" > Royaume-Uni</label><label class="check"><input type="checkbox" name="country" value="US" > États-Unis</label><label class="check"><input type="checkbox" name="country" value="IT" > Italie</label><label class="check"><input type="checkbox" name="country" value="ES" > Espagne</label><label class="check"><input type="checkbox" name="country" value="NL" > Pays-Bas</label><label class="check"><input type="checkbox" name="country" value="PL" > Pologne</label><label class="check"><input type="checkbox" name="country" value="UA" > Ukraine</label><label class="check"><input type="checkbox" name="country" value="RU" > Russie</label><label class="check"><input type="checkbox" name="country" value="CN" > Chine</label><label class="check"><input type="checkbox" name="country" value="KP" > Corée du Nord</label><label class="check"><input type="checkbox" name="country" value="IR" > Iran</label><label class="check"><input type="checkbox" name="country" value="IL" > Israël</label><label class="check"><input type="checkbox" name="country" value="IN" > Inde</label><label class="check"><input type="checkbox" name="country" value="JP" > Japon</label><label class="check"><input type="checkbox" name="country" value="AU" > Australie</label><label class="check"><input type="checkbox" name="country" value="EU" > Union européenne</label>
+  </fieldset>
+  <fieldset><legend>Secteurs</legend>
+    <label class="check"><input type="checkbox" name="sector" value="energy" > Énergie</label><label class="check"><input type="checkbox" name="sector" value="health" > Santé</label><label class="check"><input type="checkbox" name="sector" value="finance" > Finance</label><label class="check"><input type="checkbox" name="sector" value="government" > Administration publique</label><label class="check"><input type="checkbox" name="sector" value="defense" > Défense</label><label class="check"><input type="checkbox" name="sector" value="transport" > Transports</label><label class="check"><input type="checkbox" name="sector" value="telecom" > Télécommunications</label><label class="check"><input type="checkbox" name="sector" value="education" > Éducation et recherche</label><label class="check"><input type="checkbox" name="sector" value="manufacturing" > Industrie</label><label class="check"><input type="checkbox" name="sector" value="retail" > Commerce</label><label class="check"><input type="checkbox" name="sector" value="water" > Eau</label><label class="check"><input type="checkbox" name="sector" value="digital" > Services numériques / IT</label>
+  </fieldset>
+  <fieldset><legend>Réglementations et normes</legend>
+    <label class="check"><input type="checkbox" name="regulation" value="nis2" > NIS2</label><label class="check"><input type="checkbox" name="regulation" value="cra" > Cyber Resilience Act</label><label class="check"><input type="checkbox" name="regulation" value="dora" > DORA</label><label class="check"><input type="checkbox" name="regulation" value="gdpr" > RGPD</label><label class="check"><input type="checkbox" name="regulation" value="ai_act" > AI Act</label><label class="check"><input type="checkbox" name="regulation" value="cybersecurity_act" > Cybersecurity Act / certification UE</label><label class="check"><input type="checkbox" name="regulation" value="eidas" > eIDAS</label><label class="check"><input type="checkbox" name="regulation" value="data_act" > Data Act</label><label class="check"><input type="checkbox" name="regulation" value="iso27001" > ISO/IEC 27001</label><label class="check"><input type="checkbox" name="regulation" value="secnumcloud" > SecNumCloud</label><label class="check"><input type="checkbox" name="regulation" value="hds" > HDS (données de santé)</label><label class="check"><input type="checkbox" name="regulation" value="pci_dss" > PCI DSS</label><label class="check"><input type="checkbox" name="regulation" value="lpm" > LPM / OIV</label><label class="check"><input type="checkbox" name="regulation" value="nist_csf" > NIST CSF / SP 800</label>
+  </fieldset>
+</div>
+
+        <button type="submit">Enregistrer les étiquettes</button>
+      </form>
+    </details>
+    
+  </td>
+  <td role="cell" data-label="Dernière collecte"><span class="muted">jamais</span>
+      </td>
+  <td class="actions" role="cell">
+    <form method="post" action="/settings/feeds/12/toggle" class="inline">
+      <input type="hidden" name="csrf" value="CSRF">
+      <input type="hidden" name="enabled" value="0">
+      <button type="submit" class="link">Désactiver</button>
+    </form>
+    <details class="confirm">
+      <summary>Supprimer…</summary>
+      <form method="post" action="/settings/feeds/12/delete" class="inline">
+        <input type="hidden" name="csrf" value="CSRF">
+        <button type="submit" class="danger">Supprimer le flux et ses actualités</button>
+      </form>
+    </details>
+  </td>
+</tr>
+
+<tr role="row">
+  <td class="title" role="cell">CERT-FR – Alertes</td>
+  <td role="cell" data-label="URL"><code class="small">https://www.cert.ssi.gouv.fr/alerte/feed/</code></td>
+  <td role="cell" data-label="Étiquettes">
+    <span class="tag">France</span>
+    
+    
+    
+    <details>
+      <summary class="small">Modifier les étiquettes</summary>
+      <form method="post" action="/settings/feeds/1">
+        <input type="hidden" name="csrf" value="CSRF">
+        
+<div class="grid">
+  <fieldset><legend>Pays</legend>
+    <label class="check"><input type="checkbox" name="country" value="FR" checked> France</label><label class="check"><input type="checkbox" name="country" value="BE" > Belgique</label><label class="check"><input type="checkbox" name="country" value="CH" > Suisse</label><label class="check"><input type="checkbox" name="country" value="CA" > Canada</label><label class="check"><input type="checkbox" name="country" value="DE" > Allemagne</label><label class="check"><input type="checkbox" name="country" value="GB" > Royaume-Uni</label><label class="check"><input type="checkbox" name="country" value="US" > États-Unis</label><label class="check"><input type="checkbox" name="country" value="IT" > Italie</label><label class="check"><input type="checkbox" name="country" value="ES" > Espagne</label><label class="check"><input type="checkbox" name="country" value="NL" > Pays-Bas</label><label class="check"><input type="checkbox" name="country" value="PL" > Pologne</label><label class="check"><input type="checkbox" name="country" value="UA" > Ukraine</label><label class="check"><input type="checkbox" name="country" value="RU" > Russie</label><label class="check"><input type="checkbox" name="country" value="CN" > Chine</label><label class="check"><input type="checkbox" name="country" value="KP" > Corée du Nord</label><label class="check"><input type="checkbox" name="country" value="IR" > Iran</label><label class="check"><input type="checkbox" name="country" value="IL" > Israël</label><label class="check"><input type="checkbox" name="country" value="IN" > Inde</label><label class="check"><input type="checkbox" name="country" value="JP" > Japon</label><label class="check"><input type="checkbox" name="country" value="AU" > Australie</label><label class="check"><input type="checkbox" name="country" value="EU" > Union européenne</label>
+  </fieldset>
+  <fieldset><legend>Secteurs</legend>
+    <label class="check"><input type="checkbox" name="sector" value="energy" > Énergie</label><label class="check"><input type="checkbox" name="sector" value="health" > Santé</label><label class="check"><input type="checkbox" name="sector" value="finance" > Finance</label><label class="check"><input type="checkbox" name="sector" value="government" > Administration publique</label><label class="check"><input type="checkbox" name="sector" value="defense" > Défense</label><label class="check"><input type="checkbox" name="sector" value="transport" > Transports</label><label class="check"><input type="checkbox" name="sector" value="telecom" > Télécommunications</label><label class="check"><input type="checkbox" name="sector" value="education" > Éducation et recherche</label><label class="check"><input type="checkbox" name="sector" value="manufacturing" > Industrie</label><label class="check"><input type="checkbox" name="sector" value="retail" > Commerce</label><label class="check"><input type="checkbox" name="sector" value="water" > Eau</label><label class="check"><input type="checkbox" name="sector" value="digital" > Services numériques / IT</label>
+  </fieldset>
+  <fieldset><legend>Réglementations et normes</legend>
+    <label class="check"><input type="checkbox" name="regulation" value="nis2" > NIS2</label><label class="check"><input type="checkbox" name="regulation" value="cra" > Cyber Resilience Act</label><label class="check"><input type="checkbox" name="regulation" value="dora" > DORA</label><label class="check"><input type="checkbox" name="regulation" value="gdpr" > RGPD</label><label class="check"><input type="checkbox" name="regulation" value="ai_act" > AI Act</label><label class="check"><input type="checkbox" name="regulation" value="cybersecurity_act" > Cybersecurity Act / certification UE</label><label class="check"><input type="checkbox" name="regulation" value="eidas" > eIDAS</label><label class="check"><input type="checkbox" name="regulation" value="data_act" > Data Act</label><label class="check"><input type="checkbox" name="regulation" value="iso27001" > ISO/IEC 27001</label><label class="check"><input type="checkbox" name="regulation" value="secnumcloud" > SecNumCloud</label><label class="check"><input type="checkbox" name="regulation" value="hds" > HDS (données de santé)</label><label class="check"><input type="checkbox" name="regulation" value="pci_dss" > PCI DSS</label><label class="check"><input type="checkbox" name="regulation" value="lpm" > LPM / OIV</label><label class="check"><input type="checkbox" name="regulation" value="nist_csf" > NIST CSF / SP 800</label>
+  </fieldset>
+</div>
+
+        <button type="submit">Enregistrer les étiquettes</button>
+      </form>
+    </details>
+    
+  </td>
+  <td role="cell" data-label="Dernière collecte"><span class="muted">jamais</span>
+      </td>
+  <td class="actions" role="cell">
+    <form method="post" action="/settings/feeds/1/toggle" class="inline">
+      <input type="hidden" name="csrf" value="CSRF">
+      <input type="hidden" name="enabled" value="0">
+      <button type="submit" class="link">Désactiver</button>
+    </form>
+    <details class="confirm">
+      <summary>Supprimer…</summary>
+      <form method="post" action="/settings/feeds/1/delete" class="inline">
+        <input type="hidden" name="csrf" value="CSRF">
+        <button type="submit" class="danger">Supprimer le flux et ses actualités</button>
+      </form>
+    </details>
+  </td>
+</tr>
+
+<tr role="row">
+  <td class="title" role="cell">CERT-FR – Avis</td>
+  <td role="cell" data-label="URL"><code class="small">https://www.cert.ssi.gouv.fr/avis/feed/</code></td>
+  <td role="cell" data-label="Étiquettes">
+    <span class="tag">France</span>
+    
+    
+    
+    <details>
+      <summary class="small">Modifier les étiquettes</summary>
+      <form method="post" action="/settings/feeds/2">
+        <input type="hidden" name="csrf" value="CSRF">
+        
+<div class="grid">
+  <fieldset><legend>Pays</legend>
+    <label class="check"><input type="checkbox" name="country" value="FR" checked> France</label><label class="check"><input type="checkbox" name="country" value="BE" > Belgique</label><label class="check"><input type="checkbox" name="country" value="CH" > Suisse</label><label class="check"><input type="checkbox" name="country" value="CA" > Canada</label><label class="check"><input type="checkbox" name="country" value="DE" > Allemagne</label><label class="check"><input type="checkbox" name="country" value="GB" > Royaume-Uni</label><label class="check"><input type="checkbox" name="country" value="US" > États-Unis</label><label class="check"><input type="checkbox" name="country" value="IT" > Italie</label><label class="check"><input type="checkbox" name="country" value="ES" > Espagne</label><label class="check"><input type="checkbox" name="country" value="NL" > Pays-Bas</label><label class="check"><input type="checkbox" name="country" value="PL" > Pologne</label><label class="check"><input type="checkbox" name="country" value="UA" > Ukraine</label><label class="check"><input type="checkbox" name="country" value="RU" > Russie</label><label class="check"><input type="checkbox" name="country" value="CN" > Chine</label><label class="check"><input type="checkbox" name="country" value="KP" > Corée du Nord</label><label class="check"><input type="checkbox" name="country" value="IR" > Iran</label><label class="check"><input type="checkbox" name="country" value="IL" > Israël</label><label class="check"><input type="checkbox" name="country" value="IN" > Inde</label><label class="check"><input type="checkbox" name="country" value="JP" > Japon</label><label class="check"><input type="checkbox" name="country" value="AU" > Australie</label><label class="check"><input type="checkbox" name="country" value="EU" > Union européenne</label>
+  </fieldset>
+  <fieldset><legend>Secteurs</legend>
+    <label class="check"><input type="checkbox" name="sector" value="energy" > Énergie</label><label class="check"><input type="checkbox" name="sector" value="health" > Santé</label><label class="check"><input type="checkbox" name="sector" value="finance" > Finance</label><label class="check"><input type="checkbox" name="sector" value="government" > Administration publique</label><label class="check"><input type="checkbox" name="sector" value="defense" > Défense</label><label class="check"><input type="checkbox" name="sector" value="transport" > Transports</label><label class="check"><input type="checkbox" name="sector" value="telecom" > Télécommunications</label><label class="check"><input type="checkbox" name="sector" value="education" > Éducation et recherche</label><label class="check"><input type="checkbox" name="sector" value="manufacturing" > Industrie</label><label class="check"><input type="checkbox" name="sector" value="retail" > Commerce</label><label class="check"><input type="checkbox" name="sector" value="water" > Eau</label><label class="check"><input type="checkbox" name="sector" value="digital" > Services numériques / IT</label>
+  </fieldset>
+  <fieldset><legend>Réglementations et normes</legend>
+    <label class="check"><input type="checkbox" name="regulation" value="nis2" > NIS2</label><label class="check"><input type="checkbox" name="regulation" value="cra" > Cyber Resilience Act</label><label class="check"><input type="checkbox" name="regulation" value="dora" > DORA</label><label class="check"><input type="checkbox" name="regulation" value="gdpr" > RGPD</label><label class="check"><input type="checkbox" name="regulation" value="ai_act" > AI Act</label><label class="check"><input type="checkbox" name="regulation" value="cybersecurity_act" > Cybersecurity Act / certification UE</label><label class="check"><input type="checkbox" name="regulation" value="eidas" > eIDAS</label><label class="check"><input type="checkbox" name="regulation" value="data_act" > Data Act</label><label class="check"><input type="checkbox" name="regulation" value="iso27001" > ISO/IEC 27001</label><label class="check"><input type="checkbox" name="regulation" value="secnumcloud" > SecNumCloud</label><label class="check"><input type="checkbox" name="regulation" value="hds" > HDS (données de santé)</label><label class="check"><input type="checkbox" name="regulation" value="pci_dss" > PCI DSS</label><label class="check"><input type="checkbox" name="regulation" value="lpm" > LPM / OIV</label><label class="check"><input type="checkbox" name="regulation" value="nist_csf" > NIST CSF / SP 800</label>
+  </fieldset>
+</div>
+
+        <button type="submit">Enregistrer les étiquettes</button>
+      </form>
+    </details>
+    
+  </td>
+  <td role="cell" data-label="Dernière collecte"><span class="muted">jamais</span>
+      </td>
+  <td class="actions" role="cell">
+    <form method="post" action="/settings/feeds/2/toggle" class="inline">
+      <input type="hidden" name="csrf" value="CSRF">
+      <input type="hidden" name="enabled" value="0">
+      <button type="submit" class="link">Désactiver</button>
+    </form>
+    <details class="confirm">
+      <summary>Supprimer…</summary>
+      <form method="post" action="/settings/feeds/2/delete" class="inline">
+        <input type="hidden" name="csrf" value="CSRF">
+        <button type="submit" class="danger">Supprimer le flux et ses actualités</button>
+      </form>
+    </details>
+  </td>
+</tr>
+
+<tr role="row">
+  <td class="title" role="cell">CERT-FR – Menaces et incidents</td>
+  <td role="cell" data-label="URL"><code class="small">https://www.cert.ssi.gouv.fr/cti/feed/</code></td>
+  <td role="cell" data-label="Étiquettes">
+    <span class="tag">France</span>
+    
+    
+    
+    <details>
+      <summary class="small">Modifier les étiquettes</summary>
+      <form method="post" action="/settings/feeds/3">
+        <input type="hidden" name="csrf" value="CSRF">
+        
+<div class="grid">
+  <fieldset><legend>Pays</legend>
+    <label class="check"><input type="checkbox" name="country" value="FR" checked> France</label><label class="check"><input type="checkbox" name="country" value="BE" > Belgique</label><label class="check"><input type="checkbox" name="country" value="CH" > Suisse</label><label class="check"><input type="checkbox" name="country" value="CA" > Canada</label><label class="check"><input type="checkbox" name="country" value="DE" > Allemagne</label><label class="check"><input type="checkbox" name="country" value="GB" > Royaume-Uni</label><label class="check"><input type="checkbox" name="country" value="US" > États-Unis</label><label class="check"><input type="checkbox" name="country" value="IT" > Italie</label><label class="check"><input type="checkbox" name="country" value="ES" > Espagne</label><label class="check"><input type="checkbox" name="country" value="NL" > Pays-Bas</label><label class="check"><input type="checkbox" name="country" value="PL" > Pologne</label><label class="check"><input type="checkbox" name="country" value="UA" > Ukraine</label><label class="check"><input type="checkbox" name="country" value="RU" > Russie</label><label class="check"><input type="checkbox" name="country" value="CN" > Chine</label><label class="check"><input type="checkbox" name="country" value="KP" > Corée du Nord</label><label class="check"><input type="checkbox" name="country" value="IR" > Iran</label><label class="check"><input type="checkbox" name="country" value="IL" > Israël</label><label class="check"><input type="checkbox" name="country" value="IN" > Inde</label><label class="check"><input type="checkbox" name="country" value="JP" > Japon</label><label class="check"><input type="checkbox" name="country" value="AU" > Australie</label><label class="check"><input type="checkbox" name="country" value="EU" > Union européenne</label>
+  </fieldset>
+  <fieldset><legend>Secteurs</legend>
+    <label class="check"><input type="checkbox" name="sector" value="energy" > Énergie</label><label class="check"><input type="checkbox" name="sector" value="health" > Santé</label><label class="check"><input type="checkbox" name="sector" value="finance" > Finance</label><label class="check"><input type="checkbox" name="sector" value="government" > Administration publique</label><label class="check"><input type="checkbox" name="sector" value="defense" > Défense</label><label class="check"><input type="checkbox" name="sector" value="transport" > Transports</label><label class="check"><input type="checkbox" name="sector" value="telecom" > Télécommunications</label><label class="check"><input type="checkbox" name="sector" value="education" > Éducation et recherche</label><label class="check"><input type="checkbox" name="sector" value="manufacturing" > Industrie</label><label class="check"><input type="checkbox" name="sector" value="retail" > Commerce</label><label class="check"><input type="checkbox" name="sector" value="water" > Eau</label><label class="check"><input type="checkbox" name="sector" value="digital" > Services numériques / IT</label>
+  </fieldset>
+  <fieldset><legend>Réglementations et normes</legend>
+    <label class="check"><input type="checkbox" name="regulation" value="nis2" > NIS2</label><label class="check"><input type="checkbox" name="regulation" value="cra" > Cyber Resilience Act</label><label class="check"><input type="checkbox" name="regulation" value="dora" > DORA</label><label class="check"><input type="checkbox" name="regulation" value="gdpr" > RGPD</label><label class="check"><input type="checkbox" name="regulation" value="ai_act" > AI Act</label><label class="check"><input type="checkbox" name="regulation" value="cybersecurity_act" > Cybersecurity Act / certification UE</label><label class="check"><input type="checkbox" name="regulation" value="eidas" > eIDAS</label><label class="check"><input type="checkbox" name="regulation" value="data_act" > Data Act</label><label class="check"><input type="checkbox" name="regulation" value="iso27001" > ISO/IEC 27001</label><label class="check"><input type="checkbox" name="regulation" value="secnumcloud" > SecNumCloud</label><label class="check"><input type="checkbox" name="regulation" value="hds" > HDS (données de santé)</label><label class="check"><input type="checkbox" name="regulation" value="pci_dss" > PCI DSS</label><label class="check"><input type="checkbox" name="regulation" value="lpm" > LPM / OIV</label><label class="check"><input type="checkbox" name="regulation" value="nist_csf" > NIST CSF / SP 800</label>
+  </fieldset>
+</div>
+
+        <button type="submit">Enregistrer les étiquettes</button>
+      </form>
+    </details>
+    
+  </td>
+  <td role="cell" data-label="Dernière collecte"><span class="muted">jamais</span>
+      </td>
+  <td class="actions" role="cell">
+    <form method="post" action="/settings/feeds/3/toggle" class="inline">
+      <input type="hidden" name="csrf" value="CSRF">
+      <input type="hidden" name="enabled" value="0">
+      <button type="submit" class="link">Désactiver</button>
+    </form>
+    <details class="confirm">
+      <summary>Supprimer…</summary>
+      <form method="post" action="/settings/feeds/3/delete" class="inline">
+        <input type="hidden" name="csrf" value="CSRF">
+        <button type="submit" class="danger">Supprimer le flux et ses actualités</button>
+      </form>
+    </details>
+  </td>
+</tr>
+
+<tr role="row">
+  <td class="title" role="cell">CISA – Advisories</td>
+  <td role="cell" data-label="URL"><code class="small">https://www.cisa.gov/cybersecurity-advisories/all.xml</code></td>
+  <td role="cell" data-label="Étiquettes">
+    <span class="tag">États-Unis</span>
+    
+    
+    
+    <details>
+      <summary class="small">Modifier les étiquettes</summary>
+      <form method="post" action="/settings/feeds/4">
+        <input type="hidden" name="csrf" value="CSRF">
+        
+<div class="grid">
+  <fieldset><legend>Pays</legend>
+    <label class="check"><input type="checkbox" name="country" value="FR" > France</label><label class="check"><input type="checkbox" name="country" value="BE" > Belgique</label><label class="check"><input type="checkbox" name="country" value="CH" > Suisse</label><label class="check"><input type="checkbox" name="country" value="CA" > Canada</label><label class="check"><input type="checkbox" name="country" value="DE" > Allemagne</label><label class="check"><input type="checkbox" name="country" value="GB" > Royaume-Uni</label><label class="check"><input type="checkbox" name="country" value="US" checked> États-Unis</label><label class="check"><input type="checkbox" name="country" value="IT" > Italie</label><label class="check"><input type="checkbox" name="country" value="ES" > Espagne</label><label class="check"><input type="checkbox" name="country" value="NL" > Pays-Bas</label><label class="check"><input type="checkbox" name="country" value="PL" > Pologne</label><label class="check"><input type="checkbox" name="country" value="UA" > Ukraine</label><label class="check"><input type="checkbox" name="country" value="RU" > Russie</label><label class="check"><input type="checkbox" name="country" value="CN" > Chine</label><label class="check"><input type="checkbox" name="country" value="KP" > Corée du Nord</label><label class="check"><input type="checkbox" name="country" value="IR" > Iran</label><label class="check"><input type="checkbox" name="country" value="IL" > Israël</label><label class="check"><input type="checkbox" name="country" value="IN" > Inde</label><label class="check"><input type="checkbox" name="country" value="JP" > Japon</label><label class="check"><input type="checkbox" name="country" value="AU" > Australie</label><label class="check"><input type="checkbox" name="country" value="EU" > Union européenne</label>
+  </fieldset>
+  <fieldset><legend>Secteurs</legend>
+    <label class="check"><input type="checkbox" name="sector" value="energy" > Énergie</label><label class="check"><input type="checkbox" name="sector" value="health" > Santé</label><label class="check"><input type="checkbox" name="sector" value="finance" > Finance</label><label class="check"><input type="checkbox" name="sector" value="government" > Administration publique</label><label class="check"><input type="checkbox" name="sector" value="defense" > Défense</label><label class="check"><input type="checkbox" name="sector" value="transport" > Transports</label><label class="check"><input type="checkbox" name="sector" value="telecom" > Télécommunications</label><label class="check"><input type="checkbox" name="sector" value="education" > Éducation et recherche</label><label class="check"><input type="checkbox" name="sector" value="manufacturing" > Industrie</label><label class="check"><input type="checkbox" name="sector" value="retail" > Commerce</label><label class="check"><input type="checkbox" name="sector" value="water" > Eau</label><label class="check"><input type="checkbox" name="sector" value="digital" > Services numériques / IT</label>
+  </fieldset>
+  <fieldset><legend>Réglementations et normes</legend>
+    <label class="check"><input type="checkbox" name="regulation" value="nis2" > NIS2</label><label class="check"><input type="checkbox" name="regulation" value="cra" > Cyber Resilience Act</label><label class="check"><input type="checkbox" name="regulation" value="dora" > DORA</label><label class="check"><input type="checkbox" name="regulation" value="gdpr" > RGPD</label><label class="check"><input type="checkbox" name="regulation" value="ai_act" > AI Act</label><label class="check"><input type="checkbox" name="regulation" value="cybersecurity_act" > Cybersecurity Act / certification UE</label><label class="check"><input type="checkbox" name="regulation" value="eidas" > eIDAS</label><label class="check"><input type="checkbox" name="regulation" value="data_act" > Data Act</label><label class="check"><input type="checkbox" name="regulation" value="iso27001" > ISO/IEC 27001</label><label class="check"><input type="checkbox" name="regulation" value="secnumcloud" > SecNumCloud</label><label class="check"><input type="checkbox" name="regulation" value="hds" > HDS (données de santé)</label><label class="check"><input type="checkbox" name="regulation" value="pci_dss" > PCI DSS</label><label class="check"><input type="checkbox" name="regulation" value="lpm" > LPM / OIV</label><label class="check"><input type="checkbox" name="regulation" value="nist_csf" > NIST CSF / SP 800</label>
+  </fieldset>
+</div>
+
+        <button type="submit">Enregistrer les étiquettes</button>
+      </form>
+    </details>
+    
+  </td>
+  <td role="cell" data-label="Dernière collecte"><span class="muted">jamais</span>
+      </td>
+  <td class="actions" role="cell">
+    <form method="post" action="/settings/feeds/4/toggle" class="inline">
+      <input type="hidden" name="csrf" value="CSRF">
+      <input type="hidden" name="enabled" value="0">
+      <button type="submit" class="link">Désactiver</button>
+    </form>
+    <details class="confirm">
+      <summary>Supprimer…</summary>
+      <form method="post" action="/settings/feeds/4/delete" class="inline">
+        <input type="hidden" name="csrf" value="CSRF">
+        <button type="submit" class="danger">Supprimer le flux et ses actualités</button>
+      </form>
+    </details>
+  </td>
+</tr>
+
+<tr role="row">
+  <td class="title" role="cell">CNIL – Actualités</td>
+  <td role="cell" data-label="URL"><code class="small">https://www.cnil.fr/fr/rss.xml</code></td>
+  <td role="cell" data-label="Étiquettes">
+    <span class="tag">France</span>
+    
+    <span class="tag tag-regulation">RGPD</span>
+    
+    <details>
+      <summary class="small">Modifier les étiquettes</summary>
+      <form method="post" action="/settings/feeds/8">
+        <input type="hidden" name="csrf" value="CSRF">
+        
+<div class="grid">
+  <fieldset><legend>Pays</legend>
+    <label class="check"><input type="checkbox" name="country" value="FR" checked> France</label><label class="check"><input type="checkbox" name="country" value="BE" > Belgique</label><label class="check"><input type="checkbox" name="country" value="CH" > Suisse</label><label class="check"><input type="checkbox" name="country" value="CA" > Canada</label><label class="check"><input type="checkbox" name="country" value="DE" > Allemagne</label><label class="check"><input type="checkbox" name="country" value="GB" > Royaume-Uni</label><label class="check"><input type="checkbox" name="country" value="US" > États-Unis</label><label class="check"><input type="checkbox" name="country" value="IT" > Italie</label><label class="check"><input type="checkbox" name="country" value="ES" > Espagne</label><label class="check"><input type="checkbox" name="country" value="NL" > Pays-Bas</label><label class="check"><input type="checkbox" name="country" value="PL" > Pologne</label><label class="check"><input type="checkbox" name="country" value="UA" > Ukraine</label><label class="check"><input type="checkbox" name="country" value="RU" > Russie</label><label class="check"><input type="checkbox" name="country" value="CN" > Chine</label><label class="check"><input type="checkbox" name="country" value="KP" > Corée du Nord</label><label class="check"><input type="checkbox" name="country" value="IR" > Iran</label><label class="check"><input type="checkbox" name="country" value="IL" > Israël</label><label class="check"><input type="checkbox" name="country" value="IN" > Inde</label><label class="check"><input type="checkbox" name="country" value="JP" > Japon</label><label class="check"><input type="checkbox" name="country" value="AU" > Australie</label><label class="check"><input type="checkbox" name="country" value="EU" > Union européenne</label>
+  </fieldset>
+  <fieldset><legend>Secteurs</legend>
+    <label class="check"><input type="checkbox" name="sector" value="energy" > Énergie</label><label class="check"><input type="checkbox" name="sector" value="health" > Santé</label><label class="check"><input type="checkbox" name="sector" value="finance" > Finance</label><label class="check"><input type="checkbox" name="sector" value="government" > Administration publique</label><label class="check"><input type="checkbox" name="sector" value="defense" > Défense</label><label class="check"><input type="checkbox" name="sector" value="transport" > Transports</label><label class="check"><input type="checkbox" name="sector" value="telecom" > Télécommunications</label><label class="check"><input type="checkbox" name="sector" value="education" > Éducation et recherche</label><label class="check"><input type="checkbox" name="sector" value="manufacturing" > Industrie</label><label class="check"><input type="checkbox" name="sector" value="retail" > Commerce</label><label class="check"><input type="checkbox" name="sector" value="water" > Eau</label><label class="check"><input type="checkbox" name="sector" value="digital" > Services numériques / IT</label>
+  </fieldset>
+  <fieldset><legend>Réglementations et normes</legend>
+    <label class="check"><input type="checkbox" name="regulation" value="nis2" > NIS2</label><label class="check"><input type="checkbox" name="regulation" value="cra" > Cyber Resilience Act</label><label class="check"><input type="checkbox" name="regulation" value="dora" > DORA</label><label class="check"><input type="checkbox" name="regulation" value="gdpr" checked> RGPD</label><label class="check"><input type="checkbox" name="regulation" value="ai_act" > AI Act</label><label class="check"><input type="checkbox" name="regulation" value="cybersecurity_act" > Cybersecurity Act / certification UE</label><label class="check"><input type="checkbox" name="regulation" value="eidas" > eIDAS</label><label class="check"><input type="checkbox" name="regulation" value="data_act" > Data Act</label><label class="check"><input type="checkbox" name="regulation" value="iso27001" > ISO/IEC 27001</label><label class="check"><input type="checkbox" name="regulation" value="secnumcloud" > SecNumCloud</label><label class="check"><input type="checkbox" name="regulation" value="hds" > HDS (données de santé)</label><label class="check"><input type="checkbox" name="regulation" value="pci_dss" > PCI DSS</label><label class="check"><input type="checkbox" name="regulation" value="lpm" > LPM / OIV</label><label class="check"><input type="checkbox" name="regulation" value="nist_csf" > NIST CSF / SP 800</label>
+  </fieldset>
+</div>
+
+        <button type="submit">Enregistrer les étiquettes</button>
+      </form>
+    </details>
+    
+  </td>
+  <td role="cell" data-label="Dernière collecte"><span class="muted">jamais</span>
+      </td>
+  <td class="actions" role="cell">
+    <form method="post" action="/settings/feeds/8/toggle" class="inline">
+      <input type="hidden" name="csrf" value="CSRF">
+      <input type="hidden" name="enabled" value="0">
+      <button type="submit" class="link">Désactiver</button>
+    </form>
+    <details class="confirm">
+      <summary>Supprimer…</summary>
+      <form method="post" action="/settings/feeds/8/delete" class="inline">
+        <input type="hidden" name="csrf" value="CSRF">
+        <button type="submit" class="danger">Supprimer le flux et ses actualités</button>
+      </form>
+    </details>
+  </td>
+</tr>
+
+<tr role="row">
+  <td class="title" role="cell">Commission européenne – Stratégie numérique</td>
+  <td role="cell" data-label="URL"><code class="small">https://digital-strategy.ec.europa.eu/en/rss.xml</code></td>
+  <td role="cell" data-label="Étiquettes">
+    <span class="tag">Union européenne</span>
+    
+    
+    
+    <details>
+      <summary class="small">Modifier les étiquettes</summary>
+      <form method="post" action="/settings/feeds/7">
+        <input type="hidden" name="csrf" value="CSRF">
+        
+<div class="grid">
+  <fieldset><legend>Pays</legend>
+    <label class="check"><input type="checkbox" name="country" value="FR" > France</label><label class="check"><input type="checkbox" name="country" value="BE" > Belgique</label><label class="check"><input type="checkbox" name="country" value="CH" > Suisse</label><label class="check"><input type="checkbox" name="country" value="CA" > Canada</label><label class="check"><input type="checkbox" name="country" value="DE" > Allemagne</label><label class="check"><input type="checkbox" name="country" value="GB" > Royaume-Uni</label><label class="check"><input type="checkbox" name="country" value="US" > États-Unis</label><label class="check"><input type="checkbox" name="country" value="IT" > Italie</label><label class="check"><input type="checkbox" name="country" value="ES" > Espagne</label><label class="check"><input type="checkbox" name="country" value="NL" > Pays-Bas</label><label class="check"><input type="checkbox" name="country" value="PL" > Pologne</label><label class="check"><input type="checkbox" name="country" value="UA" > Ukraine</label><label class="check"><input type="checkbox" name="country" value="RU" > Russie</label><label class="check"><input type="checkbox" name="country" value="CN" > Chine</label><label class="check"><input type="checkbox" name="country" value="KP" > Corée du Nord</label><label class="check"><input type="checkbox" name="country" value="IR" > Iran</label><label class="check"><input type="checkbox" name="country" value="IL" > Israël</label><label class="check"><input type="checkbox" name="country" value="IN" > Inde</label><label class="check"><input type="checkbox" name="country" value="JP" > Japon</label><label class="check"><input type="checkbox" name="country" value="AU" > Australie</label><label class="check"><input type="checkbox" name="country" value="EU" checked> Union européenne</label>
+  </fieldset>
+  <fieldset><legend>Secteurs</legend>
+    <label class="check"><input type="checkbox" name="sector" value="energy" > Énergie</label><label class="check"><input type="checkbox" name="sector" value="health" > Santé</label><label class="check"><input type="checkbox" name="sector" value="finance" > Finance</label><label class="check"><input type="checkbox" name="sector" value="government" > Administration publique</label><label class="check"><input type="checkbox" name="sector" value="defense" > Défense</label><label class="check"><input type="checkbox" name="sector" value="transport" > Transports</label><label class="check"><input type="checkbox" name="sector" value="telecom" > Télécommunications</label><label class="check"><input type="checkbox" name="sector" value="education" > Éducation et recherche</label><label class="check"><input type="checkbox" name="sector" value="manufacturing" > Industrie</label><label class="check"><input type="checkbox" name="sector" value="retail" > Commerce</label><label class="check"><input type="checkbox" name="sector" value="water" > Eau</label><label class="check"><input type="checkbox" name="sector" value="digital" > Services numériques / IT</label>
+  </fieldset>
+  <fieldset><legend>Réglementations et normes</legend>
+    <label class="check"><input type="checkbox" name="regulation" value="nis2" > NIS2</label><label class="check"><input type="checkbox" name="regulation" value="cra" > Cyber Resilience Act</label><label class="check"><input type="checkbox" name="regulation" value="dora" > DORA</label><label class="check"><input type="checkbox" name="regulation" value="gdpr" > RGPD</label><label class="check"><input type="checkbox" name="regulation" value="ai_act" > AI Act</label><label class="check"><input type="checkbox" name="regulation" value="cybersecurity_act" > Cybersecurity Act / certification UE</label><label class="check"><input type="checkbox" name="regulation" value="eidas" > eIDAS</label><label class="check"><input type="checkbox" name="regulation" value="data_act" > Data Act</label><label class="check"><input type="checkbox" name="regulation" value="iso27001" > ISO/IEC 27001</label><label class="check"><input type="checkbox" name="regulation" value="secnumcloud" > SecNumCloud</label><label class="check"><input type="checkbox" name="regulation" value="hds" > HDS (données de santé)</label><label class="check"><input type="checkbox" name="regulation" value="pci_dss" > PCI DSS</label><label class="check"><input type="checkbox" name="regulation" value="lpm" > LPM / OIV</label><label class="check"><input type="checkbox" name="regulation" value="nist_csf" > NIST CSF / SP 800</label>
+  </fieldset>
+</div>
+
+        <button type="submit">Enregistrer les étiquettes</button>
+      </form>
+    </details>
+    
+  </td>
+  <td role="cell" data-label="Dernière collecte"><span class="muted">jamais</span>
+      </td>
+  <td class="actions" role="cell">
+    <form method="post" action="/settings/feeds/7/toggle" class="inline">
+      <input type="hidden" name="csrf" value="CSRF">
+      <input type="hidden" name="enabled" value="0">
+      <button type="submit" class="link">Désactiver</button>
+    </form>
+    <details class="confirm">
+      <summary>Supprimer…</summary>
+      <form method="post" action="/settings/feeds/7/delete" class="inline">
+        <input type="hidden" name="csrf" value="CSRF">
+        <button type="submit" class="danger">Supprimer le flux et ses actualités</button>
+      </form>
+    </details>
+  </td>
+</tr>
+
+<tr role="row">
+  <td class="title" role="cell">EBA – Actualités</td>
+  <td role="cell" data-label="URL"><code class="small">https://www.eba.europa.eu/rss.xml</code></td>
+  <td role="cell" data-label="Étiquettes">
+    <span class="tag">Union européenne</span>
+    <span class="tag tag-sector">Finance</span>
+    
+    
+    <details>
+      <summary class="small">Modifier les étiquettes</summary>
+      <form method="post" action="/settings/feeds/10">
+        <input type="hidden" name="csrf" value="CSRF">
+        
+<div class="grid">
+  <fieldset><legend>Pays</legend>
+    <label class="check"><input type="checkbox" name="country" value="FR" > France</label><label class="check"><input type="checkbox" name="country" value="BE" > Belgique</label><label class="check"><input type="checkbox" name="country" value="CH" > Suisse</label><label class="check"><input type="checkbox" name="country" value="CA" > Canada</label><label class="check"><input type="checkbox" name="country" value="DE" > Allemagne</label><label class="check"><input type="checkbox" name="country" value="GB" > Royaume-Uni</label><label class="check"><input type="checkbox" name="country" value="US" > États-Unis</label><label class="check"><input type="checkbox" name="country" value="IT" > Italie</label><label class="check"><input type="checkbox" name="country" value="ES" > Espagne</label><label class="check"><input type="checkbox" name="country" value="NL" > Pays-Bas</label><label class="check"><input type="checkbox" name="country" value="PL" > Pologne</label><label class="check"><input type="checkbox" name="country" value="UA" > Ukraine</label><label class="check"><input type="checkbox" name="country" value="RU" > Russie</label><label class="check"><input type="checkbox" name="country" value="CN" > Chine</label><label class="check"><input type="checkbox" name="country" value="KP" > Corée du Nord</label><label class="check"><input type="checkbox" name="country" value="IR" > Iran</label><label class="check"><input type="checkbox" name="country" value="IL" > Israël</label><label class="check"><input type="checkbox" name="country" value="IN" > Inde</label><label class="check"><input type="checkbox" name="country" value="JP" > Japon</label><label class="check"><input type="checkbox" name="country" value="AU" > Australie</label><label class="check"><input type="checkbox" name="country" value="EU" checked> Union européenne</label>
+  </fieldset>
+  <fieldset><legend>Secteurs</legend>
+    <label class="check"><input type="checkbox" name="sector" value="energy" > Énergie</label><label class="check"><input type="checkbox" name="sector" value="health" > Santé</label><label class="check"><input type="checkbox" name="sector" value="finance" checked> Finance</label><label class="check"><input type="checkbox" name="sector" value="government" > Administration publique</label><label class="check"><input type="checkbox" name="sector" value="defense" > Défense</label><label class="check"><input type="checkbox" name="sector" value="transport" > Transports</label><label class="check"><input type="checkbox" name="sector" value="telecom" > Télécommunications</label><label class="check"><input type="checkbox" name="sector" value="education" > Éducation et recherche</label><label class="check"><input type="checkbox" name="sector" value="manufacturing" > Industrie</label><label class="check"><input type="checkbox" name="sector" value="retail" > Commerce</label><label class="check"><input type="checkbox" name="sector" value="water" > Eau</label><label class="check"><input type="checkbox" name="sector" value="digital" > Services numériques / IT</label>
+  </fieldset>
+  <fieldset><legend>Réglementations et normes</legend>
+    <label class="check"><input type="checkbox" name="regulation" value="nis2" > NIS2</label><label class="check"><input type="checkbox" name="regulation" value="cra" > Cyber Resilience Act</label><label class="check"><input type="checkbox" name="regulation" value="dora" > DORA</label><label class="check"><input type="checkbox" name="regulation" value="gdpr" > RGPD</label><label class="check"><input type="checkbox" name="regulation" value="ai_act" > AI Act</label><label class="check"><input type="checkbox" name="regulation" value="cybersecurity_act" > Cybersecurity Act / certification UE</label><label class="check"><input type="checkbox" name="regulation" value="eidas" > eIDAS</label><label class="check"><input type="checkbox" name="regulation" value="data_act" > Data Act</label><label class="check"><input type="checkbox" name="regulation" value="iso27001" > ISO/IEC 27001</label><label class="check"><input type="checkbox" name="regulation" value="secnumcloud" > SecNumCloud</label><label class="check"><input type="checkbox" name="regulation" value="hds" > HDS (données de santé)</label><label class="check"><input type="checkbox" name="regulation" value="pci_dss" > PCI DSS</label><label class="check"><input type="checkbox" name="regulation" value="lpm" > LPM / OIV</label><label class="check"><input type="checkbox" name="regulation" value="nist_csf" > NIST CSF / SP 800</label>
+  </fieldset>
+</div>
+
+        <button type="submit">Enregistrer les étiquettes</button>
+      </form>
+    </details>
+    
+  </td>
+  <td role="cell" data-label="Dernière collecte"><span class="muted">jamais</span>
+      </td>
+  <td class="actions" role="cell">
+    <form method="post" action="/settings/feeds/10/toggle" class="inline">
+      <input type="hidden" name="csrf" value="CSRF">
+      <input type="hidden" name="enabled" value="0">
+      <button type="submit" class="link">Désactiver</button>
+    </form>
+    <details class="confirm">
+      <summary>Supprimer…</summary>
+      <form method="post" action="/settings/feeds/10/delete" class="inline">
+        <input type="hidden" name="csrf" value="CSRF">
+        <button type="submit" class="danger">Supprimer le flux et ses actualités</button>
+      </form>
+    </details>
+  </td>
+</tr>
+
+<tr role="row">
+  <td class="title" role="cell">EDPB – Actualités</td>
+  <td role="cell" data-label="URL"><code class="small">https://www.edpb.europa.eu/feed/news_en</code></td>
+  <td role="cell" data-label="Étiquettes">
+    <span class="tag">Union européenne</span>
+    
+    <span class="tag tag-regulation">RGPD</span>
+    
+    <details>
+      <summary class="small">Modifier les étiquettes</summary>
+      <form method="post" action="/settings/feeds/9">
+        <input type="hidden" name="csrf" value="CSRF">
+        
+<div class="grid">
+  <fieldset><legend>Pays</legend>
+    <label class="check"><input type="checkbox" name="country" value="FR" > France</label><label class="check"><input type="checkbox" name="country" value="BE" > Belgique</label><label class="check"><input type="checkbox" name="country" value="CH" > Suisse</label><label class="check"><input type="checkbox" name="country" value="CA" > Canada</label><label class="check"><input type="checkbox" name="country" value="DE" > Allemagne</label><label class="check"><input type="checkbox" name="country" value="GB" > Royaume-Uni</label><label class="check"><input type="checkbox" name="country" value="US" > États-Unis</label><label class="check"><input type="checkbox" name="country" value="IT" > Italie</label><label class="check"><input type="checkbox" name="country" value="ES" > Espagne</label><label class="check"><input type="checkbox" name="country" value="NL" > Pays-Bas</label><label class="check"><input type="checkbox" name="country" value="PL" > Pologne</label><label class="check"><input type="checkbox" name="country" value="UA" > Ukraine</label><label class="check"><input type="checkbox" name="country" value="RU" > Russie</label><label class="check"><input type="checkbox" name="country" value="CN" > Chine</label><label class="check"><input type="checkbox" name="country" value="KP" > Corée du Nord</label><label class="check"><input type="checkbox" name="country" value="IR" > Iran</label><label class="check"><input type="checkbox" name="country" value="IL" > Israël</label><label class="check"><input type="checkbox" name="country" value="IN" > Inde</label><label class="check"><input type="checkbox" name="country" value="JP" > Japon</label><label class="check"><input type="checkbox" name="country" value="AU" > Australie</label><label class="check"><input type="checkbox" name="country" value="EU" checked> Union européenne</label>
+  </fieldset>
+  <fieldset><legend>Secteurs</legend>
+    <label class="check"><input type="checkbox" name="sector" value="energy" > Énergie</label><label class="check"><input type="checkbox" name="sector" value="health" > Santé</label><label class="check"><input type="checkbox" name="sector" value="finance" > Finance</label><label class="check"><input type="checkbox" name="sector" value="government" > Administration publique</label><label class="check"><input type="checkbox" name="sector" value="defense" > Défense</label><label class="check"><input type="checkbox" name="sector" value="transport" > Transports</label><label class="check"><input type="checkbox" name="sector" value="telecom" > Télécommunications</label><label class="check"><input type="checkbox" name="sector" value="education" > Éducation et recherche</label><label class="check"><input type="checkbox" name="sector" value="manufacturing" > Industrie</label><label class="check"><input type="checkbox" name="sector" value="retail" > Commerce</label><label class="check"><input type="checkbox" name="sector" value="water" > Eau</label><label class="check"><input type="checkbox" name="sector" value="digital" > Services numériques / IT</label>
+  </fieldset>
+  <fieldset><legend>Réglementations et normes</legend>
+    <label class="check"><input type="checkbox" name="regulation" value="nis2" > NIS2</label><label class="check"><input type="checkbox" name="regulation" value="cra" > Cyber Resilience Act</label><label class="check"><input type="checkbox" name="regulation" value="dora" > DORA</label><label class="check"><input type="checkbox" name="regulation" value="gdpr" checked> RGPD</label><label class="check"><input type="checkbox" name="regulation" value="ai_act" > AI Act</label><label class="check"><input type="checkbox" name="regulation" value="cybersecurity_act" > Cybersecurity Act / certification UE</label><label class="check"><input type="checkbox" name="regulation" value="eidas" > eIDAS</label><label class="check"><input type="checkbox" name="regulation" value="data_act" > Data Act</label><label class="check"><input type="checkbox" name="regulation" value="iso27001" > ISO/IEC 27001</label><label class="check"><input type="checkbox" name="regulation" value="secnumcloud" > SecNumCloud</label><label class="check"><input type="checkbox" name="regulation" value="hds" > HDS (données de santé)</label><label class="check"><input type="checkbox" name="regulation" value="pci_dss" > PCI DSS</label><label class="check"><input type="checkbox" name="regulation" value="lpm" > LPM / OIV</label><label class="check"><input type="checkbox" name="regulation" value="nist_csf" > NIST CSF / SP 800</label>
+  </fieldset>
+</div>
+
+        <button type="submit">Enregistrer les étiquettes</button>
+      </form>
+    </details>
+    
+  </td>
+  <td role="cell" data-label="Dernière collecte"><span class="muted">jamais</span>
+      </td>
+  <td class="actions" role="cell">
+    <form method="post" action="/settings/feeds/9/toggle" class="inline">
+      <input type="hidden" name="csrf" value="CSRF">
+      <input type="hidden" name="enabled" value="0">
+      <button type="submit" class="link">Désactiver</button>
+    </form>
+    <details class="confirm">
+      <summary>Supprimer…</summary>
+      <form method="post" action="/settings/feeds/9/delete" class="inline">
+        <input type="hidden" name="csrf" value="CSRF">
+        <button type="submit" class="danger">Supprimer le flux et ses actualités</button>
+      </form>
+    </details>
+  </td>
+</tr>
+
+<tr role="row">
+  <td class="title" role="cell">The Hacker News</td>
+  <td role="cell" data-label="URL"><code class="small">https://feeds.feedburner.com/TheHackersNews</code></td>
+  <td role="cell" data-label="Étiquettes">
+    
+    
+    
+    
+    <details>
+      <summary class="small">Modifier les étiquettes</summary>
+      <form method="post" action="/settings/feeds/6">
+        <input type="hidden" name="csrf" value="CSRF">
+        
+<div class="grid">
+  <fieldset><legend>Pays</legend>
+    <label class="check"><input type="checkbox" name="country" value="FR" > France</label><label class="check"><input type="checkbox" name="country" value="BE" > Belgique</label><label class="check"><input type="checkbox" name="country" value="CH" > Suisse</label><label class="check"><input type="checkbox" name="country" value="CA" > Canada</label><label class="check"><input type="checkbox" name="country" value="DE" > Allemagne</label><label class="check"><input type="checkbox" name="country" value="GB" > Royaume-Uni</label><label class="check"><input type="checkbox" name="country" value="US" > États-Unis</label><label class="check"><input type="checkbox" name="country" value="IT" > Italie</label><label class="check"><input type="checkbox" name="country" value="ES" > Espagne</label><label class="check"><input type="checkbox" name="country" value="NL" > Pays-Bas</label><label class="check"><input type="checkbox" name="country" value="PL" > Pologne</label><label class="check"><input type="checkbox" name="country" value="UA" > Ukraine</label><label class="check"><input type="checkbox" name="country" value="RU" > Russie</label><label class="check"><input type="checkbox" name="country" value="CN" > Chine</label><label class="check"><input type="checkbox" name="country" value="KP" > Corée du Nord</label><label class="check"><input type="checkbox" name="country" value="IR" > Iran</label><label class="check"><input type="checkbox" name="country" value="IL" > Israël</label><label class="check"><input type="checkbox" name="country" value="IN" > Inde</label><label class="check"><input type="checkbox" name="country" value="JP" > Japon</label><label class="check"><input type="checkbox" name="country" value="AU" > Australie</label><label class="check"><input type="checkbox" name="country" value="EU" > Union européenne</label>
+  </fieldset>
+  <fieldset><legend>Secteurs</legend>
+    <label class="check"><input type="checkbox" name="sector" value="energy" > Énergie</label><label class="check"><input type="checkbox" name="sector" value="health" > Santé</label><label class="check"><input type="checkbox" name="sector" value="finance" > Finance</label><label class="check"><input type="checkbox" name="sector" value="government" > Administration publique</label><label class="check"><input type="checkbox" name="sector" value="defense" > Défense</label><label class="check"><input type="checkbox" name="sector" value="transport" > Transports</label><label class="check"><input type="checkbox" name="sector" value="telecom" > Télécommunications</label><label class="check"><input type="checkbox" name="sector" value="education" > Éducation et recherche</label><label class="check"><input type="checkbox" name="sector" value="manufacturing" > Industrie</label><label class="check"><input type="checkbox" name="sector" value="retail" > Commerce</label><label class="check"><input type="checkbox" name="sector" value="water" > Eau</label><label class="check"><input type="checkbox" name="sector" value="digital" > Services numériques / IT</label>
+  </fieldset>
+  <fieldset><legend>Réglementations et normes</legend>
+    <label class="check"><input type="checkbox" name="regulation" value="nis2" > NIS2</label><label class="check"><input type="checkbox" name="regulation" value="cra" > Cyber Resilience Act</label><label class="check"><input type="checkbox" name="regulation" value="dora" > DORA</label><label class="check"><input type="checkbox" name="regulation" value="gdpr" > RGPD</label><label class="check"><input type="checkbox" name="regulation" value="ai_act" > AI Act</label><label class="check"><input type="checkbox" name="regulation" value="cybersecurity_act" > Cybersecurity Act / certification UE</label><label class="check"><input type="checkbox" name="regulation" value="eidas" > eIDAS</label><label class="check"><input type="checkbox" name="regulation" value="data_act" > Data Act</label><label class="check"><input type="checkbox" name="regulation" value="iso27001" > ISO/IEC 27001</label><label class="check"><input type="checkbox" name="regulation" value="secnumcloud" > SecNumCloud</label><label class="check"><input type="checkbox" name="regulation" value="hds" > HDS (données de santé)</label><label class="check"><input type="checkbox" name="regulation" value="pci_dss" > PCI DSS</label><label class="check"><input type="checkbox" name="regulation" value="lpm" > LPM / OIV</label><label class="check"><input type="checkbox" name="regulation" value="nist_csf" > NIST CSF / SP 800</label>
+  </fieldset>
+</div>
+
+        <button type="submit">Enregistrer les étiquettes</button>
+      </form>
+    </details>
+    
+  </td>
+  <td role="cell" data-label="Dernière collecte"><span class="muted">jamais</span>
+      </td>
+  <td class="actions" role="cell">
+    <form method="post" action="/settings/feeds/6/toggle" class="inline">
+      <input type="hidden" name="csrf" value="CSRF">
+      <input type="hidden" name="enabled" value="0">
+      <button type="submit" class="link">Désactiver</button>
+    </form>
+    <details class="confirm">
+      <summary>Supprimer…</summary>
+      <form method="post" action="/settings/feeds/6/delete" class="inline">
+        <input type="hidden" name="csrf" value="CSRF">
+        <button type="submit" class="danger">Supprimer le flux et ses actualités</button>
+      </form>
+    </details>
+  </td>
+</tr>
+
+<tr role="row">
+  <td class="title" role="cell">The Hacker News – Vulnérabilités</td>
+  <td role="cell" data-label="URL"><code class="small">https://thehackernews.com/feeds/posts/default/-/Vulnerability</code></td>
+  <td role="cell" data-label="Étiquettes">
+    
+    
+    
+    
+    <details>
+      <summary class="small">Modifier les étiquettes</summary>
+      <form method="post" action="/settings/feeds/11">
+        <input type="hidden" name="csrf" value="CSRF">
+        
+<div class="grid">
+  <fieldset><legend>Pays</legend>
+    <label class="check"><input type="checkbox" name="country" value="FR" > France</label><label class="check"><input type="checkbox" name="country" value="BE" > Belgique</label><label class="check"><input type="checkbox" name="country" value="CH" > Suisse</label><label class="check"><input type="checkbox" name="country" value="CA" > Canada</label><label class="check"><input type="checkbox" name="country" value="DE" > Allemagne</label><label class="check"><input type="checkbox" name="country" value="GB" > Royaume-Uni</label><label class="check"><input type="checkbox" name="country" value="US" > États-Unis</label><label class="check"><input type="checkbox" name="country" value="IT" > Italie</label><label class="check"><input type="checkbox" name="country" value="ES" > Espagne</label><label class="check"><input type="checkbox" name="country" value="NL" > Pays-Bas</label><label class="check"><input type="checkbox" name="country" value="PL" > Pologne</label><label class="check"><input type="checkbox" name="country" value="UA" > Ukraine</label><label class="check"><input type="checkbox" name="country" value="RU" > Russie</label><label class="check"><input type="checkbox" name="country" value="CN" > Chine</label><label class="check"><input type="checkbox" name="country" value="KP" > Corée du Nord</label><label class="check"><input type="checkbox" name="country" value="IR" > Iran</label><label class="check"><input type="checkbox" name="country" value="IL" > Israël</label><label class="check"><input type="checkbox" name="country" value="IN" > Inde</label><label class="check"><input type="checkbox" name="country" value="JP" > Japon</label><label class="check"><input type="checkbox" name="country" value="AU" > Australie</label><label class="check"><input type="checkbox" name="country" value="EU" > Union européenne</label>
+  </fieldset>
+  <fieldset><legend>Secteurs</legend>
+    <label class="check"><input type="checkbox" name="sector" value="energy" > Énergie</label><label class="check"><input type="checkbox" name="sector" value="health" > Santé</label><label class="check"><input type="checkbox" name="sector" value="finance" > Finance</label><label class="check"><input type="checkbox" name="sector" value="government" > Administration publique</label><label class="check"><input type="checkbox" name="sector" value="defense" > Défense</label><label class="check"><input type="checkbox" name="sector" value="transport" > Transports</label><label class="check"><input type="checkbox" name="sector" value="telecom" > Télécommunications</label><label class="check"><input type="checkbox" name="sector" value="education" > Éducation et recherche</label><label class="check"><input type="checkbox" name="sector" value="manufacturing" > Industrie</label><label class="check"><input type="checkbox" name="sector" value="retail" > Commerce</label><label class="check"><input type="checkbox" name="sector" value="water" > Eau</label><label class="check"><input type="checkbox" name="sector" value="digital" > Services numériques / IT</label>
+  </fieldset>
+  <fieldset><legend>Réglementations et normes</legend>
+    <label class="check"><input type="checkbox" name="regulation" value="nis2" > NIS2</label><label class="check"><input type="checkbox" name="regulation" value="cra" > Cyber Resilience Act</label><label class="check"><input type="checkbox" name="regulation" value="dora" > DORA</label><label class="check"><input type="checkbox" name="regulation" value="gdpr" > RGPD</label><label class="check"><input type="checkbox" name="regulation" value="ai_act" > AI Act</label><label class="check"><input type="checkbox" name="regulation" value="cybersecurity_act" > Cybersecurity Act / certification UE</label><label class="check"><input type="checkbox" name="regulation" value="eidas" > eIDAS</label><label class="check"><input type="checkbox" name="regulation" value="data_act" > Data Act</label><label class="check"><input type="checkbox" name="regulation" value="iso27001" > ISO/IEC 27001</label><label class="check"><input type="checkbox" name="regulation" value="secnumcloud" > SecNumCloud</label><label class="check"><input type="checkbox" name="regulation" value="hds" > HDS (données de santé)</label><label class="check"><input type="checkbox" name="regulation" value="pci_dss" > PCI DSS</label><label class="check"><input type="checkbox" name="regulation" value="lpm" > LPM / OIV</label><label class="check"><input type="checkbox" name="regulation" value="nist_csf" > NIST CSF / SP 800</label>
+  </fieldset>
+</div>
+
+        <button type="submit">Enregistrer les étiquettes</button>
+      </form>
+    </details>
+    
+  </td>
+  <td role="cell" data-label="Dernière collecte"><span class="muted">jamais</span>
+      </td>
+  <td class="actions" role="cell">
+    <form method="post" action="/settings/feeds/11/toggle" class="inline">
+      <input type="hidden" name="csrf" value="CSRF">
+      <input type="hidden" name="enabled" value="0">
+      <button type="submit" class="link">Désactiver</button>
+    </form>
+    <details class="confirm">
+      <summary>Supprimer…</summary>
+      <form method="post" action="/settings/feeds/11/delete" class="inline">
+        <input type="hidden" name="csrf" value="CSRF">
+        <button type="submit" class="danger">Supprimer le flux et ses actualités</button>
+      </form>
+    </details>
+  </td>
+</tr>
+
+</tbody>
+</table>
+
+
+
+<details class="card" id="nouveau-flux">
+  <summary>Ajouter un flux</summary>
+  
+  <form method="post" action="/settings/feeds#nouveau-flux">
+    <input type="hidden" name="csrf" value="CSRF">
+    <div class="grid">
+      <label>Nom <input name="name" value="" required maxlength="100"></label>
+      <label>URL du flux RSS ou Atom (https) <input name="url" type="url" value="" required maxlength="2000"></label>
+    </div>
+    <p class="muted small">Étiquettes appliquées à toutes les actualités du flux (plusieurs choix possibles) :</p>
+    
+<div class="grid">
+  <fieldset><legend>Pays</legend>
+    <label class="check"><input type="checkbox" name="country" value="FR" > France</label><label class="check"><input type="checkbox" name="country" value="BE" > Belgique</label><label class="check"><input type="checkbox" name="country" value="CH" > Suisse</label><label class="check"><input type="checkbox" name="country" value="CA" > Canada</label><label class="check"><input type="checkbox" name="country" value="DE" > Allemagne</label><label class="check"><input type="checkbox" name="country" value="GB" > Royaume-Uni</label><label class="check"><input type="checkbox" name="country" value="US" > États-Unis</label><label class="check"><input type="checkbox" name="country" value="IT" > Italie</label><label class="check"><input type="checkbox" name="country" value="ES" > Espagne</label><label class="check"><input type="checkbox" name="country" value="NL" > Pays-Bas</label><label class="check"><input type="checkbox" name="country" value="PL" > Pologne</label><label class="check"><input type="checkbox" name="country" value="UA" > Ukraine</label><label class="check"><input type="checkbox" name="country" value="RU" > Russie</label><label class="check"><input type="checkbox" name="country" value="CN" > Chine</label><label class="check"><input type="checkbox" name="country" value="KP" > Corée du Nord</label><label class="check"><input type="checkbox" name="country" value="IR" > Iran</label><label class="check"><input type="checkbox" name="country" value="IL" > Israël</label><label class="check"><input type="checkbox" name="country" value="IN" > Inde</label><label class="check"><input type="checkbox" name="country" value="JP" > Japon</label><label class="check"><input type="checkbox" name="country" value="AU" > Australie</label><label class="check"><input type="checkbox" name="country" value="EU" > Union européenne</label>
+  </fieldset>
+  <fieldset><legend>Secteurs</legend>
+    <label class="check"><input type="checkbox" name="sector" value="energy" > Énergie</label><label class="check"><input type="checkbox" name="sector" value="health" > Santé</label><label class="check"><input type="checkbox" name="sector" value="finance" > Finance</label><label class="check"><input type="checkbox" name="sector" value="government" > Administration publique</label><label class="check"><input type="checkbox" name="sector" value="defense" > Défense</label><label class="check"><input type="checkbox" name="sector" value="transport" > Transports</label><label class="check"><input type="checkbox" name="sector" value="telecom" > Télécommunications</label><label class="check"><input type="checkbox" name="sector" value="education" > Éducation et recherche</label><label class="check"><input type="checkbox" name="sector" value="manufacturing" > Industrie</label><label class="check"><input type="checkbox" name="sector" value="retail" > Commerce</label><label class="check"><input type="checkbox" name="sector" value="water" > Eau</label><label class="check"><input type="checkbox" name="sector" value="digital" > Services numériques / IT</label>
+  </fieldset>
+  <fieldset><legend>Réglementations et normes</legend>
+    <label class="check"><input type="checkbox" name="regulation" value="nis2" > NIS2</label><label class="check"><input type="checkbox" name="regulation" value="cra" > Cyber Resilience Act</label><label class="check"><input type="checkbox" name="regulation" value="dora" > DORA</label><label class="check"><input type="checkbox" name="regulation" value="gdpr" > RGPD</label><label class="check"><input type="checkbox" name="regulation" value="ai_act" > AI Act</label><label class="check"><input type="checkbox" name="regulation" value="cybersecurity_act" > Cybersecurity Act / certification UE</label><label class="check"><input type="checkbox" name="regulation" value="eidas" > eIDAS</label><label class="check"><input type="checkbox" name="regulation" value="data_act" > Data Act</label><label class="check"><input type="checkbox" name="regulation" value="iso27001" > ISO/IEC 27001</label><label class="check"><input type="checkbox" name="regulation" value="secnumcloud" > SecNumCloud</label><label class="check"><input type="checkbox" name="regulation" value="hds" > HDS (données de santé)</label><label class="check"><input type="checkbox" name="regulation" value="pci_dss" > PCI DSS</label><label class="check"><input type="checkbox" name="regulation" value="lpm" > LPM / OIV</label><label class="check"><input type="checkbox" name="regulation" value="nist_csf" > NIST CSF / SP 800</label>
+  </fieldset>
+</div>
+
+    <button type="submit">Ajouter le flux</button>
+  </form>
+</details>
+
+</div>
+  </div>
+</main>
+</body>
+</html>

@@ -84,7 +84,7 @@ func TestTablesReadAsCards(t *testing.T) {
 	tables := regexp.MustCompile(`<table[^>]*>`)
 	cells := regexp.MustCompile(`<t[dh][ >][^>]*>?`)
 	for _, path := range []string{"/", "/assets", "/assets/" + strconv.FormatInt(asset, 10), "/findings",
-		"/findings/" + strconv.FormatInt(ids[0], 10), "/cti?all=1", "/settings", "/settings/users", "/settings/audit", "/settings/groups"} {
+		"/findings/" + strconv.FormatInt(ids[0], 10), "/cti?all=1", "/settings/feeds", "/settings/webhooks", "/settings/tokens", "/settings/users", "/settings/audit", "/settings/groups"} {
 		_, body := admin.get(path)
 		found := tables.FindAllString(body, -1)
 		if len(found) == 0 && path != "/cti?all=1" && !strings.HasPrefix(path, "/findings/") {

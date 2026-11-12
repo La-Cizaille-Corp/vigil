@@ -1,0 +1,54 @@
+{{define "content"}}
+{{$csrf := .CSRF}}{{$form := .Data.Form}}
+{{- /* The token just created comes first: it is shown once (audit UX 1.4). */}}
+{{with .Data.NewToken}}
+<div class="card" id="jeton">
+  <p><strong>Copiez ce jeton maintenant, il ne sera plus affiché :</strong></p>
+  <pre><code>{{.}}</code></pre>
+  <p class="small">Exemple :</p>
+  <pre><code>curl -X PUT -H "Authorization: Bearer $VIGIL_TOKEN" --data-binary @sbom.cdx.json {{if $.Data.BaseURL}}{{$.Data.BaseURL}}{{else}}https://vigil.example{{end}}/api/v1/projects/NOM_DU_PROJET/sbom</code></pre>
+</div>
+{{end}}
+<p class="muted">Un jeton permet à un pipeline de pousser le SBOM d'un seul projet. Il est suspendu tant que
+le compte qui l'a créé est désactivé.</p>
+{{if .Data.Tokens}}
+<table class="cards" role="table">
+<thead role="rowgroup"><tr role="row"><th role="columnheader">Nom</th><th role="columnheader">Projet</th><th role="columnheader">Créé le</th><th role="columnheader">Dernière utilisation</th><th role="columnheader"><span class="sr-only">Actions</span></th></tr></thead>
+<tbody role="rowgroup">
+{{range .Data.Tokens}}
+<tr role="row">
+  <td class="title" role="cell">{{.Name}}{{if .Suspended}} <span class="late">(suspendu : le compte {{.CreatedBy}} est désactivé)</span>{{end}}</td>
+  <td role="cell" data-label="Projet">{{.Project}}</td><td role="cell" data-label="Créé le">{{date .CreatedAt}}</td>
+  <td role="cell" data-label="Dernière utilisation">{{if .LastUsedAt.IsZero}}<span class="muted">jamais</span>{{else}}{{date .LastUsedAt}}{{end}}</td>
+  <td class="actions" role="cell">
+    <details class="confirm">
+      <summary>Révoquer…</summary>
+      <form method="post" action="/settings/tokens/{{.ID}}/delete" class="inline">
+        {{template "csrf" $csrf}}
+        <button type="submit" class="danger">Révoquer le jeton</button>
+      </form>
+    </details>
+  </td>
+</tr>
+{{end}}
+</tbody>
+</table>
+{{else}}
+<p class="muted">Aucun jeton créé.</p>
+{{end}}
+<section id="nouveau-jeton">
+<h2>Créer un jeton</h2>
+{{template "formError" (errorAt . "nouveau-jeton")}}
+<form method="post" action="/settings/tokens#nouveau-jeton" class="card">
+  {{template "csrf" $csrf}}
+  <div class="grid">
+    <label>Nom <input name="name" value="{{$form.Name}}" required maxlength="100" placeholder="gitlab-ci mon-app"></label>
+    <label>Projet <input name="project" value="{{$form.Project}}" required maxlength="200"></label>
+    {{with .Data.Groups}}<label>Ajouter ce projet au groupe (facultatif)
+      <select name="group"><option value="">—</option>{{range .}}<option value="{{.ID}}"{{if eq .ID $form.Group}} selected{{end}}>{{.Name}}</option>{{end}}</select>
+    </label>{{end}}
+  </div>
+  <button type="submit">Créer le jeton</button>
+</form>
+</section>
+{{end}}

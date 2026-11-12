@@ -377,7 +377,7 @@ l'entreprise.
 | `-smtp-password` | `VIGIL_SMTP_PASSWORD` | Préférez la variable : un argument de commande est plus exposé |
 | `-smtp-from` | `VIGIL_SMTP_FROM` | Expéditeur, par exemple `vigil@example.org` |
 
-Les destinataires se règlent dans **Paramètres → Canaux de notification**, type « E-mail » (plusieurs
+Les destinataires se règlent dans **Paramètres → Notifications**, type « E-mail » (plusieurs
 adresses séparées par des virgules). Chaque canal choisit s'il reçoit les digests, les alertes
 immédiates, ou les deux. L'e-mail ne passe pas par `HTTPS_PROXY` : le pare-feu doit autoriser la
 connexion directe au serveur SMTP.

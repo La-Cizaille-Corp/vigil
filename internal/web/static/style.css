@@ -225,7 +225,8 @@ form.delivery input[type="search"] { width: auto; min-width: 15rem; }
 .add-ways a:hover { text-decoration: none; border-color: var(--accent); }
 .add-ways strong { color: var(--accent); }
 .add-imports { display: grid; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); gap: 0 1.25rem; }
-section[id] { scroll-margin-top: 4.5rem; } /* below the sticky banner when a link leads there */
+/* Below the sticky banner when a link, or the address of a form refused, leads there. */
+main, section[id], details[id], div[id] { scroll-margin-top: 4.5rem; }
 /* A hint of one line under its field; the long help and the optional groups folded. */
 .hint { margin: -.45rem 0 .6rem; font-size: .8rem; color: var(--muted); }
 details.help { margin: .25rem 0 .5rem; }
@@ -237,6 +238,17 @@ dl.columns { grid-template-columns: max-content minmax(0, 1fr); gap: .3rem 1rem;
 ul.rules { list-style: none; padding: 0; margin: .25rem 0 1rem; }
 ul.rules li { display: flex; flex-wrap: wrap; gap: .25rem .75rem; align-items: center; }
 ul.rules form.inline { margin: 0; }
+
+/* --- settings: the menu of their sub-pages beside the page (A89) --------- */
+.settings { display: grid; grid-template-columns: 12.5rem minmax(0, 1fr); gap: 1rem 2rem; align-items: start; }
+.settings-nav { position: sticky; top: 4.5rem; }
+.settings-nav ul { list-style: none; margin: 0 0 .75rem; padding: 0; }
+.settings-nav a { display: block; padding: .35rem .6rem; border-radius: 6px; color: var(--fg); }
+.settings-nav a:hover { background: var(--accent-soft); text-decoration: none; }
+.settings-nav a[aria-current="page"] { background: var(--accent-soft); color: var(--accent); font-weight: 650; }
+.settings-group { margin: 0 0 .2rem .6rem; font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em;
+  color: var(--muted); }
+.settings-page > :first-child { margin-top: 0; }
 
 /* --- dashboard ----------------------------------------------------------- */
 .kpis { display: grid; grid-template-columns: 1.5fr repeat(5, minmax(0, 1fr)); gap: .85rem; margin-bottom: 1.25rem; }
@@ -315,6 +327,12 @@ svg.donut { width: 168px; height: 168px; flex: none; }
   details > summary { padding: .15rem 0; }
   .sort-form { display: flex; flex-wrap: wrap; gap: .5rem .75rem; align-items: flex-end; margin: .25rem 0 .75rem; }
   .sort-form label { flex: 1 1 8rem; margin: 0; }
+  /* The menu of the settings above the page, every entry in sight, the current one with them. */
+  .settings { grid-template-columns: minmax(0, 1fr); }
+  .settings-nav { position: static; display: flex; flex-wrap: wrap; gap: .35rem; }
+  .settings-group { display: none; }
+  .settings-nav ul { display: flex; flex-wrap: wrap; gap: .35rem; margin: 0; }
+  .settings-nav a { white-space: nowrap; border: 1px solid var(--border); border-radius: 999px; background: var(--card); }
   dl.columns { grid-template-columns: minmax(0, 1fr); }
   dl.columns dd { margin-bottom: .35rem; }
   /* Long lists read as cards on a phone: every column stays visible. */
