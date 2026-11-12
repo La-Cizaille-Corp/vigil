@@ -78,7 +78,7 @@ func (s *Server) cpeSearch(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 		products, err := s.Syncer.NVD.SearchCPE(ctx, q)
 		if err != nil {
-			s.Log.Warn("recherche CPE", "err", err)
+			s.Log.Warn("cpe search failed", "err", err)
 			s.render(w, r, http.StatusBadGateway, "cpe", page{Title: "Trouver un CPE", Error: err.Error(), Data: data})
 			return
 		}
@@ -261,7 +261,7 @@ func (s *Server) assetCSV(w http.ResponseWriter, r *http.Request) {
 	}
 	cw.Flush()
 	if err := cw.Error(); err != nil {
-		s.Log.Warn("export CSV", "err", err)
+		s.Log.Warn("csv export failed", "err", err)
 	}
 }
 

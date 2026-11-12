@@ -113,7 +113,7 @@ func (c *Collector) run(ctx context.Context, every time.Duration) (int, error) {
 		}
 		n, fetchErr := c.collect(ctx, f)
 		if fetchErr != nil {
-			c.Log.Warn("flux CTI en erreur", "feed", f.Name, "err", fetchErr)
+			c.Log.Warn("cti feed failed", "feed", f.Name, "err", fetchErr)
 		}
 		if err := c.Store.RecordFeedFetch(ctx, f.ID, fetchErr); err != nil {
 			return total, err
