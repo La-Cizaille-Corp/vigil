@@ -17,6 +17,14 @@ import (
 
 var updateSnapshots = flag.Bool("update", false, "rewrite the render snapshots of testdata/snapshots")
 
+// TestMain renders the pages in UTC, whatever the time zone of the machine:
+// the times shown are local ones. It is set before any test starts, as a
+// server goroutine reads time.Local whenever it calls time.Now.
+func TestMain(m *testing.M) {
+	time.Local = time.UTC
+	os.Exit(m.Run())
+}
+
 // snapshotNoise are the parts of a page that change on each run: the CSRF
 // token, and the times of a digest generated now.
 var snapshotNoise = []struct {
@@ -33,10 +41,6 @@ var snapshotNoise = []struct {
 // shows in the diff of these files. go test ./internal/web -run
 // TestRenderSnapshots -update rewrites them.
 func TestRenderSnapshots(t *testing.T) {
-	local := time.Local
-	time.Local = time.UTC // the times shown are local ones
-	t.Cleanup(func() { time.Local = local })
-
 	st, base := newServerWith(t, nil)
 	ctx := context.Background()
 	seen := time.Date(2025, 3, 4, 10, 20, 30, 0, time.UTC)
