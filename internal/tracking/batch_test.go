@@ -131,7 +131,9 @@ func TestSignalSourcesAskedOnce(t *testing.T) {
 	if kevReads != 1 || !slices.Equal(epssAsked, []string{"CVE-2026-0001"}) {
 		t.Errorf("KEV read %d times, EPSS asked for %v; want once each", kevReads, epssAsked)
 	}
-	if got := openIDs(t, st, id); !slices.Equal(got, []string{"GHSA-new", "GHSA-old"}) {
-		t.Errorf("findings = %v, want both, the old one exploited", got)
+	// One finding for the CVE (A80): the old advisory, exploited, is in the
+	// period, so the CVE is.
+	if got := openIDs(t, st, id); !slices.Equal(got, []string{"GHSA-new"}) {
+		t.Errorf("findings = %v, want one for the CVE", got)
 	}
 }

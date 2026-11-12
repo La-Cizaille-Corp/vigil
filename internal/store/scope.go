@@ -75,10 +75,10 @@ func openCVEs(sc Scope) (string, []any) {
 	cond, args := sc.cond("a")
 	return `WITH open_cves(cve) AS (
 		SELECT v.id FROM findings f JOIN vulnerabilities v ON v.id = f.vuln_id JOIN assets a ON a.id = f.asset_id
-		WHERE f.status IN ` + openStatuses + ` AND v.id LIKE 'CVE-%' AND ` + cond + `
+		WHERE f.status IN ` + openStatuses + ` AND ` + shownExpr + ` AND v.id LIKE 'CVE-%' AND ` + cond + `
 		UNION
 		SELECT j.value FROM findings f JOIN vulnerabilities v ON v.id = f.vuln_id JOIN assets a ON a.id = f.asset_id,
 		       json_each(v.aliases) j
-		WHERE f.status IN ` + openStatuses + ` AND j.value LIKE 'CVE-%' AND ` + cond + `)
+		WHERE f.status IN ` + openStatuses + ` AND ` + shownExpr + ` AND j.value LIKE 'CVE-%' AND ` + cond + `)
 	`, append(slices.Clone(args), args...)
 }

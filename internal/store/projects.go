@@ -91,7 +91,7 @@ func retireAsset(ctx context.Context, tx querier, id int64, project, ts string) 
 		return err
 	}
 	list, err := collect(ctx, tx, "open findings", scanFindingState,
-		`SELECT id, status, vuln_id FROM findings WHERE asset_id = ? AND status IN ('in_triage', 'exploitable')`, id)
+		`SELECT f.id, f.status, f.vuln_id FROM findings f WHERE f.asset_id = ? AND f.status IN ('in_triage', 'exploitable') AND `+shownExpr, id)
 	if err != nil {
 		return err
 	}

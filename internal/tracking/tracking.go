@@ -104,6 +104,8 @@ type Result struct {
 	Failed   int // assets a source could not check: left as they were
 	// Dismissed counts the findings set aside by a dismissal rule.
 	Dismissed int
+	// Folded counts the findings folded into others: one per CVE (A80).
+	Folded int
 }
 
 // Status describes the running or last synchronisation, for the UI.
@@ -204,7 +206,7 @@ func (s *Syncer) run(ctx context.Context, assetID int64) (res Result, err error)
 		return res, err
 	}
 	s.Log.Info("sync done", "assets", res.Assets, "created", res.Created,
-		"reopened", res.Reopened, "resolved", res.Resolved, "skipped", res.Skipped)
+		"reopened", res.Reopened, "resolved", res.Resolved, "skipped", res.Skipped, "folded", res.Folded)
 	if s.Alert != nil {
 		// A failed notification is logged: the findings are recorded anyway
 		// and the next digest lists them.
@@ -215,10 +217,12 @@ func (s *Syncer) run(ctx context.Context, assetID int64) (res Result, err error)
 	return res, nil
 }
 
-// observation is what the sources report for one asset.
+// observation is what the sources report for one asset: the advisories, and
+// what those read whole name (the others are read from the database).
 type observation struct {
 	asset    store.Asset
 	reported []string
+	known    map[string]described
 }
 
 func (s *Syncer) scan(ctx context.Context, assets []store.Asset) (Result, error) {
@@ -292,19 +296,19 @@ func (s *Syncer) scan(ctx context.Context, assets []store.Asset) (Result, error)
 		}
 		for i, a := range targets {
 			s.working(a.Name)
-			reported, err := s.readAdvisories(ctx, pending, a, queries[i], results[i], exploited)
+			reported, known, err := s.readAdvisories(ctx, pending, a, queries[i], results[i], exploited)
 			if finish(err, a) {
-				seen = append(seen, observation{a, reported})
+				seen = append(seen, observation{a, reported, known})
 			}
 		}
 	}
 	for _, pkg := range packages {
 		list := byPackage[pkg]
 		s.working(list[0].Name)
-		reported, err := s.readPackage(ctx, pending, pkg, list, exploited)
+		reported, known, err := s.readPackage(ctx, pending, pkg, list, exploited)
 		if finish(err, list...) {
 			for _, a := range list {
-				seen = append(seen, observation{a, reported[a.ID]})
+				seen = append(seen, observation{a, reported[a.ID], known})
 			}
 		}
 	}
@@ -312,7 +316,7 @@ func (s *Syncer) scan(ctx context.Context, assets []store.Asset) (Result, error)
 		s.working(a.Name)
 		reported, err := s.readCPE(ctx, pending, a)
 		if finish(err, a) {
-			seen = append(seen, observation{a, reported})
+			seen = append(seen, observation{asset: a, reported: reported})
 		}
 	}
 	for _, a := range nameTargets {
@@ -343,7 +347,7 @@ func (s *Syncer) scan(ctx context.Context, assets []store.Asset) (Result, error)
 	// be recorded keeps them as they were, and the others go on.
 	s.working("enregistrement des vulnérabilités")
 	for _, o := range seen {
-		if err := s.record(ctx, &res, o.asset, o.reported, start); err != nil {
+		if err := s.record(ctx, &res, o, start); err != nil {
 			if ctx.Err() != nil {
 				return res, ctx.Err()
 			}
@@ -449,32 +453,24 @@ type observed struct {
 	id, fixedIn string
 }
 
-// record creates or reopens the findings of an asset and auto-resolves the
-// ones its source no longer reports. Vulnerabilities published before the
-// tracked period of the asset are skipped, unless they are listed in KEV or
-// already have a finding. What it reads comes first; then its writes are made
-// in one transaction, all or none of them, and only then counted in res.
-func (s *Syncer) record(ctx context.Context, res *Result, a store.Asset, reported []string, seen time.Time) error {
-	var tracked []observed
-	older := 0
-	for _, id := range reported {
-		in, err := s.Store.InTrackedPeriod(ctx, a.ID, id, a.TrackSince)
-		if err != nil {
-			return err
-		}
-		if !in {
-			older++
-			continue
-		}
-		fixed, err := s.fixedIn(ctx, a, id)
-		if err != nil {
-			return err
-		}
-		tracked = append(tracked, observed{id, fixed})
+// record creates or reopens the findings of an asset, one per CVE (A80), folds
+// the others, and auto-resolves the ones its source no longer reports.
+// Vulnerabilities published before the tracked period of the asset are
+// skipped, unless they are exploited or likely to be, or already have a
+// finding. What it reads comes first (see plan); then its writes are made in
+// one transaction, all or none of them, and only then counted in res.
+func (s *Syncer) record(ctx context.Context, res *Result, o observation, seen time.Time) error {
+	a := o.asset
+	p, err := s.plan(ctx, o)
+	if err != nil {
+		return err
 	}
 	var done Result
-	err := s.Store.InTx(ctx, func(ctx context.Context) error {
-		for _, o := range tracked {
+	err = s.Store.InTx(ctx, func(ctx context.Context) error {
+		if err := s.Store.FoldFindings(ctx, p.folds...); err != nil {
+			return err
+		}
+		for _, o := range p.observe {
 			touch, err := s.Store.ObserveFinding(ctx, a.ID, o.id, o.fixedIn, seen)
 			if err != nil {
 				return err
@@ -486,13 +482,13 @@ func (s *Syncer) record(ctx context.Context, res *Result, a store.Asset, reporte
 				done.Reopened++
 			}
 		}
-		n, err := s.Store.AutoResolveStale(ctx, a.ID, reported, a.TrackSince)
+		n, err := s.Store.AutoResolveStale(ctx, a.ID, p.still, a.TrackSince)
 		if err != nil {
 			return err
 		}
 		done.Resolved = n
-		if older != a.OlderVulns {
-			return s.Store.SetOlderVulns(ctx, a.ID, older)
+		if p.older != a.OlderVulns {
+			return s.Store.SetOlderVulns(ctx, a.ID, p.older)
 		}
 		return nil
 	})
@@ -502,22 +498,9 @@ func (s *Syncer) record(ctx context.Context, res *Result, a store.Asset, reporte
 	res.Created += done.Created
 	res.Reopened += done.Reopened
 	res.Resolved += done.Resolved
-	res.Skipped += older
+	res.Skipped += p.older
+	res.Folded += len(p.folds)
 	return nil
-}
-
-// fixedIn reads in the stored advisory the versions fixing it for the asset.
-// They are kept with the finding: reading them again for each row of a list
-// would take about a second for the thousands of a kernel.
-func (s *Syncer) fixedIn(ctx context.Context, a store.Asset, id string) (string, error) {
-	v, err := s.Store.Vulnerability(ctx, id)
-	if errors.Is(err, store.ErrNotFound) {
-		return "", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	return FixedIn(v.Raw, a), nil
 }
 
 // storeNVD stores the CVEs kept for an asset and returns them as observed.
@@ -617,13 +600,14 @@ func (s *Syncer) readCPE(ctx context.Context, pending *advisories, a store.Asset
 // that designate it, and returns their ids by asset. The ranges of each one are
 // compared here: at its latest release an asset is affected by those without a
 // fixed version, and OSV does not compare versions in every ecosystem.
-func (s *Syncer) readPackage(ctx context.Context, pending *advisories, pkg osv.Package, assets []store.Asset, exploited func() map[string]bool) (map[int64][]string, error) {
+func (s *Syncer) readPackage(ctx context.Context, pending *advisories, pkg osv.Package, assets []store.Asset, exploited func() map[string]bool) (map[int64][]string, map[string]described, error) {
 	reported := make(map[int64][]string, len(assets))
+	known, older := map[string]described{}, likelyOlder{}
 	list := s.OSV.Advisories(osv.Query{Package: pkg})
 	defer list.Close()
 	for list.Next(ctx) {
 		v := list.Vuln()
-		keep := false
+		keep, affects := false, false
 		for _, a := range assets {
 			affected := v.Affects(pkg, a.Version)
 			if inventory.IsLatest(a) {
@@ -632,19 +616,30 @@ func (s *Syncer) readPackage(ctx context.Context, pending *advisories, pkg osv.P
 			if affected {
 				reported[a.ID] = append(reported[a.ID], v.ID)
 				keep = keep || reportable(a, v, exploited)
+				affects = true
 			}
 		}
-		if keep {
-			if err := s.storeOSV(ctx, pending, v, false); err != nil {
-				return nil, err
-			}
+		if !affects {
+			continue
+		}
+		known[v.ID] = describe(v.ID, v.OtherIDs())
+		if !keep {
+			older.candidate(v.ID, known[v.ID])
+			continue
+		}
+		if err := s.storeOSV(ctx, pending, v, false); err != nil {
+			return nil, nil, err
 		}
 	}
-	return reported, list.Err()
+	if err := list.Err(); err != nil {
+		return nil, nil, err
+	}
+	return reported, known, s.storeLikely(ctx, pending, older)
 }
 
 // reportable reports whether an asset can report an advisory: published in
-// its tracked period, or known to be exploited.
+// its tracked period, or known to be exploited (KEV); those likely to be are
+// read again afterwards (see storeLikely).
 func reportable(a store.Asset, v osv.Vuln, exploited func() map[string]bool) bool {
 	if a.TrackSince == "" || v.Published == "" || v.Published[:min(len(v.Published), 10)] >= a.TrackSince {
 		return true
@@ -653,8 +648,10 @@ func reportable(a store.Asset, v osv.Vuln, exploited func() map[string]bool) boo
 	return known[v.ID] || slices.ContainsFunc(v.OtherIDs(), func(id string) bool { return known[id] })
 }
 
-// readAdvisories stores the advisories found for an asset and returns their ids.
-func (s *Syncer) readAdvisories(ctx context.Context, pending *advisories, a store.Asset, q osv.Query, found osv.BatchResult, exploited func() map[string]bool) ([]string, error) {
+// readAdvisories stores the advisories found for an asset and returns their
+// ids, and what those read whole name: each one is stored here, unless it
+// comes from a package too large for a batch answer.
+func (s *Syncer) readAdvisories(ctx context.Context, pending *advisories, a store.Asset, q osv.Query, found osv.BatchResult, exploited func() map[string]bool) ([]string, map[string]described, error) {
 	if found.More {
 		return s.readLargePackage(ctx, pending, a, q, exploited)
 	}
@@ -662,10 +659,10 @@ func (s *Syncer) readAdvisories(ctx context.Context, pending *advisories, a stor
 	for _, ref := range found.Vulns {
 		reported = append(reported, ref.ID)
 		if err := s.refreshVuln(ctx, pending, ref); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	return reported, nil
+	return reported, nil, nil
 }
 
 // readLargePackage reads a package whose advisories do not fit in a batch
@@ -673,20 +670,27 @@ func (s *Syncer) readAdvisories(ctx context.Context, pending *advisories, a stor
 // pages, none would be in the tracked period. They come in full from the query,
 // not one request each, and only those the asset can report are stored; the
 // others are still reported, to count them as older.
-func (s *Syncer) readLargePackage(ctx context.Context, pending *advisories, a store.Asset, q osv.Query, exploited func() map[string]bool) ([]string, error) {
+func (s *Syncer) readLargePackage(ctx context.Context, pending *advisories, a store.Asset, q osv.Query, exploited func() map[string]bool) ([]string, map[string]described, error) {
 	var reported []string
+	known, older := map[string]described{}, likelyOlder{}
 	list := s.OSV.Advisories(q)
 	defer list.Close()
 	for list.Next(ctx) {
 		v := list.Vuln()
 		reported = append(reported, v.ID)
-		if reportable(a, v, exploited) {
-			if err := s.storeOSV(ctx, pending, v, false); err != nil {
-				return nil, err
-			}
+		known[v.ID] = describe(v.ID, v.OtherIDs())
+		if !reportable(a, v, exploited) {
+			older.candidate(v.ID, known[v.ID])
+			continue
+		}
+		if err := s.storeOSV(ctx, pending, v, false); err != nil {
+			return nil, nil, err
 		}
 	}
-	return reported, list.Err()
+	if err := list.Err(); err != nil {
+		return nil, nil, err
+	}
+	return reported, known, s.storeLikely(ctx, pending, older)
 }
 
 // exploitedCVEs returns the CVEs of the KEV catalogue. Without it, only the

@@ -15,6 +15,7 @@ import (
 // rule, a component kept by an SBOM and another one retired from it, a digest.
 type scopeFixture struct {
 	asset, open, closed, rule, digest int64
+	folded                            int64 // a second advisory of the open finding's CVE, folded into it
 }
 
 func newScopeFixture(t *testing.T) (*Store, scopeFixture) {
@@ -57,6 +58,17 @@ func newScopeFixture(t *testing.T) (*Store, scopeFixture) {
 		}
 	}
 	must(st.SetFindingStatus(ctx, Everything, fx.closed, 0, "resolved", "", "corrigée"))
+	must(st.UpsertVulnerability(ctx, Vulnerability{ID: "GHSA-0001", Aliases: []string{"CVE-2026-0001"}, EPSS: -1, CVSS: -1}))
+	_, err = st.ObserveFinding(ctx, fx.asset, "GHSA-0001", "", seen)
+	must(err)
+	triage, err := st.ListFindingTriage(ctx, fx.asset)
+	must(err)
+	for _, f := range triage {
+		if f.VulnID == "GHSA-0001" {
+			fx.folded = f.ID
+		}
+	}
+	must(st.FoldFindings(ctx, Fold{ID: fx.folded, Into: fx.open, Why: "même CVE"}))
 	must(st.CreateDismissalRule(ctx, Everything, fx.asset, "matches nothing"))
 	rules, err := st.ListDismissalRules(ctx, Everything, fx.asset)
 	must(err)
@@ -165,6 +177,17 @@ var isolationCases = map[string]func(context.Context, *Store, Scope, scopeFixtur
 		_, err := st.Digest(ctx, sc, fx.digest)
 		return found(err)
 	},
+	"ListFoldedInto": func(ctx context.Context, st *Store, sc Scope, fx scopeFixture) (bool, error) {
+		list, err := st.ListFoldedInto(ctx, sc, fx.open)
+		return len(list) > 0, err
+	},
+	"ListNotices": func(ctx context.Context, st *Store, sc Scope, fx scopeFixture) (bool, error) {
+		list, err := st.ListNotices(ctx, sc, fx.asset, []string{"CVE-2026-0001"})
+		if errors.Is(err, ErrNotFound) {
+			return false, nil
+		}
+		return len(list) > 0, err
+	},
 	"ListDismissalRules": func(ctx context.Context, st *Store, sc Scope, fx scopeFixture) (bool, error) {
 		rules, err := st.ListDismissalRules(ctx, sc, fx.asset)
 		return len(rules) > 0, err
@@ -208,6 +231,7 @@ func init() {
 		"advisories: public data, the same for everyone": {"Vulnerability"},
 		"synchronisation, notifications and digest generation only": {
 			"ObserveFinding", "InTrackedPeriod", "AutoResolveStale", "SetOlderVulns", "ApplyDismissalRules",
+			"ListFindingTriage", "FoldFindings",
 			"UpsertVulnerability", "VulnModified", "SetExploitSignals", "ListVulnCVEs", "MarkAlerted",
 			"CreateDigest", "LastDigestTime"},
 		"the database itself": {"Close", "SchemaVersion", "UpgradeBackup", "BackupTo", "InTx"},

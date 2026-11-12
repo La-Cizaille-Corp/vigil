@@ -98,7 +98,7 @@ func (s *Store) openStats(ctx context.Context, sc Scope, now time.Time, st *Stat
 		       SUM(f.status = 'in_triage'),
 		       SUM(f.status = 'in_triage' AND f.first_seen < ?)
 		FROM findings f JOIN vulnerabilities v ON v.id = f.vuln_id JOIN assets a ON a.id = f.asset_id
-		WHERE f.status IN `+openStatuses+` AND `+cond+`
+		WHERE f.status IN `+openStatuses+` AND `+shownExpr+` AND `+cond+`
 		GROUP BY 1`, args...)
 	if err != nil {
 		return err
@@ -137,7 +137,7 @@ func (s *Store) closedStats(ctx context.Context, sc Scope, now time.Time, st *St
 		JOIN first_sync fs ON fs.asset_id = f.asset_id
 		JOIN (SELECT finding_id, MAX(created_at) AS closed_at FROM finding_events
 		      WHERE new_status IN `+closedStatuses+` GROUP BY finding_id) c ON c.finding_id = f.id
-		WHERE f.status IN `+closedStatuses+` AND c.closed_at >= ? AND f.first_seen > fs.at AND `+cond,
+		WHERE f.status IN `+closedStatuses+` AND c.closed_at >= ? AND f.first_seen > fs.at AND `+shownExpr+` AND `+cond,
 		append([]any{formatTime(now.Add(-90 * 24 * time.Hour))}, args...)...).Scan(&st.Closed90, &mean)
 	if err != nil {
 		return fmt.Errorf("closed findings: %w", err)
@@ -180,7 +180,7 @@ func (s *Store) weeklyStats(ctx context.Context, sc Scope, now time.Time, st *St
 		return nil
 	}
 	if err := count(`SELECT f.first_seen FROM findings f JOIN assets a ON a.id = f.asset_id
-		WHERE f.first_seen >= ? AND `+cond,
+		WHERE f.first_seen >= ? AND `+shownExpr+` AND `+cond,
 		func(w *WeekCount) { w.New++ }); err != nil {
 		return err
 	}
@@ -190,7 +190,7 @@ func (s *Store) weeklyStats(ctx context.Context, sc Scope, now time.Time, st *St
 		    SELECT MAX(e.created_at) AS closed_at, e.finding_id FROM finding_events e
 		    WHERE e.new_status IN `+closedStatuses+` GROUP BY e.finding_id) c
 		JOIN findings f ON f.id = c.finding_id JOIN assets a ON a.id = f.asset_id
-		WHERE c.closed_at >= ? AND `+cond,
+		WHERE c.closed_at >= ? AND `+shownExpr+` AND `+cond,
 		func(w *WeekCount) { w.Closed++ })
 }
 
@@ -206,7 +206,7 @@ func (s *Store) topAssets(ctx context.Context, sc Scope, _ time.Time, st *Stats)
 		       SUM(v.severity = 'CRITICAL'), SUM(v.severity = 'HIGH'), SUM(v.severity = 'MEDIUM'),
 		       SUM(v.severity NOT IN ('CRITICAL', 'HIGH', 'MEDIUM'))
 		FROM findings f JOIN assets a ON a.id = f.asset_id JOIN vulnerabilities v ON v.id = f.vuln_id
-		WHERE f.status IN ('in_triage', 'exploitable') AND `+cond+`
+		WHERE f.status IN ('in_triage', 'exploitable') AND `+shownExpr+` AND `+cond+`
 		GROUP BY a.id
 		ORDER BY 4 DESC, 5 DESC, COUNT(*) DESC, a.name
 		LIMIT ?`, append(args, topAssets)...)

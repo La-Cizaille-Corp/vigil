@@ -68,7 +68,7 @@ func dismissalRulesQuery(sc Scope, assetID int64) (string, []any) {
 	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
 	return `
 		SELECT r.id, r.asset_id, r.text, r.created_at,
-		       (SELECT count(*) FROM findings f WHERE f.dismissed_by = r.id)
+		       (SELECT count(*) FROM findings f WHERE f.dismissed_by = r.id AND ` + shownExpr + `)
 		FROM dismissal_rules r JOIN assets a ON a.id = r.asset_id
 		WHERE r.asset_id = ? AND ` + cond + ` ORDER BY r.text COLLATE NOCASE`, append([]any{assetID}, args...)
 }
@@ -119,7 +119,7 @@ func (s *Store) ApplyDismissalRules(ctx context.Context) (int, error) {
 			SELECT f.id, r.id, r.text FROM findings f
 			JOIN dismissal_rules r ON r.id = f.dismissed_by
 			JOIN vulnerabilities v ON v.id = f.vuln_id
-			WHERE `+exploitedExpr)
+			WHERE `+shownExpr+` AND `+exploitedExpr)
 		if err != nil {
 			return err
 		}
@@ -137,7 +137,7 @@ func (s *Store) ApplyDismissalRules(ctx context.Context) (int, error) {
 			SELECT f.id, r.id, r.text FROM dismissal_rules r
 			JOIN findings f ON f.asset_id = r.asset_id
 			JOIN vulnerabilities v ON v.id = f.vuln_id
-			WHERE f.status = 'in_triage' AND NOT `+exploitedExpr+` AND `+ruleMatchExpr+`
+			WHERE f.status = 'in_triage' AND `+shownExpr+` AND NOT `+exploitedExpr+` AND `+ruleMatchExpr+`
 			  AND NOT EXISTS (SELECT 1 FROM finding_events e WHERE e.finding_id = f.id AND e.user_id IS NOT NULL)`)
 		if err != nil {
 			return err
