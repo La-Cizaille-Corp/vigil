@@ -24,6 +24,7 @@ import (
 	"github.com/La-Cizaille-Corp/vigil/internal/cti"
 	"github.com/La-Cizaille-Corp/vigil/internal/fr"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
+	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
 	"github.com/La-Cizaille-Corp/vigil/internal/notify"
 	"github.com/La-Cizaille-Corp/vigil/internal/sbom"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
@@ -44,8 +45,6 @@ const (
 	sessionDuration = 12 * time.Hour
 	maxFormBytes    = 64 << 10
 	maxUploadBytes  = sbom.MaxSize + 1<<20 // file plus multipart overhead
-	// maxNameLen is the longest name of a feed or an API token, in characters.
-	maxNameLen = 100
 	// maxExcerpt is the longest summary of a news item of the watch, in
 	// characters: a source may give 2 000.
 	maxExcerpt = 300
@@ -220,7 +219,7 @@ func (s *Server) parseTemplates() error {
 		"isoDate":     isoDate,
 		"roleLabel":   func(v string) string { return choice.Label(auth.Roles, v) },
 		"roles":       func() []choice.Option { return auth.Roles },
-		"maskURL":     maskURL,
+		"maskURL":     netsafe.MaskURL,
 		"syncFor":     s.syncFor,
 		"tracking":    trackingSource,
 		"vendorOf":    inventory.VendorName,

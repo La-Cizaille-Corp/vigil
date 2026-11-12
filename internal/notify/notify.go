@@ -12,7 +12,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -50,9 +49,6 @@ const (
 	maxTeamsText = 20000
 	// maxAlertLines bounds the findings listed in one alert.
 	maxAlertLines = 15
-	// maxNameLen is the longest channel name, in characters, as for the
-	// feeds and API tokens of the same settings page.
-	maxNameLen = 100
 )
 
 // Notifier sends digests and alerts to every enabled channel.
@@ -67,7 +63,7 @@ type Notifier struct {
 
 // ValidateWebhook checks a channel before it is stored.
 func ValidateWebhook(w store.Webhook) error {
-	if w.Name == "" || !clip.Fits(w.Name, maxNameLen) {
+	if w.Name == "" || !clip.Fits(w.Name, clip.MaxName) {
 		return errors.New("nom invalide")
 	}
 	if !choice.Has(Kinds, w.Kind) {
@@ -89,16 +85,7 @@ func Target(w store.Webhook) string {
 	if w.Kind == "email" {
 		return w.URL
 	}
-	return MaskURL(w.URL)
-}
-
-// MaskURL hides the secret part of a webhook URL for display.
-func MaskURL(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return "…"
-	}
-	return u.Scheme + "://" + u.Host + "/…"
+	return netsafe.MaskURL(w.URL)
 }
 
 // message is one notification, rendered for each kind of channel.

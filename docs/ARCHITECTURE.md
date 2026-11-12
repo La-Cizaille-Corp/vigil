@@ -485,7 +485,8 @@ comptent des caractères (`Text`, `Prefix`, `Fits`) ; seul le budget d'un messag
 octets (`Bytes`). *Conséquence* : les limites de saisie déjà comptées en octets (nom d'utilisateur, projet)
 restaient à harmoniser ; c'est fait depuis l'audit de code de novembre 2026 (nom d'utilisateur, noms de flux,
 de canal et de jeton, projet, filtre d'étiquette, dans l'interface comme en ligne de commande), avec une
-constante par limite partagée (`auth.MaxUsernameLength`, `inventory.MaxProjectLen`). Seul le mot de passe
+constante par limite partagée (`auth.MaxUsernameLength`, `inventory.MaxProjectLen`, et `clip.MaxName` pour les
+noms de flux, de canal, de jeton et de groupe, qui avait deux copies, revue 0.5.0, W10). Seul le mot de passe
 reste borné en octets (`auth.MaxPasswordBytes`), car la borne porte sur ce que reçoit argon2.
 
 **A66. La liste des vulnérabilités s'ouvre sur ce qui reste à traiter.** Elle montrait tout par défaut, y

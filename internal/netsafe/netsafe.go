@@ -247,3 +247,14 @@ func WithoutURL(err error) error {
 	}
 	return err
 }
+
+// MaskURL is what may be shown of a URL that can hold a secret (a webhook
+// token, a feed key): its scheme and host. SECURITY: the audit log, and the
+// settings pages for those who may not see the whole URL, show this only.
+func MaskURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return "…"
+	}
+	return u.Scheme + "://" + u.Host + "/…"
+}

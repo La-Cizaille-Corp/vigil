@@ -70,7 +70,7 @@ func TestSendDigest(t *testing.T) {
 	}
 }
 
-func TestValidateAndMask(t *testing.T) {
+func TestValidateWebhook(t *testing.T) {
 	if err := ValidateWebhook(store.Webhook{Name: "x", Kind: "irc", URL: "https://example.org/h"}); err == nil {
 		t.Error("unknown kind accepted")
 	}
@@ -84,9 +84,6 @@ func TestValidateAndMask(t *testing.T) {
 		if (err == nil) != ok {
 			t.Errorf("name of %d accented characters: %v", n, err)
 		}
-	}
-	if got := MaskURL("https://hooks.slack.com/services/T0/B0/secret"); got != "https://hooks.slack.com/…" {
-		t.Errorf("MaskURL = %q", got)
 	}
 }
 

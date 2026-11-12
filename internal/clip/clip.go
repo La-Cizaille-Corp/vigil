@@ -9,6 +9,11 @@ import (
 	"unicode/utf8"
 )
 
+// MaxName is the longest name given to an object of the settings, in
+// characters: a feed, a notification channel, an API token, a group of
+// assets (A65).
+const MaxName = 100
+
 // Prefix returns the first n characters of s.
 func Prefix(s string, n int) string {
 	if n <= 0 {

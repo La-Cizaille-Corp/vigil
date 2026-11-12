@@ -90,7 +90,7 @@ func (s *Server) tokenCreate(w http.ResponseWriter, r *http.Request) {
 		Name:    strings.TrimSpace(r.PostFormValue("name")),
 		Project: strings.TrimSpace(r.PostFormValue("project")),
 	}
-	if t.Name == "" || !clip.Fits(t.Name, maxNameLen) || t.Project == "" || !clip.Fits(t.Project, inventory.MaxProjectLen) ||
+	if t.Name == "" || !clip.Fits(t.Name, clip.MaxName) || t.Project == "" || !clip.Fits(t.Project, inventory.MaxProjectLen) ||
 		strings.ContainsAny(t.Project, "/?#") {
 		s.renderTokens(w, r, http.StatusBadRequest, tokenForm{Name: t.Name, Project: t.Project, Group: groupParam(r.PostForm)},
 			"Indiquez un nom et un projet (sans / ? #).")
