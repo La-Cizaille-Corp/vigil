@@ -93,7 +93,7 @@ func newScopeFixture(t *testing.T) (*Store, scopeFixture) {
 
 // found turns the error of a lookup into "reached".
 func found(err error) (bool, error) {
-	if errors.Is(err, ErrNotFound) || errors.Is(err, ErrOutsideGroups) {
+	if errors.Is(err, ErrNotFound) || errors.Is(err, errOutsideGroups) {
 		return false, nil
 	}
 	return err == nil, err

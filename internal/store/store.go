@@ -60,9 +60,9 @@ type Store struct {
 	upgradeBackup string // copy written before the last schema upgrade, if any
 }
 
-// ErrNewerSchema is returned when the database was written by a more recent
+// errNewerSchema is returned when the database was written by a more recent
 // version of Vigil: running older code on it could lose or corrupt data.
-var ErrNewerSchema = errors.New("base de données plus récente que cette version de Vigil")
+var errNewerSchema = errors.New("base de données plus récente que cette version de Vigil")
 
 // Open opens (or creates) the database at path and applies pending migrations.
 func Open(ctx context.Context, path string) (*Store, error) {
@@ -207,7 +207,7 @@ func (s *Store) migrate(ctx context.Context, path string) error {
 		// SECURITY: older code on a newer schema could silently lose data.
 		return fmt.Errorf("%w : %s est au schéma %d, cette version gère jusqu'au schéma %d ; "+
 			"installez une version à jour de Vigil, ou restaurez la copie .bak écrite avant la mise à jour",
-			ErrNewerSchema, path, current, latest)
+			errNewerSchema, path, current, latest)
 	}
 	versions, err := collect(ctx, s.db, "read applied migrations", value[int], `SELECT version FROM schema_migrations`)
 	if err != nil {

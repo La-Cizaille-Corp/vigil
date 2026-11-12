@@ -242,7 +242,7 @@ func TestRefuseNewerSchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	st.Close()
-	if _, err := Open(ctx, path); !errors.Is(err, ErrNewerSchema) {
+	if _, err := Open(ctx, path); !errors.Is(err, errNewerSchema) {
 		t.Fatalf("a database from a newer version was opened: %v", err)
 	}
 }

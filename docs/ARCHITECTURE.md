@@ -1602,7 +1602,7 @@ démarrage. Règles :
   serveur) ;
 - avant la première migration d'une base existante, une copie cohérente
   `<base>.schema-N.<date>.bak` est écrite à côté ; si elle échoue, rien n'est migré ;
-- une base écrite par une version plus récente est refusée (`ErrNewerSchema`) : un ancien binaire
+- une base écrite par une version plus récente est refusée (`errNewerSchema`) : un ancien binaire
   pourrait l'abîmer sans le savoir ;
 - `vigil backup` copie la base sans la migrer, même lancé avec le nouveau binaire.
 *Vérification* : `TestUpgradeFromReleases` ouvre des bases réellement produites par chaque version

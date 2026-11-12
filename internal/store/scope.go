@@ -38,9 +38,9 @@ func (sc Scope) Only(group int64) Scope {
 	return Scope{}
 }
 
-// ErrOutsideGroups is returned when a write would place an asset outside the
-// caller's scope; an OutsideGroupsError says why.
-var ErrOutsideGroups = errors.New("asset outside the caller's groups")
+// errOutsideGroups matches, under errors.Is, a write refused because it would
+// place an asset outside the caller's scope; an OutsideGroupsError says why.
+var errOutsideGroups = errors.New("asset outside the caller's groups")
 
 // OutsideGroupsError is a write of a restricted account refused because it
 // would move an asset across groups the account does not hold (A68), with
@@ -61,8 +61,8 @@ func (e *OutsideGroupsError) Error() string {
 	return "asset " + e.Asset + " outside the caller's groups"
 }
 
-// Is makes errors.Is(err, ErrOutsideGroups) true.
-func (e *OutsideGroupsError) Is(target error) bool { return target == ErrOutsideGroups }
+// Is makes errors.Is(err, errOutsideGroups) true.
+func (e *OutsideGroupsError) Is(target error) bool { return target == errOutsideGroups }
 
 // ruleMatch is the condition "the rule aliased gr takes in the asset aliased
 // alias" (a constant of the query): exact values, the tag "web" not taking in

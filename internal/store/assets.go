@@ -49,7 +49,7 @@ func scanAsset(row scanner) (Asset, error) {
 }
 
 // CreateAsset inserts an asset and returns its id; the asset must land inside
-// the scope (ErrOutsideGroups).
+// the scope (an OutsideGroupsError).
 func (s *Store) CreateAsset(ctx context.Context, sc Scope, a Asset) (int64, error) {
 	ids, err := s.CreateAssets(ctx, sc, []Asset{a})
 	if err != nil {
@@ -59,7 +59,7 @@ func (s *Store) CreateAsset(ctx context.Context, sc Scope, a Asset) (int64, erro
 }
 
 // CreateAssets inserts assets in one transaction, all or none, and returns
-// their ids in order; they must land inside the scope (ErrOutsideGroups,
+// their ids in order; they must land inside the scope (an OutsideGroupsError,
 // see checkMove).
 func (s *Store) CreateAssets(ctx context.Context, sc Scope, assets []Asset) ([]int64, error) {
 	ts := now()
