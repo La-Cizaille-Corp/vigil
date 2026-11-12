@@ -18,7 +18,7 @@ type Stats struct {
 	OverdueKEV     int // of which exploited
 	ToTriage       int
 	StaleTriage    int     // to triage for more than StaleAfter
-	Closed90       int     // findings closed (fixed or dismissed) in the last 90 days
+	Closed90       int     // closed (fixed or dismissed) in the last 90 days, found after the first sync of their asset
 	MeanDaysToFix  float64 // mean days from detection to closing, over Closed90; -1 without data
 	Weeks          []WeekCount
 	TopAssets      []AssetLoad
@@ -115,16 +115,27 @@ func (s *Store) openStats(ctx context.Context, sc Scope, now time.Time, st *Stat
 }
 
 // closedStats measures the time to close findings, from their detection to
-// their last closing event, over the last 90 days.
+// their last closing event, over the last 90 days, apart from the findings of
+// the first sync of their asset: these predate its arrival in Vigil, and
+// their delay says nothing of the reaction to a new vulnerability.
+//
+// They are the findings detected at the earliest time of the asset: a run
+// stamps every finding it creates with its start time (tracking.Syncer), and
+// nothing else creates findings, so no column has to record the first sync.
+// An asset that had no vulnerability at its first sync also has the findings
+// of its next detecting run left out: the mean loses them, but never counts
+// one of a first sync.
 func (s *Store) closedStats(ctx context.Context, sc Scope, now time.Time, st *Stats) error {
 	var mean sql.NullFloat64
 	cond, args := sc.cond("a")
 	err := s.db.QueryRowContext(ctx, `
+		WITH first_sync AS (SELECT asset_id, MIN(first_seen) AS at FROM findings GROUP BY asset_id)
 		SELECT COUNT(*), AVG(julianday(c.closed_at) - julianday(f.first_seen))
 		FROM findings f JOIN assets a ON a.id = f.asset_id
+		JOIN first_sync fs ON fs.asset_id = f.asset_id
 		JOIN (SELECT finding_id, MAX(created_at) AS closed_at FROM finding_events
 		      WHERE new_status IN `+closedStatuses+` GROUP BY finding_id) c ON c.finding_id = f.id
-		WHERE f.status IN `+closedStatuses+` AND c.closed_at >= ? AND `+cond,
+		WHERE f.status IN `+closedStatuses+` AND c.closed_at >= ? AND f.first_seen > fs.at AND `+cond,
 		append([]any{formatTime(now.Add(-90 * 24 * time.Hour))}, args...)...).Scan(&st.Closed90, &mean)
 	if err != nil {
 		return err
