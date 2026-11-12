@@ -14,7 +14,8 @@ Outil open source de **veille de sécurité** léger : un seul binaire, aucune i
   [FIRST EPSS](https://www.first.org/epss/) (probabilité d'exploitation), puis classées en quatre
   niveaux : Urgentes, À planifier, À surveiller, Écartées. La liste s'ouvre sur ce qui reste à traiter, et
   les tableaux se trient par colonne.
-- **Suivi** du traitement avec les statuts CycloneDX / VEX et un historique, triage par lot ;
+- **Suivi** du traitement avec les statuts CycloneDX / VEX et un historique, triage par lot
+  (lignes cochées ou toute la liste filtrée) ;
   **règles pour écarter** ce qui ne concerne pas un actif (`wifi:` sur un serveur sans Wi-Fi) ;
   **délais de traitement** par sévérité avec indicateur « hors délai » ; résolution et réouverture
   automatiques quand une version change ; **version corrigée** indiquée sur chaque vulnérabilité, en
@@ -199,6 +200,8 @@ en cas de téléphone perdu, un administrateur la retire dans Paramètres → Ut
   la règle remet ses vulnérabilités à analyser.
 - Les tableaux de l'inventaire et des vulnérabilités se **trient en cliquant sur le titre d'une
   colonne**, qui inverse l'ordre au second clic ; l'export CSV des vulnérabilités suit le même ordre.
+  Une longue liste s'affiche par pages de 100 lignes ; ses nombres, son export et le triage de toute la
+  liste portent sur la liste entière, et la page d'une vulnérabilité ramène à la liste avec ses filtres.
 - **Sans purl ni CPE**, Vigil cherche le **nom de l'actif** dans les descriptions des CVE de la NVD
   (« Ivanti Connect Secure », « FortiOS » : le nom employé par l'éditeur dans ses avis). Une CVE déjà
   analysée par la NVD n'est gardée que si ses produits correspondent au nom, à la version de l'actif

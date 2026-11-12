@@ -171,6 +171,44 @@ func TestSetFindingStatuses(t *testing.T) {
 	}
 }
 
+// A decision on a whole list (KeepDecided) leaves alone what someone already
+// decided, and what has the status already, as the dismissal rules do (A61,
+// A85); the system's own changes (auto-resolution, rules) do not count.
+func TestSetFindingStatusesKeepsDecisions(t *testing.T) {
+	ctx := context.Background()
+	st := openTest(t)
+	assetID, _ := st.CreateAsset(ctx, Everything, Asset{Name: "linux", Kind: "os", Criticality: "low", Source: "manual"})
+	userID, _ := st.CreateUser(ctx, "ana", "hash", "analyst")
+	ids := map[string]int64{}
+	for _, id := range []string{"CVE-HUMAN", "CVE-SYSTEM", "CVE-NEW", "CVE-SAME"} {
+		st.UpsertVulnerability(ctx, Vulnerability{ID: id, Severity: "HIGH", Modified: "m"})
+		st.ObserveFinding(ctx, assetID, id, "", time.Now())
+	}
+	fs, _ := st.ListFindings(ctx, Everything, FindingFilter{})
+	for _, f := range fs {
+		ids[f.VulnID] = f.ID
+	}
+	st.SetFindingStatus(ctx, Everything, ids["CVE-HUMAN"], userID, "in_triage", "", "à revoir lundi")
+	st.SetFindingStatus(ctx, Everything, ids["CVE-SYSTEM"], 0, "resolved", "", "")
+	st.SetFindingStatus(ctx, Everything, ids["CVE-SAME"], 0, "false_positive", "", "")
+	var changes []StatusChange
+	for _, id := range ids {
+		changes = append(changes, StatusChange{ID: id, Status: "false_positive", KeepDecided: true})
+	}
+	done, err := st.SetFindingStatuses(ctx, Everything, userID, changes)
+	if err != nil || done != 2 {
+		t.Fatalf("done = %d, err = %v, want 2 (system and new)", done, err)
+	}
+	for name, want := range map[string]string{"CVE-HUMAN": "in_triage", "CVE-SYSTEM": "false_positive", "CVE-NEW": "false_positive", "CVE-SAME": "false_positive"} {
+		if f, _ := st.Finding(ctx, Everything, ids[name]); f.Status != want {
+			t.Errorf("%s = %s, want %s", name, f.Status, want)
+		}
+	}
+	if events, _ := st.ListFindingEvents(ctx, Everything, ids["CVE-SAME"]); len(events) != 1 {
+		t.Errorf("an unchanged finding got %d events", len(events))
+	}
+}
+
 func TestUsersSessionsTokens(t *testing.T) {
 	ctx := context.Background()
 	st := openTest(t)

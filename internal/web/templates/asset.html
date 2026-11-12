@@ -74,7 +74,7 @@
   {{if .Data.Query}}<a href="/assets/{{$a.ID}}">Tout afficher</a>{{end}}
 </form>
 {{if and .Data.Query (can .User.Role "analyst")}}
-<div class="notice">{{len .Data.Findings}} vulnérabilité(s) contiennent « {{.Data.Query}} ».
+<div class="notice">{{.Data.Pager.Total}} vulnérabilité(s) contiennent « {{.Data.Query}} ».
   Si ce composant n'est pas présent, vous pouvez les écarter : elles passent en « Non affecté – code vulnérable absent », les prochaines aussi.
   Les vulnérabilités exploitées ou probables restent visibles, et ce que quelqu'un a déjà décidé ne change pas.
   <form method="post" action="/assets/{{$a.ID}}/dismissals" class="inline">
@@ -95,5 +95,7 @@
   {{end}}
 </ul>
 {{end}}
-{{template "findingTable" (findingRows .Data.Findings false)}}
+{{- with .Data.Pager}}{{if gt .Pages 1}}<p class="muted">{{.Total}} vulnérabilité(s) · lignes {{.First}} à {{.Last}} sur {{.Total}}</p>{{end}}{{end}}
+{{template "findingTable" (findingRows .Data.Findings)}}
+{{template "pager" .Data.Pager}}
 {{end}}

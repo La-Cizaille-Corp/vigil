@@ -451,14 +451,21 @@ func (s *Store) SetFindingStatus(ctx context.Context, sc Scope, id, userID int64
 	}))
 }
 
+// errKept is the decision setStatus did not apply, as the change asked
+// (StatusChange.KeepDecided).
+var errKept = errors.New("finding kept as decided")
+
 // setStatus applies a triage decision to a finding of the scope, with an
 // event in its history; ErrNotFound when it does not exist or is outside the
-// scope. With keepComment, an empty comment keeps the finding's own instead
-// of erasing it.
+// scope, errKept when c keeps it as it is. With keepComment, an empty comment
+// keeps the finding's own instead of erasing it.
 func setStatus(ctx context.Context, q querier, sc Scope, userID int64, c StatusChange, keepComment bool, ts string) error {
-	old, err := findingStatus(ctx, q, sc, c.ID)
+	old, decided, err := findingStatus(ctx, q, sc, c.ID)
 	if err != nil {
 		return err
+	}
+	if c.KeepDecided && (decided || old == c.Status) {
+		return errKept
 	}
 	if _, err := q.ExecContext(ctx, `
 		UPDATE findings SET status = ?, justification = ?, auto_resolved = 0, dismissed_by = 0, updated_at = ?,
@@ -473,6 +480,10 @@ func setStatus(ctx context.Context, q querier, sc Scope, userID int64, c StatusC
 type StatusChange struct {
 	ID                             int64
 	Status, Justification, Comment string
+	// KeepDecided leaves the finding as it is when a user already changed
+	// its status (decidedExpr, the guard of the dismissal rules, A61) or when
+	// it already has this status: a decision on a whole list (A85).
+	KeepDecided bool
 }
 
 // SetFindingStatuses applies triage decisions to several findings of the
@@ -480,14 +491,15 @@ type StatusChange struct {
 // each: the same decision for a selection of findings, or one per finding for
 // a VEX import. An empty comment keeps the finding's own comment instead of
 // erasing it. Unknown ids, and those outside the scope, are skipped: they come
-// from a form or a file. It returns how many findings were updated.
+// from a form or a file; so are those a change keeps (KeepDecided). It returns
+// how many findings were updated.
 func (s *Store) SetFindingStatuses(ctx context.Context, sc Scope, userID int64, changes []StatusChange) (int, error) {
 	ts := now()
 	done := 0
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
 		for _, c := range changes {
 			err := setStatus(ctx, tx, sc, userID, c, true, ts)
-			if errors.Is(err, ErrNotFound) {
+			if errors.Is(err, ErrNotFound) || errors.Is(err, errKept) {
 				continue
 			}
 			if err != nil {
@@ -543,17 +555,23 @@ func (s *Store) CountFindingsByStatus(ctx context.Context, sc Scope) (map[string
 	return out, nil
 }
 
-// findingStatus returns the status of a finding of the scope, ErrNotFound when
-// it does not exist or is outside the scope.
-func findingStatus(ctx context.Context, q querier, sc Scope, id int64) (string, error) {
+// decidedExpr tells whether a user already changed the status of the
+// finding aliased f: neither a dismissal rule (A61) nor a decision on a whole
+// list (A85) changes it then.
+const decidedExpr = `EXISTS (SELECT 1 FROM finding_events e WHERE e.finding_id = f.id AND e.user_id IS NOT NULL)`
+
+// findingStatus returns the status of a finding of the scope and whether a
+// user decided it (decidedExpr), ErrNotFound when it does not exist or is
+// outside the scope.
+func findingStatus(ctx context.Context, q querier, sc Scope, id int64) (status string, decided bool, err error) {
 	cond, args := sc.cond("a")
-	var status string
-	err := q.QueryRowContext(ctx, `SELECT f.status FROM findings f JOIN assets a ON a.id = f.asset_id
-		WHERE f.id = ? AND `+cond, append([]any{id}, args...)...).Scan(&status)
+	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
+	err = q.QueryRowContext(ctx, `SELECT f.status, `+decidedExpr+` FROM findings f JOIN assets a ON a.id = f.asset_id
+		WHERE f.id = ? AND `+cond, append([]any{id}, args...)...).Scan(&status, &decided)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", ErrNotFound
+		return "", false, ErrNotFound
 	}
-	return status, err
+	return status, decided, err
 }
 
 // insertEvent records a change of status in the history of a finding.

@@ -1,8 +1,8 @@
 {{/* csrf: the hidden field of the CSRF token, in every form sent by POST. Data: the token. */}}
 {{define "csrf"}}<input type="hidden" name="csrf" value="{{.}}">{{end}}
 
-{{/* findingTable: a vulnerability list. Data: findingRows list selectable;
-   selectable adds checkboxes bound to the form id="bulk" of the page. */}}
+{{/* findingTable: a vulnerability list. Data: findingRows; with Select, checkboxes bound to the
+   form id="bulk" of the page, ticked again from Checked; with Back, each row leads back to it. */}}
 {{define "findingTable"}}
 {{if .List}}
 <table class="cards{{if .Sortable}} sortable{{end}}">
@@ -10,13 +10,13 @@
 <tbody>
 {{range .List}}
 <tr>
-  {{if $.Select}}<td class="select" data-label="Sélection"><input type="checkbox" name="id" value="{{.ID}}" form="bulk" aria-label="Sélectionner {{.VulnID}} sur {{.AssetName}}"></td>{{end}}
+  {{if $.Select}}<td class="select" data-label="Sélection"><input type="checkbox" name="id" value="{{.ID}}" form="bulk" aria-label="Sélectionner {{.VulnID}} sur {{.AssetName}}"{{if index $.Checked .ID}} checked{{end}}></td>{{end}}
   {{- /* The level first, then the band and what makes it urgent (A84). */}}
   <td data-label="Priorité">{{with level .}}<span class="level level-{{.}}">{{levelName .}}</span>{{end}}{{$band := band .}}
     <div class="small"><span class="sev sev-{{$band}}">{{sevLabel $band}}</span>{{with reason .}} · <span class="reason">{{.}}</span>{{end}}</div></td>
   <td data-label="CVSS" class="num">{{with cvss .CVSS}}{{.}}{{else}}<span class="muted">—</span>{{end}}</td>
   <td data-label="EPSS" class="num">{{with epss .EPSS}}{{.}}{{else}}<span class="muted">—</span>{{end}}</td>
-  <td data-label="Vulnérabilité"><a href="/findings/{{.ID}}">{{.VulnID}}</a>{{if .Aliases}}<br><small>{{aliases .Aliases}}</small>{{end}}</td>
+  <td data-label="Vulnérabilité"><a href="/findings/{{.ID}}{{with $.Back}}?back={{.}}{{end}}">{{.VulnID}}</a>{{if .Aliases}}<br><small>{{aliases .Aliases}}</small>{{end}}</td>
   <td data-label="Actif"><a href="/assets/{{.AssetID}}">{{.AssetName}} {{.AssetVersion}}</a>{{with .AssetProject}}<br><small class="muted">projet {{.}}</small>{{end}}</td>
   <td data-label="Corrigée en">{{.FixedIn}}</td>
   <td data-label="Statut">{{statusLabel .Status}}</td>
@@ -37,6 +37,13 @@
 
 {{/* levelLink: a level of the vulnerability list, with its count. Data: levelLink. */}}
 {{define "levelLink"}}<a href="{{.Href}}" {{if .Active}}class="active" aria-current="true"{{end}}>{{.Label}} <small>{{.N}}</small></a>{{end}}
+
+{{/* pager: the links to the pages of a long list (A85), shown when it has more than one. Data: pager. */}}
+{{define "pager"}}{{if gt .Pages 1}}<nav class="pager" aria-label="Pages de la liste">
+  {{if .Prev}}<a href="{{.Prev}}" rel="prev">&lsaquo; Précédente</a>{{else}}<span class="muted">&lsaquo; Précédente</span>{{end}}
+  <span>Page {{.Page}} sur {{.Pages}}</span>
+  {{if .Next}}<a href="{{.Next}}" rel="next">Suivante &rsaquo;</a>{{else}}<span class="muted">Suivante &rsaquo;</span>{{end}}
+</nav>{{end}}{{end}}
 
 {{/* syncBar: inventory synchronisation button and state, for pages that list vulnerabilities. */}}
 {{define "syncBar"}}

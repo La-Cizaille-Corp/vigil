@@ -1,6 +1,6 @@
 {{define "content"}}
 {{$f := .Data.Finding}}{{$v := .Data.Vuln}}
-<p><a href="/findings">← Vulnérabilités</a></p>
+{{template "listNav" .Data}}
 <dl class="card">
   {{- /* What the alerts announced, and why, by the rule of the ranking (A84). */}}
   <dt>Niveau</dt><dd>{{with level $f}}<span class="level level-{{.}}">{{levelName .}}</span>, car {{explain $f}}{{else}}aucun : corrigée, elle sort du classement{{end}}</dd>
@@ -77,6 +77,7 @@
 <h2>Mettre à jour le suivi</h2>
 <form method="post" action="/findings/{{$f.ID}}" class="card">
   {{template "csrf" .CSRF}}
+  {{- with .Data.Back}}<input type="hidden" name="back" value="{{.}}">{{end}}
   <label>Statut
     <select name="status">{{range statuses}}<option value="{{.Value}}" {{if eq .Value $f.Status}}selected{{end}}>{{.Label}}</option>{{end}}</select>
   </label>
@@ -89,6 +90,7 @@
   <label>Commentaire <textarea name="comment" maxlength="4000" rows="3">{{$f.Comment}}</textarea></label>
   <button type="submit">Enregistrer</button>
 </form>
+{{- if .Data.Back}}{{template "listNav" .Data}}{{end}}
 {{end}}
 
 <h2>Historique</h2>
@@ -100,3 +102,8 @@
 </ul>
 {{else}}<p class="muted">Aucun changement.</p>{{end}}
 {{end}}
+
+{{/* listNav: back to the list the page was opened from, with its filters and page, and on to the
+   next vulnerability of that list (A85); without one, to the default list. Data: the page's data. */}}
+{{define "listNav"}}<p class="list-nav">{{with .Back}}<a href="{{.}}">← Retour à la liste</a>{{else}}<a href="/findings">← Vulnérabilités</a>{{end}}
+  {{- with .Following}} · <a href="/findings/{{.}}?back={{$.Back}}">Suivante dans la liste →</a>{{end}}</p>{{end}}
