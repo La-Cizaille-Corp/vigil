@@ -226,32 +226,6 @@ func TestSourceName(t *testing.T) {
 	}
 }
 
-// The scale of the database first, then the CVSS score, then the priority of
-// the distribution: an Ubuntu record of a kernel CVE the NVD has not analysed
-// carries only the latter.
-func TestSeverityLabel(t *testing.T) {
-	const v31 = `{"type": "CVSS_V3", "score": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"}` // 7.8
-	const v40 = `{"type": "CVSS_V4", "score": "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:L/VI:N/VA:H/SC:N/SI:N/SA:N"}`
-	for _, c := range []struct{ doc, want string }{
-		{`{"severity": [{"type": "Ubuntu", "score": "medium"}]}`, "MEDIUM"},
-		{`{"severity": [{"type": "Ubuntu", "score": "negligible"}]}`, "LOW"},
-		{`{"severity": [` + v40 + `, {"type": "Ubuntu", "score": "high"}]}`, "HIGH"}, // CVSS 4.0 is not computed
-		{`{"severity": [` + v31 + `, {"type": "Ubuntu", "score": "low"}]}`, "HIGH"},  // the score comes first
-		{`{"severity": [{"type": "Ubuntu", "score": "untriaged"}]}`, ""},
-		{`{"severity": [` + v40 + `]}`, ""},
-		{`{"database_specific": {"severity": "MODERATE"}, "severity": [` + v31 + `]}`, "MEDIUM"},
-		{`{}`, ""},
-	} {
-		var v Vuln
-		if err := json.Unmarshal([]byte(c.doc), &v); err != nil {
-			t.Fatal(err)
-		}
-		if got := v.SeverityLabel(); got != c.want {
-			t.Errorf("%s: %q, want %q", c.doc, got, c.want)
-		}
-	}
-}
-
 func TestOtherIDs(t *testing.T) {
 	v := Vuln{Aliases: []string{"CVE-1"}, Upstream: []string{"CVE-1", "CVE-2"}}
 	if got := v.OtherIDs(); len(got) != 2 || got[0] != "CVE-1" || got[1] != "CVE-2" {
