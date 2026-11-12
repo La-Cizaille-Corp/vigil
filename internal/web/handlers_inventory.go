@@ -309,7 +309,7 @@ func (s *Server) assetCSVImport(w http.ResponseWriter, r *http.Request) {
 		}
 		added++
 	}
-	s.audit(r, "csv_import", fmt.Sprintf("+%d, %d déjà présents", added, skipped))
+	s.audit(r, "csv_import", "added", added, "skipped", skipped)
 	if added > 0 {
 		go s.runSync()
 	}

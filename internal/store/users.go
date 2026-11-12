@@ -5,8 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 // User is an account able to sign in.
@@ -36,8 +39,9 @@ func (s *Store) CountUsers(ctx context.Context) (int, error) {
 // differs from an existing one only by case is refused (ErrExists): « Alice »
 // and « alice » would be confused in the history and the audit log. Names are
 // compared in Go, as SQLite's NOCASE only folds ASCII letters; the check and
-// the insert share a transaction, so concurrent creations cannot both pass.
-// Accounts that already overlap are kept.
+// the insert share a transaction, so concurrent creations cannot both pass,
+// and the same name inserted meanwhile by another process (vigil user add)
+// is ErrExists too. Accounts that already overlap are kept.
 func (s *Store) CreateUser(ctx context.Context, username, passwordHash, role string) (int64, error) {
 	var id int64
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
@@ -62,7 +66,7 @@ func (s *Store) CreateUser(ctx context.Context, username, passwordHash, role str
 			`INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)`,
 			username, passwordHash, role, now())
 		if err != nil {
-			return err
+			return mapUnique(err)
 		}
 		id, err = res.LastInsertId()
 		return err
@@ -128,7 +132,36 @@ func (s *Store) DeleteExpiredSessions(ctx context.Context) error {
 	return err
 }
 
-// Audit records a security-relevant action. userID 0 means the system.
+// AuditDetail writes the detail of an audit entry, the one format of new
+// entries (older ones keep the forms they were written in): key=value pairs
+// in the order given, keys and values alternating as in log/slog ("id", 12,
+// "role", "analyst" gives id=12 role=analyst). SECURITY: a value that is
+// empty or holds a space, a quote, an equals sign, a character that is not
+// printable or invalid UTF-8 is quoted in Go syntax (name="Équipe sécu",
+// text="a\nb"), so that a typed value can neither add a field nor start
+// another line of a log.
+func AuditDetail(kv ...any) string {
+	var b strings.Builder
+	for i := 0; i < len(kv); i += 2 {
+		if i > 0 {
+			b.WriteByte(' ')
+		}
+		value := ""
+		if i+1 < len(kv) {
+			value = fmt.Sprint(kv[i+1])
+		}
+		if value == "" || strings.ContainsFunc(value, func(r rune) bool {
+			return r == ' ' || r == '"' || r == '=' || r == utf8.RuneError || !unicode.IsPrint(r)
+		}) {
+			value = strconv.Quote(value)
+		}
+		fmt.Fprintf(&b, "%v=%s", kv[i], value)
+	}
+	return b.String()
+}
+
+// Audit records a security-relevant action, its detail written by
+// AuditDetail. userID 0 means the system.
 func (s *Store) Audit(ctx context.Context, userID int64, action, detail string) error {
 	var uid any
 	if userID != 0 {

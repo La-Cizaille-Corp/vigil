@@ -1,7 +1,6 @@
 package web
 
 import (
-	"fmt"
 	"net/http"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/clip"
@@ -66,6 +65,6 @@ func (s *Server) vexImport(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	s.audit(r, "vex_import", fmt.Sprintf("%d appliquées, %d ignorées", applied, ignored))
+	s.audit(r, "vex_import", "applied", applied, "ignored", ignored)
 	redirect(w, r, "/findings", "vex-imported")
 }

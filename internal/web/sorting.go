@@ -100,12 +100,7 @@ func sortHeaders[T any](cols []column[T], path string, q url.Values, o listOrder
 					h.Order = "descending"
 				}
 			}
-			link := url.Values{}
-			for k, v := range q {
-				if k != "msg" {
-					link[k] = v
-				}
-			}
+			link := without(q, "msg")
 			link.Set("sort", c.key)
 			link.Set("dir", "asc")
 			if desc {
@@ -241,12 +236,7 @@ func levelLinks(findings []store.Finding, q url.Values, current string) []levelL
 		counts[tracking.Level(f)]++
 	}
 	link := func(level string) string {
-		kept := url.Values{}
-		for k, v := range q {
-			if k != "msg" && k != "level" {
-				kept[k] = v
-			}
-		}
+		kept := without(q, "msg", "level")
 		if level != "" {
 			kept.Set("level", level)
 		}

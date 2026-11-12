@@ -29,6 +29,10 @@ const (
 // MinPasswordLength follows OWASP ASVS guidance for passwords without MFA.
 const MinPasswordLength = 12
 
+// PasswordHelp tells whoever chooses a password what HashPassword accepts,
+// beside each password field and in the help of the command line.
+const PasswordHelp = "12 caractères minimum, et pas l'un des plus courants" // #nosec G101 -- help text, not a credential
+
 // MaxPasswordBytes bounds what argon2 is given: HashPassword refuses a longer
 // password, and every form that verifies one refuses it before the slow
 // computation (sign-in, account forms).
