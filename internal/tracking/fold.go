@@ -59,7 +59,8 @@ type findingPlan struct {
 	older   int
 }
 
-// reportedAdvisory is an advisory reported for the asset being recorded.
+// reportedAdvisory is an advisory reported for the asset being recorded, or
+// behind one of its findings.
 type reportedAdvisory struct {
 	described
 	stored   *store.Vulnerability // nil when not stored: older than the tracked period
@@ -74,8 +75,8 @@ const (
 
 // plan reads what record needs and decides, by the rules of A80:
 //   - a grouped advisory that cites advisories of its CVEs, one of which is
-//     reported for the asset, is not a finding: the source describes its
-//     CVEs one by one, and it is shown on their findings;
+//     reported for the asset or has a finding on it, is not a finding: the
+//     source describes its CVEs one by one, and it is shown on their findings;
 //   - the advisories describing the same CVE alone make one finding: the one
 //     already shown stays, reported or not, as long as one of them is; among
 //     several, the one a user decided on last, then an open one, then one with

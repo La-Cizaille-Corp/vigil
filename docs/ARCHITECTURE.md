@@ -558,7 +558,9 @@ veille, n'était visible que par un avis groupé ; A80 la retirait. La condition
 reprend désormais `exploitedExpr`, et un paquet lu en entier (A55, A56) relit à part ses avis d'une CVE
 laissés hors période : leurs CVE sont demandées à EPSS (une requête pour 100 CVE, environ 50 pour un noyau
 Ubuntu), et ceux qui sont probables sont téléchargés un à un (`/v1/vulns`) puis enregistrés. Une panne
-d'EPSS est journalisée et ne laisse passer que KEV, comme avant. *Limite* : la NVD n'est interrogée que
+d'EPSS est journalisée et ne laisse passer que KEV, comme avant. Sur la base de l'audit, 13 CVE anciennes
+entrent ainsi, toutes urgentes : 9 pour le noyau Ubuntu (dont CVE-2026-43284, EPSS 94 %) et 4 pour le noyau
+Debian, dont CVE-2004-0230 et CVE-2008-4609 (TCP), que Debian dit toujours affecter le paquet. *Limite* : la NVD n'est interrogée que
 sur la période et sur KEV (`hasKev`) ; une CVE probable plus ancienne n'y est pas cherchée.
 
 **A32. État de la synchronisation visible, analyse d'un seul actif.** Sans JavaScript, une
@@ -661,8 +663,9 @@ portée par la ligne cachée disparaîtrait) ; une fiche par CVE avec des liens 
 un RHSA cite, et une migration non réversible) ; replier un avis groupé dès qu'une de ses CVE est décrite
 seule (sur Red Hat, les RHSA d'une CVE d'autres flux auraient fait disparaître 38 CVE sur 193, dont 6
 urgentes sur 7) ; exiger que toutes ses CVE le soient (trois USN restaient, avec 44 doublons, pour des CVE
-dont l'avis propre dit que la 22.04 n'est pas touchée). *Conséquences* : sur la base de l'audit, le noyau
-Ubuntu passe de 3 162 à 3 147 lignes et la base de 27 à 16 urgentes ; une CVE plus ancienne que la période
+dont l'avis propre dit que la 22.04 n'est pas touchée). *Conséquences* : une copie de la base de l'audit,
+synchronisée, replie ses 15 USN et ne garde aucune CVE en double ; la base réaliste passe de 377 à 316
+lignes (openssl-rh de 127 à 76, ses 193 CVE et ses 7 urgentes toujours visibles) ; une CVE plus ancienne que la période
 que seul un avis groupé faisait voir n'est plus montrée, sauf exploitée ou probable (A31) ; un VEX importé
 qui cite un USN n'est plus rapproché (il l'est par la CVE) ; Red Hat garde ses RHSA multi-CVE en lignes,
 faute d'avis par CVE chez OSV, et ses doublons viennent surtout de ce que ses écosystèmes ne distinguent pas
