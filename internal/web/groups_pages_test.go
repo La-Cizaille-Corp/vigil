@@ -611,7 +611,12 @@ func TestChannelsOfAGroup(t *testing.T) {
 		t.Error("the channel of A does not receive exactly its assets")
 	}
 
-	_, body := admin.get("/settings/groups/" + strconv.FormatInt(fx.groupA, 10))
+	_, body := admin.get("/settings")
+	if !strings.Contains(body, `aria-label="Périmètre de canal /a"`) || !strings.Contains(body, "Créer le jeton") ||
+		!strings.Contains(body, fmt.Sprintf(`<option value="%d" selected>groupe Équipe A</option>`, fx.groupA)) {
+		t.Error("the settings do not show the group of each channel")
+	}
+	_, body = admin.get("/settings/groups/" + strconv.FormatInt(fx.groupA, 10))
 	if !strings.Contains(body, "2 canal(aux)") {
 		t.Error("the page of a group does not count its channels")
 	}
