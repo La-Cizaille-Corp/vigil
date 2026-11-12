@@ -178,6 +178,30 @@ func TestDigestBound(t *testing.T) {
 	}
 }
 
+// New findings that are all urgent are listed once, at the head (A87).
+func TestDigestOnlyUrgentNew(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "d.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	asset, _ := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "nginx", Version: "1.24", Kind: "product", Criticality: "high", Source: "manual"})
+	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-2026-0001", Severity: "HIGH", CVSS: -1, EPSS: -1})
+	st.SetExploitSignals(ctx, store.ExploitSignal{ID: "CVE-2026-0001", KEV: true, EPSS: -1})
+	st.ObserveFinding(ctx, asset, "CVE-2026-0001", "", time.Now())
+	d, err := Generate(ctx, st, store.Group{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{d.Markdown, d.HTML} {
+		if strings.Count(text, "CVE-2026-0001") != 1 || !strings.Contains(text, "Toutes sont urgentes, en tête du digest.") ||
+			strings.Contains(text, "les autres, les plus urgentes d'abord") {
+			t.Errorf("digest:\n%s", text)
+		}
+	}
+}
+
 // The lists of a digest of a group lead to the lists of that group (A68, A87).
 func TestDigestLinksOfAGroup(t *testing.T) {
 	d := data{GroupID: 3}

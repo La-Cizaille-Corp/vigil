@@ -15,7 +15,8 @@
 
 <h2>Nouvelles vulnérabilités ouvertes ({{.New.Total.N}})</h2>
 {{if .New.Groups}}{{template "breakdown" .New}}
-{{if .New.Total.Urgent}}<p>Les urgentes sont en tête du digest ; les autres, les plus urgentes d'abord :</p>{{end}}
+{{if and .New.Total.Urgent .NewListed.Lines}}<p>Les urgentes sont en tête du digest ; les autres, les plus urgentes d'abord :</p>
+{{else if .New.Total.Urgent}}<p>Toutes sont urgentes, en tête du digest.</p>{{end}}
 {{template "lines" .NewListed}}
 {{else}}<p>Aucune nouvelle vulnérabilité ouverte sur la période.</p>{{end}}
 

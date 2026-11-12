@@ -15,8 +15,10 @@ Généré le {{date .GeneratedAt}} — période depuis le {{date .Since}}.
 ## Nouvelles vulnérabilités ouvertes ({{.New.Total.N}})
 {{if .New.Groups}}
 {{template "breakdown" .New}}
-{{with .New.Total.Urgent}}
+{{if and .New.Total.Urgent .NewListed.Lines}}
 Les urgentes sont en tête du digest ; les autres, les plus urgentes d'abord :
+{{else if .New.Total.Urgent}}
+Toutes sont urgentes, en tête du digest.
 {{end}}{{template "lines" .NewListed}}{{else}}
 Aucune nouvelle vulnérabilité ouverte sur la période.
 {{end}}
