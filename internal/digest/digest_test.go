@@ -36,14 +36,18 @@ func TestGenerate(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"GHSA-jfh8", "CVE-2021-44228", "log4j-core", "Campagne contre les hôpitaux",
-		"org.apache.logging.log4j (1)", "Exploitées (KEV)",
-		"Hors délai de traitement (1)", "Actualités citant vos vulnérabilités (1)", "Log4Shell : correctifs urgents"} {
+		"Urgentes (0)", "Aucune vulnérabilité urgente.", "Par niveau", "Nouvelles vulnérabilités ouvertes (0)",
+		"Hors délai de traitement (1)", "Actualités citant vos vulnérabilités (1)", "Log4Shell : correctifs urgents",
+		"Vulnérabilités ouvertes (1)"} {
 		if !strings.Contains(d.Markdown, want) || !strings.Contains(d.HTML, want) {
 			t.Errorf("digest misses %q", want)
 		}
 	}
-	if !strings.Contains(d.Markdown, "| org.apache.logging.log4j | 1 | 0 | 0 | 0 | 0 | 1 | 0 |") {
-		t.Errorf("vendor breakdown missing:\n%s", d.Markdown)
+	for _, want := range []string{"| org.apache.logging.log4j | 0 | 1 | 0 | 0 | 0 | 0 | 1 |", "| À planifier | 0 | 1 |", "| Corrigées | 0 | 0 |",
+		"- **À planifier** · Critique — GHSA-jfh8 (CVE-2021-44228) — log4j-core 2.14.1 — échéance "} {
+		if !strings.Contains(d.Markdown, want) {
+			t.Errorf("Markdown digest misses %q:\n%s", want, d.Markdown)
+		}
 	}
 	// SECURITY: untrusted text reaches chat tools through the Markdown digest.
 	for _, bad := range []string{"<!channel>", "](https://evil"} {
@@ -66,56 +70,154 @@ func TestGenerate(t *testing.T) {
 	}
 }
 
+// The digest follows the levels (A87): it opens on the urgent ones, counts the
+// findings of each level, new and in all, lists the new open ones most urgent
+// first, and leaves the fixed ones to their count.
+func TestDigestByLevels(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "d.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	asset, _ := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "linux", Version: "6.12", Kind: "os", Criticality: "high", Source: "manual",
+		CPE: "cpe:2.3:o:linux:linux_kernel:6.12:*:*:*:*:*:*:*"})
+	old := time.Now().Add(-30 * 24 * time.Hour)
+	for _, v := range []struct {
+		id, severity string
+		kev, fixed   bool
+		seen         time.Time
+	}{
+		{"CVE-2026-0001", "MEDIUM", true, false, old},          // urgent, before the period
+		{"CVE-2026-0002", "HIGH", true, false, time.Now()},     // urgent, new
+		{"CVE-2026-0003", "CRITICAL", false, true, time.Now()}, // new, fixed at once: a count only
+		{"CVE-2026-0004", "LOW", false, false, time.Now()},     // new, to watch
+	} {
+		st.UpsertVulnerability(ctx, store.Vulnerability{ID: v.id, Severity: v.severity, CVSS: -1, EPSS: -1, Summary: "faille " + v.id})
+		st.SetExploitSignals(ctx, store.ExploitSignal{ID: v.id, KEV: v.kev, EPSS: -1})
+		st.ObserveFinding(ctx, asset, v.id, "", v.seen)
+		if v.fixed {
+			list, _ := st.ListFindings(ctx, store.Everything, store.FindingFilter{Search: v.id})
+			st.SetFindingStatus(ctx, store.Everything, list[0].ID, 0, store.StatusResolved, "", "")
+		}
+	}
+	d, err := Generate(ctx, st, store.Group{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	md := d.Markdown
+	urgent, levels, news := strings.Index(md, "## Urgentes (2)"), strings.Index(md, "## Par niveau"), strings.Index(md, "## Nouvelles vulnérabilités ouvertes (2)")
+	if urgent < 0 || levels < urgent || news < levels {
+		t.Fatalf("sections at %d, %d, %d:\n%s", urgent, levels, news, md)
+	}
+	for _, want := range []string{
+		"- **Urgente** · Haute · exploitée (CISA KEV) — CVE-2026-0002 — linux 6.12 — nouvelle",
+		"- **Urgente** · Moyenne · exploitée (CISA KEV) — CVE-2026-0001 — linux 6.12\n",
+		"| Urgentes | 1 | 2 |", "| À surveiller | 1 | 1 |", "| Écartées | 0 | 0 |", "| Corrigées | 1 | 1 |",
+		"| Linux | 1 | 0 | 1 | 0 | 1 | 0 | 2 |", // the new open ones: the fixed one is not there
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("Markdown digest misses %q:\n%s", want, md)
+		}
+	}
+	if strings.Contains(md[news:], "CVE-2026-0003") || strings.Contains(d.HTML, ">CVE-2026-0003<") {
+		t.Error("a fixed vulnerability is listed")
+	}
+	// The new urgent one is listed once, at the head of the digest.
+	if strings.Count(md, "— CVE-2026-0002 —") != 1 || !strings.Contains(md[news:], "Les urgentes sont en tête du digest") ||
+		!strings.Contains(md[news:], "- **À surveiller** · Basse — CVE-2026-0004 — linux 6.12 — nouvelle") {
+		t.Errorf("new ones:\n%s", md[news:])
+	}
+	for _, want := range []string{`<a href="/findings?level=urgent">Urgentes</a>`, `<a href="/findings?level=fixed&amp;since=7">1</a>`,
+		`<span class="level level-urgent">Urgente</span>`} {
+		if !strings.Contains(d.HTML, want) {
+			t.Errorf("HTML digest misses %s", want)
+		}
+	}
+}
+
+// A digest stays a summary whatever the volume (A87): each list is cut to
+// maxListed lines, with the number of the others and their list.
+func TestDigestBound(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "d.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	asset, _ := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "linux", Version: "6.12", Kind: "os", Criticality: "high", Source: "manual"})
+	const n = 3 * maxListed
+	for i := range n {
+		id := fmt.Sprintf("CVE-2026-%04d", i)
+		st.UpsertVulnerability(ctx, store.Vulnerability{ID: id, Severity: "CRITICAL", CVSS: -1, EPSS: -1, Summary: strings.Repeat("résumé long ", 40)})
+		st.SetExploitSignals(ctx, store.ExploitSignal{ID: id, KEV: i%2 == 0, EPSS: -1})
+		// Past the 15-day deadline of a critical one: every one is overdue.
+		st.ObserveFinding(ctx, asset, id, "", time.Now().Add(-20*24*time.Hour+time.Duration(i)*time.Second))
+	}
+	d, err := Generate(ctx, st, store.Group{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"## Urgentes (75)", "- … et 25 autres, dans Vigil : la liste des urgentes",
+		"## Hors délai de traitement (150)", "- … et 100 autres, dans Vigil : la liste des vulnérabilités hors délai"} {
+		if !strings.Contains(d.Markdown, want) {
+			t.Errorf("Markdown digest misses %q", want)
+		}
+	}
+	if lines := strings.Count(d.Markdown, "\n- **"); lines != 2*maxListed {
+		t.Errorf("%d finding lines, want %d", lines, 2*maxListed)
+	}
+	for _, want := range []string{`… et 25 autres : <a href="/findings?level=urgent">la liste des urgentes</a>`,
+		`… et 100 autres : <a href="/findings?overdue=1">la liste des vulnérabilités hors délai</a>`} {
+		if !strings.Contains(d.HTML, want) {
+			t.Errorf("HTML digest misses %s", want)
+		}
+	}
+	if strings.Contains(d.Markdown, "résumé long") || len(d.Markdown) > 30000 {
+		t.Errorf("the digest holds the summaries, or does not fit a chat message: %d bytes", len(d.Markdown))
+	}
+}
+
+// The lists of a digest of a group lead to the lists of that group (A68, A87).
+func TestDigestLinksOfAGroup(t *testing.T) {
+	d := data{GroupID: 3}
+	if got := d.List("level", "urgent"); got != "/findings?group=3&level=urgent" {
+		t.Errorf("link = %s", got)
+	}
+	if got := (data{}).List(); got != "/findings" {
+		t.Errorf("link = %s", got)
+	}
+}
+
 func TestByVendor(t *testing.T) {
 	const fortios = "cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*"
 	fs := []store.Finding{
 		{VulnID: "npm-medium", AssetPURL: "pkg:npm/lodash@4.17.15", Severity: "MEDIUM"},
-		{VulnID: "forti-high", AssetCPE: fortios, Severity: "HIGH", CVSS: 8.1},
-		{VulnID: "forti-scored", AssetCPE: fortios, CVSS: 9.8}, // no advisory severity: rated by its score
-		{VulnID: "forti-kev", AssetCPE: fortios, Severity: "HIGH", CVSS: 7.5, KEV: true},
+		{VulnID: "forti-high", AssetCPE: fortios, Severity: "HIGH", CVSS: 8.1, Class: store.AlertSevere},
+		{VulnID: "forti-scored", AssetCPE: fortios, CVSS: 9.8, Class: store.AlertSevere}, // no advisory severity: rated by its score
+		{VulnID: "forti-kev", AssetCPE: fortios, Severity: "HIGH", CVSS: 7.5, KEV: true, Class: store.AlertPriority},
 		{VulnID: "log4j", AssetPURL: "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1", Severity: "LOW"},
 		{VulnID: "manual", CVSS: -1},
+		{VulnID: "npm-kev", AssetPURL: "pkg:npm/lodash@4.17.15", Severity: "LOW", KEV: true, Class: store.AlertPriority},
+	}
+	for i := range fs {
+		fs[i].Status = store.StatusInTriage
 	}
 	b := byVendor(fs)
 	var vendors []string
 	for _, g := range b.Groups {
 		vendors = append(vendors, g.Vendor)
 	}
+	// The vendors with urgent findings first, then by bands.
 	if want := "Fortinet,Paquets npm,org.apache.logging.log4j,Éditeur non renseigné"; strings.Join(vendors, ",") != want {
 		t.Fatalf("vendors = %v, want %s", vendors, want)
 	}
 	forti := b.Groups[0]
-	var order []string
-	for _, f := range forti.Findings {
-		order = append(order, f.VulnID)
+	if fmt.Sprint(forti.Bands) != "[1 2 0 0 0]" || forti.Urgent != 1 || forti.N != 3 {
+		t.Errorf("fortinet = %+v", forti)
 	}
-	// The ranking of tracking.ComparePriority: exploited first, then by band.
-	if strings.Join(order, ",") != "forti-kev,forti-scored,forti-high" {
-		t.Errorf("order = %v", order)
-	}
-	if fmt.Sprint(forti.Bands) != "[1 2 0 0 0]" || forti.KEV != 1 {
-		t.Errorf("bands = %v, kev = %d", forti.Bands, forti.KEV)
-	}
-	if s := forti.Summary(); s != "1 critique, 2 hautes, dont 1 exploitée" {
-		t.Errorf("summary = %q", s)
-	}
-	if s := b.Groups[3].Summary(); s != "1 de sévérité inconnue" {
-		t.Errorf("summary = %q", s)
-	}
-	if fmt.Sprint(b.Total.Bands) != "[1 2 1 1 1]" || len(b.Total.Findings) != len(fs) {
-		t.Errorf("total = %v", b.Total.Bands)
-	}
-}
-
-func TestListedBound(t *testing.T) {
-	fs := make([]store.Finding, maxListed+3)
-	for i := range fs {
-		fs[i] = store.Finding{VulnID: fmt.Sprint(i), AssetCPE: "cpe:2.3:o:microsoft:windows_11:*:*:*:*:*:*:*:*", Severity: "HIGH"}
-	}
-	fs[len(fs)-1].Severity = "CRITICAL"
-	g := byVendor(fs).Groups[0]
-	if len(g.Listed()) != maxListed || g.Unlisted() != 3 || g.Listed()[0].Severity != "CRITICAL" {
-		t.Errorf("listed %d, unlisted %d, first %s", len(g.Listed()), g.Unlisted(), g.Listed()[0].Severity)
+	if fmt.Sprint(b.Total.Bands) != "[1 2 1 2 1]" || b.Total.N != len(fs) || b.Total.Urgent != 2 {
+		t.Errorf("total = %+v", b.Total)
 	}
 }
 

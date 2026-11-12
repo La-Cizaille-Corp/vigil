@@ -242,11 +242,44 @@ func (s *Store) ListMentions(ctx context.Context, ids []string, limit int) ([]CT
 		ORDER BY i.published DESC LIMIT ?`, args...)
 }
 
+// MaxCTIItems is the most items a list of the watch reads, the most recent
+// ones; without a Limit, it reads defaultCTIItems.
+const (
+	MaxCTIItems     = 500
+	defaultCTIItems = 200
+)
+
 // ListCTIItems returns items matching f, most recent first. News are the same
 // for everyone; whether one concerns the inventory depends on the scope.
 func (s *Store) ListCTIItems(ctx context.Context, sc Scope, f CTIFilter) ([]CTIItem, error) {
-	var where []string
-	with, args := openCVEs(sc) // first in the query, so are its arguments
+	with, where, args := ctiQuery(sc, f)
+	// #nosec G202 -- with and where are fixed expressions (ctiQuery); the values are parameters.
+	q := with + `SELECT i.id, fd.name, i.guid, i.title, i.link, i.summary, i.published, i.countries, i.sectors, i.regulations,
+		       COALESCE((SELECT group_concat(m.cve) FROM cti_mentions m WHERE m.item_id = i.id AND m.cve IN (SELECT cve FROM open_cves)), '')
+		FROM cti_items i JOIN cti_feeds fd ON fd.id = i.feed_id` + where + " ORDER BY i.published DESC, i.id DESC LIMIT ?"
+	limit := f.Limit
+	if limit <= 0 || limit > MaxCTIItems {
+		limit = defaultCTIItems
+	}
+	return collect(ctx, s.q(ctx), "list cti items", scanCTIItem, q, append(args, limit)...)
+}
+
+// CountCTIItems returns how many items match f, Limit aside: the count of a
+// view of the watch, however many of them it lists.
+func (s *Store) CountCTIItems(ctx context.Context, sc Scope, f CTIFilter) (int, error) {
+	with, where, args := ctiQuery(sc, f)
+	var n int
+	// #nosec G202 -- with and where are fixed expressions (ctiQuery); the values are parameters.
+	err := s.q(ctx).QueryRowContext(ctx, with+`SELECT COUNT(*) FROM cti_items i JOIN cti_feeds fd ON fd.id = i.feed_id`+where, args...).Scan(&n)
+	return n, wrap("count cti items", err)
+}
+
+// ctiQuery is what selects the items matching f: the WITH clause of the open
+// CVEs of the scope, the WHERE clause ("" for none) and their arguments, in
+// that order. ListCTIItems and CountCTIItems read the same items by it.
+func ctiQuery(sc Scope, f CTIFilter) (with, where string, args []any) {
+	var conds []string
+	with, args = openCVEs(sc) // first in the query, so are its arguments
 	anyTag := func(column string, values []string) {
 		if len(values) == 0 {
 			return
@@ -257,36 +290,25 @@ func (s *Store) ListCTIItems(ctx context.Context, sc Scope, f CTIFilter) ([]CTII
 			ors = append(ors, cond)
 			args = append(args, arg)
 		}
-		where = append(where, "("+strings.Join(ors, " OR ")+")")
+		conds = append(conds, "("+strings.Join(ors, " OR ")+")")
 	}
 	anyTag("i.countries", f.Countries)
 	anyTag("i.sectors", f.Sectors)
 	anyTag("i.regulations", f.Regulations)
 	if f.AnyRegulation {
-		where = append(where, "i.regulations <> ''")
+		conds = append(conds, "i.regulations <> ''")
 	}
 	if !f.Since.IsZero() {
-		where = append(where, "i.created_at >= ?")
+		conds = append(conds, "i.created_at >= ?")
 		args = append(args, formatTime(f.Since))
 	}
 	if f.Concerning {
-		where = append(where, "EXISTS (SELECT 1 FROM cti_mentions m WHERE m.item_id = i.id AND m.cve IN (SELECT cve FROM open_cves))")
+		conds = append(conds, "EXISTS (SELECT 1 FROM cti_mentions m WHERE m.item_id = i.id AND m.cve IN (SELECT cve FROM open_cves))")
 	}
-	// #nosec G202 -- with is the fixed clause of openCVEs; the values are parameters.
-	q := with + `SELECT i.id, fd.name, i.guid, i.title, i.link, i.summary, i.published, i.countries, i.sectors, i.regulations,
-		       COALESCE((SELECT group_concat(m.cve) FROM cti_mentions m WHERE m.item_id = i.id AND m.cve IN (SELECT cve FROM open_cves)), '')
-		FROM cti_items i JOIN cti_feeds fd ON fd.id = i.feed_id`
-	if len(where) > 0 {
-		// #nosec G202 -- only fixed column expressions are joined; values are parameters.
-		q += " WHERE " + strings.Join(where, " AND ")
+	if len(conds) > 0 {
+		where = " WHERE " + strings.Join(conds, " AND ")
 	}
-	q += " ORDER BY i.published DESC, i.id DESC LIMIT ?"
-	limit := f.Limit
-	if limit <= 0 || limit > 500 {
-		limit = 200
-	}
-	args = append(args, limit)
-	return collect(ctx, s.q(ctx), "list cti items", scanCTIItem, q, args...)
+	return with, where, args
 }
 
 // scanCTIItem reads a row of ListCTIItems.

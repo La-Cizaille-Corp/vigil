@@ -210,9 +210,10 @@ var findingColumnList = []column[store.Finding]{
 // defaultFindingOrder is the column of a vulnerability list without a choice.
 const defaultFindingOrder = "priority"
 
-// levelLink is a level of the vulnerability list, with what it holds.
+// levelLink is a tab of a list, with what it holds: a level of the
+// vulnerability list, or a view of the watch (A87).
 type levelLink struct {
-	Level  string // the value of ?level=
+	Level  string // the value of ?level=, or the name of the view
 	Label  string
 	Href   string
 	N      int
@@ -253,16 +254,9 @@ type levelNav struct {
 // levelLinks returns the links to the levels of a list showing current; they
 // keep its filters and its order.
 func levelLinks(findings []store.Finding, q url.Values, current string) levelNav {
-	counts := map[string]int{}
-	for _, f := range findings {
-		switch {
-		case f.Open():
-			counts[levelOpen]++
-		case f.Status == store.StatusResolved:
-			counts[levelFixed]++
-		}
-		counts[tracking.Level(f)]++
-	}
+	counts := tracking.CountLevels(findings)
+	counts[levelOpen] = counts[tracking.LevelUrgent] + counts[tracking.LevelPlan] + counts[tracking.LevelWatch]
+	counts[levelFixed] = counts[""]
 	link := func(level string) string {
 		kept := without(q, "msg", "level", "page")
 		if level != "" {

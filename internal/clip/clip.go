@@ -1,10 +1,13 @@
 // Package clip shortens text without cutting a character in two, so that what
 // Vigil shows, stores or sends stays valid UTF-8. Limits on what users and
-// sources write count characters (Text, Prefix, Fits); Bytes is for the size
-// budget of a message sent elsewhere.
+// sources write count characters (Text, Prefix, Fits, Excerpt); Bytes is for
+// the size budget of a message sent elsewhere.
 package clip
 
-import "unicode/utf8"
+import (
+	"strings"
+	"unicode/utf8"
+)
 
 // Prefix returns the first n characters of s.
 func Prefix(s string, n int) string {
@@ -30,6 +33,20 @@ func Text(s string, n int) string {
 		return ""
 	}
 	return Prefix(s, n-1) + "…"
+}
+
+// Excerpt returns s cut to n characters as Text does, and ends with "…" a
+// text that stops before the end of its sentence: feeds cut their summaries
+// mid-word ("… that 1,122 public"), and the reader should see it is cut.
+func Excerpt(s string, n int) string {
+	s = strings.TrimRight(s, " \t\r\n\u200b")
+	if !Fits(s, n) {
+		return Text(s, n)
+	}
+	if r, _ := utf8.DecodeLastRuneInString(s); s != "" && !strings.ContainsRune(".!?…»\")]", r) {
+		return s + "…"
+	}
+	return s
 }
 
 // Bytes returns s cut to at most n bytes, then "…" when it was longer.

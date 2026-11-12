@@ -89,10 +89,12 @@ modification, ou sur demande), par l'API après un import SBOM, ou par `vigil sy
 
 ### Digest
 
-Couvre la période depuis le digest précédent (7 jours pour le premier) : nouvelles
-vulnérabilités et vulnérabilités ouvertes, chacune regroupée par éditeur (A47), hors délai,
-actualités citant l'inventaire, synthèse par statut, veille menaces filtrée, veille
-réglementaire. Stocké (Markdown + HTML), consultable, exportable, envoyé aux webhooks.
+Couvre la période depuis le digest précédent (7 jours pour le premier), dans l'ordre des niveaux
+(A87) : urgentes, nombres par niveau (nouvelles et au total, corrigées comprises), nouvelles
+vulnérabilités ouvertes regroupées par éditeur (A47) puis les plus urgentes, hors délai, actualités
+citant l'inventaire, vulnérabilités ouvertes par éditeur, veille menaces filtrée, veille
+réglementaire ; chaque liste est bornée à 50 lignes. Stocké (Markdown + HTML), consultable,
+exportable, envoyé aux webhooks.
 
 ## 4. Registre des arbitrages
 
@@ -470,7 +472,7 @@ d'une vulnérabilité ramenait à la liste sans ses filtres.
   liste » lisent la liste entière, par une seule fonction (`listedFindings`) ; changer d'ordre ou de niveau
   revient à la première page. La page d'un actif était coupée de même (`paginate`, commun) ; depuis A86, elle
   ne montre plus que ses dix plus urgentes, et seul l'aperçu d'une règle d'écart y est paginé. La veille, plafonnée à
-  200 actualités, reste au lot 5 de l'audit (« veille paginée et comptée »), qui pourra reprendre `paginate`.
+  200 actualités, a repris `paginate` au lot 5 de l'audit (A87).
   Mesure, copie de la base noyau, page « À planifier » (3 235 vulnérabilités), poste de développement : 2,68 Mo
   et 0,27 s avant, 0,11 Mo et 0,18 s après ; « Toutes » (7 629) : 6,43 Mo et 0,44 s avant, 0,11 Mo et 0,20 s après.
 - *Traiter la sélection* : le panneau reste collé au bas de l'écran, sous les cases, et propose « les lignes
@@ -557,6 +559,43 @@ filtre exact par CVE pour « sur tous les actifs ». *Conséquences* : la page d
 vulnérabilités, sa liste le fait ; `/assets/{id}?page=` ne pagine plus que l'aperçu d'une règle ; un lien
 `/findings?asset=` partagé ne montre rien à qui ne voit pas l'actif ; la recherche d'une CVE courte en trouve
 aussi les plus longues (CVE-2022-3114 trouve CVE-2022-31140).
+
+**A87. Le digest suit les niveaux et reste un résumé ; la veille se lit par pages et se compte.** L'audit
+d'ergonomie de la 0.4.1 (lot 5) mesurait sur la base noyau un digest de 7 631 lignes et 3 Mo, qui listait
+toutes les nouvelles vulnérabilités, corrigées en tête, sans jamais parler de niveau ; la veille empilait 200
+actualités sans le dire, sans compteur, la vue « Qui concernent mon inventaire » en dernier, des résumés
+coupés au milieu d'un mot.
+- *Ordre du digest* : « Urgentes (n) », toutes dates, les plus urgentes d'abord (« nouvelle » pour celles de la
+  période) ; « Par niveau », un tableau nouvelles sur la période / au total pour Urgentes, À planifier,
+  À surveiller, Écartées puis Corrigées, en nombre seulement ; « Nouvelles vulnérabilités ouvertes » par éditeur
+  puis leurs plus urgentes hors urgentes, déjà en tête ; hors délai ; actualités citant l'inventaire ;
+  vulnérabilités ouvertes par éditeur ; veille. Les corrigées n'y sont plus listées. Une ligne dit le niveau,
+  la sévérité et sa raison (`tracking.Reason`, comme les listes), l'avis, trois alias au plus (`aliases`, passé
+  de `web` à `tracking` pour servir aux deux) et l'actif. Le tableau par éditeur compte les urgentes et les
+  range en tête (A47 amendé). Les nombres par niveau viennent de `tracking.CountLevels`, que la liste des
+  vulnérabilités emploie aussi (`levelLinks`).
+- *Borne* : chaque liste (urgentes, nouvelles, hors délai) s'arrête à 50 lignes, suivies de « … et 3 253 autres »
+  et d'un lien vers la liste de l'interface (`/findings?level=urgent`, `?since=7`, `?overdue=1`, avec `group=`
+  pour le digest d'un groupe). Le Markdown, qui ne connaît pas l'adresse de Vigil, nomme la liste (« dans
+  Vigil : la liste des urgentes ») ; le message envoyé se termine déjà par le lien du digest. Les digests par
+  groupe (A68) suivent les mêmes règles, par la même fonction. Mesure sur une copie de la base noyau, ses digests
+  effacés pour couvrir les 7 jours par défaut comme l'audit : Markdown 1,87 Mo et 7 698 lignes avant, 10,7 Ko et
+  122 lignes après ; HTML 3,28 Mo avant, 26 Ko après. Il tient dans un message de discussion (30 000 octets).
+- *Veille* : les 500 actualités les plus récentes d'une vue (`store.MaxCTIItems`, la borne existante), 100 par
+  page (`paginate`, celui de la liste des vulnérabilités), groupées par jour de publication ; « 500 actualité(s) ·
+  lignes 1 à 100 sur 500 : les 500 plus récentes sur 1 234 » quand la vue en compte plus. Les quatre vues portent
+  leur nombre (`Store.CountCTIItems`, qui lit les mêmes actualités que la liste par `ctiQuery`), « Qui concernent
+  mon inventaire » en premier, avec le gabarit des niveaux (`levelLink`, `aria-current`). Un résumé est coupé à
+  300 caractères et finit par « … » s'il s'arrête avant la fin de sa phrase (`clip.Excerpt`) : The Hacker News
+  coupe les siens au milieu d'un mot.
+
+*Écarté* : lister les urgentes sans borne (« en entier », dit l'audit) : 50 lignes couvrent le noyau Ubuntu (27)
+et un inventaire qui en aurait plus a besoin de la liste, pas d'un message ; passer l'adresse de Vigil à
+`digest.Generate` pour des liens dans le Markdown (un paramètre de plus à ses deux appelants, pour un lien que
+le message porte déjà) ; paginer la veille en SQL (`LIMIT … OFFSET`) : 500 actualités se lisent en une requête,
+et `paginate` reste la seule façon de couper une liste. *Conséquences* : le digest ne contient plus de résumés
+ni la synthèse par statut, que remplacent les nombres par niveau ; la veille lit jusqu'à 500 actualités au lieu
+de 200, et cinq comptes par affichage.
 
 **A69. Ce que les sources envoient est vérifié avant d'être stocké.** OSV et la NVD sont des hôtes fixes
 en HTTPS, mais leurs champs étaient stockés tels quels : une sévérité hors de la liste (`IMPORTANT` de
@@ -1221,7 +1260,10 @@ d'abord, puis par score CVSS. La sévérité est celle de l'avis, à défaut la 
 purl (org.apache.logging.log4j) ou, sans espace de noms, de l'écosystème (Paquets npm). Les
 vulnérabilités ouvertes sont limitées à 25 par éditeur dans la liste, les compteurs restant
 complets : un abonnement à un grand éditeur en compte des milliers. Le tableau vient en tête pour
-survivre à la troncature des messages de discussion.
+survivre à la troncature des messages de discussion. Depuis A87, le tableau compte aussi les urgentes et
+range les éditeurs par elles d'abord (la colonne « exploitées » s'efface : elles en font partie) ; les
+listes par éditeur laissent place à une liste des plus urgentes, bornée à 50 lignes, et ce sont les
+urgentes et les nombres par niveau qui viennent en tête.
 
 **A48. Audit de sécurité et d'ergonomie (octobre 2026).** Revue de l'architecture, du réseau et du
 code au regard de l'OWASP ASVS, puis de chaque écran. Décisions :

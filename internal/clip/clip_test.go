@@ -30,6 +30,25 @@ func TestClip(t *testing.T) {
 	}
 }
 
+// An excerpt says it is one: cut by its length, or by its source mid-sentence.
+func TestExcerpt(t *testing.T) {
+	for _, c := range []struct{ s, want string }{
+		{"Une phrase finie.", "Une phrase finie."},
+		{"Apiiro said that 1,122 public", "Apiiro said that 1,122 public…"},
+		{"avec l’ordre du jour suivant :", "avec l’ordre du jour suivant :…"},
+		{"Déjà coupé…", "Déjà coupé…"},
+		{"« Citation »", "« Citation »"},
+		{"exploited in attacks. [...]", "exploited in attacks. [...]"},
+		{"Fin d'un lien \u200b ", "Fin d'un lien…"},
+		{strings.Repeat("é", 50) + ".", strings.Repeat("é", 39) + "…"}, // cut by its length
+		{"", ""},
+	} {
+		if got := Excerpt(c.s, 40); got != c.want {
+			t.Errorf("Excerpt(%q) = %q, want %q", c.s, got, c.want)
+		}
+	}
+}
+
 // A byte budget never cuts a character in two.
 func TestBytes(t *testing.T) {
 	long := strings.Repeat("a", 299) + "é et la suite"

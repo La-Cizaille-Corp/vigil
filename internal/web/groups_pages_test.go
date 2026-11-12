@@ -531,6 +531,10 @@ func TestDigestsOfAGroupThroughThePages(t *testing.T) {
 		strings.Contains(body, witness) {
 		t.Errorf("new digest of A: %d", code)
 	}
+	// Its counts lead to the lists of its group (A87).
+	if _, body := fx.client["lec-a"].get(path); !strings.Contains(body, `<a href="/findings?group=`+group(fx.groupA)+`&amp;level=urgent">Urgentes</a>`) {
+		t.Errorf("the levels of the digest of A do not lead to the lists of A:\n%s", body)
+	}
 	entries, _ := fx.st.ListAudit(context.Background(), 1)
 	if want := "id=" + path[strings.LastIndex(path, "/")+1:] + ` group="Équipe A"`; len(entries) != 1 || entries[0].Detail != want {
 		t.Errorf("audit: %+v, want %q", entries, want)

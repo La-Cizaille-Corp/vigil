@@ -27,8 +27,10 @@ Outil open source de **veille de sécurité** léger : un seul binaire, aucune i
   CRA, DORA, RGPD, AI Act, ISO 27001, SecNumCloud…) alimentée par des sources officielles (Commission
   européenne, CNIL, EDPB, EBA) et par la détection des réglementations citées dans tous les flux.
   Les actualités qui citent une vulnérabilité ouverte de l'inventaire sont signalées (« Vous concerne »).
-- **Digest** périodique (vulnérabilités regroupées par éditeur et comptées par sévérité, retards,
-  menaces filtrées) consultable dans l'interface,
+  Chaque vue donne son nombre d'actualités ; les 500 plus récentes se lisent par pages, jour par jour.
+- **Digest** périodique, qui suit les niveaux : les urgentes d'abord, les nombres par niveau, les
+  nouvelles vulnérabilités ouvertes regroupées par éditeur, les retards et les menaces filtrées ; chaque
+  liste est bornée à 50 lignes, avec le nombre des autres. Consultable dans l'interface,
   exportable en Markdown, et **alertes immédiates** dès qu'une vulnérabilité devient urgente
   (exploitée, probable, critique), par **e-mail** ou **webhook** Slack, Mattermost, Teams ou JSON.
 - Fonctionne **en local** (par défaut sur `127.0.0.1`) ou **en mode client / serveur** (TLS, rôles,

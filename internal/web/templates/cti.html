@@ -1,10 +1,9 @@
 {{define "content"}}
 {{$f := .Data.Filter}}{{$analyst := can .User.Role "analyst"}}
+{{- /* The views with their number of news, the one concerning the inventory first (A87). */}}
 <nav class="filters" aria-label="Vues de la veille">
-  <a href="/cti" {{if not (or .Data.Regulatory .Data.All)}}class="active" aria-current="true"{{end}}>Veille menaces</a>
-  <a href="/cti?view=regulatory" {{if .Data.Regulatory}}class="active" aria-current="true"{{end}}>Veille réglementaire</a>
-  <a href="/cti?all=1" {{if and .Data.All (not .Data.Concerning)}}class="active" aria-current="true"{{end}}>Toutes les actualités</a>
-  <a href="/cti?all=1&amp;concerning=1" {{if .Data.Concerning}}class="active" aria-current="true"{{end}}>Qui concernent mon inventaire</a>
+  {{range .Data.Views}}{{template "levelLink" .}}
+  {{end}}
 </nav>
 {{if .Data.Concerning}}<p class="muted small">Actualités qui citent une vulnérabilité ouverte de votre inventaire (identifiant CVE dans le titre ou le résumé).</p>{{end}}
 {{if .Data.Watched}}<p class="muted small">Filtre de veille enregistré appliqué{{if $analyst}} (<a href="/settings">modifier</a>){{end}}.</p>{{end}}
@@ -29,9 +28,14 @@
   {{end}}
 </div>
 
-{{if .Data.Items}}
+{{$p := .Data.Pager}}
+{{if .Data.Days}}
+<p class="muted">{{$p.Total}} actualité(s){{if gt $p.Pages 1}} · lignes {{$p.First}} à {{$p.Last}} sur {{$p.Total}}{{end}}{{if gt .Data.Total $p.Total}}
+  : les {{$p.Total}} plus récentes sur {{.Data.Total}}{{end}}</p>
+{{range .Data.Days}}
+<h2 class="news-day">{{day .Day}}</h2>
 <ul class="news">
-{{range .Data.Items}}
+{{range .Items}}
 <li>
   {{if .Link}}<a href="{{.Link}}" rel="noopener noreferrer" target="_blank">{{.Title}}</a>{{else}}{{.Title}}{{end}}
   {{if .Concerns}}<div class="concerns small"><span class="concern-badge">Vous concerne</span>
@@ -41,10 +45,12 @@
     {{range .Sectors}}<span class="tag tag-sector">{{sectorLabel .}}</span>{{end}}
     {{range .Regulations}}<span class="tag tag-regulation">{{regulationLabel .}}</span>{{end}}
   </div>
-  {{if .Summary}}<p class="small">{{.Summary}}</p>{{end}}
+  {{if .Summary}}<p class="small">{{excerpt .Summary}}</p>{{end}}
 </li>
 {{end}}
 </ul>
+{{end}}
+{{template "pager" $p}}
 {{else}}
 <p class="muted">Aucune actualité.{{if $analyst}} Lancez une collecte ou élargissez les filtres.{{else}} Élargissez les filtres.{{end}}</p>
 {{end}}
