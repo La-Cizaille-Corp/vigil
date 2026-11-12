@@ -48,8 +48,8 @@ func TestRetiredComponentsAndAddPage(t *testing.T) {
 	ctx := context.Background()
 	a := store.Asset{Name: "kept", Kind: "package", PURL: "pkg:npm/kept@1"}
 	b := store.Asset{Name: "dropped", Kind: "package", PURL: "pkg:npm/dropped@1"}
-	st.ReplaceProjectAssets(ctx, "app", []store.Asset{a, b})
-	st.ReplaceProjectAssets(ctx, "app", []store.Asset{a})
+	st.ReplaceProjectAssets(ctx, store.Everything, "app", []store.Asset{a, b})
+	st.ReplaceProjectAssets(ctx, store.Everything, "app", []store.Asset{a})
 	c := loginAs(t, base, "analyst", "a-strong-password")
 
 	_, list := c.get("/assets")
@@ -60,7 +60,7 @@ func TestRetiredComponentsAndAddPage(t *testing.T) {
 	if !strings.Contains(retired, ">dropped<") || strings.Contains(retired, ">kept<") {
 		t.Error("retired view")
 	}
-	ids, _ := st.ListRetiredAssets(ctx)
+	ids, _ := st.ListRetiredAssets(ctx, store.Everything)
 	_, page := c.get("/assets/" + itoa(ids[0].ID))
 	if !strings.Contains(page, "absent du dernier SBOM") || strings.Contains(page, "Analyser cet actif") {
 		t.Error("retired asset page")
@@ -78,12 +78,12 @@ func TestRetiredComponentsAndAddPage(t *testing.T) {
 func TestFindingPageShowsFix(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	ctx := context.Background()
-	id, _ := st.CreateAsset(ctx, store.Asset{Name: "log4j-core", Version: "2.14.1", Kind: "package", Criticality: "high",
+	id, _ := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "log4j-core", Version: "2.14.1", Kind: "package", Criticality: "high",
 		Source: "manual", PURL: "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1"})
 	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "GHSA-jfh8", Severity: "CRITICAL", Raw: `{"affected":[{"package":
 		{"purl":"pkg:maven/org.apache.logging.log4j/log4j-core"},"ranges":[{"type":"ECOSYSTEM","events":[{"introduced":"2.13.0"},{"fixed":"2.15.0"}]}]}]}`})
 	st.ObserveFinding(ctx, id, "GHSA-jfh8", "", time.Now())
-	findings, _ := st.ListFindings(ctx, store.FindingFilter{AssetID: id})
+	findings, _ := st.ListFindings(ctx, store.Everything, store.FindingFilter{AssetID: id})
 	_, body := loginAs(t, base, "analyst", "a-strong-password").get("/findings/" + itoa(findings[0].ID))
 	if !strings.Contains(body, "corrigée en 2.15.0") {
 		t.Error("fixed version missing from the finding page")

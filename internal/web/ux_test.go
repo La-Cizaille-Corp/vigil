@@ -45,7 +45,7 @@ func TestAssetAndSyncFlow(t *testing.T) {
 	if code != http.StatusSeeOther || !strings.HasPrefix(loc, "/assets/") || !strings.Contains(loc, "msg=asset-created") {
 		t.Fatalf("create: %d %s", code, loc)
 	}
-	assets, _ := st.ListAssets(context.Background())
+	assets, _ := st.ListAssets(context.Background(), store.Everything)
 	if len(assets) != 1 || assets[0].TrackSince != "2026-01-01" {
 		t.Fatalf("assets: %+v", assets)
 	}
@@ -72,7 +72,7 @@ func TestAssetUpdateVersionAndPURL(t *testing.T) {
 	st.CreateUser(ctx, "admin", hash, auth.RoleAdmin)
 	c := loginAs(t, base, "admin", "a-strong-password")
 
-	id, err := st.CreateAsset(ctx, store.Asset{Name: "lodash", Kind: "package", Criticality: "high",
+	id, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "lodash", Kind: "package", Criticality: "high",
 		Source: "manual", PURL: "pkg:npm/lodash@4.17.15", Version: "4.17.15"})
 	if err != nil {
 		t.Fatal(err)
@@ -86,7 +86,7 @@ func TestAssetUpdateVersionAndPURL(t *testing.T) {
 		if code != http.StatusSeeOther || !strings.Contains(loc, "msg=asset-updated") {
 			t.Fatalf("update: %d %s", code, loc)
 		}
-		a, err := st.Asset(ctx, id)
+		a, err := st.Asset(ctx, store.Everything, id)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -105,7 +105,7 @@ func TestAssetPageLayout(t *testing.T) {
 	hash, _ := auth.HashPassword("a-strong-password")
 	st.CreateUser(ctx, "admin", hash, auth.RoleAdmin)
 	st.CreateUser(ctx, "reader", hash, auth.RoleViewer)
-	id, err := st.CreateAsset(ctx, store.Asset{Name: "lodash", Kind: "package", Criticality: "high",
+	id, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "lodash", Kind: "package", Criticality: "high",
 		Source: "manual", PURL: "pkg:npm/lodash", Version: "4.17.15"})
 	if err != nil {
 		t.Fatal(err)

@@ -75,7 +75,7 @@ func (c *client) upload(path, field, name, content string, form url.Values) (int
 func seedFindings(t *testing.T, st *store.Store) (assetID int64, ids []int64) {
 	t.Helper()
 	ctx := context.Background()
-	assetID, _ = st.CreateAsset(ctx, store.Asset{Name: "fortios", Version: "7.2.4", Kind: "os", Criticality: "high", Source: "manual"})
+	assetID, _ = st.CreateAsset(ctx, store.Everything, store.Asset{Name: "fortios", Version: "7.2.4", Kind: "os", Criticality: "high", Source: "manual"})
 	for i, v := range []store.Vulnerability{
 		{ID: "CVE-2024-0001", Severity: "CRITICAL", Summary: "=cmd|' /C calc'!A0", EPSS: -1, CVSS: 9.8},
 		{ID: "CVE-2024-0002", Severity: "HIGH", EPSS: -1, CVSS: 7.5},
@@ -84,7 +84,7 @@ func seedFindings(t *testing.T, st *store.Store) (assetID int64, ids []int64) {
 		st.UpsertVulnerability(ctx, v)
 		st.ObserveFinding(ctx, assetID, v.ID, "", time.Now().Add(-time.Duration(i*20)*24*time.Hour))
 	}
-	list, _ := st.ListFindings(ctx, store.FindingFilter{})
+	list, _ := st.ListFindings(ctx, store.Everything, store.FindingFilter{})
 	for _, f := range list {
 		ids = append(ids, f.ID)
 	}
@@ -102,14 +102,14 @@ func TestBulkTriage(t *testing.T) {
 	if code != http.StatusSeeOther || loc != "/findings?severity=HIGH&severity=CRITICAL&msg=bulk-updated" {
 		t.Fatalf("bulk: %d %s", code, loc)
 	}
-	list, _ := st.ListFindings(context.Background(), store.FindingFilter{Statuses: []string{"not_affected"}})
+	list, _ := st.ListFindings(context.Background(), store.Everything, store.FindingFilter{Statuses: []string{"not_affected"}})
 	if len(list) != 2 || list[0].Comment != "Module désactivé" {
 		t.Errorf("updated: %+v", list)
 	}
 	// Without a comment, a bulk decision keeps each finding's own comment.
 	code, _ = c.postLocation("/findings/bulk", url.Values{"csrf": {c.csrf()}, "status": {"exploitable"},
 		"id": {strconv.FormatInt(ids[0], 10)}, "next": {"/findings"}})
-	if f, _ := st.Finding(context.Background(), ids[0]); code != http.StatusSeeOther || f.Status != "exploitable" || f.Comment != "Module désactivé" {
+	if f, _ := st.Finding(context.Background(), store.Everything, ids[0]); code != http.StatusSeeOther || f.Status != "exploitable" || f.Comment != "Module désactivé" {
 		t.Errorf("comment lost by a bulk decision: %d %+v", code, f)
 	}
 	// SECURITY: the return address cannot leave the findings list.
@@ -150,7 +150,7 @@ func TestCSVExportsAndImport(t *testing.T) {
 	if code != http.StatusSeeOther || loc != "/assets?msg=csv-imported" {
 		t.Fatalf("CSV import: %d %s", code, loc)
 	}
-	assets, _ := st.ListAssets(context.Background())
+	assets, _ := st.ListAssets(context.Background(), store.Everything)
 	if len(assets) != 2 { // fortios 7.2.4 already existed
 		t.Errorf("assets after import: %+v", assets)
 	}
@@ -300,8 +300,8 @@ func TestAssetTags(t *testing.T) {
 	if code != http.StatusSeeOther {
 		t.Fatalf("create: %d %s", code, loc)
 	}
-	other, _ := st.CreateAsset(ctx, store.Asset{Name: "redis", Kind: "technology", Criticality: "low", Source: "manual", Tags: []string{"recette"}})
-	assets, _ := st.ListAssets(ctx)
+	other, _ := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "redis", Kind: "technology", Criticality: "low", Source: "manual", Tags: []string{"recette"}})
+	assets, _ := st.ListAssets(ctx, store.Everything)
 	var nginx store.Asset
 	for _, a := range assets {
 		if a.Name == "nginx" {
@@ -321,7 +321,7 @@ func TestAssetTags(t *testing.T) {
 	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-2", Severity: "HIGH", EPSS: -1, CVSS: -1})
 	st.ObserveFinding(ctx, nginx.ID, "CVE-1", "", time.Now())
 	st.ObserveFinding(ctx, other, "CVE-2", "", time.Now())
-	list, _ := st.ListFindings(ctx, store.FindingFilter{Tag: "équipe web"})
+	list, _ := st.ListFindings(ctx, store.Everything, store.FindingFilter{Tag: "équipe web"})
 	if len(list) != 1 || list[0].VulnID != "CVE-1" {
 		t.Errorf("findings with tag: %+v", list)
 	}

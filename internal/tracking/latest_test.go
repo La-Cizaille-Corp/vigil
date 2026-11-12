@@ -30,7 +30,7 @@ func openStore(t *testing.T) *store.Store {
 
 func openIDs(t *testing.T, st *store.Store, assetID int64) []string {
 	t.Helper()
-	findings, err := st.ListFindings(context.Background(), store.FindingFilter{AssetID: assetID})
+	findings, err := st.ListFindings(context.Background(), store.Everything, store.FindingFilter{AssetID: assetID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestLatestPackage(t *testing.T) {
 	client.BaseURL = srv.URL
 	syncer := &tracking.Syncer{Store: st, OSV: client, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 
-	id, err := st.CreateAsset(ctx, store.Asset{Name: "left", Kind: "package", PURL: "pkg:npm/left@1.0.0", Version: "latest",
+	id, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "left", Kind: "package", PURL: "pkg:npm/left@1.0.0", Version: "latest",
 		Criticality: "medium", Source: "manual"})
 	if err != nil {
 		t.Fatal(err)
@@ -147,7 +147,7 @@ func TestByNameAndLatestCPE(t *testing.T) {
 		if a.Source == "" {
 			a.Source = "manual"
 		}
-		id, err := st.CreateAsset(ctx, a)
+		id, err := st.CreateAsset(ctx, store.Everything, a)
 		if err != nil {
 			t.Fatal(err)
 		}

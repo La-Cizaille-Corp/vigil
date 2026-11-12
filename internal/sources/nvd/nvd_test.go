@@ -129,6 +129,32 @@ func TestModes(t *testing.T) {
 	}
 }
 
+// A dictionary name with escaped colons (lemonldap\:\:ng) is a valid CPE: its
+// version is filled, and it goes to the NVD with its escapes.
+func TestForCPEEscapedColons(t *testing.T) {
+	var got []url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.URL.Query())
+		io.WriteString(w, `{"totalResults":0,"vulnerabilities":[]}`)
+	}))
+	defer srv.Close()
+	c := &Client{URL: srv.URL, HTTP: srv.Client()}
+	ctx := context.Background()
+	product := `cpe:2.3:a:lemonldap-ng:lemonldap\:\:ng:*:*:*:*:*:*:*:*`
+	for _, q := range []Query{{CPE: product, Version: "2.0.16"}, {CPE: product}, {CPE: product, Mode: "from", From: "2.0"}} {
+		if _, err := c.ForCPE(ctx, q); err != nil {
+			t.Fatalf("%+v: %v", q, err)
+		}
+	}
+	if len(got) != 3 || got[0].Get("cpeName") != `cpe:2.3:a:lemonldap-ng:lemonldap\:\:ng:2.0.16:*:*:*:*:*:*:*` ||
+		got[1].Get("virtualMatchString") != product || got[2].Get("virtualMatchString") != product || got[2].Get("versionStart") != "2.0" {
+		t.Errorf("unexpected requests: %v", got)
+	}
+	if w := WithVersion(product, "2.0.16"); w != got[0].Get("cpeName") {
+		t.Errorf("with version: %s", w)
+	}
+}
+
 // Every product of a vendor: the vendor CPE goes to the NVD as is, like a
 // whole product, even when the asset has a version.
 func TestWholeVendor(t *testing.T) {

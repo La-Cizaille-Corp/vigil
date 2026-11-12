@@ -18,28 +18,28 @@ func TestAssetCRUD(t *testing.T) {
 	st := openTest(t)
 	a := Asset{Name: "nginx", Kind: "technology", Version: "1.24.0", CPE: "cpe:2.3:a:f5:nginx:1.24.0:*:*:*:*:*:*:*",
 		CPEMode: "", Criticality: "high", Owner: "ops", Notes: "frontal", Source: "manual"}
-	id, err := st.CreateAsset(ctx, a)
+	id, err := st.CreateAsset(ctx, Everything, a)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := st.Asset(ctx, id)
+	got, err := st.Asset(ctx, Everything, id)
 	if err != nil || got.Name != "nginx" || got.CPE != a.CPE || got.Owner != "ops" || got.CreatedAt.IsZero() {
 		t.Fatalf("asset = %+v, %v", got, err)
 	}
 	got.Version, got.CPEMode, got.CPEFrom = "1.25.0", "from", "1.24.0"
-	if err := st.UpdateAsset(ctx, got); err != nil {
+	if err := st.UpdateAsset(ctx, Everything, got); err != nil {
 		t.Fatal(err)
 	}
-	if again, _ := st.Asset(ctx, id); again.Version != "1.25.0" || again.CPEMode != "from" || again.CPEFrom != "1.24.0" {
+	if again, _ := st.Asset(ctx, Everything, id); again.Version != "1.25.0" || again.CPEMode != "from" || again.CPEFrom != "1.24.0" {
 		t.Fatalf("update lost: %+v", again)
 	}
-	if err := st.DeleteAsset(ctx, id); err != nil {
+	if err := st.DeleteAsset(ctx, Everything, id); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.Asset(ctx, id); !errors.Is(err, ErrNotFound) {
+	if _, err := st.Asset(ctx, Everything, id); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("deleted asset still found: %v", err)
 	}
-	if err := st.DeleteAsset(ctx, id); !errors.Is(err, ErrNotFound) {
+	if err := st.DeleteAsset(ctx, Everything, id); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("second delete: %v", err)
 	}
 }
@@ -65,7 +65,7 @@ func TestWebhookErrorStaysValidUTF8(t *testing.T) {
 func TestFindingLifecycle(t *testing.T) {
 	ctx := context.Background()
 	st := openTest(t)
-	assetID, _ := st.CreateAsset(ctx, Asset{Name: "lodash", Kind: "package", Criticality: "low", Source: "manual"})
+	assetID, _ := st.CreateAsset(ctx, Everything, Asset{Name: "lodash", Kind: "package", Criticality: "low", Source: "manual"})
 	userID, _ := st.CreateUser(ctx, "ana", "hash", "analyst")
 	st.UpsertVulnerability(ctx, Vulnerability{ID: "GHSA-1", Aliases: []string{"CVE-1"}, Severity: "HIGH", CVSS: 7.5, Modified: "m1"})
 
@@ -75,35 +75,35 @@ func TestFindingLifecycle(t *testing.T) {
 	if touch, _ := st.ObserveFinding(ctx, assetID, "GHSA-1", "4.17.21", time.Now()); touch != TouchExisting {
 		t.Fatalf("second observation: %v", touch)
 	}
-	fs, _ := st.ListFindings(ctx, FindingFilter{})
+	fs, _ := st.ListFindings(ctx, Everything, FindingFilter{})
 	if len(fs) != 1 || fs[0].CVSS != 7.5 || fs[0].Aliases[0] != "CVE-1" || fs[0].Status != "in_triage" || fs[0].FixedIn != "4.17.21" {
 		t.Fatalf("findings = %+v", fs)
 	}
-	if err := st.SetFindingStatus(ctx, fs[0].ID, userID, "not_affected", "code_not_reachable", "ok"); err != nil {
+	if err := st.SetFindingStatus(ctx, Everything, fs[0].ID, userID, "not_affected", "code_not_reachable", "ok"); err != nil {
 		t.Fatal(err)
 	}
 	// The source stops reporting it: resolved automatically; reporting it again reopens it.
 	if n, _ := st.AutoResolveStale(ctx, assetID, nil, ""); n != 0 {
 		t.Errorf("a triaged not_affected finding must not be auto-resolved (got %d)", n)
 	}
-	st.SetFindingStatus(ctx, fs[0].ID, userID, "exploitable", "", "")
+	st.SetFindingStatus(ctx, Everything, fs[0].ID, userID, "exploitable", "", "")
 	if n, _ := st.AutoResolveStale(ctx, assetID, nil, ""); n != 1 {
 		t.Fatalf("auto-resolved = %d", n)
 	}
-	if f, _ := st.Finding(ctx, fs[0].ID); f.FixedIn != "4.17.21" {
+	if f, _ := st.Finding(ctx, Everything, fs[0].ID); f.FixedIn != "4.17.21" {
 		t.Errorf("fixed version after the resolution: %q", f.FixedIn)
 	}
 	if touch, _ := st.ObserveFinding(ctx, assetID, "GHSA-1", "", time.Now()); touch != TouchReopened {
 		t.Fatalf("reopen: %v", touch)
 	}
-	if f, _ := st.Finding(ctx, fs[0].ID); f.FixedIn != "" {
+	if f, _ := st.Finding(ctx, Everything, fs[0].ID); f.FixedIn != "" {
 		t.Errorf("fixed version once the source names none: %q", f.FixedIn)
 	}
-	events, _ := st.FindingEvents(ctx, fs[0].ID)
+	events, _ := st.FindingEvents(ctx, Everything, fs[0].ID)
 	if len(events) < 3 || events[0].Username != "ana" {
 		t.Fatalf("events = %+v", events)
 	}
-	counts, _ := st.CountFindingsByStatus(ctx)
+	counts, _ := st.CountFindingsByStatus(ctx, Everything)
 	if counts["in_triage"] != 1 {
 		t.Errorf("counts = %v", counts)
 	}
@@ -126,17 +126,17 @@ func TestFindingLifecycle(t *testing.T) {
 func TestSetFindingStatuses(t *testing.T) {
 	ctx := context.Background()
 	st := openTest(t)
-	assetID, _ := st.CreateAsset(ctx, Asset{Name: "lodash", Kind: "package", Criticality: "low", Source: "manual"})
+	assetID, _ := st.CreateAsset(ctx, Everything, Asset{Name: "lodash", Kind: "package", Criticality: "low", Source: "manual"})
 	userID, _ := st.CreateUser(ctx, "ana", "hash", "analyst")
 	for _, id := range []string{"CVE-1", "CVE-2"} {
 		st.UpsertVulnerability(ctx, Vulnerability{ID: id, Severity: "HIGH", Modified: "m"})
 		st.ObserveFinding(ctx, assetID, id, "", time.Now())
 	}
-	fs, _ := st.ListFindings(ctx, FindingFilter{})
+	fs, _ := st.ListFindings(ctx, Everything, FindingFilter{})
 	a, b := fs[0].ID, fs[1].ID
-	st.SetFindingStatus(ctx, b, userID, "exploitable", "", "à patcher")
+	st.SetFindingStatus(ctx, Everything, b, userID, "exploitable", "", "à patcher")
 
-	done, err := st.SetFindingStatuses(ctx, userID, []StatusChange{
+	done, err := st.SetFindingStatuses(ctx, Everything, userID, []StatusChange{
 		{ID: a, Status: "exploitable", Comment: "d'abord"},
 		{ID: 9999, Status: "resolved"}, // unknown: skipped
 		{ID: a, Status: "not_affected", Justification: "code_not_reachable", Comment: "ensuite"},
@@ -145,28 +145,28 @@ func TestSetFindingStatuses(t *testing.T) {
 	if err != nil || done != 3 {
 		t.Fatalf("done = %d, err = %v", done, err)
 	}
-	if f, _ := st.Finding(ctx, a); f.Status != "not_affected" || f.Justification != "code_not_reachable" || f.Comment != "ensuite" {
+	if f, _ := st.Finding(ctx, Everything, a); f.Status != "not_affected" || f.Justification != "code_not_reachable" || f.Comment != "ensuite" {
 		t.Errorf("a = %s %s %q", f.Status, f.Justification, f.Comment)
 	}
-	if f, _ := st.Finding(ctx, b); f.Status != "resolved" || f.Comment != "à patcher" {
+	if f, _ := st.Finding(ctx, Everything, b); f.Status != "resolved" || f.Comment != "à patcher" {
 		t.Errorf("b = %s %q", f.Status, f.Comment)
 	}
-	events, _ := st.FindingEvents(ctx, a)
+	events, _ := st.FindingEvents(ctx, Everything, a)
 	if len(events) != 2 || events[0].NewStatus != "exploitable" || events[1].OldStatus != "exploitable" ||
 		events[1].NewStatus != "not_affected" || events[1].Username != "ana" {
 		t.Errorf("history of a = %+v", events)
 	}
 
 	// A decision the database refuses cancels those before it.
-	if _, err := st.SetFindingStatuses(ctx, userID, []StatusChange{
+	if _, err := st.SetFindingStatuses(ctx, Everything, userID, []StatusChange{
 		{ID: a, Status: "in_triage", Comment: "annulé"}, {ID: b, Status: "bogus"},
 	}); err == nil {
 		t.Fatal("unknown status accepted")
 	}
-	if f, _ := st.Finding(ctx, a); f.Status != "not_affected" || f.Comment != "ensuite" {
+	if f, _ := st.Finding(ctx, Everything, a); f.Status != "not_affected" || f.Comment != "ensuite" {
 		t.Errorf("a changed by a refused batch: %s %q", f.Status, f.Comment)
 	}
-	if events, _ := st.FindingEvents(ctx, a); len(events) != 2 {
+	if events, _ := st.FindingEvents(ctx, Everything, a); len(events) != 2 {
 		t.Errorf("history of a after a refused batch: %d events", len(events))
 	}
 }
@@ -228,7 +228,7 @@ func TestSettingsDigestsWebhooks(t *testing.T) {
 	}
 	now := time.Now().UTC().Truncate(time.Second)
 	id, _ := st.CreateDigest(ctx, Digest{Since: now.Add(-time.Hour), CreatedAt: now, Markdown: "md", HTML: "<p>h</p>"})
-	if d, err := st.Digest(ctx, id); err != nil || d.Markdown != "md" {
+	if d, err := st.Digest(ctx, Everything, id); err != nil || d.Markdown != "md" {
 		t.Fatalf("digest = %+v %v", d, err)
 	}
 	if last, _ := st.LastDigestTime(ctx); !last.Equal(now) {
@@ -251,7 +251,7 @@ func TestSettingsDigestsWebhooks(t *testing.T) {
 func TestMigrationRecentMode(t *testing.T) {
 	ctx := context.Background()
 	st := openTest(t)
-	id, err := st.CreateAsset(ctx, Asset{Name: "fortios", Kind: "os", CPE: "cpe:2.3:o:fortinet:fortios:*:*:*:*:*:*:*:*",
+	id, err := st.CreateAsset(ctx, Everything, Asset{Name: "fortios", Kind: "os", CPE: "cpe:2.3:o:fortinet:fortios:*:*:*:*:*:*:*:*",
 		Criticality: "high", Source: "manual"})
 	if err != nil {
 		t.Fatal(err)
@@ -264,7 +264,7 @@ func TestMigrationRecentMode(t *testing.T) {
 	if _, err := st.db.ExecContext(ctx, update); err != nil {
 		t.Fatal(err)
 	}
-	a, _ := st.Asset(ctx, id)
+	a, _ := st.Asset(ctx, Everything, id)
 	if a.CPEMode != "all" || a.TrackSince != "2026-06-29" {
 		t.Fatalf("migrated asset: mode %q, since %q", a.CPEMode, a.TrackSince)
 	}

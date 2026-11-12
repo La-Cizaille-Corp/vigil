@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/clip"
+	"github.com/La-Cizaille-Corp/vigil/internal/sources/nvd"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/osv"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
@@ -249,15 +250,12 @@ func Describe(a store.Asset) string {
 // fields of its CPE, where product "" means every product of the vendor; or
 // the namespace and name of its purl (pkg:maven/org.apache.logging.log4j/log4j-core).
 func VendorProduct(a store.Asset) (vendor, product string) {
-	if a.CPE != "" {
-		f := strings.Split(a.CPE, ":")
-		if len(f) == 13 {
-			vendor, product = f[3], f[4]
-			if product == "*" {
-				product = ""
-			}
-			return vendor, product
+	if f, ok := nvd.SplitCPE(a.CPE); ok {
+		vendor, product = f[3], f[4]
+		if product == "*" {
+			product = ""
 		}
+		return vendor, product
 	}
 	if rest, ok := strings.CutPrefix(a.PURL, "pkg:"); ok {
 		rest, _, _ = strings.Cut(rest, "#")
@@ -309,6 +307,6 @@ func VendorTitle(vendor string) string {
 
 // WholeVendor reports whether the asset tracks every product of a vendor.
 func WholeVendor(a store.Asset) bool {
-	f := strings.Split(a.CPE, ":")
-	return len(f) == 13 && f[3] != "*" && f[4] == "*"
+	f, ok := nvd.SplitCPE(a.CPE)
+	return ok && f[3] != "*" && f[4] == "*"
 }

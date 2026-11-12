@@ -198,7 +198,6 @@ func (s *Server) parseTemplates() error {
 		"tracking":    trackingSource,
 		"vendorOf":    inventory.VendorName,
 		"wholeVendor": inventory.WholeVendor,
-		"knownTags":   s.knownTags,
 		"aliases":     aliasList,
 		"syncStatus":  s.syncStatus,
 		"tags":        splitTags,

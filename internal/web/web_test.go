@@ -211,7 +211,7 @@ func TestAPISBOMToken(t *testing.T) {
 	if code := put("app", secret); code != http.StatusOK {
 		t.Fatalf("upload: %d", code)
 	}
-	assets, _ := st.ListAssets(ctx)
+	assets, _ := st.ListAssets(ctx, store.Everything)
 	if len(assets) != 1 || assets[0].Project != "app" {
 		t.Fatalf("assets = %+v", assets)
 	}
@@ -240,7 +240,7 @@ func TestFindingFilters(t *testing.T) {
 	st, base := newTestServer(t)
 	ctx := context.Background()
 	seed := func(asset, vuln, sev string, score float64) {
-		id, err := st.CreateAsset(ctx, store.Asset{Name: asset, Kind: "package", Criticality: "high", Source: "manual"})
+		id, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: asset, Kind: "package", Criticality: "high", Source: "manual"})
 		if err != nil {
 			t.Fatal(err)
 		}

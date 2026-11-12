@@ -31,7 +31,7 @@ func TestNVDRefusalKeepsFindingsOpen(t *testing.T) {
 			"metrics":{"cvssMetricV31":[{"cvssData":{"baseSeverity":"CRITICAL","baseScore":9.8}}]}}}]}`)
 	}))
 	defer srv.Close()
-	id, err := st.CreateAsset(ctx, store.Asset{Name: "FortiGate", Kind: "product", Criticality: "high",
+	id, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "FortiGate", Kind: "product", Criticality: "high",
 		CPE: "cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*", Source: "manual"})
 	if err != nil {
 		t.Fatal(err)

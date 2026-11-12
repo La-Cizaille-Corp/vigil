@@ -27,7 +27,7 @@ API externes (OSV, NVD, KEV, EPSS), requêtes de l'API CI.
 | Vol ou devinette de mot de passe | argon2id, 12 caractères minimum (comptés en caractères, pas en octets) et 1 024 octets au plus, partout (installation, connexion, changement, ligne de commande ; un mot de passe plus long est refusé avant le calcul), limitation des échecs par adresse et par compte (mémoire bornée), temps constant si l'utilisateur n'existe pas, TOTP optionnel avec anti-rejeu atomique. |
 | Vol de session | Jeton aléatoire 256 bits stocké haché, cookie `HttpOnly`, `SameSite=Strict`, `Secure` et préfixe `__Host-` en HTTPS, expiration 12 h. Activer le TOTP exige le mot de passe, le désactiver un code (essais limités par utilisateur) ; activer ou désactiver le TOTP ou changer de mot de passe ferme les autres sessions, et chacun peut les fermer à la demande (Mon compte → « Fermer mes autres sessions »). |
 | Départ d'un utilisateur, compte compromis | Un administrateur désactive le compte (Paramètres → Utilisateurs ou `vigil user disable`) : connexion refusée, sessions fermées aussitôt, jetons d'API qu'il a créés suspendus tant qu'il reste désactivé (la liste des jetons le montre), nom conservé dans l'historique et le journal d'audit. Changement de rôle immédiat ; mot de passe provisoire généré ; au moins un administrateur actif reste toujours. Un nouveau compte ne peut pas porter le nom d'un autre à la casse près (« Alice » et « alice »). |
-| CSRF | Jeton synchroniseur sur toute requête modifiante, vérification `Origin` / `Sec-Fetch-Site`, `SameSite=Strict`. |
+| CSRF | Jeton synchroniseur sur toute requête modifiante d'une session, vérification `Origin` / `Sec-Fetch-Site`, `SameSite=Strict`. La connexion et l'installation, faute de session, n'ont que la vérification d'origine (voir « Risques acceptés »). |
 | XSS | `html/template` (échappement contextuel), CSP stricte sans script, pas de HTML venant des sources. |
 | Injection SQL | Requêtes exclusivement paramétrées. |
 | Élévation de privilèges | Rôle vérifié côté serveur sur chaque route ; jeton d'API limité à un projet. |
@@ -65,6 +65,15 @@ API externes (OSV, NVD, KEV, EPSS), requêtes de l'API CI.
 - **Pas de SSO** : hors périmètre pour l'instant.
 - **Verrouillage d'un compte par un tiers** : dix échecs en 15 minutes bloquent le compte pendant
   ce délai, même pour son titulaire. C'est le prix de la limite par compte.
+- **Connexion forcée depuis un navigateur ancien** : les formulaires de connexion et d'installation
+  n'ont pas de jeton CSRF, faute de session. Ils refusent une requête venue d'un autre site d'après
+  les en-têtes `Origin` et `Sec-Fetch-Site`, que les navigateurs actuels envoient sur tout envoi de
+  formulaire d'un site à l'autre. Un navigateur qui n'envoie ni l'un ni l'autre pourrait être
+  connecté, à l'insu de son utilisateur, au compte d'un attaquant, qui verrait alors ce qu'il y
+  saisit. L'origine est comparée sur l'hôte seulement : derrière un reverse proxy, Vigil ne voit pas
+  le schéma employé par le navigateur. Un jeton avant la connexion (cookie en double soumission)
+  couvrirait ce cas au prix d'un état avant la connexion : écarté tant que ces navigateurs restent
+  marginaux (audit de code de novembre 2026, S15).
 - **Journaux conservés par défaut sans limite** : pour la traçabilité, le journal d'audit et
   l'historique de triage ne sont pas purgés. `-audit-retention-days` limite la durée du journal
   d'audit quand une politique l'impose (il contient des noms et des adresses IP) ; l'historique de

@@ -11,7 +11,7 @@ func TestDashboardStats(t *testing.T) {
 	st := openTest(t)
 	now := time.Now()
 
-	assetID, err := st.CreateAsset(ctx, Asset{Name: "fortios", Kind: "os", Criticality: "high", Source: "manual"})
+	assetID, err := st.CreateAsset(ctx, Everything, Asset{Name: "fortios", Kind: "os", Criticality: "high", Source: "manual"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,17 +40,17 @@ func TestDashboardStats(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	list, _ := st.ListFindings(ctx, FindingFilter{})
+	list, _ := st.ListFindings(ctx, Everything, FindingFilter{})
 	for _, f := range list {
 		switch f.VulnID {
 		case "CVE-4":
-			st.SetFindingStatus(ctx, f.ID, 0, "resolved", "", "")
+			st.SetFindingStatus(ctx, Everything, f.ID, 0, "resolved", "", "")
 		case "CVE-2":
-			st.SetFindingStatus(ctx, f.ID, 0, "exploitable", "", "")
+			st.SetFindingStatus(ctx, Everything, f.ID, 0, "exploitable", "", "")
 		}
 	}
 
-	s, err := st.DashboardStats(ctx, now)
+	s, err := st.DashboardStats(ctx, Everything, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestDashboardStats(t *testing.T) {
 	if s.Priority != 2 || s.OpenKEV != 1 || s.Overdue != 1 || s.OverdueKEV != 1 {
 		t.Errorf("priority %d, kev %d, overdue %d (%d exploited)", s.Priority, s.OpenKEV, s.Overdue, s.OverdueKEV)
 	}
-	late, err := st.ListFindings(ctx, FindingFilter{Overdue: true})
+	late, err := st.ListFindings(ctx, Everything, FindingFilter{Overdue: true})
 	if err != nil || len(late) != 1 || late[0].VulnID != "CVE-1" || !late[0].Late {
 		t.Errorf("overdue findings: %+v, %v", late, err)
 	}
@@ -68,7 +68,7 @@ func TestDashboardStats(t *testing.T) {
 	if err := st.SetSLA(ctx, SLA{Critical: 30, High: 30, Medium: 90, Low: 0}); err != nil {
 		t.Fatal(err)
 	}
-	if late, _ := st.ListFindings(ctx, FindingFilter{Overdue: true}); len(late) != 0 {
+	if late, _ := st.ListFindings(ctx, Everything, FindingFilter{Overdue: true}); len(late) != 0 {
 		t.Errorf("still overdue: %+v", late)
 	}
 	if err := st.SetSLA(ctx, SLA{Critical: -1}); err == nil {

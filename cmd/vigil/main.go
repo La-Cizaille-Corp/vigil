@@ -194,7 +194,7 @@ func runServe(ctx context.Context, log *slog.Logger, args []string) error {
 		return err
 	}
 	if mail.Cleartext() {
-		log.Warn("e-mails envoyés sans chiffrement à un serveur distant (-smtp-tls none) : préférez starttls ou tls", "smtp", mail.Addr)
+		log.Warn("e-mail sent unencrypted to a remote server (-smtp-tls none): prefer starttls or tls", "smtp", mail.Addr)
 	}
 
 	useTLS := *certFile != "" && *keyFile != ""
@@ -226,28 +226,28 @@ func runServe(ctx context.Context, log *slog.Logger, args []string) error {
 	if *syncEvery > 0 {
 		go every(ctx, *syncEvery, true, func() {
 			if _, err := sv.syncer.Run(ctx); err != nil && !errors.Is(err, tracking.ErrRunning) {
-				log.Error("synchronisation automatique", "err", err)
+				log.Error("scheduled sync failed", "err", err)
 			}
 		})
 		go every(ctx, time.Minute, true, func() {
 			if err := sv.cti.RunIfDue(ctx); err != nil {
-				log.Error("collecte automatique des flux", "err", err)
+				log.Error("scheduled cti collection failed", "err", err)
 			}
 		})
 	}
 	if *backupDir != "" && *backupEvery > 0 {
 		go every(ctx, *backupEvery, true, func() {
 			if path, err := st.BackupTo(ctx, *backupDir, *backupKeep); err != nil {
-				log.Error("sauvegarde automatique", "err", err)
+				log.Error("scheduled backup failed", "err", err)
 			} else {
-				log.Info("sauvegarde", "file", path)
+				log.Info("backup done", "file", path)
 			}
 		})
 	}
 	if *digestEvery > 0 {
 		go every(ctx, *digestEvery, false, func() {
 			if err := generateAndSend(ctx, st, sv.notifier, *baseURL); err != nil {
-				log.Error("digest automatique", "err", err)
+				log.Error("scheduled digest failed", "err", err)
 			}
 		})
 	}
@@ -265,7 +265,7 @@ func runServe(ctx context.Context, log *slog.Logger, args []string) error {
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := httpSrv.Shutdown(shutdown); err != nil {
-			log.Warn("arrêt du serveur", "err", err)
+			log.Warn("server shutdown failed", "err", err)
 		}
 	}()
 
@@ -273,7 +273,7 @@ func runServe(ctx context.Context, log *slog.Logger, args []string) error {
 	if useTLS {
 		scheme = "https"
 	}
-	log.Info("vigil démarré", "url", scheme+"://"+*addr, "db", *dbPath)
+	log.Info("vigil started", "url", scheme+"://"+*addr, "db", *dbPath)
 	if useTLS {
 		err = httpSrv.ServeTLS(ln, *certFile, *keyFile)
 	} else {
@@ -416,7 +416,7 @@ func runImportSBOM(ctx context.Context, args []string) error {
 		return err
 	}
 	defer st.Close()
-	res, err := st.ReplaceProjectAssets(ctx, name, doc.Assets)
+	res, err := st.ReplaceProjectAssets(ctx, store.Everything, name, doc.Assets)
 	if err != nil {
 		return err
 	}

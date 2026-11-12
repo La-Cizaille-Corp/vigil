@@ -143,7 +143,7 @@ func (n *Notifier) SendDigest(ctx context.Context, d store.Digest, link string) 
 // a failing channel shows its error in the settings, and the next digest
 // lists the findings anyway.
 func (n *Notifier) SendAlerts(ctx context.Context) error {
-	alerts, err := n.Store.PendingAlerts(ctx)
+	alerts, err := n.Store.PendingAlerts(ctx, store.Everything)
 	if err != nil || len(alerts) == 0 {
 		return err
 	}
@@ -248,7 +248,7 @@ func (n *Notifier) deliver(ctx context.Context, m message, want func(store.Webho
 		}
 		sendErr := n.send(ctx, h, m)
 		if sendErr != nil {
-			n.Log.Warn("notification en erreur", "canal", h.Name, "err", sendErr)
+			n.Log.Warn("notification failed", "channel", h.Name, "err", sendErr)
 			errs = append(errs, fmt.Errorf("%s: %w", h.Name, sendErr))
 		}
 		if err := n.Store.RecordWebhookResult(ctx, h.ID, sendErr); err != nil {

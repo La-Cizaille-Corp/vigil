@@ -19,9 +19,12 @@ type ImportResult struct {
 // findings are resolved with a history event (the component is gone, often
 // replaced by a fixed version), its decisions are kept, and it comes back as
 // it was if a later SBOM lists it again. Manually created assets are never
-// touched.
-func (s *Store) ReplaceProjectAssets(ctx context.Context, project string, assets []Asset) (ImportResult, error) {
+// touched. The components must land inside the scope (ErrOutsideGroups).
+func (s *Store) ReplaceProjectAssets(ctx context.Context, sc Scope, project string, assets []Asset) (ImportResult, error) {
 	var res ImportResult
+	if err := sc.writable(); err != nil {
+		return res, err
+	}
 	ts := now()
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
 		type known struct {
@@ -129,10 +132,13 @@ func retireAsset(ctx context.Context, tx *sql.Tx, id int64, project, ts string) 
 	return nil
 }
 
-// ListProjects returns the distinct non-empty projects of the active assets.
-func (s *Store) ListProjects(ctx context.Context) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT DISTINCT project FROM assets WHERE project <> '' AND retired_at = '' ORDER BY project COLLATE NOCASE`)
+// ListProjects returns the distinct non-empty projects of the active assets
+// of the scope.
+func (s *Store) ListProjects(ctx context.Context, sc Scope) ([]string, error) {
+	cond, args := sc.cond("a")
+	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT a.project FROM assets a
+		WHERE a.project <> '' AND a.retired_at = '' AND `+cond+` ORDER BY a.project COLLATE NOCASE`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list projects: %w", err)
 	}

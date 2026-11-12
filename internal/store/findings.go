@@ -277,14 +277,16 @@ func (s *Store) AutoResolveStale(ctx context.Context, assetID int64, reported []
 	return closed, err
 }
 
-// ListFindings returns findings with their asset and vulnerability, most recent first.
-func (s *Store) ListFindings(ctx context.Context, f FindingFilter) ([]Finding, error) {
+// ListFindings returns the findings of the scope with their asset and
+// vulnerability, most recent first.
+func (s *Store) ListFindings(ctx context.Context, sc Scope, f FindingFilter) ([]Finding, error) {
 	sla, err := s.SLA(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var where []string
-	args := sla.args() // for the deadline column of findingSelect
+	cond, condArgs := sc.cond("a")
+	where := []string{cond}
+	args := append(sla.args(), condArgs...) // the deadline column of findingSelect comes first
 	if f.Status != "" {
 		where = append(where, "f.status = ?")
 		args = append(args, f.Status)
@@ -341,11 +343,8 @@ func (s *Store) ListFindings(ctx context.Context, f FindingFilter) ([]Finding, e
 		where = append(where, previewMatchExpr)
 		args = append(args, f.Matching, f.Matching, f.Matching)
 	}
-	q := findingSelect
-	if len(where) > 0 {
-		// Only fixed column expressions are joined here; values stay parameterised.
-		q += " WHERE " + strings.Join(where, " AND ")
-	}
+	// #nosec G202 -- only fixed expressions, the scope's included, are joined; the values are parameters.
+	q := findingSelect + " WHERE " + strings.Join(where, " AND ")
 	switch f.Sort {
 	case "cvss":
 		q += " ORDER BY v.cvss DESC, f.first_seen DESC, f.id DESC"
@@ -371,13 +370,15 @@ func (s *Store) ListFindings(ctx context.Context, f FindingFilter) ([]Finding, e
 	return out, rows.Err()
 }
 
-// Finding returns one finding.
-func (s *Store) Finding(ctx context.Context, id int64) (Finding, error) {
+// Finding returns one finding of the scope: ErrNotFound outside of it.
+func (s *Store) Finding(ctx context.Context, sc Scope, id int64) (Finding, error) {
 	sla, err := s.SLA(ctx)
 	if err != nil {
 		return Finding{}, err
 	}
-	fd, err := scanFinding(s.db.QueryRowContext(ctx, findingSelect+" WHERE f.id = ?", append(sla.args(), id)...))
+	cond, condArgs := sc.cond("a")
+	args := append(append(sla.args(), id), condArgs...)
+	fd, err := scanFinding(s.db.QueryRowContext(ctx, findingSelect+" WHERE f.id = ? AND "+cond, args...))
 	if errors.Is(err, sql.ErrNoRows) {
 		return fd, ErrNotFound
 	}
@@ -423,15 +424,12 @@ func scanFinding(row interface{ Scan(...any) error }, extra ...any) (Finding, er
 	return fd, nil
 }
 
-// SetFindingStatus changes the triage state and records it in the history.
-func (s *Store) SetFindingStatus(ctx context.Context, id, userID int64, status, justification, comment string) error {
+// SetFindingStatus changes the triage state of a finding of the scope and
+// records it in the history.
+func (s *Store) SetFindingStatus(ctx context.Context, sc Scope, id, userID int64, status, justification, comment string) error {
 	ts := now()
 	return s.inTx(ctx, func(tx *sql.Tx) error {
-		var old string
-		err := tx.QueryRowContext(ctx, `SELECT status FROM findings WHERE id = ?`, id).Scan(&old)
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrNotFound
-		}
+		old, err := findingStatus(ctx, tx, sc, id)
 		if err != nil {
 			return err
 		}
@@ -450,19 +448,19 @@ type StatusChange struct {
 	Status, Justification, Comment string
 }
 
-// SetFindingStatuses applies triage decisions to several findings, in order,
-// in a single transaction, with an event in the history of each: the same
-// decision for a selection of findings, or one per finding for a VEX import.
-// An empty comment keeps the finding's own comment instead of erasing it.
-// Unknown ids are skipped; it returns how many findings were updated.
-func (s *Store) SetFindingStatuses(ctx context.Context, userID int64, changes []StatusChange) (int, error) {
+// SetFindingStatuses applies triage decisions to several findings of the
+// scope, in order, in a single transaction, with an event in the history of
+// each: the same decision for a selection of findings, or one per finding for
+// a VEX import. An empty comment keeps the finding's own comment instead of
+// erasing it. Unknown ids, and those outside the scope, are skipped: they come
+// from a form or a file. It returns how many findings were updated.
+func (s *Store) SetFindingStatuses(ctx context.Context, sc Scope, userID int64, changes []StatusChange) (int, error) {
 	ts := now()
 	done := 0
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
 		for _, c := range changes {
-			var old string
-			err := tx.QueryRowContext(ctx, `SELECT status FROM findings WHERE id = ?`, c.ID).Scan(&old)
-			if errors.Is(err, sql.ErrNoRows) {
+			old, err := findingStatus(ctx, tx, sc, c.ID)
+			if errors.Is(err, ErrNotFound) {
 				continue
 			}
 			if err != nil {
@@ -487,12 +485,15 @@ func (s *Store) SetFindingStatuses(ctx context.Context, userID int64, changes []
 	return done, nil
 }
 
-// FindingEvents returns the history of a finding, oldest first.
-func (s *Store) FindingEvents(ctx context.Context, findingID int64) ([]FindingEvent, error) {
+// FindingEvents returns the history of a finding of the scope, oldest first.
+func (s *Store) FindingEvents(ctx context.Context, sc Scope, findingID int64) ([]FindingEvent, error) {
+	cond, args := sc.cond("a")
+	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT COALESCE(u.username, ''), e.old_status, e.new_status, e.comment, e.created_at
-		FROM finding_events e LEFT JOIN users u ON u.id = e.user_id
-		WHERE e.finding_id = ? ORDER BY e.id`, findingID)
+		FROM finding_events e JOIN findings f ON f.id = e.finding_id JOIN assets a ON a.id = f.asset_id
+		LEFT JOIN users u ON u.id = e.user_id
+		WHERE e.finding_id = ? AND `+cond+` ORDER BY e.id`, append([]any{findingID}, args...)...)
 	if err != nil {
 		return nil, fmt.Errorf("list finding events: %w", err)
 	}
@@ -510,9 +511,12 @@ func (s *Store) FindingEvents(ctx context.Context, findingID int64) ([]FindingEv
 	return out, rows.Err()
 }
 
-// CountFindingsByStatus returns the number of findings per status.
-func (s *Store) CountFindingsByStatus(ctx context.Context) (map[string]int, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT status, COUNT(*) FROM findings GROUP BY status`)
+// CountFindingsByStatus returns the number of findings of the scope per status.
+func (s *Store) CountFindingsByStatus(ctx context.Context, sc Scope) (map[string]int, error) {
+	cond, args := sc.cond("a")
+	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
+	rows, err := s.db.QueryContext(ctx, `SELECT f.status, COUNT(*) FROM findings f JOIN assets a ON a.id = f.asset_id
+		WHERE `+cond+` GROUP BY f.status`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("count findings: %w", err)
 	}
@@ -527,6 +531,19 @@ func (s *Store) CountFindingsByStatus(ctx context.Context) (map[string]int, erro
 		out[st] = n
 	}
 	return out, rows.Err()
+}
+
+// findingStatus returns the status of a finding of the scope, ErrNotFound when
+// it does not exist or is outside the scope.
+func findingStatus(ctx context.Context, tx *sql.Tx, sc Scope, id int64) (string, error) {
+	cond, args := sc.cond("a")
+	var status string
+	err := tx.QueryRowContext(ctx, `SELECT f.status FROM findings f JOIN assets a ON a.id = f.asset_id
+		WHERE f.id = ? AND `+cond, append([]any{id}, args...)...).Scan(&status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return status, err
 }
 
 func insertEvent(ctx context.Context, tx *sql.Tx, findingID, userID int64, old, status, comment, ts string) error {

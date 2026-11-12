@@ -10,7 +10,7 @@ import (
 func TestPendingAlerts(t *testing.T) {
 	ctx := context.Background()
 	st := openTest(t)
-	assetID, _ := st.CreateAsset(ctx, Asset{Name: "app", Kind: "package", Criticality: "high", Source: "manual"})
+	assetID, _ := st.CreateAsset(ctx, Everything, Asset{Name: "app", Kind: "package", Criticality: "high", Source: "manual"})
 	for _, v := range []Vulnerability{
 		{ID: "CVE-LOW", Severity: "LOW", EPSS: -1, CVSS: 2},
 		{ID: "CVE-HIGH", Severity: "HIGH", EPSS: -1, CVSS: 7.5},
@@ -21,7 +21,7 @@ func TestPendingAlerts(t *testing.T) {
 	}
 	st.SetExploitSignals(ctx, "CVE-KEV", true, "", 0.02)
 
-	alerts, err := st.PendingAlerts(ctx)
+	alerts, err := st.PendingAlerts(ctx, Everything)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,21 +32,21 @@ func TestPendingAlerts(t *testing.T) {
 	if err := st.MarkAlerted(ctx, alerts); err != nil {
 		t.Fatal(err)
 	}
-	if again, _ := st.PendingAlerts(ctx); len(again) != 0 {
+	if again, _ := st.PendingAlerts(ctx, Everything); len(again) != 0 {
 		t.Errorf("alerted twice: %+v", again)
 	}
 	// The high one becomes likely exploited: alerted again, as raised.
 	st.SetExploitSignals(ctx, "CVE-HIGH", false, "", 0.4)
-	raised, _ := st.PendingAlerts(ctx)
+	raised, _ := st.PendingAlerts(ctx, Everything)
 	if len(raised) != 1 || raised[0].VulnID != "CVE-HIGH" || !raised[0].Raised || raised[0].Class != AlertPriority {
 		t.Errorf("raised: %+v", raised)
 	}
 	// Closed findings are never alerted.
 	st.MarkAlerted(ctx, raised)
 	st.SetExploitSignals(ctx, "CVE-LOW", true, "", 0.9)
-	list, _ := st.ListFindings(ctx, FindingFilter{Search: "CVE-LOW"})
-	st.SetFindingStatus(ctx, list[0].ID, 0, "not_affected", "code_not_present", "")
-	if closed, _ := st.PendingAlerts(ctx); len(closed) != 0 {
+	list, _ := st.ListFindings(ctx, Everything, FindingFilter{Search: "CVE-LOW"})
+	st.SetFindingStatus(ctx, Everything, list[0].ID, 0, "not_affected", "code_not_present", "")
+	if closed, _ := st.PendingAlerts(ctx, Everything); len(closed) != 0 {
 		t.Errorf("closed finding alerted: %+v", closed)
 	}
 }
@@ -65,7 +65,7 @@ func TestCTIMentions(t *testing.T) {
 		}
 	}
 	feeds, _ := st.ListFeeds(ctx)
-	assetID, _ := st.CreateAsset(ctx, Asset{Name: "log4j", Kind: "package", Criticality: "high", Source: "manual"})
+	assetID, _ := st.CreateAsset(ctx, Everything, Asset{Name: "log4j", Kind: "package", Criticality: "high", Source: "manual"})
 	st.UpsertVulnerability(ctx, Vulnerability{ID: "GHSA-jfh8-c2jp-5v3q", Aliases: []string{"CVE-2021-44228"}, EPSS: -1, CVSS: -1})
 	st.ObserveFinding(ctx, assetID, "GHSA-jfh8-c2jp-5v3q", "", time.Now())
 	for i, title := range []string{"Log4Shell CVE-2021-44228 activement exploitée", "Rien à voir CVE-2020-0001", "Sans CVE"} {
@@ -73,11 +73,11 @@ func TestCTIMentions(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	items, err := st.ListCTIItems(ctx, CTIFilter{Concerning: true})
+	items, err := st.ListCTIItems(ctx, Everything, CTIFilter{Concerning: true})
 	if err != nil || len(items) != 1 || !reflect.DeepEqual(items[0].Concerns, []string{"CVE-2021-44228"}) {
 		t.Fatalf("concerning items: %+v, %v", items, err)
 	}
-	all, _ := st.ListCTIItems(ctx, CTIFilter{})
+	all, _ := st.ListCTIItems(ctx, Everything, CTIFilter{})
 	if len(all) != 3 || all[1].Concerns != nil {
 		t.Errorf("all items: %+v", all)
 	}
@@ -86,9 +86,9 @@ func TestCTIMentions(t *testing.T) {
 		t.Errorf("mentions: %+v, %v", mentions, err)
 	}
 	// Once the finding is closed, the news no longer concerns the inventory.
-	list, _ := st.ListFindings(ctx, FindingFilter{})
-	st.SetFindingStatus(ctx, list[0].ID, 0, "resolved", "", "")
-	if items, _ := st.ListCTIItems(ctx, CTIFilter{Concerning: true}); len(items) != 0 {
+	list, _ := st.ListFindings(ctx, Everything, FindingFilter{})
+	st.SetFindingStatus(ctx, Everything, list[0].ID, 0, "resolved", "", "")
+	if items, _ := st.ListCTIItems(ctx, Everything, CTIFilter{Concerning: true}); len(items) != 0 {
 		t.Errorf("closed finding still concerning: %+v", items)
 	}
 }

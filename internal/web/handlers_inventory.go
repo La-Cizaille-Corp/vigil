@@ -78,7 +78,7 @@ func (s *Server) cpeSearch(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 		products, err := s.Syncer.NVD.SearchCPE(ctx, q)
 		if err != nil {
-			s.Log.Warn("recherche CPE", "err", err)
+			s.Log.Warn("cpe search failed", "err", err)
 			s.render(w, r, http.StatusBadGateway, "cpe", page{Title: "Trouver un CPE", Error: err.Error(), Data: data})
 			return
 		}
@@ -239,7 +239,7 @@ func prefilledAssetForm(q url.Values) store.Asset {
 
 // assetCSV exports the inventory (or one project) for spreadsheets.
 func (s *Server) assetCSV(w http.ResponseWriter, r *http.Request) {
-	assets, err := s.Store.ListAssets(r.Context())
+	assets, err := s.Store.ListAssets(r.Context(), readScope(r))
 	if err != nil {
 		s.serverError(w, r, err)
 		return
@@ -261,7 +261,7 @@ func (s *Server) assetCSV(w http.ResponseWriter, r *http.Request) {
 	}
 	cw.Flush()
 	if err := cw.Error(); err != nil {
-		s.Log.Warn("export CSV", "err", err)
+		s.Log.Warn("csv export failed", "err", err)
 	}
 }
 
@@ -284,7 +284,7 @@ func (s *Server) assetCSVImport(w http.ResponseWriter, r *http.Request) {
 		s.renderNewAsset(w, r, http.StatusBadRequest, defaultAssetForm(), "Import CSV refusé, aucun actif ajouté : "+err.Error())
 		return
 	}
-	existing, err := s.Store.ListAssets(r.Context())
+	existing, err := s.Store.ListAssets(r.Context(), writeScope(r))
 	if err != nil {
 		s.serverError(w, r, err)
 		return
@@ -303,7 +303,7 @@ func (s *Server) assetCSVImport(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		known[key(a)] = true
-		if _, err := s.Store.CreateAsset(r.Context(), a); err != nil {
+		if _, err := s.Store.CreateAsset(r.Context(), writeScope(r), a); err != nil {
 			s.serverError(w, r, err)
 			return
 		}

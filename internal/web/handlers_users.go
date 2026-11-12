@@ -17,13 +17,13 @@ type newPassword struct {
 }
 
 func (s *Server) userList(w http.ResponseWriter, r *http.Request) {
-	secret, _ := s.takeOnce(r).(*newPassword)
+	secret, _ := s.takeOnce(r, oncePassword).(*newPassword)
 	s.renderUsers(w, r, http.StatusOK, "", secret)
 }
 
 // newToken is the API token just created by this session, shown once.
 func (s *Server) newToken(r *http.Request) string {
-	v, _ := s.takeOnce(r).(string)
+	v, _ := s.takeOnce(r, onceToken).(string)
 	return v
 }
 
@@ -76,7 +76,7 @@ func (s *Server) userCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, "user_create", "id="+strconv.FormatInt(id, 10)+" "+username+" role="+role)
 	// SECURITY: the password is displayed once, on the page this redirects to.
-	s.keepOnce(r, &newPassword{Username: username, Password: password})
+	s.keepOnce(r, oncePassword, &newPassword{Username: username, Password: password})
 	redirect(w, r, "/settings/users", "user-created")
 }
 
@@ -133,7 +133,7 @@ func (s *Server) userPassword(w http.ResponseWriter, r *http.Request) {
 		return s.Store.ResetPassword(r.Context(), id, hash)
 	})
 	if ok {
-		s.keepOnce(r, &newPassword{Username: target.Username, Password: password})
+		s.keepOnce(r, oncePassword, &newPassword{Username: target.Username, Password: password})
 		redirect(w, r, "/settings/users", "password-reset")
 	}
 }

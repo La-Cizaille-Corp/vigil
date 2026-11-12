@@ -18,7 +18,7 @@ import (
 func TestVEXImportKeepsALongAccentedDetail(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	ctx := context.Background()
-	id, err := st.CreateAsset(ctx, store.Asset{Name: "x", Kind: "package", Criticality: "high", Source: "manual",
+	id, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "x", Kind: "package", Criticality: "high", Source: "manual",
 		PURL: "pkg:npm/x@1.0.0"})
 	if err != nil {
 		t.Fatal(err)
@@ -31,7 +31,7 @@ func TestVEXImportKeepsALongAccentedDetail(t *testing.T) {
 	if code, _ := c.upload("/findings/vex", "vex", "vex.json", doc, url.Values{"csrf": {c.csrf()}}); code != http.StatusSeeOther {
 		t.Fatalf("import: %d", code)
 	}
-	list, _ := st.ListFindings(ctx, store.FindingFilter{AssetID: id})
+	list, _ := st.ListFindings(ctx, store.Everything, store.FindingFilter{AssetID: id})
 	if len(list) != 1 || list[0].Status != "false_positive" {
 		t.Fatalf("analysis not applied: %+v", list)
 	}

@@ -74,7 +74,7 @@ func TestFeedErrorKeepsTheURLSecret(t *testing.T) {
 			t.Errorf("stored error: %q", f.LastError)
 		}
 	}
-	if !strings.Contains(logs.String(), "flux CTI en erreur") || strings.Contains(logs.String(), secret) {
+	if !strings.Contains(logs.String(), "cti feed failed") || strings.Contains(logs.String(), secret) {
 		t.Errorf("service log: %s", strings.TrimSpace(logs.String()))
 	}
 
@@ -199,8 +199,8 @@ func TestVEXImportResults(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	ctx := context.Background()
 	const lodash, fortios = "pkg:npm/lodash@4.17.15", "cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*"
-	lib, _ := st.CreateAsset(ctx, store.Asset{Name: "lodash", Kind: "package", Criticality: "high", Source: "manual", PURL: lodash})
-	fw, _ := st.CreateAsset(ctx, store.Asset{Name: "fortios", Version: "7.2.4", Kind: "os", Criticality: "high", Source: "manual", CPE: fortios})
+	lib, _ := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "lodash", Kind: "package", Criticality: "high", Source: "manual", PURL: lodash})
+	fw, _ := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "fortios", Version: "7.2.4", Kind: "os", Criticality: "high", Source: "manual", CPE: fortios})
 	for _, v := range []struct {
 		asset int64
 		vuln  store.Vulnerability
@@ -214,7 +214,7 @@ func TestVEXImportResults(t *testing.T) {
 	}
 	finding := func(asset int64, vuln string) store.Finding {
 		t.Helper()
-		list, _ := st.ListFindings(ctx, store.FindingFilter{AssetID: asset})
+		list, _ := st.ListFindings(ctx, store.Everything, store.FindingFilter{AssetID: asset})
 		for _, f := range list {
 			if f.VulnID == vuln {
 				return f
@@ -223,7 +223,7 @@ func TestVEXImportResults(t *testing.T) {
 		t.Fatalf("no finding %s", vuln)
 		return store.Finding{}
 	}
-	st.SetFindingStatus(ctx, finding(lib, "CVE-2020-8203").ID, 0, "exploitable", "", "à patcher")
+	st.SetFindingStatus(ctx, store.Everything, finding(lib, "CVE-2020-8203").ID, 0, "exploitable", "", "à patcher")
 
 	statement := func(id, ref, state, justification, detail string) string {
 		return fmt.Sprintf(`{"id":%q,"analysis":{"state":%q,"justification":%q,"detail":%q},"affects":[{"ref":%q}]}`,
@@ -252,7 +252,7 @@ func TestVEXImportResults(t *testing.T) {
 		t.Errorf("unchanged decision: %s %q", f.Status, f.Comment)
 	}
 	f := finding(fw, "CVE-2024-21762")
-	events, _ := st.FindingEvents(ctx, f.ID)
+	events, _ := st.FindingEvents(ctx, store.Everything, f.ID)
 	if f.Status != "false_positive" || f.Comment != "Import VEX : finalement" || len(events) != 2 ||
 		events[0].NewStatus != "resolved" || events[1].NewStatus != "false_positive" || events[1].Username != "analyst" {
 		t.Errorf("two analyses in order: %s %q, history %+v", f.Status, f.Comment, events)
