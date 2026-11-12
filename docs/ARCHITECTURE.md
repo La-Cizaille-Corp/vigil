@@ -1156,7 +1156,8 @@ requêtes semblent locales : la page est alors désactivée et la création pass
 (défaut découvert en revue de sécurité).
 
 **A23. Refus d'écouter en clair hors de `127.0.0.1`.** Sans TLS natif ni `-behind-proxy`
-explicite, le serveur refuse de démarrer sur une interface réseau.
+explicite, le serveur refuse de démarrer sur une interface réseau. `-tls-cert` et `-tls-key` vont
+ensemble : l'une sans l'autre est refusée, au lieu d'être ignorée en servant en clair (revue 0.5.0, C8).
 
 **A24. Client HTTP anti-SSRF pour les URL saisies.** Flux et webhooks sont des URL fournies par
 les utilisateurs : contrôle à la connexion (après résolution DNS, contre le DNS rebinding) des
@@ -1590,7 +1591,13 @@ même mécanisme (`-nvd-api-key`, ou de préférence `VIGIL_NVD_API_KEY`, invisi
 utilisateurs de la machine) au lieu d'une lecture à part de la variable, et `VIGIL_DB` n'est lu
 qu'à cet endroit. *Écarté* : une bibliothèque d'options (cobra…), une dépendance pour une dizaine
 de commandes. *Conséquence* : `vigil digest` accepte `-base-url` (ou `VIGIL_BASE_URL`) et met alors
-le lien du digest dans ses messages, comme le digest programmé de `serve`.
+le lien du digest dans ses messages, comme le digest programmé de `serve`. *Amendé (revue 0.5.0, C8)* :
+l'environnement ne règle plus que les options communes et celles de `serve` (`envOptions`), qui sont la
+configuration du service ; les options propres aux autres commandes (`-all`, `-role`, `-groups`,
+`-username`, `-o`, `-project`, `-no-webhooks`) ne viennent que de la ligne de commande. Un conteneur
+transmet son environnement à `docker compose exec vigil vigil user …` : `VIGIL_ALL=true` y faisait retirer
+la double authentification de tous les comptes à un `vigil user reset-totp` lancé sans option, et
+`VIGIL_ROLE=admin` créer un administrateur. Aucune variable documentée n'est touchée.
 
 **A28. Binaire d'abord, Docker en option.** Le binaire Go suffit (systemd fourni). L'image
 existe pour les équipes dont l'exploitation passe par des conteneurs : distroless, non-root,

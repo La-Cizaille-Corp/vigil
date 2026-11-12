@@ -68,8 +68,9 @@ aux seuls actifs de ces groupes (Paramètres → Groupes). Un administrateur voi
 La base par défaut se trouve dans le dossier de configuration de l'utilisateur
 (-db ou variable VIGIL_DB pour la changer). Clé NVD facultative de serve, sync et digest :
 -nvd-api-key ou, de préférence, VIGIL_NVD_API_KEY.
-Chaque option peut aussi venir de l'environnement : -sync-interval → VIGIL_SYNC_INTERVAL ;
-une option passée en ligne de commande l'emporte.
+Les options communes et celles de serve peuvent aussi venir de l'environnement :
+-sync-interval → VIGIL_SYNC_INTERVAL ; une option passée en ligne de commande l'emporte.
+Les options propres à user, backup, import-sbom et digest ne viennent que de la ligne de commande.
 
 Options SMTP (notifications par e-mail) : -smtp-addr hôte:port -smtp-from adresse
   [-smtp-tls starttls|tls|none] [-smtp-username nom] ; mot de passe : VIGIL_SMTP_PASSWORD.
@@ -159,7 +160,8 @@ type options struct {
 	allowPrivate *bool
 	nvdKey       *string
 	mailer       func() (*notify.Mailer, error)
-	mail         *notify.Mailer // built by parse; nil without -smtp-addr
+	mail         *notify.Mailer  // built by parse; nil without -smtp-addr
+	fromEnv      map[string]bool // the options the environment may set too (envOptions)
 }
 
 // newCommand returns the flags of the command name, the shared options
@@ -167,7 +169,7 @@ type options struct {
 // declares its own flags on the set, then calls parse.
 func newCommand(name string, withServices bool) (*flag.FlagSet, *options) {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
-	o := &options{fs: fs, db: fs.String("db", defaultDB(), "fichier SQLite")}
+	o := &options{fs: fs, db: fs.String("db", defaultDB(), "fichier SQLite"), fromEnv: map[string]bool{}}
 	if withServices {
 		o.baseURL = fs.String("base-url", "", "adresse publique de l'interface, pour les liens des alertes, des digests et des webhooks")
 		o.allowPrivate = fs.Bool("allow-private-urls", false, "autoriser flux et webhooks vers des adresses privées ou locales")
@@ -175,14 +177,26 @@ func newCommand(name string, withServices bool) (*flag.FlagSet, *options) {
 		o.nvdKey = fs.String("nvd-api-key", "", "clé d'API NVD facultative, qui relève la limite de requêtes (préférez la variable VIGIL_NVD_API_KEY)")
 		o.mailer = smtpFlags(fs)
 	}
+	o.envOptions()
 	return fs, o
 }
 
-// parse reads the command line, then fills every option not given on it from
-// the environment (VIGIL_ + name in upper snake case: -sync-interval →
-// VIGIL_SYNC_INTERVAL), so that a container or a systemd unit can be
-// configured with an environment file. It then checks the mail settings,
-// before anything is opened.
+// envOptions lets the environment set every option declared so far: the
+// shared ones (newCommand), and those of serve, the service that a container
+// or a systemd unit configures by its environment (A27).
+// SECURITY: the options of the other commands (-all, -role, -groups,
+// -username, -o…) come from the command line only: VIGIL_ALL=true in the
+// environment of a container made `vigil user reset-totp`, run there without
+// an option, remove the second factor of every account (0.5.0 review, C8).
+func (o *options) envOptions() {
+	o.fs.VisitAll(func(f *flag.Flag) { o.fromEnv[f.Name] = true })
+}
+
+// parse reads the command line, then fills the options of envOptions not
+// given on it from the environment (VIGIL_ + name in upper snake case:
+// -sync-interval → VIGIL_SYNC_INTERVAL), so that a container or a systemd
+// unit can be configured with an environment file. It then checks the mail
+// settings, before anything is opened.
 func (o *options) parse(args []string) error {
 	if err := o.fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -195,7 +209,7 @@ func (o *options) parse(args []string) error {
 	var err error
 	o.fs.VisitAll(func(f *flag.Flag) {
 		env := "VIGIL_" + strings.ToUpper(strings.ReplaceAll(f.Name, "-", "_"))
-		if v, ok := os.LookupEnv(env); ok && !set[f.Name] && err == nil {
+		if v, ok := os.LookupEnv(env); ok && o.fromEnv[f.Name] && !set[f.Name] && err == nil {
 			if e := o.fs.Set(f.Name, v); e != nil {
 				err = &usageError{fmt.Errorf("%s=%q : %w", env, v, e)}
 			}
@@ -287,14 +301,20 @@ func runServe(ctx context.Context, log *slog.Logger, args []string) error {
 	backupEvery := fs.Duration("backup-interval", 24*time.Hour, "intervalle des sauvegardes automatiques")
 	backupKeep := fs.Int("backup-keep", 14, "nombre de sauvegardes automatiques conservées")
 	auditDays := fs.Int("audit-retention-days", 0, "durée de conservation du journal d'audit en jours (0 = sans limite)")
+	o.envOptions()
 	if err := o.parse(args); err != nil {
 		return err
+	}
+	// SECURITY: one of the two used to be ignored without a word: the UI was
+	// then served in clear text on a local address (0.5.0 review, C8).
+	if (*certFile == "") != (*keyFile == "") {
+		return &usageError{errors.New("-tls-cert et -tls-key vont ensemble : donnez les deux, ou aucun")}
 	}
 	if o.mail.Cleartext() {
 		log.Warn("e-mail sent unencrypted to a remote server (-smtp-tls none): prefer starttls or tls", "smtp", o.mail.Addr)
 	}
 
-	useTLS := *certFile != "" && *keyFile != ""
+	useTLS := *certFile != ""
 	// SECURITY: refuse to expose the UI in clear text on a non-local interface.
 	if !isLocalAddr(*addr) && !useTLS && !*behindProxy {
 		return errors.New("écoute sur une interface non locale : fournissez -tls-cert/-tls-key ou -behind-proxy")
