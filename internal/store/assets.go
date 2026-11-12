@@ -53,19 +53,47 @@ func scanAsset(row interface{ Scan(...any) error }) (Asset, error) {
 // CreateAsset inserts an asset and returns its id; the asset must land inside
 // the scope (ErrOutsideGroups).
 func (s *Store) CreateAsset(ctx context.Context, sc Scope, a Asset) (int64, error) {
-	if err := sc.writable(); err != nil {
+	ids, err := s.CreateAssets(ctx, sc, []Asset{a})
+	if err != nil {
 		return 0, err
 	}
-	ts := now()
-	res, err := s.db.ExecContext(ctx, `
-		INSERT INTO assets (name, kind, ecosystem, version, purl, cpe, cpe_mode, cpe_from, track_since, criticality, owner, notes, source, project, tags, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		a.Name, a.Kind, a.Ecosystem, a.Version, a.PURL, a.CPE, a.CPEMode, a.CPEFrom, a.TrackSince, a.Criticality, a.Owner, a.Notes, a.Source, a.Project,
-		joinTags(a.Tags), ts, ts)
-	if err != nil {
-		return 0, fmt.Errorf("create asset: %w", err)
+	return ids[0], nil
+}
+
+// CreateAssets inserts assets in one transaction, all or none, and returns
+// their ids in order; they must land inside the scope (ErrOutsideGroups).
+func (s *Store) CreateAssets(ctx context.Context, sc Scope, assets []Asset) ([]int64, error) {
+	if err := sc.writable(); err != nil {
+		return nil, err
 	}
-	return res.LastInsertId()
+	ts := now()
+	ids := make([]int64, 0, len(assets))
+	err := s.inTx(ctx, func(tx *sql.Tx) error {
+		insert, err := tx.PrepareContext(ctx, `
+			INSERT INTO assets (name, kind, ecosystem, version, purl, cpe, cpe_mode, cpe_from, track_since, criticality, owner, notes, source, project, tags, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		if err != nil {
+			return err
+		}
+		defer insert.Close()
+		for _, a := range assets {
+			res, err := insert.ExecContext(ctx, a.Name, a.Kind, a.Ecosystem, a.Version, a.PURL, a.CPE, a.CPEMode, a.CPEFrom, a.TrackSince,
+				a.Criticality, a.Owner, a.Notes, a.Source, a.Project, joinTags(a.Tags), ts, ts)
+			if err != nil {
+				return err
+			}
+			id, err := res.LastInsertId()
+			if err != nil {
+				return err
+			}
+			ids = append(ids, id)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create asset: %w", err)
+	}
+	return ids, nil
 }
 
 // UpdateAsset replaces the editable fields of an asset of the scope.

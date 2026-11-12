@@ -2,14 +2,12 @@ package netsafe
 
 import (
 	"errors"
-	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
-	"testing/iotest"
 	"time"
 )
 
@@ -53,7 +51,7 @@ func TestClientBlocksLoopback(t *testing.T) {
 	defer srv.Close()
 
 	_, err := NewClient(5*time.Second, false).Get(srv.URL)
-	if !errors.Is(err, ErrForbiddenAddress) {
+	if !errors.Is(err, errForbiddenAddress) {
 		t.Fatalf("loopback request not blocked: %v", err)
 	}
 	resp, err := NewClient(5*time.Second, true).Get(srv.URL)
@@ -73,8 +71,8 @@ func TestPublic(t *testing.T) {
 		"::ffff:0:7f00:1": false, "::ffff:0:a00:1": false, // SIIT, IPv4-translated 127.0.0.1 and 10.0.0.1
 		"192.88.99.1": false, "100::1": false, "2001:20::1": false,
 	} {
-		if got := Public(net.ParseIP(addr)); got != want {
-			t.Errorf("Public(%s) = %v, want %v", addr, got, want)
+		if got := public(net.ParseIP(addr)); got != want {
+			t.Errorf("public(%s) = %v, want %v", addr, got, want)
 		}
 	}
 }
@@ -120,7 +118,7 @@ func TestProxy(t *testing.T) {
 	defer func() { proxyFromEnv = saved }()
 
 	client := NewClient(5*time.Second, false)
-	if _, err := client.Get("https://10.0.0.5/feed"); !errors.Is(err, ErrForbiddenAddress) {
+	if _, err := client.Get("https://10.0.0.5/feed"); !errors.Is(err, errForbiddenAddress) {
 		t.Errorf("private destination through the proxy: %v", err)
 	}
 	if _, err := client.Get("https://93.184.215.14/feed"); err == nil {
@@ -130,32 +128,7 @@ func TestProxy(t *testing.T) {
 		t.Errorf("requests seen by the proxy: %v", connects)
 	}
 	// The proxy is dialed without the guard: a URL naming it is refused.
-	if _, err := client.Get("https://" + proxyURL.Host + "/"); !errors.Is(err, ErrForbiddenAddress) {
+	if _, err := client.Get("https://" + proxyURL.Host + "/"); !errors.Is(err, errForbiddenAddress) {
 		t.Errorf("request to the proxy itself: %v", err)
-	}
-}
-
-// A reading stops at its bound with an error, never as if the data were whole,
-// whatever the size of the reads.
-func TestLimitReader(t *testing.T) {
-	for _, c := range []struct {
-		data string
-		ok   bool
-	}{{"", true}, {"12345", true}, {"123456", false}, {strings.Repeat("x", 10_000), false}} {
-		for name, r := range map[string]io.Reader{
-			"whole":    strings.NewReader(c.data),
-			"one byte": iotest.OneByteReader(strings.NewReader(c.data)),
-		} {
-			got, err := io.ReadAll(LimitReader(r, 5))
-			var tooLarge *TooLargeError
-			if c.ok && (err != nil || string(got) != c.data) ||
-				!c.ok && (!errors.As(err, &tooLarge) || tooLarge.Max != 5 || len(got) != 5) {
-				t.Errorf("%d bytes, %s: %q, %v", len(c.data), name, got, err)
-			}
-		}
-		got, err := ReadLimited(strings.NewReader(c.data), 5)
-		if c.ok != (err == nil) || !c.ok && (got != nil || err.Error() != "réponse supérieure à 5 octets") {
-			t.Errorf("ReadLimited, %d bytes: %q, %v", len(c.data), got, err)
-		}
 	}
 }

@@ -12,12 +12,12 @@ import (
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/clip"
-	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
+	"github.com/La-Cizaille-Corp/vigil/internal/limit"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
 
-// MaxSize bounds an imported VEX document.
-const MaxSize = 20 << 20
+// maxSize bounds an imported VEX document.
+const maxSize = 20 << 20
 
 type document struct {
 	BOMFormat       string          `json:"bomFormat"`
@@ -92,18 +92,19 @@ var states = map[string]string{
 	"resolved_with_pedigree": "resolved", "not_affected": "not_affected", "false_positive": "false_positive",
 }
 
-// Parse reads the analyses of a CycloneDX VEX (or BOM with vulnerabilities).
 // maxStatements bounds the analyses of one document, each matched against
 // the inventory on import.
 const maxStatements = 20000
 
+// Parse reads the analyses of a CycloneDX VEX (or BOM with vulnerabilities),
+// at most maxSize bytes.
 func Parse(r io.Reader) ([]Statement, error) {
-	data, err := netsafe.ReadLimited(r, MaxSize)
+	data, err := limit.File(r, maxSize)
 	if err != nil {
 		return nil, errors.New("fichier VEX trop volumineux ou illisible")
 	}
 	var doc document
-	if err := json.Unmarshal(trimBOM(data), &doc); err != nil || doc.BOMFormat != "CycloneDX" {
+	if err := json.Unmarshal(data, &doc); err != nil || doc.BOMFormat != "CycloneDX" {
 		return nil, errors.New("document CycloneDX JSON attendu")
 	}
 	var out []Statement
@@ -163,11 +164,4 @@ func (idx Index) Match(st Statement) (store.Finding, bool) {
 		}
 	}
 	return store.Finding{}, false
-}
-
-func trimBOM(b []byte) []byte {
-	if len(b) >= 3 && b[0] == 0xEF && b[1] == 0xBB && b[2] == 0xBF {
-		return b[3:]
-	}
-	return b
 }

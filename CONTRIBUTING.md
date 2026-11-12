@@ -22,7 +22,7 @@ répond à ces questions, et sa PR dit ce qui a été réutilisé, étendu ou re
 
 1. **Une fonction fait-elle déjà cela, ou presque ?** Chercher par ce qu'elle fait (les verbes, les
    types manipulés), pas seulement par son nom, d'abord dans les paquets communs (`clip`,
-   `netsafe`, `chattext`, `store`, `tracking`, `auth`).
+   `netsafe`, `limit`, `chattext`, `store`, `tracking`, `auth`).
 2. **Une fonction existante peut-elle évoluer** pour couvrir le nouveau cas (un paramètre, un type
    plus général) sans devenir un fourre-tout ? Alors on l'étend et on met à jour ses appelants,
    plutôt que d'écrire une voisine.
