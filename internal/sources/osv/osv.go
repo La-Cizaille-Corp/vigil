@@ -20,8 +20,8 @@ import (
 	"github.com/La-Cizaille-Corp/vigil/internal/versions"
 )
 
-// DefaultURL is the public OSV API.
-const DefaultURL = "https://api.osv.dev"
+// defaultURL is the public OSV API.
+const defaultURL = "https://api.osv.dev"
 
 // Timeout is the time limit an OSV request needs, longer than that of the
 // other sources: a page of /v1/query can take minutes to read.
@@ -44,7 +44,7 @@ const (
 // Client talks to OSV. Its HTTP client is that of the other sources, with the
 // same transport and redirect policy, but a time limit of Timeout.
 type Client struct {
-	URL       string // empty: DefaultURL
+	URL       string // empty: defaultURL
 	HTTP      *http.Client
 	UserAgent string
 }
@@ -330,7 +330,7 @@ func PURLName(purl string) string {
 	if strings.HasPrefix(name, "@") { // a scope without its package
 		return ""
 	}
-	return purlDecode(name)
+	return PURLDecode(name)
 }
 
 // PURLVersion returns the version written in a purl, decoded:
@@ -340,7 +340,7 @@ func PURLVersion(purl string) string {
 	if at < 0 {
 		return ""
 	}
-	return purlDecode(purl[at+1 : end])
+	return PURLDecode(purl[at+1 : end])
 }
 
 // PURLQuery returns what to ask OSV for a purl at a version. A version that
@@ -353,7 +353,7 @@ func PURLVersion(purl string) string {
 // them, where any version of Debian 12 is below the fix of Debian 14.
 func PURLQuery(purl, version string) Query {
 	source := sourcePURL(purl)
-	if version != "" && purlDecode(version) != PURLVersion(purl) {
+	if version != "" && PURLDecode(version) != PURLVersion(purl) {
 		source = WithoutVersion(source)
 	}
 	withoutSubpath, _, _ := strings.Cut(purl, "#")
@@ -363,9 +363,9 @@ func PURLQuery(purl, version string) Query {
 		if ecosystem := releaseEcosystem(parts[1], qualifiers.Get("distro")); ecosystem != "" {
 			name, purlVersion, versioned := strings.Cut(parts[2], "@")
 			if versioned {
-				version = purlDecode(purlVersion)
+				version = PURLDecode(purlVersion)
 			}
-			return Query{Package: Package{Name: purlDecode(name), Ecosystem: ecosystem}, Version: version}
+			return Query{Package: Package{Name: PURLDecode(name), Ecosystem: ecosystem}, Version: version}
 		}
 	}
 	if PURLVersion(source) != "" {
@@ -374,7 +374,9 @@ func PURLQuery(purl, version string) Query {
 	return Query{Package: Package{PURL: source}, Version: version}
 }
 
-func purlDecode(s string) string {
+// PURLDecode decodes a part of a purl, or keeps it as written when it is not
+// properly encoded (%zz): an empty name would file a package nowhere.
+func PURLDecode(s string) string {
 	if decoded, err := url.PathUnescape(s); err == nil {
 		return decoded
 	}
@@ -830,12 +832,12 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 
 // delays returns the waits before asking again after a temporary failure
 // (sources.Delays): none for a test server or a mirror.
-func (c *Client) delays() []time.Duration { return sources.Delays(c.URL, DefaultURL, nil) }
+func (c *Client) delays() []time.Duration { return sources.Delays(c.URL, defaultURL, nil) }
 
 // send makes a request to path and has it sent by call (sources.Do or Open),
 // again after a temporary failure.
 func (c *Client) send(ctx context.Context, method, path string, body any, call func(*http.Request) error) error {
-	base := cmp.Or(c.URL, DefaultURL)
+	base := cmp.Or(c.URL, defaultURL)
 	err := sources.Retry(ctx, c.delays(), func() (bool, error) {
 		req, err := sources.NewRequest(ctx, method, base+path, c.UserAgent, body)
 		if err != nil {

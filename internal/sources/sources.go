@@ -4,8 +4,8 @@
 // tried again.
 //
 // Every client has the same form: URL, the address of the API (empty for the
-// public one, its DefaultURL), HTTP, the client given by main with its time
-// limit and redirect policy, and UserAgent.
+// public one, whose address the client keeps unexported), HTTP, the client
+// given by main with its time limit and redirect policy, and UserAgent.
 package sources
 
 import (

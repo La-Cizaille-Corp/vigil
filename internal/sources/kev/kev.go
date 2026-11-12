@@ -12,14 +12,14 @@ import (
 	"github.com/La-Cizaille-Corp/vigil/internal/sources"
 )
 
-// DefaultURL is the official JSON feed.
-const DefaultURL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+// defaultURL is the official JSON feed.
+const defaultURL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
 
 const maxBody = 32 << 20
 
 // Client downloads the catalogue.
 type Client struct {
-	URL       string // empty: DefaultURL
+	URL       string // empty: defaultURL
 	HTTP      *http.Client
 	UserAgent string
 }
@@ -35,7 +35,7 @@ func (c *Client) Catalogue(ctx context.Context) (map[string]Entry, error) {
 	var doc struct {
 		Vulnerabilities []Entry `json:"vulnerabilities"`
 	}
-	err := sources.Get(ctx, c.HTTP, cmp.Or(c.URL, DefaultURL), c.UserAgent, sources.Delays(c.URL, DefaultURL, nil), maxBody, &doc)
+	err := sources.Get(ctx, c.HTTP, cmp.Or(c.URL, defaultURL), c.UserAgent, sources.Delays(c.URL, defaultURL, nil), maxBody, &doc)
 	if err != nil {
 		return nil, fmt.Errorf("kev: %w", err)
 	}

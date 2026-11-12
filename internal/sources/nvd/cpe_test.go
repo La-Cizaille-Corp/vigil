@@ -104,13 +104,13 @@ func TestSearchCPEEscapedColons(t *testing.T) {
 		t.Fatalf("products: %+v", got)
 	}
 	p := got[0]
-	if p.Vendor != "lemonldap-ng" || p.Name != `lemonldap\:\:ng` || p.Version != "2.0.16" || p.Variant {
+	if p.Vendor != "lemonldap-ng" || p.Name != `lemonldap\:\:ng` || p.Version != "2.0.16" {
 		t.Errorf("escaped entry: %+v", p)
 	}
 	if w := p.WholeProduct(); w != `cpe:2.3:a:lemonldap-ng:lemonldap\:\:ng:*:*:*:*:*:*:*:*` {
 		t.Errorf("whole product: %s", w)
 	}
-	if q := got[1]; q.Name != "lemonldap" || q.Version != "1.0" || q.Variant {
+	if q := got[1]; q.Name != "lemonldap" || q.Version != "1.0" {
 		t.Errorf("ordinary entry: %+v", q)
 	}
 }

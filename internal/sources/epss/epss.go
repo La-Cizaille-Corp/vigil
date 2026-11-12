@@ -14,8 +14,8 @@ import (
 	"github.com/La-Cizaille-Corp/vigil/internal/sources"
 )
 
-// DefaultURL is the public API endpoint.
-const DefaultURL = "https://api.first.org/data/v1/epss"
+// defaultURL is the public API endpoint.
+const defaultURL = "https://api.first.org/data/v1/epss"
 
 // batchSize keeps the query string well below URL length limits.
 const batchSize = 100
@@ -24,7 +24,7 @@ const maxBody = 4 << 20
 
 // Client queries the API.
 type Client struct {
-	URL       string // empty: DefaultURL
+	URL       string // empty: defaultURL
 	HTTP      *http.Client
 	UserAgent string
 }
@@ -40,8 +40,8 @@ func (c *Client) Scores(ctx context.Context, cves []string) (map[string]float64,
 				EPSS string `json:"epss"`
 			} `json:"data"`
 		}
-		u := cmp.Or(c.URL, DefaultURL) + "?cve=" + url.QueryEscape(strings.Join(cves[start:end], ","))
-		if err := sources.Get(ctx, c.HTTP, u, c.UserAgent, sources.Delays(c.URL, DefaultURL, nil), maxBody, &doc); err != nil {
+		u := cmp.Or(c.URL, defaultURL) + "?cve=" + url.QueryEscape(strings.Join(cves[start:end], ","))
+		if err := sources.Get(ctx, c.HTTP, u, c.UserAgent, sources.Delays(c.URL, defaultURL, nil), maxBody, &doc); err != nil {
 			return nil, fmt.Errorf("epss: %w", err)
 		}
 		// SECURITY: an empty list is an answer (CVEs that FIRST does not score

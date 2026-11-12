@@ -10,8 +10,8 @@ import (
 	"time"
 )
 
-// DefaultCPEURL is the public CPE dictionary API.
-const DefaultCPEURL = "https://services.nvd.nist.gov/rest/json/cpes/2.0"
+// defaultCPEURL is the public CPE dictionary API.
+const defaultCPEURL = "https://services.nvd.nist.gov/rest/json/cpes/2.0"
 
 const (
 	// maxCPEBody bounds a dictionary response (a product such as the Linux
@@ -34,7 +34,6 @@ type Product struct {
 	Vendor  string
 	Name    string    // product field of the CPE
 	Version string    // "*" or "-" when the entry covers no single version
-	Variant bool      // update, edition or language set: a variant of the version
 	Created time.Time // when the entry was added to the dictionary
 }
 
@@ -131,7 +130,7 @@ func (c *Client) cpePage(ctx context.Context, params url.Values) ([]Product, int
 			} `json:"cpe"`
 		} `json:"products"`
 	}
-	err := c.send(ctx, cmp.Or(c.CPEURL, DefaultCPEURL)+"?"+params.Encode(), maxCPEBody, &r)
+	err := c.send(ctx, cmp.Or(c.CPEURL, defaultCPEURL)+"?"+params.Encode(), maxCPEBody, &r)
 	if rateLimited(err) {
 		return nil, 0, fmt.Errorf("%w : limite de requêtes atteinte ? réessayez dans 30 secondes", err)
 	}
@@ -148,9 +147,6 @@ func (c *Client) cpePage(ctx context.Context, params url.Values) ([]Product, int
 			continue
 		}
 		prod := Product{CPE: p.CPE.Name, Part: fields[2], Vendor: fields[3], Name: fields[4], Version: fields[5]}
-		for _, f := range fields[6:9] { // update, edition, language
-			prod.Variant = prod.Variant || (f != "*" && f != "-")
-		}
 		prod.Created, _ = time.Parse("2006-01-02T15:04:05", strings.TrimSuffix(strings.Split(p.CPE.Created, ".")[0], "Z"))
 		for _, t := range p.CPE.Titles {
 			if prod.Title == "" || t.Lang == "en" {

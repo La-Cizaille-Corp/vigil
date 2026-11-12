@@ -20,8 +20,8 @@ import (
 	"github.com/La-Cizaille-Corp/vigil/internal/sources"
 )
 
-// DefaultURL is the public CVE API.
-const DefaultURL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+// defaultURL is the public CVE API.
+const defaultURL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 
 const (
 	// maxBody bounds a page of pageSize records, read whole: a record carries
@@ -40,11 +40,11 @@ const (
 // Client queries the NVD. Without an API key the NVD allows 5 requests per
 // 30 seconds, with one 50: the client spaces its requests accordingly.
 type Client struct {
-	URL       string // CVE API, empty: DefaultURL
+	URL       string // CVE API, empty: defaultURL
 	HTTP      *http.Client
 	UserAgent string
 	APIKey    string // optional
-	CPEURL    string // CPE dictionary API, empty: DefaultCPEURL
+	CPEURL    string // CPE dictionary API, empty: defaultCPEURL
 
 	mu   sync.Mutex // spaces requests made by syncs and CPE searches alike
 	last time.Time
@@ -229,7 +229,7 @@ var retryDelays = []time.Duration{10 * time.Second, 30 * time.Second}
 
 // public reports whether the client asks the NVD itself, whose rate limit it
 // respects; a mirror or a test server is asked without waiting.
-func (c *Client) public() bool { return cmp.Or(c.URL, DefaultURL) == DefaultURL }
+func (c *Client) public() bool { return cmp.Or(c.URL, defaultURL) == defaultURL }
 
 // rateLimited reports whether the NVD refused a request for its rate limit:
 // it answers 403, sometimes 429.
@@ -246,8 +246,8 @@ func rateLimited(err error) bool {
 // tracked through the NVD as fixed.
 func (c *Client) get(ctx context.Context, q url.Values) ([]CVE, int, error) {
 	var r response
-	err := sources.Retry(ctx, sources.Delays(c.URL, DefaultURL, retryDelays), func() (bool, error) {
-		err := c.send(ctx, cmp.Or(c.URL, DefaultURL)+"?"+q.Encode(), maxBody, &r)
+	err := sources.Retry(ctx, sources.Delays(c.URL, defaultURL, retryDelays), func() (bool, error) {
+		err := c.send(ctx, cmp.Or(c.URL, defaultURL)+"?"+q.Encode(), maxBody, &r)
 		return rateLimited(err) || sources.Temporary(err), err
 	})
 	if err != nil {

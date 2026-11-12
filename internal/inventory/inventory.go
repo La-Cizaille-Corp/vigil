@@ -4,7 +4,6 @@ package inventory
 import (
 	"errors"
 	"fmt"
-	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -59,14 +58,14 @@ const Latest = "latest"
 // IsLatest reports whether an asset is kept at its latest release.
 func IsLatest(a store.Asset) bool { return a.Version == Latest }
 
-// DefaultWindow is how far back a new asset is checked: vulnerabilities
+// defaultWindow is how far back a new asset is checked: vulnerabilities
 // published earlier are not reported unless exploited (KEV).
-const DefaultWindow = 120 * 24 * time.Hour
+const defaultWindow = 120 * 24 * time.Hour
 
 const dateLayout = "2006-01-02"
 
 // DefaultSince is the start of the tracked period of an asset added at t.
-func DefaultSince(t time.Time) string { return t.Add(-DefaultWindow).Format(dateLayout) }
+func DefaultSince(t time.Time) string { return t.Add(-defaultWindow).Format(dateLayout) }
 
 // SinceTime is the start of the tracked period of a, zero for the whole history.
 func SinceTime(a store.Asset) time.Time {
@@ -166,7 +165,7 @@ func Validate(a store.Asset) error {
 	check(choice.Has(Kinds, a.Kind), fmt.Sprintf("type « %s » inconnu : %s attendu", clip.Text(a.Kind, 40), fr.Or(choice.Labels(Kinds))))
 	check(choice.Has(Criticalities, a.Criticality),
 		fmt.Sprintf("criticité « %s » inconnue : %s attendue", clip.Text(a.Criticality, 40), fr.Or(choice.Labels(Criticalities))))
-	check(a.Ecosystem == "" || contains(Ecosystems, a.Ecosystem),
+	check(a.Ecosystem == "" || slices.Contains(Ecosystems, a.Ecosystem),
 		fmt.Sprintf("écosystème « %s » non pris en charge : %s attendu", clip.Text(a.Ecosystem, 40), fr.Or(Ecosystems)))
 	check(a.PURL == "" || strings.HasPrefix(a.PURL, "pkg:") && osv.PURLName(a.PURL) != "",
 		"purl incomplet : pkg:type/nom@version attendu, par exemple pkg:npm/lodash@4.17.21")
@@ -225,15 +224,6 @@ func ByName(a store.Asset) bool {
 	return a.PURL == "" && a.CPE == "" && !Queryable(a) && a.Source != "sbom" && a.Name != ""
 }
 
-func contains(list []string, v string) bool {
-	for _, s := range list {
-		if s == v {
-			return true
-		}
-	}
-	return false
-}
-
 // Describe returns a short human identifier, e.g. "lodash 4.17.15".
 func Describe(a store.Asset) string {
 	if a.Version == "" {
@@ -260,19 +250,10 @@ func vendorProduct(a store.Asset) (vendor, product string) {
 		rest, _, _ = strings.Cut(rest, "@")
 		parts := strings.Split(rest, "/")
 		if len(parts) >= 2 {
-			vendor, product = pathUnescape(strings.Join(parts[1:len(parts)-1], "/")), pathUnescape(parts[len(parts)-1])
+			vendor, product = osv.PURLDecode(strings.Join(parts[1:len(parts)-1], "/")), osv.PURLDecode(parts[len(parts)-1])
 		}
 	}
 	return vendor, product
-}
-
-// pathUnescape decodes a part of a purl, or keeps it as written when it is
-// not properly encoded (%zz): an empty name would file the asset nowhere.
-func pathUnescape(s string) string {
-	if decoded, err := url.PathUnescape(s); err == nil {
-		return decoded
-	}
-	return s
 }
 
 // VendorName is the vendor an asset is filed under in reports: the CPE

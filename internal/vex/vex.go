@@ -11,7 +11,6 @@ import (
 	"slices"
 	"time"
 
-	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 	"github.com/La-Cizaille-Corp/vigil/internal/limit"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
@@ -83,7 +82,7 @@ type Statement struct {
 	Ref           string // purl or CPE of the affected component
 	State         string
 	Justification string
-	Detail        string
+	Detail        string // as written: the comment made of it is bounded where it is made
 }
 
 // states maps CycloneDX analysis states to Vigil statuses.
@@ -130,7 +129,7 @@ func Parse(r io.Reader) ([]Statement, error) {
 				return nil, fmt.Errorf("fichier VEX trop volumineux (plus de %d analyses)", maxStatements)
 			}
 			out = append(out, Statement{VulnID: v.ID, Ref: a.Ref, State: state,
-				Justification: v.Analysis.Justification, Detail: clip.Text(v.Analysis.Detail, 4000)})
+				Justification: v.Analysis.Justification, Detail: v.Analysis.Detail})
 		}
 	}
 	if len(out) == 0 {

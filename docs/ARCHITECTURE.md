@@ -473,8 +473,8 @@ désormais vérifié avec son époque.
 pour chaque ligne, la version qui la corrige pour l'actif (colonne « Corrigée en », export CSV). La relire dans
 l'avis à chaque affichage prendrait 0,9 s pour les 3 162 vulnérabilités d'un noyau Ubuntu, dont les avis pèsent
 50 Ko en moyenne (34 ms pour les 4 467 d'un noyau Debian). Elle est donc calculée à la synchronisation, par la
-règle de la page d'une vulnérabilité (`tracking.FixedIn` : la fin des plages qui contiennent la version de
-l'actif), et gardée avec elle (`findings.fixed_in`). *Conséquences* : la colonne se remplit à la première
+règle de la page d'une vulnérabilité (`tracking.Fixes`, dont elle garde la fin des plages qui contiennent la
+version de l'actif), et gardée avec elle (`findings.fixed_in`). *Conséquences* : la colonne se remplit à la première
 synchronisation après la mise à jour ; une vulnérabilité que la source ne signale plus garde la dernière
 valeur connue, et celles déjà corrigées avant la mise à jour restent vides. Un actif à sa dernière version
 (`latest`) n'en a pas : ses plages sont les ouvertes.

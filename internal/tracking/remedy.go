@@ -68,12 +68,10 @@ func Fixes(raw string, a store.Asset) []Fix {
 	return out[:min(len(out), maxFixes)]
 }
 
-// FixedIn returns the versions fixing a finding of asset a: those ending the
-// ranges that hold its version. It is "" when the source names none, as for an
-// asset kept at its latest release, where those ranges are the open ones.
-func FixedIn(raw string, a store.Asset) string { return fixedInAny(a, raw) }
-
-// fixedInAny is FixedIn over several advisories of the same CVE (A80).
+// fixedInAny returns the versions fixing a finding of asset a, over the
+// advisories of its CVE (A80): those ending the ranges that hold its version
+// (Fixes). It is "" when the source names none, as for an asset kept at its
+// latest release, where those ranges are the open ones.
 func fixedInAny(a store.Asset, raws ...string) string {
 	var out []string
 	for _, raw := range raws {
