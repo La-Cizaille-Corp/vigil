@@ -62,9 +62,9 @@ type CVE struct {
 	Raw         json.RawMessage
 }
 
-// ProductCPE splits a CPE 2.3 name and reports whether it designates a whole
+// productCPE splits a CPE 2.3 name and reports whether it designates a whole
 // product (version "*" or "-") rather than one release.
-func ProductCPE(cpe string) (fields []string, wholeProduct bool, err error) {
+func productCPE(cpe string) (fields []string, wholeProduct bool, err error) {
 	fields, ok := SplitCPE(cpe)
 	if !ok {
 		return nil, false, fmt.Errorf("CPE 2.3 invalide : %q", cpe)
@@ -85,10 +85,10 @@ type Query struct {
 	Since time.Time
 }
 
-// WithVersion fills the version of a CPE when it is a wildcard, unless the
+// withVersion fills the version of a CPE when it is a wildcard, unless the
 // CPE covers every product of a vendor.
-func WithVersion(cpe, version string) string {
-	fields, whole, err := ProductCPE(cpe)
+func withVersion(cpe, version string) string {
+	fields, whole, err := productCPE(cpe)
 	if err != nil || !whole || version == "" || strings.ContainsAny(version, ":*?") || fields[4] == "*" {
 		return cpe
 	}
@@ -106,8 +106,8 @@ func productWide(fields []string) string {
 // ForCPE returns the CVEs matching a query. For an exact version the NVD
 // matches the affected version ranges itself.
 func (c *Client) ForCPE(ctx context.Context, query Query) ([]CVE, error) {
-	cpe := WithVersion(query.CPE, query.Version)
-	fields, whole, err := ProductCPE(cpe)
+	cpe := withVersion(query.CPE, query.Version)
+	fields, whole, err := productCPE(cpe)
 	if err != nil {
 		return nil, err
 	}

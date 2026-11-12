@@ -18,6 +18,10 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags 
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 COPY --from=build /vigil /usr/local/bin/vigil
 COPY --from=build --chown=nonroot:nonroot /data /data
+# The licences that come with the release archives (.goreleaser.yaml): Vigil's,
+# and that of the common-password list embedded in the binary (internal/auth,
+# see docs/DEPENDENCIES.md).
+COPY LICENSE internal/auth/SECLISTS-LICENSE.txt /usr/share/doc/vigil/
 ENV VIGIL_DB=/data/vigil.db
 VOLUME /data
 EXPOSE 8080

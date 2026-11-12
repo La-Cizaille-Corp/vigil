@@ -134,10 +134,10 @@ func NewClient(timeout time.Duration, allowPrivate bool) *http.Client {
 func CheckRedirect(drop ...string) func(*http.Request, []*http.Request) error {
 	return func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 5 {
-			return errors.New("trop de redirections")
+			return &RedirectError{"trop de redirections"}
 		}
 		if req.URL.Scheme != "https" {
-			return errors.New("redirection vers une URL non https refusée")
+			return &RedirectError{"redirection vers une URL non https refusée"}
 		}
 		if req.URL.Host != via[0].URL.Host {
 			for _, h := range drop {
@@ -147,6 +147,12 @@ func CheckRedirect(drop ...string) func(*http.Request, []*http.Request) error {
 		return nil
 	}
 }
+
+// RedirectError is a redirect refused by CheckRedirect. It is not a failure of
+// the network: sent again, the request would be refused the same way.
+type RedirectError struct{ reason string }
+
+func (e *RedirectError) Error() string { return e.reason }
 
 // proxyAddress returns the host:port of the proxy used for https URLs, as
 // the transport dials it, or "" without a proxy.
