@@ -2,12 +2,14 @@ package netsafe
 
 import (
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"testing/iotest"
 	"time"
 )
 
@@ -130,5 +132,30 @@ func TestProxy(t *testing.T) {
 	// The proxy is dialed without the guard: a URL naming it is refused.
 	if _, err := client.Get("https://" + proxyURL.Host + "/"); !errors.Is(err, ErrForbiddenAddress) {
 		t.Errorf("request to the proxy itself: %v", err)
+	}
+}
+
+// A reading stops at its bound with an error, never as if the data were whole,
+// whatever the size of the reads.
+func TestLimitReader(t *testing.T) {
+	for _, c := range []struct {
+		data string
+		ok   bool
+	}{{"", true}, {"12345", true}, {"123456", false}, {strings.Repeat("x", 10_000), false}} {
+		for name, r := range map[string]io.Reader{
+			"whole":    strings.NewReader(c.data),
+			"one byte": iotest.OneByteReader(strings.NewReader(c.data)),
+		} {
+			got, err := io.ReadAll(LimitReader(r, 5))
+			var tooLarge *TooLargeError
+			if c.ok && (err != nil || string(got) != c.data) ||
+				!c.ok && (!errors.As(err, &tooLarge) || tooLarge.Max != 5 || len(got) != 5) {
+				t.Errorf("%d bytes, %s: %q, %v", len(c.data), name, got, err)
+			}
+		}
+		got, err := ReadLimited(strings.NewReader(c.data), 5)
+		if c.ok != (err == nil) || !c.ok && (got != nil || err.Error() != "réponse supérieure à 5 octets") {
+			t.Errorf("ReadLimited, %d bytes: %q, %v", len(c.data), got, err)
+		}
 	}
 }

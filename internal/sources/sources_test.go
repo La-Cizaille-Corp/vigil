@@ -29,7 +29,7 @@ func TestKEV(t *testing.T) {
 			{"cveID":"CVE-2021-44228","vendorProject":"Apache","product":"Log4j2","dueDate":"2021-12-24"},
 			{"cveID":"CVE-2024-21762","vendorProject":"Fortinet","product":"FortiOS","dueDate":"2024-02-16"}]}`)
 	})
-	cat, err := kev.Fetch(context.Background(), srv.Client(), srv.URL, "test")
+	cat, err := (&kev.Client{URL: srv.URL, HTTP: srv.Client(), UserAgent: "test"}).Catalogue(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +38,7 @@ func TestKEV(t *testing.T) {
 	}
 
 	failing := serve(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusBadGateway) })
-	if _, err := kev.Fetch(context.Background(), failing.Client(), failing.URL, "test"); err == nil {
+	if _, err := (&kev.Client{URL: failing.URL, HTTP: failing.Client()}).Catalogue(context.Background()); err == nil {
 		t.Error("HTTP error ignored")
 	}
 }
@@ -57,7 +57,7 @@ func TestEPSSBatches(t *testing.T) {
 	for i := range cves {
 		cves[i] = "CVE-2026-" + strings.Repeat("1", 4) + string(rune('a'+i%26)) + string(rune('a'+i/26))
 	}
-	scores, err := epss.Scores(context.Background(), srv.Client(), srv.URL, "test", cves)
+	scores, err := (&epss.Client{URL: srv.URL, HTTP: srv.Client(), UserAgent: "test"}).Scores(context.Background(), cves)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,8 +80,7 @@ func TestOSV(t *testing.T) {
 			http.NotFound(w, r)
 		}
 	})
-	c := osv.New(http.DefaultClient, "test")
-	c.BaseURL, c.HTTP = srv.URL, srv.Client()
+	c := &osv.Client{URL: srv.URL, HTTP: srv.Client(), UserAgent: "test"}
 	ctx := context.Background()
 	res, err := c.QueryBatch(ctx, []osv.Query{
 		{Package: osv.Package{PURL: "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1"}},

@@ -1,16 +1,13 @@
 package nvd
 
 import (
+	"cmp"
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
 )
 
 // DefaultCPEURL is the public CPE dictionary API.
@@ -117,37 +114,9 @@ func (c *Client) newestCPE(ctx context.Context, params url.Values, n int) ([]Pro
 	return products, err
 }
 
+// cpePage reads a page of the dictionary. It is not asked again after a
+// failure: the search is made while someone waits for it.
 func (c *Client) cpePage(ctx context.Context, params url.Values) ([]Product, int, error) {
-	base := c.CPEURL
-	if base == "" {
-		base = DefaultCPEURL
-	}
-	if err := c.wait(ctx); err != nil {
-		return nil, 0, err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"?"+params.Encode(), nil)
-	if err != nil {
-		return nil, 0, err
-	}
-	req.Header.Set("User-Agent", c.UserAgent)
-	if c.APIKey != "" {
-		req.Header.Set("apiKey", c.APIKey)
-	}
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return nil, 0, fmt.Errorf("nvd: %w", err)
-	}
-	defer resp.Body.Close()
-	switch {
-	case resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests:
-		return nil, 0, fmt.Errorf("nvd : HTTP %d (limite de requêtes atteinte ? réessayez dans 30 secondes)", resp.StatusCode)
-	case resp.StatusCode != http.StatusOK:
-		return nil, 0, fmt.Errorf("nvd : HTTP %d%s", resp.StatusCode, reason(resp))
-	}
-	data, err := netsafe.ReadLimited(resp.Body, maxCPEBody)
-	if err != nil {
-		return nil, 0, fmt.Errorf("nvd: %w", err)
-	}
 	var r struct {
 		TotalResults int `json:"totalResults"`
 		Products     []struct {
@@ -162,8 +131,12 @@ func (c *Client) cpePage(ctx context.Context, params url.Values) ([]Product, int
 			} `json:"cpe"`
 		} `json:"products"`
 	}
-	if err := json.Unmarshal(data, &r); err != nil {
-		return nil, 0, fmt.Errorf("nvd: réponse illisible : %w", err)
+	err := c.send(ctx, cmp.Or(c.CPEURL, DefaultCPEURL)+"?"+params.Encode(), maxCPEBody, &r)
+	if rateLimited(err) {
+		return nil, 0, fmt.Errorf("%w : limite de requêtes atteinte ? réessayez dans 30 secondes", err)
+	}
+	if err != nil {
+		return nil, 0, err
 	}
 	var out []Product
 	for _, p := range r.Products {

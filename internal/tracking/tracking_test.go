@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/digest"
+	"github.com/La-Cizaille-Corp/vigil/internal/sources/epss"
+	"github.com/La-Cizaille-Corp/vigil/internal/sources/kev"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/osv"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
@@ -72,10 +74,9 @@ func TestSyncLifecycle(t *testing.T) {
 
 	srv := fakeOSV(t)
 	defer srv.Close()
-	client := osv.New(http.DefaultClient, "vigil-test")
-	client.BaseURL = srv.URL
+	client := &osv.Client{URL: srv.URL, HTTP: http.DefaultClient, UserAgent: "vigil-test"}
 	syncer := &tracking.Syncer{Store: st, OSV: client, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		HTTP: srv.Client(), KEVURL: srv.URL + "/kev", EPSSURL: srv.URL + "/epss"}
+		KEV: &kev.Client{URL: srv.URL + "/kev", HTTP: srv.Client()}, EPSS: &epss.Client{URL: srv.URL + "/epss", HTTP: srv.Client()}}
 
 	asset := store.Asset{Name: "lodash", Kind: "package", PURL: "pkg:npm/lodash@4.17.15",
 		Criticality: "high", Source: "manual"}
@@ -152,10 +153,9 @@ func TestVersionFieldOverridesThePURL(t *testing.T) {
 	defer st.Close()
 	srv := fakeOSV(t)
 	defer srv.Close()
-	client := osv.New(http.DefaultClient, "vigil-test")
-	client.BaseURL = srv.URL
+	client := &osv.Client{URL: srv.URL, HTTP: http.DefaultClient, UserAgent: "vigil-test"}
 	syncer := &tracking.Syncer{Store: st, OSV: client, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		HTTP: srv.Client(), KEVURL: srv.URL + "/kev", EPSSURL: srv.URL + "/epss"}
+		KEV: &kev.Client{URL: srv.URL + "/kev", HTTP: srv.Client()}, EPSS: &epss.Client{URL: srv.URL + "/epss", HTTP: srv.Client()}}
 
 	asset := store.Asset{Name: "lodash", Kind: "package", PURL: "pkg:npm/lodash@4.17.15", Version: "4.17.15",
 		Criticality: "high", Source: "manual"}
@@ -197,10 +197,9 @@ func TestTrackedPeriod(t *testing.T) {
 	defer st.Close()
 	srv := fakeOSV(t)
 	defer srv.Close()
-	client := osv.New(http.DefaultClient, "vigil-test")
-	client.BaseURL = srv.URL
+	client := &osv.Client{URL: srv.URL, HTTP: http.DefaultClient, UserAgent: "vigil-test"}
 	syncer := &tracking.Syncer{Store: st, OSV: client, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		HTTP: srv.Client(), KEVURL: srv.URL + "/kev", EPSSURL: srv.URL + "/epss"}
+		KEV: &kev.Client{URL: srv.URL + "/kev", HTTP: srv.Client()}, EPSS: &epss.Client{URL: srv.URL + "/epss", HTTP: srv.Client()}}
 
 	id, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "lib", Kind: "package", PURL: "pkg:npm/lib@1.0.0",
 		Criticality: "medium", Source: "manual", TrackSince: "2026-06-01"})

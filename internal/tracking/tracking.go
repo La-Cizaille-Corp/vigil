@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"slices"
 	"strings"
 	"sync"
@@ -124,11 +123,10 @@ type Syncer struct {
 	// NVD matches assets that only have a CPE, or only a name; nil disables it.
 	NVD *nvd.Client
 
-	// HTTP is used for KEV and EPSS; nil disables enrichment.
-	HTTP      *http.Client
-	UserAgent string
-	KEVURL    string // defaults to kev.DefaultURL
-	EPSSURL   string // defaults to epss.DefaultURL
+	// KEV and EPSS give the exploitation signals, refreshed only with both;
+	// without KEV, the tracked period does not let exploited CVEs through.
+	KEV  *kev.Client
+	EPSS *epss.Client
 
 	// Alert, if set, is called after each successful run to notify the
 	// findings that became urgent (see notify.Notifier.SendAlerts).
@@ -309,7 +307,7 @@ func (s *Syncer) scan(ctx context.Context, assets []store.Asset) (Result, error)
 
 	// 2. Exploitation signals before the findings: an old vulnerability is
 	// kept outside the tracked period unless it is known to be exploited.
-	if s.HTTP != nil {
+	if s.KEV != nil && s.EPSS != nil {
 		s.working("scores d'exploitation (KEV, EPSS)")
 		// Enrichment failures are logged but do not fail the sync.
 		if err := s.enrich(ctx); err != nil {
@@ -582,10 +580,10 @@ func (s *Syncer) readLargePackage(ctx context.Context, a store.Asset, q osv.Quer
 // exploited vulnerabilities older than the tracked period would be missed: the
 // failure is logged and the sync goes on.
 func (s *Syncer) exploitedCVEs(ctx context.Context) map[string]bool {
-	if s.HTTP == nil {
+	if s.KEV == nil {
 		return nil
 	}
-	catalogue, err := kev.Fetch(ctx, s.HTTP, cmp.Or(s.KEVURL, kev.DefaultURL), s.UserAgent)
+	catalogue, err := s.KEV.Catalogue(ctx)
 	if err != nil {
 		s.Log.Warn("catalogue KEV", "err", err)
 		return nil
@@ -648,7 +646,7 @@ func (s *Syncer) enrich(ctx context.Context) error {
 	if err != nil || len(byVuln) == 0 {
 		return err
 	}
-	catalogue, err := kev.Fetch(ctx, s.HTTP, cmp.Or(s.KEVURL, kev.DefaultURL), s.UserAgent)
+	catalogue, err := s.KEV.Catalogue(ctx)
 	if err != nil {
 		return err
 	}
@@ -656,7 +654,7 @@ func (s *Syncer) enrich(ctx context.Context) error {
 	for _, list := range byVuln {
 		cves = append(cves, list...)
 	}
-	scores, err := epss.Scores(ctx, s.HTTP, cmp.Or(s.EPSSURL, epss.DefaultURL), s.UserAgent, cves)
+	scores, err := s.EPSS.Scores(ctx, cves)
 	if err != nil {
 		return err
 	}

@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/La-Cizaille-Corp/vigil/internal/sources/epss"
+	"github.com/La-Cizaille-Corp/vigil/internal/sources/kev"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/nvd"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/osv"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
@@ -70,10 +72,9 @@ func TestLargePackage(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	client := osv.New(http.DefaultClient, "vigil-test")
-	client.BaseURL = srv.URL
+	client := &osv.Client{URL: srv.URL, HTTP: http.DefaultClient, UserAgent: "vigil-test"}
 	syncer := &tracking.Syncer{Store: st, OSV: client, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		HTTP: srv.Client(), KEVURL: srv.URL + "/kev", EPSSURL: srv.URL + "/epss"}
+		KEV: &kev.Client{URL: srv.URL + "/kev", HTTP: srv.Client()}, EPSS: &epss.Client{URL: srv.URL + "/epss", HTTP: srv.Client()}}
 
 	id, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "linux", Kind: "os", Ecosystem: "Debian:12", Version: "6.1.76-1",
 		Criticality: "high", Source: "manual", TrackSince: "2026-06-01"})
@@ -133,8 +134,7 @@ func TestPURLQualifiers(t *testing.T) {
 		io.WriteString(w, `{"results":[`+strings.Join(results, ",")+`]}`)
 	}))
 	defer srv.Close()
-	client := osv.New(http.DefaultClient, "vigil-test")
-	client.BaseURL = srv.URL
+	client := &osv.Client{URL: srv.URL, HTTP: http.DefaultClient, UserAgent: "vigil-test"}
 	syncer := &tracking.Syncer{Store: st, OSV: client, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	for _, purl := range []string{
 		"pkg:deb/debian/libssl3@3.0.11-1?arch=amd64&upstream=openssl&distro=debian-12",
@@ -174,7 +174,7 @@ func TestFailedAssetAndProgress(t *testing.T) {
 	}))
 	defer srv.Close()
 	var seen []tracking.Status
-	syncer := &tracking.Syncer{Store: st, OSV: osv.New(http.DefaultClient, "vigil-test"), Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	syncer := &tracking.Syncer{Store: st, OSV: &osv.Client{HTTP: http.DefaultClient}, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		NVD: &nvd.Client{URL: srv.URL, HTTP: srv.Client()}}
 	syncer.Alert = func(context.Context) error {
 		seen = append(seen, syncer.Status())
@@ -242,8 +242,7 @@ func TestVersionsComparedHere(t *testing.T) {
 		io.WriteString(w, `{"vulns":[`+kernelFixed+`,`+kernelOther+`,`+kernelOpen+`,`+kernelOld+`]}`)
 	}))
 	defer srv.Close()
-	client := osv.New(http.DefaultClient, "vigil-test")
-	client.BaseURL = srv.URL
+	client := &osv.Client{URL: srv.URL, HTTP: http.DefaultClient, UserAgent: "vigil-test"}
 	syncer := &tracking.Syncer{Store: st, OSV: client, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 
 	add := func(version string) int64 {
@@ -293,8 +292,7 @@ func TestDismissalRuleAtSync(t *testing.T) {
 			{"id":"CVE-2026-2","summary":"ipv4: fix","published":"2026-10-01T00:00:00Z","modified":"2026-10-02T00:00:00Z","affected":[{"package":{"name":"Kernel","ecosystem":"Linux"},"ranges":[{"type":"ECOSYSTEM","events":[{"introduced":"6.0.0"}]}]}]}]}`)
 	}))
 	defer srv.Close()
-	client := osv.New(http.DefaultClient, "vigil-test")
-	client.BaseURL = srv.URL
+	client := &osv.Client{URL: srv.URL, HTTP: http.DefaultClient, UserAgent: "vigil-test"}
 	var atAlert []store.Finding
 	syncer := &tracking.Syncer{Store: st, OSV: client, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	syncer.Alert = func(ctx context.Context) error {
