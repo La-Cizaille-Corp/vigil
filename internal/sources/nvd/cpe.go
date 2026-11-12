@@ -143,8 +143,8 @@ func (c *Client) cpePage(ctx context.Context, params url.Values) ([]Product, int
 		if p.CPE.Deprecated {
 			continue
 		}
-		fields := strings.Split(p.CPE.Name, ":")
-		if len(fields) < 13 || fields[0] != "cpe" || fields[1] != "2.3" {
+		fields, ok := SplitCPE(p.CPE.Name)
+		if !ok {
 			continue
 		}
 		prod := Product{CPE: p.CPE.Name, Part: fields[2], Vendor: fields[3], Name: fields[4], Version: fields[5]}

@@ -12,8 +12,8 @@ import (
 )
 
 func entry(name, created string) string {
-	return fmt.Sprintf(`{"cpe":{"deprecated":false,"cpeName":%q,"created":%q,"titles":[{"title":"t %s","lang":"en"}]}}`,
-		name, created, name)
+	return fmt.Sprintf(`{"cpe":{"deprecated":false,"cpeName":%q,"created":%q,"titles":[{"title":%q,"lang":"en"}]}}`,
+		name, created, "t "+name)
 }
 
 // The dictionary returns entries oldest first: the search must try the exact
@@ -83,6 +83,35 @@ func TestSearchCPERateLimit(t *testing.T) {
 	_, err := c.SearchCPE(context.Background(), "fortios")
 	if err == nil || err.Error() != "nvd: HTTP 429 : limite de requêtes atteinte ? réessayez dans 30 secondes" || calls != 1 {
 		t.Errorf("%d calls, %v", calls, err)
+	}
+}
+
+// An entry whose product has escaped colons keeps its product, version and
+// whole-product name.
+func TestSearchCPEEscapedColons(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, `{"totalResults":2,"products":[%s,%s]}`,
+			entry(`cpe:2.3:a:lemonldap-ng:lemonldap\:\:ng:2.0.16:*:*:*:*:*:*:*`, "2023-03-01T10:00:00.000"),
+			entry("cpe:2.3:a:lemonldap-ng:lemonldap:1.0:*:*:*:*:*:*:*", "2010-03-01T10:00:00.000"))
+	}))
+	defer srv.Close()
+	c := &Client{URL: srv.URL, CPEURL: srv.URL, HTTP: srv.Client()}
+	got, err := c.SearchCPE(context.Background(), "lemonldap")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("products: %+v", got)
+	}
+	p := got[0]
+	if p.Vendor != "lemonldap-ng" || p.Name != `lemonldap\:\:ng` || p.Version != "2.0.16" || p.Variant {
+		t.Errorf("escaped entry: %+v", p)
+	}
+	if w := p.WholeProduct(); w != `cpe:2.3:a:lemonldap-ng:lemonldap\:\:ng:*:*:*:*:*:*:*:*` {
+		t.Errorf("whole product: %s", w)
+	}
+	if q := got[1]; q.Name != "lemonldap" || q.Version != "1.0" || q.Variant {
+		t.Errorf("ordinary entry: %+v", q)
 	}
 }
 

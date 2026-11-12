@@ -114,7 +114,12 @@ suffisent. *Conséquence* : interface sobre, rechargements de page complets.
 première est francophone (CERT-FR, ANSSI, NIS2) ; le code reste accessible à tout contributeur.
 Les codes techniques (sévérités, rôles, types de webhook, étiquettes) sont affichés par leur
 libellé français ; les messages d'erreur Go restent en minuscules (convention Go) et sont mis en
-forme de phrase à l'affichage.
+forme de phrase à l'affichage. Leur langue suit leur lecteur : français pour une erreur faite pour
+l'écran ou la ligne de commande (saisie, fichier importé, URL refusée, collecte déjà en cours),
+anglais pour une erreur interne et pour le journal du service, messages comme clés, que lisent aussi
+des outils. La raison technique d'un échec de source reste celle de la source (`status 503`,
+`HTTP 404 (Invalid apiKey.)`). L'audit de code de novembre 2026 en relevait deux exceptions ; dix-sept
+messages du journal étaient en fait en français, tous passés en anglais.
 
 **A33. Conventions d'interface communes.** Relevées lors d'une passe de cohérence :
 - une action destructive (actif, flux, webhook, jeton) passe par une confirmation (`<details>`,
@@ -175,7 +180,12 @@ trier), ou à partir d'une version. La période de suivi (A31) s'applique en plu
 la limite NVD (5 requêtes / 30 s sans clé). *Conséquence* : plus de bruit qu'OSV, triage humain
 attendu (principe 4). Un ancien mode « nouvelles CVE des 120 derniers jours » glissait avec le
 temps : une CVE sortie de la fenêtre était résolue automatiquement à tort. Il a été remplacé par
-la période de suivi, à date de début fixe.
+la période de suivi, à date de début fixe. Un CPE ne se découpe qu'à un endroit, `nvd.SplitCPE`,
+qui garde les deux-points échappés des noms du dictionnaire (`lemonldap\:\:ng`) et ne rend que
+les 13 champs d'un CPE 2.3 : requêtes NVD, recherche dans le dictionnaire, versions corrigées et
+éditeur ou produit de l'inventaire l'appellent ; `inventory` l'importe comme il importe déjà `osv`
+pour les purl. Écarté : un découpage par « : » à chaque endroit, qui refusait ces CPE au suivi et
+les coupait en deux dans la recherche.
 
 **A12. Un actif avec purl et CPE n'est interrogé que par son purl.** Interroger les deux
 doublerait les alertes (GHSA et CVE pour la même faille) et le CPE est moins précis. Il n'y a pas
@@ -679,7 +689,12 @@ code au regard de l'OWASP ASVS, puis de chaque écran. Décisions :
   stocké (OSV : intervalles ; NVD : bornes des CPE), la branche de la version de l'actif en tête ;
   page de suivi de la synchronisation qui se recharge seule, sans JavaScript (balise *refresh*) ;
   listes en cartes sur téléphone ; ajout d'actifs sur sa propre page ; mots de passe et jetons
-  affichés une fois après redirection (pas de nouvel envoi du formulaire au rechargement).
+  affichés une fois après redirection (pas de nouvel envoi du formulaire au rechargement). Chaque
+  sorte de valeur (jeton d'API, mot de passe provisoire) attend dans sa propre case de la session,
+  que seule sa page lit (`keepOnce` / `takeOnce` avec une sorte) : passer par une autre page, ou
+  voir un formulaire refusé, ne la fait plus disparaître sans l'afficher. Écarté : une seule case
+  par session, où `/settings` prenait le mot de passe créé juste avant, et la page des
+  utilisateurs le jeton.
 
 **A50. Pas de chiffrement applicatif des secrets au repos.** Les secrets que Vigil vérifie sont
 stockés comme empreintes (mots de passe en argon2id, jetons de session et d'API en SHA-256). Ceux
@@ -783,3 +798,6 @@ l'historique, analyse statique et CodeQL, revue des dépendances, scan de l'imag
 | Acceptation de risque avec date d'expiration | Différé | Statuts VEX et commentaires suffisent pour l'instant ; une date de réexamen serait la prochaine étape. |
 | Base européenne EUVD (ENISA) | Différé | API récente et encore mouvante ; les CVE qu'elle référence sont déjà couvertes par OSV et la NVD. |
 | Service Windows natif | Différé | Planificateur de tâches ou WinSW suffisent (voir [INSTALL.md](INSTALL.md)) ; éviterait une dépendance. |
+| Liste des sessions ouvertes (date, adresse) | Différé | Le bouton « Fermer mes autres sessions » de Mon compte couvre le besoin sans nouvelle colonne ; à ouvrir sur demande. |
+| Jeton CSRF avant la connexion | Écarté | `Origin` et `Sec-Fetch-Site` suffisent avec les navigateurs actuels ; le cas restant est consigné au [modèle de menace](THREAT_MODEL.md), « Risques acceptés ». |
+| Structures typées par page (au lieu de `map[string]any`) | Différé | Gros changement pour peu de gain ; à faire page par page, quand on y touche. |

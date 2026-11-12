@@ -110,7 +110,7 @@ func (s *Server) tokenCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, "api_token_create", t.Name+" → "+t.Project)
 	// SECURITY: the secret is displayed once, on the page this redirects to.
-	s.keepOnce(r, secret)
+	s.keepOnce(r, onceToken, secret)
 	redirect(w, r, "/settings", "token-created")
 }
 

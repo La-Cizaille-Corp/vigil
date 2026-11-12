@@ -576,7 +576,7 @@ func (s *Server) findingCSV(w http.ResponseWriter, r *http.Request) {
 			row[i] = inventory.CSVCell(row[i])
 		}
 		if err := cw.Write(row); err != nil {
-			s.Log.Warn("export CSV", "err", err)
+			s.Log.Warn("csv export failed", "err", err)
 			return
 		}
 	}

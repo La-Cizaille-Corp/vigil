@@ -41,8 +41,7 @@ func Fixes(raw string, a store.Asset) []Fix {
 	case a.PURL != "" || inventory.Queryable(a):
 		lines = osvFixes(raw, inventory.Package(a), version)
 	case a.CPE != "":
-		f := nvd.SplitCPE(a.CPE)
-		if len(f) == 13 {
+		if f, ok := nvd.SplitCPE(a.CPE); ok {
 			whole := f[4] == "*"
 			if whole && version != inventory.Latest {
 				version = "" // the version of no product in particular

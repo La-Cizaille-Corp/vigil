@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 )
@@ -89,12 +90,26 @@ func TestNameAffects(t *testing.T) {
 }
 
 func TestSplitCPE(t *testing.T) {
-	f := SplitCPE(`cpe:2.3:a:lemonldap-ng:lemonldap\:\:ng:*:*:*:*:*:*:*:*`)
-	if len(f) != 13 || f[4] != `lemonldap\:\:ng` {
+	f, ok := SplitCPE(`cpe:2.3:a:lemonldap-ng:lemonldap\:\:ng:*:*:*:*:*:*:*:*`)
+	if !ok || f[3] != "lemonldap-ng" || f[4] != `lemonldap\:\:ng` || f[5] != "*" {
 		t.Errorf("fields = %q", f)
 	}
 	if !(Match{Vendor: "lemonldap-ng", Product: f[4]}).Named("LemonLDAP::NG") {
 		t.Error("escaped product not named")
+	}
+	// An ordinary CPE, and an escaped backslash before a separator.
+	f, ok = SplitCPE("cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*")
+	if want := "cpe|2.3|o|fortinet|fortios|7.2.4|*|*|*|*|*|*|*"; !ok || strings.Join(f, "|") != want {
+		t.Errorf("fields = %q", f)
+	}
+	if f, ok := SplitCPE(`cpe:2.3:a:v:p\\:1:*:*:*:*:*:*:*`); !ok || f[4] != `p\\` || f[5] != "1" {
+		t.Errorf("fields = %q", f)
+	}
+	for _, bad := range []string{"", "cpe:2.3:bad", "cpe:2.2:a:v:p:1:*:*:*:*:*:*:*",
+		"cpe:2.3:a:v:p:1:*:*:*:*:*:*:*:extra", `cpe:2.3:a:v:p\:1:*:*:*:*:*:*:*`} {
+		if f, ok := SplitCPE(bad); ok || f != nil {
+			t.Errorf("%q accepted: %q", bad, f)
+		}
 	}
 }
 
