@@ -2,6 +2,7 @@ package tracking_test
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -43,8 +44,24 @@ func ubuntuKernel(t *testing.T, epssScores *string) (*httptest.Server, *sync.Mut
 		mu.Lock()
 		defer mu.Unlock()
 		switch {
-		case r.URL.Path == "/v1/querybatch":
-			io.WriteString(w, `{"results":[{"vulns":[{"id":"UBUNTU-CVE-2022-9","modified":"2026-09-01T00:00:00Z"}],"next_page_token":"p2"}]}`)
+		case r.URL.Path == "/v1/querybatch": // three advisories a page, by id
+			var body struct {
+				Queries []struct {
+					PageToken string `json:"page_token"`
+				} `json:"queries"`
+			}
+			json.NewDecoder(r.Body).Decode(&body)
+			page, next := order[:3], `"p2"`
+			if body.Queries[0].PageToken == "p2" {
+				page, next = order[3:], `""`
+			}
+			var refs []string
+			for _, id := range page {
+				var v osv.Vuln
+				json.Unmarshal([]byte(advisories[id]), &v)
+				refs = append(refs, `{"id":"`+id+`","modified":"`+v.Modified+`"}`)
+			}
+			io.WriteString(w, `{"results":[{"vulns":[`+strings.Join(refs, ",")+`],"next_page_token":`+next+`}]}`)
 		case r.URL.Path == "/v1/query":
 			var list []string
 			for _, id := range order {

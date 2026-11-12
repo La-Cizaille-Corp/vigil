@@ -323,6 +323,11 @@ func (s *Syncer) scan(ctx context.Context, assets []store.Asset) (Result, error)
 	}
 	if len(targets) > 0 {
 		s.working("interrogation d'OSV")
+		// The list kept of a large package serves a week: then it is read in
+		// full again, and a list no asset asks for any more goes (A90).
+		if _, err := s.Store.PurgeOSVLists(ctx, time.Now().Add(-listMaxAge)); err != nil {
+			return res, err
+		}
 		results, err := s.OSV.QueryBatch(ctx, queries)
 		if err != nil {
 			return res, err
@@ -402,6 +407,9 @@ type advisories struct {
 	store *store.Store
 	list  []store.Vulnerability
 	size  int // characters of their texts
+	// lists are those kept of the large packages read (A90), stored with the
+	// last chunk of their advisories.
+	lists []store.OSVList
 }
 
 // Bounds of a chunk of advisories: a few seconds of writing one by one, a
@@ -421,14 +429,24 @@ func (p *advisories) add(ctx context.Context, v store.Vulnerability) error {
 	return p.flush(ctx)
 }
 
-// flush stores the advisories held, in one transaction.
+// keepList holds the list of a large package read, until the last flush.
+func (p *advisories) keepList(l store.OSVList) {
+	p.lists = append(p.lists, l)
+}
+
+// flush stores the advisories held, and the lists, in one transaction.
 func (p *advisories) flush(ctx context.Context) error {
-	if len(p.list) == 0 {
+	if len(p.list) == 0 && len(p.lists) == 0 {
 		return nil
 	}
 	err := p.store.InTx(ctx, func(ctx context.Context) error {
 		for _, v := range p.list {
 			if err := p.store.UpsertVulnerability(ctx, v); err != nil {
+				return err
+			}
+		}
+		for _, l := range p.lists {
+			if err := p.store.SaveOSVList(ctx, l); err != nil {
 				return err
 			}
 		}
@@ -441,9 +459,10 @@ func (p *advisories) flush(ctx context.Context) error {
 	return nil
 }
 
-// drop forgets the advisories held, of an asset the sources failed to check.
+// drop forgets the advisories and lists held, of an asset the sources failed
+// to check.
 func (p *advisories) drop() {
-	p.list, p.size = p.list[:0], 0
+	p.list, p.size, p.lists = p.list[:0], 0, p.lists[:0]
 }
 
 // working tells what the run is doing, for the UI.
@@ -640,6 +659,7 @@ func (s *Syncer) readPackage(ctx context.Context, pending *advisories, pkg osv.P
 	defer list.Close()
 	for list.Next(ctx) {
 		v := list.Vuln()
+		l := short(v)
 		keep, affects := false, false
 		for _, a := range assets {
 			affected := v.Affects(pkg, a.Version)
@@ -648,16 +668,16 @@ func (s *Syncer) readPackage(ctx context.Context, pending *advisories, pkg osv.P
 			}
 			if affected {
 				reported[a.ID] = append(reported[a.ID], v.ID)
-				keep = keep || reportable(a, v, exploited)
+				keep = keep || reportable(a, l, exploited)
 				affects = true
 			}
 		}
 		if !affects {
 			continue
 		}
-		known[v.ID] = describe(v.ID, v.OtherIDs())
+		known[v.ID] = describe(v.ID, l.Others)
 		if !keep {
-			older.candidate(v.ID, known[v.ID])
+			older.candidate(l.ref(), known[v.ID])
 			continue
 		}
 		if err := s.storeOSV(ctx, pending, v, false); err != nil {
@@ -673,12 +693,12 @@ func (s *Syncer) readPackage(ctx context.Context, pending *advisories, pkg osv.P
 // reportable reports whether an asset can report an advisory: published in
 // its tracked period, or known to be exploited (KEV); those likely to be are
 // read again afterwards (see storeLikely).
-func reportable(a store.Asset, v osv.Vuln, exploited func() map[string]bool) bool {
-	if a.TrackSince == "" || v.Published == "" || v.Published[:min(len(v.Published), 10)] >= a.TrackSince {
+func reportable(a store.Asset, l listed, exploited func() map[string]bool) bool {
+	if a.TrackSince == "" || l.Published == "" || l.Published[:min(len(l.Published), 10)] >= a.TrackSince {
 		return true
 	}
 	known := exploited()
-	return known[v.ID] || slices.ContainsFunc(v.OtherIDs(), func(id string) bool { return known[id] })
+	return known[l.ID] || slices.ContainsFunc(l.Others, func(id string) bool { return known[id] })
 }
 
 // readAdvisories stores the advisories found for an asset and returns their
@@ -700,30 +720,43 @@ func (s *Syncer) readAdvisories(ctx context.Context, pending *advisories, a stor
 
 // readLargePackage reads a package whose advisories do not fit in a batch
 // answer. A kernel has thousands, listed from the oldest: without the last
-// pages, none would be in the tracked period. They come in full from the query,
-// not one request each, and only those the asset can report are stored; the
-// others are still reported, to count them as older.
+// pages, none would be in the tracked period. Only those the asset can report
+// are stored; the others are still reported, to count them as older. They are
+// read in full the first time, then only those changed since (A90); the list
+// kept of them is stored with the asset's advisories.
 func (s *Syncer) readLargePackage(ctx context.Context, pending *advisories, a store.Asset, q osv.Query, exploited func() map[string]bool) ([]string, map[string]described, error) {
-	var reported []string
-	known, older := map[string]described{}, likelyOlder{}
+	key := listKey(q)
+	r, readAt, err := s.readChanged(ctx, pending, a, q, key, exploited)
+	if err == nil && r == nil { // nothing to start from: every advisory is read
+		readAt = time.Now()
+		r, err = s.readWhole(ctx, pending, a, q, exploited)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := s.storeLikely(ctx, pending, r.older); err != nil {
+		return nil, nil, err
+	}
+	pending.keepList(store.OSVList{Query: key, ReadAt: readAt, Advisories: r.encode()})
+	return r.reported, r.known, nil
+}
+
+// readWhole reads every advisory of a large package, in full: from the query,
+// not one request each.
+func (s *Syncer) readWhole(ctx context.Context, pending *advisories, a store.Asset, q osv.Query, exploited func() map[string]bool) (*packageRead, error) {
+	r := newPackageRead()
 	list := s.OSV.Advisories(q)
 	defer list.Close()
 	for list.Next(ctx) {
 		v := list.Vuln()
-		reported = append(reported, v.ID)
-		known[v.ID] = describe(v.ID, v.OtherIDs())
-		if !reportable(a, v, exploited) {
-			older.candidate(v.ID, known[v.ID])
+		if !r.take(a, short(v), exploited) {
 			continue
 		}
 		if err := s.storeOSV(ctx, pending, v, false); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 	}
-	if err := list.Err(); err != nil {
-		return nil, nil, err
-	}
-	return reported, known, s.storeLikely(ctx, pending, older)
+	return r, list.Err()
 }
 
 // exploitedCVEs returns the CVEs of the KEV catalogue. Without it, only the
@@ -742,14 +775,19 @@ func (s *Syncer) exploitedCVEs(catalogue func() (map[string]kev.Entry, error)) m
 	return out
 }
 
+// stale reports whether an advisory is not stored, or stored as it was before
+// ref: the dates are compared by osv.SameModified, as OSV writes them in two
+// precisions.
+func (s *Syncer) stale(ctx context.Context, ref osv.VulnRef) (bool, error) {
+	modified, known, err := s.Store.VulnModified(ctx, ref.ID)
+	return !known || !osv.SameModified(modified, ref.Modified), err
+}
+
 // refreshVuln downloads the advisory if unknown or modified since last fetch.
 func (s *Syncer) refreshVuln(ctx context.Context, pending *advisories, ref osv.VulnRef) error {
-	modified, known, err := s.Store.VulnModified(ctx, ref.ID)
-	if err != nil {
+	stale, err := s.stale(ctx, ref)
+	if err != nil || !stale {
 		return err
-	}
-	if known && modified == ref.Modified {
-		return nil
 	}
 	v, err := s.OSV.Vuln(ctx, ref.ID)
 	if err != nil {
@@ -762,8 +800,8 @@ func (s *Syncer) refreshVuln(ctx context.Context, pending *advisories, ref osv.V
 // modification date; changed: it was fetched because it differs.
 func (s *Syncer) storeOSV(ctx context.Context, pending *advisories, v osv.Vuln, changed bool) error {
 	if !changed {
-		modified, known, err := s.Store.VulnModified(ctx, v.ID)
-		if err != nil || known && modified == v.Modified {
+		stale, err := s.stale(ctx, osv.VulnRef{ID: v.ID, Modified: v.Modified})
+		if err != nil || !stale {
 			return err
 		}
 	}

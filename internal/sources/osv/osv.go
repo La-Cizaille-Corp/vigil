@@ -60,10 +60,36 @@ type Query struct {
 	Version string  `json:"version,omitempty"`
 }
 
+// page returns the body that asks OSV for a page of the answer to q: the
+// first one, or the one of a token of the page before.
+func (q Query) page(token string) map[string]any {
+	body := map[string]any{"package": q.Package}
+	if q.Version != "" {
+		body["version"] = q.Version
+	}
+	if token != "" {
+		body["page_token"] = token
+	}
+	return body
+}
+
 // VulnRef is the short form returned by querybatch.
 type VulnRef struct {
 	ID       string `json:"id"`
 	Modified string `json:"modified"`
+}
+
+// SameModified reports whether two modification dates of an advisory are the
+// same: querybatch writes them to the microsecond, a full record to the
+// nanosecond (2026-11-12T17:20:40.464641Z, 2026-11-12T17:20:40.464641664Z).
+// Dates that cannot be read are compared as written.
+func SameModified(a, b string) bool {
+	ta, errA := time.Parse(time.RFC3339Nano, a)
+	tb, errB := time.Parse(time.RFC3339Nano, b)
+	if errA != nil || errB != nil {
+		return a == b
+	}
+	return ta.Truncate(time.Microsecond).Equal(tb.Truncate(time.Microsecond))
 }
 
 // Vuln is the subset of the OSV schema we use.
@@ -324,7 +350,7 @@ func PURLVersion(purl string) string {
 // without the release it compares the version with the advisories of all of
 // them, where any version of Debian 12 is below the fix of Debian 14.
 func PURLQuery(purl, version string) Query {
-	source := SourcePURL(purl)
+	source := sourcePURL(purl)
 	if version != "" && purlDecode(version) != PURLVersion(purl) {
 		source = WithoutVersion(source)
 	}
@@ -400,11 +426,11 @@ func releaseEcosystem(namespace, distro string) string {
 	return ""
 }
 
-// SourcePURL returns a purl without what OSV cannot match: its qualifiers, and
+// sourcePURL returns a purl without what OSV cannot match: its qualifiers, and
 // the name of a binary package. OSV files the packages of a distribution under
 // their source package: the upstream qualifier of an SBOM (linux-image-amd64,
 // upstream=linux) gives it, as kernelSource does for the names of a kernel.
-func SourcePURL(purl string) string {
+func sourcePURL(purl string) string {
 	purl, _, _ = strings.Cut(purl, "#")
 	base, rawQualifiers, _ := strings.Cut(purl, "?")
 	slash := strings.LastIndex(base, "/")
@@ -523,10 +549,30 @@ func (v Vuln) SeverityLabel() string {
 
 // BatchResult answers one query of a batch: the first page of its
 // vulnerabilities. With More, there are others, and OSV lists from the oldest:
-// read them all with Advisories.
+// read them all with Refs, or in full with Advisories.
 type BatchResult struct {
 	Vulns []VulnRef
 	More  bool
+}
+
+// batchAnswer is the answer of querybatch: a page of each query.
+type batchAnswer struct {
+	Results []struct {
+		Vulns         []VulnRef `json:"vulns"`
+		NextPageToken string    `json:"next_page_token"`
+	} `json:"results"`
+}
+
+// batch sends queries, at most maxBatch, to querybatch.
+func (c *Client) batch(ctx context.Context, queries []any) (batchAnswer, error) {
+	var resp batchAnswer
+	if err := c.do(ctx, http.MethodPost, "/v1/querybatch", map[string]any{"queries": queries}, &resp); err != nil {
+		return resp, err
+	}
+	if len(resp.Results) != len(queries) {
+		return resp, fmt.Errorf("osv querybatch: got %d results for %d queries", len(resp.Results), len(queries))
+	}
+	return resp, nil
 }
 
 // QueryBatch returns, for each query, the vulnerabilities affecting it.
@@ -534,18 +580,13 @@ func (c *Client) QueryBatch(ctx context.Context, queries []Query) ([]BatchResult
 	out := make([]BatchResult, 0, len(queries))
 	for start := 0; start < len(queries); start += maxBatch {
 		end := min(start+maxBatch, len(queries))
-		var resp struct {
-			Results []struct {
-				Vulns         []VulnRef `json:"vulns"`
-				NextPageToken string    `json:"next_page_token"`
-			} `json:"results"`
+		page := make([]any, 0, end-start)
+		for _, q := range queries[start:end] {
+			page = append(page, q.page(""))
 		}
-		body := map[string]any{"queries": queries[start:end]}
-		if err := c.do(ctx, http.MethodPost, "/v1/querybatch", body, &resp); err != nil {
+		resp, err := c.batch(ctx, page)
+		if err != nil {
 			return nil, err
-		}
-		if len(resp.Results) != end-start {
-			return nil, fmt.Errorf("osv querybatch: got %d results for %d queries", len(resp.Results), end-start)
 		}
 		for _, r := range resp.Results {
 			out = append(out, BatchResult{Vulns: r.Vulns, More: r.NextPageToken != ""})
@@ -557,6 +598,26 @@ func (c *Client) QueryBatch(ctx context.Context, queries []Query) ([]BatchResult
 // maxQueryPages bounds the pages read for one query: OSV answers a heavy one
 // in many pages, sometimes empty (more than twenty for the Ubuntu kernel).
 const maxQueryPages = 200
+
+// Refs lists every advisory matching a query in short, its id and date of
+// modification: the pages of the batch answer, a thousand advisories each. It
+// is light where Advisories is heavy: 600 KB for the 8 215 advisories of an
+// Ubuntu kernel, against 4.5 GB (ARCHITECTURE.md, A90).
+func (c *Client) Refs(ctx context.Context, q Query) ([]VulnRef, error) {
+	var out []VulnRef
+	token := ""
+	for range maxQueryPages {
+		resp, err := c.batch(ctx, []any{q.page(token)})
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, resp.Results[0].Vulns...)
+		if token = resp.Results[0].NextPageToken; token == "" {
+			return out, nil
+		}
+	}
+	return nil, fmt.Errorf("osv querybatch: more than %d pages of results", maxQueryPages)
+}
 
 // Advisories reads every advisory matching a query, in full, one at a time and
 // without keeping them: the Linux kernel has 150 MB of them. It takes no
@@ -668,16 +729,9 @@ func (a *Advisories) openPage(ctx context.Context) error {
 		a.pages++
 		a.returned = map[string]bool{}
 	}
-	body := map[string]any{"package": a.query.Package}
-	if a.query.Version != "" {
-		body["version"] = a.query.Version
-	}
-	if a.pageToken != "" {
-		body["page_token"] = a.pageToken
-	}
 	a.token = ""
 	var page io.ReadCloser
-	err := a.client.send(ctx, http.MethodPost, "/v1/query", body, func(req *http.Request) (err error) {
+	err := a.client.send(ctx, http.MethodPost, "/v1/query", a.query.page(a.pageToken), func(req *http.Request) (err error) {
 		page, err = sources.Open(a.client.HTTP, req, maxPage)
 		return err
 	})
