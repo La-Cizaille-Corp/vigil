@@ -28,7 +28,7 @@ func (s *Server) vexExport(w http.ResponseWriter, r *http.Request) {
 func (s *Server) vexImport(w http.ResponseWriter, r *http.Request) {
 	file, _, err := r.FormFile("vex")
 	if err != nil {
-		s.renderFindings(w, r, http.StatusBadRequest, "Fichier VEX manquant ou trop volumineux.", bulkForm{})
+		s.renderFindings(w, r, http.StatusBadRequest, "Fichier VEX manquant.", bulkForm{})
 		return
 	}
 	defer file.Close()

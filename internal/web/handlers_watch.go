@@ -402,7 +402,7 @@ func maskURL(raw string) string {
 func (s *Server) sbomImport(w http.ResponseWriter, r *http.Request) {
 	file, _, err := r.FormFile("sbom")
 	if err != nil {
-		s.renderNewAsset(w, r, http.StatusBadRequest, defaultAssetForm(), addSBOM, "Fichier SBOM manquant ou trop volumineux (20 Mo au plus).")
+		s.renderNewAsset(w, r, http.StatusBadRequest, defaultAssetForm(), addSBOM, "Fichier SBOM manquant.")
 		return
 	}
 	defer file.Close()

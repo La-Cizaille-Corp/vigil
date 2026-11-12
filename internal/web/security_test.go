@@ -359,4 +359,36 @@ func TestSettingsChangesAudited(t *testing.T) {
 	}
 }
 
+// A body past its bound (limitBody) is refused as too large, with the bound,
+// before the CSRF token is looked for: it used to leave the form empty and be
+// answered « Jeton CSRF invalide. ». A form without its file says so.
+func TestBodyPastItsBound(t *testing.T) {
+	st, base := newServerWith(t, nil)
+	c := loginAs(t, base, "analyst", "a-strong-password")
+	for _, tc := range []struct {
+		path, field, content, want string
+	}{
+		{"/assets/import-csv", "csv", "name\n" + strings.Repeat("x\n", 1_100_000), "le fichier CSV doit faire 2 Mo au plus"},
+		{"/assets/import", "sbom", strings.Repeat(" ", 22<<20), "le fichier doit faire 20 Mo au plus"},
+		{"/findings/vex", "vex", strings.Repeat(" ", 22<<20), "le fichier doit faire 20 Mo au plus"},
+	} {
+		code, body := c.upload(tc.path, tc.field, "f", tc.content, url.Values{"csrf": {c.csrf()}})
+		if code != http.StatusRequestEntityTooLarge || !strings.Contains(body, "Envoi trop volumineux : "+tc.want+".") {
+			t.Errorf("%s past its bound: %d %.80q", tc.path, code, body)
+		}
+	}
+	code, body := c.postBody("/findings/bulk", url.Values{"csrf": {c.csrf()}, "comment": {strings.Repeat("x", 70<<10)}})
+	if code != http.StatusRequestEntityTooLarge || !strings.Contains(body, "un formulaire fait 64 Kio au plus") {
+		t.Errorf("form past its bound: %d %.80q", code, body)
+	}
+	if assets, _ := st.ListAssets(context.Background(), store.Everything); len(assets) != 0 {
+		t.Errorf("assets added: %d", len(assets))
+	}
+	// Within its bound, an upload without its file says what is missing.
+	if code, body := c.upload("/assets/import-csv", "other", "f", "name\nx\n", url.Values{"csrf": {c.csrf()}}); code != http.StatusBadRequest ||
+		!strings.Contains(body, "Fichier CSV manquant.") {
+		t.Errorf("CSV without its file: %d", code)
+	}
+}
+
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }

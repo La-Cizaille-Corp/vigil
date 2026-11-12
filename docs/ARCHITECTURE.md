@@ -853,6 +853,13 @@ utilisateur. *Conséquences* : le message d'un SBOM trop gros change ; `inventor
 valeurs telles quelles, et seule l'écriture les neutralise ; les exports restent identiques octet
 pour octet (test) ; capslock voit `limit` capable de lire fichiers et réseau (son lecteur ne sait pas
 ce qu'il lit), et `netsafe` ne l'est plus de lire des fichiers.
+*Envoi au-delà de la borne* (revue de la 0.5.0, W7) : avant toute lecture, le corps d'une requête est
+borné selon sa route (`bodyLimit` : 64 Kio pour un formulaire, 2 Mo et 64 Kio pour un CSV, 21 Mo pour
+un SBOM, un VEX ou l'API). Un envoi qui dépassait cette borne laissait le formulaire vide et recevait
+« Jeton CSRF invalide. » (403), qui fait croire à une attaque. `require` lit désormais le formulaire
+avant d'y chercher le jeton et répond 413 en disant la borne (« Envoi trop volumineux : le fichier CSV
+doit faire 2 Mo au plus. ») ; les pages ne disent plus « manquant ou trop volumineux » d'un fichier
+absent. Un fichier entre sa propre borne et celle du corps garde le message de `limit.File`.
 
 **A13. Statuts CycloneDX / VEX.** Des statuts maison auraient été plus « parlants » mais non
 interopérables. Les états VEX (`in_triage`, `exploitable`, `resolved`, `not_affected` +

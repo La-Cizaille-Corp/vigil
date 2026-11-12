@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
+	"github.com/La-Cizaille-Corp/vigil/internal/sbom"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
 
@@ -57,6 +59,13 @@ func (s *Server) require(role string, next http.HandlerFunc) http.Handler {
 			return
 		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			// A body past its bound (limitBody) leaves the form empty: it is
+			// refused as such, with the bound, not as a missing token.
+			if bodyTooLarge(r) {
+				_, allows := bodyLimit(r.URL.Path)
+				http.Error(w, "Envoi trop volumineux : "+allows+".", http.StatusRequestEntityTooLarge)
+				return
+			}
 			// SECURITY: synchronizer token pattern against CSRF.
 			if !auth.EqualTokens(r.PostFormValue("csrf"), sess.CSRFToken) {
 				http.Error(w, "Jeton CSRF invalide.", http.StatusForbidden)
@@ -147,18 +156,38 @@ func securityHeaders(next http.Handler) http.Handler {
 	})
 }
 
-// limitBody bounds request bodies: small forms everywhere, larger uploads on
-// the import routes only.
+// limitBody bounds request bodies (see bodyLimit).
 func limitBody(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		limit := int64(maxFormBytes)
-		switch {
-		case r.URL.Path == "/assets/import" || r.URL.Path == "/findings/vex" || strings.HasPrefix(r.URL.Path, "/api/v1/"):
-			limit = maxUploadBytes
-		case r.URL.Path == "/assets/import-csv":
-			limit = inventory.MaxCSVBytes + 64<<10 // file plus multipart overhead
-		}
+		limit, _ := bodyLimit(r.URL.Path)
 		r.Body = http.MaxBytesReader(w, r.Body, limit)
 		next.ServeHTTP(w, r)
 	})
+}
+
+// bodyLimit is the bound of the body of a request to path, and what it
+// allows, as the refusal of a larger one says it: small forms everywhere,
+// larger uploads on the import routes only.
+func bodyLimit(path string) (limit int64, allows string) {
+	switch {
+	case path == "/assets/import" || path == "/findings/vex" || strings.HasPrefix(path, "/api/v1/"):
+		return maxUploadBytes, fmt.Sprintf("le fichier doit faire %d Mo au plus", sbom.MaxSize>>20)
+	case path == "/assets/import-csv":
+		return inventory.MaxCSVBytes + 64<<10, // file plus multipart overhead
+			fmt.Sprintf("le fichier CSV doit faire %d Mo au plus", inventory.MaxCSVBytes>>20)
+	}
+	return maxFormBytes, fmt.Sprintf("un formulaire fait %d Kio au plus", maxFormBytes>>10)
+}
+
+// formMemory is what a multipart form keeps in memory, the rest going to
+// temporary files: the default of http.Request.FormValue.
+const formMemory = 32 << 20
+
+// bodyTooLarge parses the form of r, and reports whether its body went past
+// the bound of limitBody. A form not sent as multipart is parsed by
+// ParseForm, whose error ParseMultipartForm would not return.
+func bodyTooLarge(r *http.Request) bool {
+	err := errors.Join(r.ParseForm(), r.ParseMultipartForm(formMemory))
+	var tooLarge *http.MaxBytesError
+	return errors.As(err, &tooLarge)
 }
