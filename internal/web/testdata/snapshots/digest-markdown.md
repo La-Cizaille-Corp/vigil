@@ -25,13 +25,13 @@ Aucune nouvelle vulnérabilité sur la période.
 
 ### Fortinet (3) — 1 critique, 1 haute, 1 de sévérité inconnue, dont 1 exploitée
 
-- **EXPLOITÉE (KEV)** **Critique** (CVSS 9.8) (EPSS 97.3 %) CVE-2025-0001 — fortios 7.2.4 — À analyser
-- **Haute** (CVSS 7.5) (EPSS 12.3 %) CVE-2025-0002 — fortios 7.2.4 — À analyser
-- **Inconnue** (EPSS 0.0 %) CVE-2025-0003 — fortios 7.2.4 — À analyser
+- **EXPLOITÉE (KEV)** **Critique** (CVSS 9,8) (EPSS 97,3 %) CVE-2025-0001 — fortios 7.2.4 — À analyser
+- **Haute** (CVSS 7,5) (EPSS 12,3 %) CVE-2025-0002 — fortios 7.2.4 — À analyser
+- **Inconnue** (CVSS 0,0) (EPSS 0,0 %) CVE-2025-0003 — fortios 7.2.4 — À analyser
 
 ### Paquets npm (2) — 1 moyenne, 1 basse
 
-- **Moyenne** (CVSS 5.3) GHSA-29mw-wpgm-hmr9 — lodash 4.17.15 — À analyser
+- **Moyenne** (CVSS 5,3) GHSA-29mw-wpgm-hmr9 — lodash 4.17.15 — À analyser
 - **Basse** CVE-2025-0005 — lodash 4.17.15 — À analyser
 
 ## Synthèse par statut

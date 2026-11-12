@@ -7,6 +7,7 @@ import (
 	_ "embed"
 	"fmt"
 	htmltemplate "html/template"
+	"maps"
 	"slices"
 	"sort"
 	"strconv"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/La-Cizaille-Corp/vigil/internal/chattext"
 	"github.com/La-Cizaille-Corp/vigil/internal/cti"
+	"github.com/La-Cizaille-Corp/vigil/internal/fr"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
@@ -27,33 +29,27 @@ var mdSource string
 //go:embed digest.html.tmpl
 var htmlSource string
 
-var funcs = map[string]any{
-	"date":   func(t time.Time) string { return t.Local().Format("02/01/2006 15:04") },
-	"status": func(s string) string { return inventory.Label(tracking.Statuses, s) },
-	"sev":    tracking.SeverityLabel,
-	"band":   tracking.Band,
-	"score": func(v float64) string {
-		if v <= 0 {
-			return ""
-		}
-		return strconv.FormatFloat(v, 'f', 1, 64)
-	},
-	"join":      strings.Join,
-	"epss":      FormatEPSS,
-	"countries": func(v []string) string { return labels(cti.Countries, v) },
-	"sectors":   func(v []string) string { return labels(cti.Sectors, v) },
-	"regs":      func(v []string) string { return labels(cti.Regulations, v) },
-	// Untrusted text (sources, feeds, SBOMs) in the Markdown digest goes
-	// through chattext, so that it cannot ping a channel or disguise a link.
-	"md":   chattext.Text,
-	"cell": chattext.Cell,
-	"link": func(title, link string) string {
-		if link == "" {
-			return chattext.Text(title)
-		}
-		return "[" + strings.NewReplacer("[", "(", "]", ")").Replace(chattext.Text(title)) + "](" + chattext.URL(link) + ")"
-	},
-}
+// funcs are the template functions of the web pages (fr.Funcs), and those of
+// the digest.
+var funcs = func() map[string]any {
+	f := fr.Funcs()
+	maps.Copy(f, map[string]any{
+		"countries": func(v []string) string { return labels(cti.Countries, v) },
+		"sectors":   func(v []string) string { return labels(cti.Sectors, v) },
+		"regs":      func(v []string) string { return labels(cti.Regulations, v) },
+		// Untrusted text (sources, feeds, SBOMs) in the Markdown digest goes
+		// through chattext, so that it cannot ping a channel or disguise a link.
+		"md":   chattext.Text,
+		"cell": chattext.Cell,
+		"link": func(title, link string) string {
+			if link == "" {
+				return chattext.Text(title)
+			}
+			return "[" + strings.NewReplacer("[", "(", "]", ")").Replace(chattext.Text(title)) + "](" + chattext.URL(link) + ")"
+		},
+	})
+	return f
+}()
 
 var (
 	mdTmpl   = texttemplate.Must(texttemplate.New("md").Funcs(funcs).Parse(mdSource))
@@ -266,14 +262,6 @@ func Generate(ctx context.Context, st *store.Store) (store.Digest, error) {
 		return store.Digest{}, err
 	}
 	return dg, nil
-}
-
-// FormatEPSS renders an EPSS probability as a percentage, or "" when unknown.
-func FormatEPSS(p float64) string {
-	if p < 0 {
-		return ""
-	}
-	return fmt.Sprintf("%.1f %%", p*100)
 }
 
 func labels(tags []cti.Tag, values []string) string {

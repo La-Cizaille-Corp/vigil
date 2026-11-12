@@ -9,16 +9,16 @@ import (
 	"html/template"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
 	"github.com/La-Cizaille-Corp/vigil/internal/cti"
-	"github.com/La-Cizaille-Corp/vigil/internal/digest"
+	"github.com/La-Cizaille-Corp/vigil/internal/fr"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
 	"github.com/La-Cizaille-Corp/vigil/internal/notify"
 	"github.com/La-Cizaille-Corp/vigil/internal/sbom"
@@ -188,10 +188,7 @@ func (s *Server) routes() []route {
 
 func (s *Server) parseTemplates() error {
 	funcs := template.FuncMap{
-		"date":        func(t time.Time) string { return t.Local().Format("02/01/2006 15:04") },
 		"isoDate":     isoDate,
-		"sevLabel":    tracking.SeverityLabel,
-		"band":        tracking.Band,
 		"roleLabel":   func(v string) string { return inventory.Label(roles, v) },
 		"roles":       func() []inventory.Option { return roles },
 		"maskURL":     maskURL,
@@ -205,32 +202,22 @@ func (s *Server) parseTemplates() error {
 		"dict3": func(countries, sectors, regulations []string) tagSelection {
 			return tagSelection{countries, sectors, regulations}
 		},
-		"kindLabel":     func(v string) string { return inventory.Label(inventory.Kinds, v) },
-		"critLabel":     func(v string) string { return inventory.Label(inventory.Criticalities, v) },
-		"statusLabel":   func(v string) string { return inventory.Label(tracking.Statuses, v) },
-		"justifLabel":   func(v string) string { return inventory.Label(tracking.Justifications, v) },
-		"can":           auth.RoleAtLeast,
-		"join":          strings.Join,
-		"hasPrefix":     strings.HasPrefix,
-		"lower":         strings.ToLower,
-		"days":          formatDays,
-		"kinds":         func() []inventory.Option { return inventory.Kinds },
-		"criticalities": func() []inventory.Option { return inventory.Criticalities },
-		"cpeModes":      func() []inventory.Option { return inventory.CPEModes },
-		"severities":    func() []inventory.Option { return severities },
-		"cvss": func(v float64) string {
-			if v < 0 {
-				return ""
-			}
-			return strconv.FormatFloat(v, 'f', 1, 64)
-		},
+		"kindLabel":         func(v string) string { return inventory.Label(inventory.Kinds, v) },
+		"critLabel":         func(v string) string { return inventory.Label(inventory.Criticalities, v) },
+		"justifLabel":       func(v string) string { return inventory.Label(tracking.Justifications, v) },
+		"can":               auth.RoleAtLeast,
+		"hasPrefix":         strings.HasPrefix,
+		"lower":             strings.ToLower,
+		"kinds":             func() []inventory.Option { return inventory.Kinds },
+		"criticalities":     func() []inventory.Option { return inventory.Criticalities },
+		"cpeModes":          func() []inventory.Option { return inventory.CPEModes },
+		"severities":        func() []inventory.Option { return severities },
 		"ecosystems":        func() []string { return inventory.Ecosystems },
 		"statuses":          func() []inventory.Option { return tracking.Statuses },
 		"justifs":           func() []inventory.Option { return tracking.Justifications },
 		"queryable":         inventory.Queryable,
 		"byName":            inventory.ByName,
 		"wholeDistribution": inventory.WholeDistribution,
-		"epss":              digest.FormatEPSS,
 		"countryLabel":      func(v string) string { return cti.Label(cti.Countries, v) },
 		"sectorLabel":       func(v string) string { return cti.Label(cti.Sectors, v) },
 		"countries":         func() []cti.Tag { return cti.Countries },
@@ -260,6 +247,7 @@ func (s *Server) parseTemplates() error {
 		// (see package digest), so it is already escaped.
 		"trustedDigest": func(s string) template.HTML { return template.HTML(s) }, // #nosec G203 -- escaped at generation
 	}
+	maps.Copy(funcs, fr.Funcs()) // dates, numbers and words shared with the digest
 	pages, err := fs.Glob(templatesFS, "templates/*.html")
 	if err != nil {
 		return err

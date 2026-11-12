@@ -3,7 +3,7 @@
 {{if .Data.Enabled}}
 <p>La double authentification est <strong>activée</strong> : un code de votre application est demandé à chaque connexion.</p>
 <form method="post" action="/account/totp/disable" class="card narrow">
-  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  {{template "csrf" .CSRF}}
   <label>Code actuel <input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" required></label>
   <button type="submit">Désactiver</button>
 </form>
@@ -14,7 +14,7 @@
   <pre><code>{{.Data.Pending}}</code></pre>
   <p class="small muted">ou l'URI : <code>{{.Data.URI}}</code></p>
   <form method="post" action="/account/totp/confirm">
-    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    {{template "csrf" .CSRF}}
     <label>Code affiché par l'application <input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" required autofocus></label>
     <label>Votre mot de passe <input type="password" name="password" autocomplete="current-password" required maxlength="1024"></label>
     <button type="submit">Activer</button>
@@ -23,7 +23,7 @@
 {{else}}
 <p>Recommandée en mode serveur : en plus du mot de passe, un code à 6 chiffres est demandé à la connexion.</p>
 <form method="post" action="/account/totp/start">
-  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  {{template "csrf" .CSRF}}
   <button type="submit">Configurer la double authentification</button>
 </form>
 {{end}}
@@ -32,7 +32,7 @@ Paramètres → Utilisateurs, ou sur le serveur avec <code>vigil user reset-totp
 
 <h2>Mot de passe</h2>
 <form method="post" action="/account/password" class="card narrow">
-  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  {{template "csrf" .CSRF}}
   <label>Mot de passe actuel <input type="password" name="current" autocomplete="current-password" required maxlength="1024"></label>
   <label>Nouveau mot de passe (12 caractères minimum) <input type="password" name="new" autocomplete="new-password" required minlength="12" maxlength="1024"></label>
   <label>Confirmation <input type="password" name="confirm" autocomplete="new-password" required minlength="12" maxlength="1024"></label>
@@ -44,7 +44,7 @@ Paramètres → Utilisateurs, ou sur le serveur avec <code>vigil user reset-totp
 <p>Après une connexion sur un poste partagé, ou si vous doutez d'un appareil : fermez les sessions
 ouvertes dans vos autres navigateurs. Celle-ci reste ouverte.</p>
 <form method="post" action="/account/sessions/close-others">
-  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  {{template "csrf" .CSRF}}
   <button type="submit">Fermer mes autres sessions</button>
 </form>
 {{end}}

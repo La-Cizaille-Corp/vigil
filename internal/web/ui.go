@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
+	"github.com/La-Cizaille-Corp/vigil/internal/fr"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
@@ -38,11 +40,11 @@ func isoDate(v string) string {
 	if len(v) < 10 {
 		return v
 	}
-	t, err := time.Parse("2006-01-02", v[:10])
+	t, err := time.Parse(time.DateOnly, v[:10])
 	if err != nil {
 		return v
 	}
-	return t.Format("02/01/2006")
+	return fr.Date(t)
 }
 
 // trackingSource names the source that checks an asset, "" when none does.
@@ -186,17 +188,6 @@ func sentences(msg string) string {
 	return strings.Join(lines, "\n")
 }
 
-// formatDays formats a duration in days: "< 1 j", "3,5 j", "12 j".
-func formatDays(d float64) string {
-	switch {
-	case d < 1:
-		return "< 1 j"
-	case d < 10:
-		return strings.Replace(strconv.FormatFloat(d, 'f', 1, 64), ".", ",", 1) + " j"
-	}
-	return strconv.FormatFloat(d, 'f', 0, 64) + " j"
-}
-
 // assetForm is an asset shown in its form, with the tags in use as hints under
 // the tags field.
 type assetForm struct {
@@ -204,12 +195,12 @@ type assetForm struct {
 	KnownTags []store.TagCount
 }
 
-// newAssetForm prepares the form of a: the hints are the tags the account may
-// see, a failure only loses them.
-func (s *Server) newAssetForm(r *http.Request, a store.Asset) assetForm {
+// newAssetForm prepares the form of a, with the tags the account may see as
+// hints.
+func (s *Server) newAssetForm(r *http.Request, a store.Asset) (assetForm, error) {
 	tags, err := s.Store.AssetTags(r.Context(), readScope(r))
 	if err != nil {
-		s.Log.Warn("asset tags", "err", err)
+		return assetForm{}, fmt.Errorf("asset tags: %w", err)
 	}
-	return assetForm{Asset: a, KnownTags: tags}
+	return assetForm{Asset: a, KnownTags: tags}, nil
 }

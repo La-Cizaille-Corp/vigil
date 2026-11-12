@@ -15,6 +15,7 @@ import (
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
 	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 	"github.com/La-Cizaille-Corp/vigil/internal/digest"
+	"github.com/La-Cizaille-Corp/vigil/internal/fr"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
@@ -335,7 +336,12 @@ func (s *Server) assetNew(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) renderNewAsset(w http.ResponseWriter, r *http.Request, status int, form store.Asset, formErr string) {
-	s.render(w, r, status, "asset_new", page{Title: "Ajouter des actifs", Error: formErr, Data: map[string]any{"Form": s.newAssetForm(r, form)}})
+	f, err := s.newAssetForm(r, form)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	s.render(w, r, status, "asset_new", page{Title: "Ajouter des actifs", Error: formErr, Data: map[string]any{"Form": f}})
 }
 
 func (s *Server) assetCreate(w http.ResponseWriter, r *http.Request) {
@@ -395,8 +401,13 @@ func (s *Server) renderAsset(w http.ResponseWriter, r *http.Request, status int,
 		s.serverError(w, r, err)
 		return
 	}
+	f, err := s.newAssetForm(r, form)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
 	s.render(w, r, status, "asset", page{Title: inventory.Describe(a), Error: formErr,
-		Data: map[string]any{"Asset": a, "Form": s.newAssetForm(r, form), "Editing": !reflect.DeepEqual(form, a),
+		Data: map[string]any{"Asset": a, "Form": f, "Editing": !reflect.DeepEqual(form, a),
 			"Findings": findings, "Query": query, "Rules": rules, "RuleMinimum": minRuleText}})
 }
 
@@ -578,7 +589,7 @@ func (s *Server) findingCSV(w http.ResponseWriter, r *http.Request) {
 			link = base + "/findings/" + strconv.FormatInt(fd.ID, 10)
 		}
 		row := []string{strconv.FormatInt(fd.ID, 10), fd.VulnID, strings.Join(fd.Aliases, " "),
-			tracking.SeverityLabel(fd.Severity), formatScore(fd.CVSS, 1), formatScore(fd.EPSS*100, 1),
+			tracking.SeverityLabel(fd.Severity), fr.Score(fd.CVSS), fr.Score(fd.EPSS * 100),
 			yesNo(fd.KEV), fd.AssetName, fd.AssetVersion, fd.FixedIn, fd.AssetProject,
 			inventory.Label(tracking.Statuses, fd.Status), inventory.Label(tracking.Justifications, fd.Justification),
 			fd.Comment, fd.FirstSeen.Format(time.DateOnly), due, yesNo(fd.Late), fd.Summary, link}
@@ -591,13 +602,6 @@ func (s *Server) findingCSV(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	cw.Flush()
-}
-
-func formatScore(v float64, decimals int) string {
-	if v < 0 {
-		return ""
-	}
-	return strings.Replace(strconv.FormatFloat(v, 'f', decimals, 64), ".", ",", 1)
 }
 
 func yesNo(b bool) string {
@@ -850,7 +854,7 @@ func (s *Server) digestShow(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.render(w, r, http.StatusOK, "digest", page{Title: "Digest du " + d.CreatedAt.Local().Format("02/01/2006 15:04"), Data: d})
+	s.render(w, r, http.StatusOK, "digest", page{Title: "Digest du " + fr.DateTime(d.CreatedAt), Data: d})
 }
 
 func (s *Server) digestMarkdown(w http.ResponseWriter, r *http.Request) {
@@ -860,7 +864,7 @@ func (s *Server) digestMarkdown(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 	w.Header().Set("Content-Disposition",
-		`attachment; filename="vigil-digest-`+d.CreatedAt.Format("2006-01-02")+`.md"`)
+		`attachment; filename="vigil-digest-`+d.CreatedAt.Format(time.DateOnly)+`.md"`)
 	_, _ = w.Write([]byte(d.Markdown)) // a client that disconnects is not an error
 }
 

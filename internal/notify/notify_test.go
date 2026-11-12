@@ -131,6 +131,25 @@ func TestAlertNeutralisesMarkup(t *testing.T) {
 	}
 }
 
+// The reason of an alert says why it is urgent, with the EPSS score written
+// as everywhere else (fr.Percent).
+func TestAlertReason(t *testing.T) {
+	for _, c := range []struct {
+		a    store.Alert
+		want string
+	}{
+		{store.Alert{Finding: store.Finding{Severity: "HIGH", KEV: true, EPSS: 0.5}}, "haute, exploitée (CISA KEV)"},
+		{store.Alert{Finding: store.Finding{Severity: "LOW", Status: "exploitable", EPSS: -1}, Raised: true}, "basse, jugée exploitable, devenue plus urgente"},
+		{store.Alert{Finding: store.Finding{EPSS: 0.1234}}, "EPSS 12,3 %"},
+		{store.Alert{Finding: store.Finding{Severity: "CRITICAL", EPSS: 0.05}}, "critique"},
+		{store.Alert{Finding: store.Finding{EPSS: -1}}, "gravité inconnue"},
+	} {
+		if got := alertReason(c.a); got != c.want {
+			t.Errorf("alertReason(%+v) = %q, want %q", c.a.Finding, got, c.want)
+		}
+	}
+}
+
 // Teams gets an Adaptive Card, at the address exactly as it was given: its
 // signature is checked on the query string.
 func TestTeamsCard(t *testing.T) {

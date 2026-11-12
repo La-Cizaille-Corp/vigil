@@ -20,7 +20,7 @@ Il reste nommé dans l'historique de triage et le journal d'audit, et peut être
   <td>{{.Username}}{{if eq .ID $me}} <span class="muted">(vous)</span>{{end}}</td>
   <td>{{if or (eq .ID $me) .Disabled}}{{roleLabel .Role}}{{else}}
     <form method="post" action="/settings/users/{{.ID}}/role" class="inline">
-      <input type="hidden" name="csrf" value="{{$csrf}}">
+      {{template "csrf" $csrf}}
       <select name="role" aria-label="Rôle de {{.Username}}">
         {{$role := .Role}}{{range roles}}<option value="{{.Value}}"{{if eq .Value $role}} selected{{end}}>{{.Label}}</option>{{end}}
       </select>
@@ -32,21 +32,21 @@ Il reste nommé dans l'historique de triage et le journal d'audit, et peut être
   <td>{{if ne .ID $me}}
     {{if .Disabled}}
     <form method="post" action="/settings/users/{{.ID}}/enable" class="inline">
-      <input type="hidden" name="csrf" value="{{$csrf}}">
+      {{template "csrf" $csrf}}
       <button type="submit" class="link">Réactiver</button>
     </form>
     {{else}}
     <details class="confirm">
       <summary>Désactiver…</summary>
       <form method="post" action="/settings/users/{{.ID}}/disable" class="inline">
-        <input type="hidden" name="csrf" value="{{$csrf}}">
+        {{template "csrf" $csrf}}
         <button type="submit" class="danger">Désactiver {{.Username}}</button>
       </form>
     </details>
     <details class="confirm">
       <summary>Nouveau mot de passe…</summary>
       <form method="post" action="/settings/users/{{.ID}}/password" class="inline">
-        <input type="hidden" name="csrf" value="{{$csrf}}">
+        {{template "csrf" $csrf}}
         <button type="submit" class="danger">Générer un mot de passe provisoire</button>
       </form>
     </details>
@@ -54,7 +54,7 @@ Il reste nommé dans l'historique de triage et le journal d'audit, et peut être
     <details class="confirm">
       <summary>Retirer la double authentification…</summary>
       <form method="post" action="/settings/users/{{.ID}}/totp-reset" class="inline">
-        <input type="hidden" name="csrf" value="{{$csrf}}">
+        {{template "csrf" $csrf}}
         <button type="submit" class="danger">Retirer (application perdue)</button>
       </form>
     </details>
@@ -68,7 +68,7 @@ Il reste nommé dans l'historique de triage et le journal d'audit, et peut être
 
 <h2>Double authentification</h2>
 <form method="post" action="/settings/users/totp-policy" class="card">
-  <input type="hidden" name="csrf" value="{{$csrf}}">
+  {{template "csrf" $csrf}}
   <label>Obligatoire pour
     <select name="policy">
       <option value=""{{if eq .Data.Policy ""}} selected{{end}}>personne (facultative)</option>
@@ -83,7 +83,7 @@ Il reste nommé dans l'historique de triage et le journal d'audit, et peut être
 
 <h2>Ajouter un utilisateur</h2>
 <form method="post" action="/settings/users" class="card">
-  <input type="hidden" name="csrf" value="{{$csrf}}">
+  {{template "csrf" $csrf}}
   <div class="grid">
     <label>Nom d'utilisateur <input name="username" required maxlength="64" autocomplete="off"></label>
     <label>Rôle

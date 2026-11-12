@@ -21,7 +21,7 @@
     <a href="/settings" {{if hasPrefix .Path "/settings"}}aria-current="page"{{end}}>Paramètres</a>
   </nav>
   <form method="post" action="/logout" class="inline">
-    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    {{template "csrf" .CSRF}}
     <a class="account-link" href="/account" title="Mon compte" {{if hasPrefix .Path "/account"}}aria-current="page"{{end}}>{{.User.Username}}</a>
     <span class="muted small">{{roleLabel .User.Role}}</span>
     <button type="submit" class="link">Déconnexion</button>
