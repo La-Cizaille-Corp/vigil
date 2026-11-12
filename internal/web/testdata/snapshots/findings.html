@@ -124,83 +124,89 @@
 </div>
 
 
-<table class="cards sortable">
-<thead><tr><th class="select"><span class="sr-only">Sélection</span></th><th aria-sort="descending"><a class="sort" href="/findings?dir=asc&amp;level=all&amp;sort=priority">Priorité</a></th><th class="num"><a class="sort" href="/findings?dir=desc&amp;level=all&amp;sort=cvss">CVSS</a></th><th class="num"><a class="sort" href="/findings?dir=desc&amp;level=all&amp;sort=epss">EPSS</a></th><th><a class="sort" href="/findings?dir=asc&amp;level=all&amp;sort=vuln">Vulnérabilité</a></th><th><a class="sort" href="/findings?dir=asc&amp;level=all&amp;sort=asset">Actif</a></th><th><a class="sort" href="/findings?dir=asc&amp;level=all&amp;sort=fixed">Corrigée en</a></th><th><a class="sort" href="/findings?dir=asc&amp;level=all&amp;sort=status">Statut</a></th><th><a class="sort" href="/findings?dir=desc&amp;level=all&amp;sort=recent">Détectée le</a></th><th><a class="sort" href="/findings?dir=asc&amp;level=all&amp;sort=due">Échéance</a></th><th class="no-sort">Résumé</th></tr></thead>
-<tbody>
+<form method="get" action="/findings" class="sort-form">
+  <input type="hidden" name="level" value="all">
+  <label>Trier par <select name="sort"><option value="priority" selected>Priorité</option><option value="cvss">CVSS</option><option value="epss">EPSS</option><option value="vuln">Vulnérabilité</option><option value="asset">Actif</option><option value="fixed">Corrigée en</option><option value="status">Statut</option><option value="recent">Détectée le</option><option value="due">Échéance</option></select></label>
+  <label>Ordre <select name="dir"><option value="desc" selected>décroissant</option><option value="asc">croissant</option></select></label>
+  <button type="submit">Trier</button>
+</form>
+<table class="cards findings sortable" role="table">
+<thead role="rowgroup"><tr role="row"><th class="select" role="columnheader"><span class="sr-only">Sélection</span></th><th role="columnheader" aria-sort="descending"><a class="sort" href="/findings?dir=asc&amp;level=all&amp;sort=priority">Priorité</a></th><th role="columnheader" class="num"><a class="sort" href="/findings?dir=desc&amp;level=all&amp;sort=cvss">CVSS</a></th><th role="columnheader" class="num"><a class="sort" href="/findings?dir=desc&amp;level=all&amp;sort=epss">EPSS</a></th><th role="columnheader"><a class="sort" href="/findings?dir=asc&amp;level=all&amp;sort=vuln">Vulnérabilité</a></th><th role="columnheader"><a class="sort" href="/findings?dir=asc&amp;level=all&amp;sort=asset">Actif</a></th><th role="columnheader"><a class="sort" href="/findings?dir=asc&amp;level=all&amp;sort=fixed">Corrigée en</a></th><th role="columnheader"><a class="sort" href="/findings?dir=asc&amp;level=all&amp;sort=status">Statut</a></th><th role="columnheader"><a class="sort" href="/findings?dir=desc&amp;level=all&amp;sort=recent">Détectée le</a></th><th role="columnheader"><a class="sort" href="/findings?dir=asc&amp;level=all&amp;sort=due">Échéance</a></th><th role="columnheader" class="no-sort">Résumé</th></tr></thead>
+<tbody role="rowgroup">
 
-<tr>
-  <td class="select" data-label="Sélection"><input type="checkbox" name="id" value="1" form="bulk" aria-label="Sélectionner CVE-2025-0001 sur fortios"></td>
-  <td data-label="Priorité"><span class="level level-urgent">Urgente</span>
+<tr role="row">
+  <td class="select" role="cell"><label class="tick"><input type="checkbox" name="id" value="1" form="bulk" aria-label="Sélectionner CVE-2025-0001 sur fortios"></label></td>
+  <td class="f-level" role="cell" data-label="Priorité"><span class="level level-urgent">Urgente</span>
     <div class="small"><span class="sev sev-CRITICAL">Critique</span> · <span class="reason">exploitée (CISA KEV)</span></div></td>
-  <td data-label="CVSS" class="num">9,8</td>
-  <td data-label="EPSS" class="num">97,3 %</td>
-  <td data-label="Vulnérabilité"><a href="/findings/1?back=%2ffindings%3flevel%3dall">CVE-2025-0001</a></td>
-  <td data-label="Actif"><a href="/assets/1">fortios 7.2.4</a></td>
-  <td data-label="Corrigée en"></td>
-  <td data-label="Statut">À analyser</td>
-  <td data-label="Détectée le">04/03/2025 10:20</td>
-  <td data-label="Échéance"><span class="late">Hors délai</span><br><small>19/03/2025</small></td>
-  <td data-label="Résumé" class="text">Contournement de l&#39;authentification.</td>
+  <td class="f-cvss num" role="cell" data-label="CVSS">9,8</td>
+  <td class="f-epss num" role="cell" data-label="EPSS">97,3 %</td>
+  <td class="f-vuln" role="cell" data-label="Vulnérabilité"><a href="/findings/1?back=%2ffindings%3flevel%3dall">CVE-2025-0001</a></td>
+  <td class="f-asset" role="cell" data-label="Actif"><a href="/assets/1">fortios 7.2.4</a></td>
+  <td class="f-fixed" role="cell" data-label="Corrigée en"></td>
+  <td class="f-status" role="cell" data-label="Statut">À analyser</td>
+  <td class="f-seen" role="cell" data-label="Détectée le">04/03/2025 10:20</td>
+  <td class="f-due" role="cell" data-label="Échéance"><span class="late">Hors délai</span><br><small>19/03/2025</small></td>
+  <td class="f-text text" role="cell" data-label="Résumé">Contournement de l&#39;authentification.</td>
 </tr>
 
-<tr>
-  <td class="select" data-label="Sélection"><input type="checkbox" name="id" value="2" form="bulk" aria-label="Sélectionner CVE-2025-0002 sur fortios"></td>
-  <td data-label="Priorité"><span class="level level-urgent">Urgente</span>
+<tr role="row">
+  <td class="select" role="cell"><label class="tick"><input type="checkbox" name="id" value="2" form="bulk" aria-label="Sélectionner CVE-2025-0002 sur fortios"></label></td>
+  <td class="f-level" role="cell" data-label="Priorité"><span class="level level-urgent">Urgente</span>
     <div class="small"><span class="sev sev-HIGH">Haute</span> · <span class="reason">EPSS 12,3 %</span></div></td>
-  <td data-label="CVSS" class="num">7,5</td>
-  <td data-label="EPSS" class="num">12,3 %</td>
-  <td data-label="Vulnérabilité"><a href="/findings/2?back=%2ffindings%3flevel%3dall">CVE-2025-0002</a></td>
-  <td data-label="Actif"><a href="/assets/1">fortios 7.2.4</a></td>
-  <td data-label="Corrigée en"></td>
-  <td data-label="Statut">À analyser</td>
-  <td data-label="Détectée le">04/03/2025 11:20</td>
-  <td data-label="Échéance"><span class="late">Hors délai</span><br><small>03/04/2025</small></td>
-  <td data-label="Résumé" class="text">Déni de service.</td>
+  <td class="f-cvss num" role="cell" data-label="CVSS">7,5</td>
+  <td class="f-epss num" role="cell" data-label="EPSS">12,3 %</td>
+  <td class="f-vuln" role="cell" data-label="Vulnérabilité"><a href="/findings/2?back=%2ffindings%3flevel%3dall">CVE-2025-0002</a></td>
+  <td class="f-asset" role="cell" data-label="Actif"><a href="/assets/1">fortios 7.2.4</a></td>
+  <td class="f-fixed" role="cell" data-label="Corrigée en"></td>
+  <td class="f-status" role="cell" data-label="Statut">À analyser</td>
+  <td class="f-seen" role="cell" data-label="Détectée le">04/03/2025 11:20</td>
+  <td class="f-due" role="cell" data-label="Échéance"><span class="late">Hors délai</span><br><small>03/04/2025</small></td>
+  <td class="f-text text" role="cell" data-label="Résumé">Déni de service.</td>
 </tr>
 
-<tr>
-  <td class="select" data-label="Sélection"><input type="checkbox" name="id" value="4" form="bulk" aria-label="Sélectionner GHSA-29mw-wpgm-hmr9 sur lodash"></td>
-  <td data-label="Priorité"><span class="level level-watch">À surveiller</span>
+<tr role="row">
+  <td class="select" role="cell"><label class="tick"><input type="checkbox" name="id" value="4" form="bulk" aria-label="Sélectionner GHSA-29mw-wpgm-hmr9 sur lodash"></label></td>
+  <td class="f-level" role="cell" data-label="Priorité"><span class="level level-watch">À surveiller</span>
     <div class="small"><span class="sev sev-MEDIUM">Moyenne</span></div></td>
-  <td data-label="CVSS" class="num">5,3</td>
-  <td data-label="EPSS" class="num"><span class="muted">—</span></td>
-  <td data-label="Vulnérabilité"><a href="/findings/4?back=%2ffindings%3flevel%3dall">GHSA-29mw-wpgm-hmr9</a><br><small>CVE-2025-0004</small></td>
-  <td data-label="Actif"><a href="/assets/2">lodash 4.17.15</a></td>
-  <td data-label="Corrigée en">4.17.21</td>
-  <td data-label="Statut">À analyser</td>
-  <td data-label="Détectée le">04/03/2025 13:20</td>
-  <td data-label="Échéance"><span class="late">Hors délai</span><br><small>02/06/2025</small></td>
-  <td data-label="Résumé" class="text">Pollution de prototype.</td>
+  <td class="f-cvss num" role="cell" data-label="CVSS">5,3</td>
+  <td class="f-epss num" role="cell" data-label="EPSS"><span class="muted">—</span></td>
+  <td class="f-vuln" role="cell" data-label="Vulnérabilité"><a href="/findings/4?back=%2ffindings%3flevel%3dall">GHSA-29mw-wpgm-hmr9</a><br><small>CVE-2025-0004</small></td>
+  <td class="f-asset" role="cell" data-label="Actif"><a href="/assets/2">lodash 4.17.15</a></td>
+  <td class="f-fixed" role="cell" data-label="Corrigée en">4.17.21</td>
+  <td class="f-status" role="cell" data-label="Statut">À analyser</td>
+  <td class="f-seen" role="cell" data-label="Détectée le">04/03/2025 13:20</td>
+  <td class="f-due" role="cell" data-label="Échéance"><span class="late">Hors délai</span><br><small>02/06/2025</small></td>
+  <td class="f-text text" role="cell" data-label="Résumé">Pollution de prototype.</td>
 </tr>
 
-<tr>
-  <td class="select" data-label="Sélection"><input type="checkbox" name="id" value="5" form="bulk" aria-label="Sélectionner CVE-2025-0005 sur lodash"></td>
-  <td data-label="Priorité"><span class="level level-watch">À surveiller</span>
+<tr role="row">
+  <td class="select" role="cell"><label class="tick"><input type="checkbox" name="id" value="5" form="bulk" aria-label="Sélectionner CVE-2025-0005 sur lodash"></label></td>
+  <td class="f-level" role="cell" data-label="Priorité"><span class="level level-watch">À surveiller</span>
     <div class="small"><span class="sev sev-LOW">Basse</span></div></td>
-  <td data-label="CVSS" class="num"><span class="muted">—</span></td>
-  <td data-label="EPSS" class="num"><span class="muted">—</span></td>
-  <td data-label="Vulnérabilité"><a href="/findings/5?back=%2ffindings%3flevel%3dall">CVE-2025-0005</a></td>
-  <td data-label="Actif"><a href="/assets/2">lodash 4.17.15</a></td>
-  <td data-label="Corrigée en"></td>
-  <td data-label="Statut">À analyser</td>
-  <td data-label="Détectée le">04/03/2025 14:20</td>
-  <td data-label="Échéance"><span class="late">Hors délai</span><br><small>31/08/2025</small></td>
-  <td data-label="Résumé" class="text">Sans score.</td>
+  <td class="f-cvss num" role="cell" data-label="CVSS"><span class="muted">—</span></td>
+  <td class="f-epss num" role="cell" data-label="EPSS"><span class="muted">—</span></td>
+  <td class="f-vuln" role="cell" data-label="Vulnérabilité"><a href="/findings/5?back=%2ffindings%3flevel%3dall">CVE-2025-0005</a></td>
+  <td class="f-asset" role="cell" data-label="Actif"><a href="/assets/2">lodash 4.17.15</a></td>
+  <td class="f-fixed" role="cell" data-label="Corrigée en"></td>
+  <td class="f-status" role="cell" data-label="Statut">À analyser</td>
+  <td class="f-seen" role="cell" data-label="Détectée le">04/03/2025 14:20</td>
+  <td class="f-due" role="cell" data-label="Échéance"><span class="late">Hors délai</span><br><small>31/08/2025</small></td>
+  <td class="f-text text" role="cell" data-label="Résumé">Sans score.</td>
 </tr>
 
-<tr>
-  <td class="select" data-label="Sélection"><input type="checkbox" name="id" value="3" form="bulk" aria-label="Sélectionner CVE-2025-0003 sur fortios"></td>
-  <td data-label="Priorité"><span class="level level-watch">À surveiller</span>
+<tr role="row">
+  <td class="select" role="cell"><label class="tick"><input type="checkbox" name="id" value="3" form="bulk" aria-label="Sélectionner CVE-2025-0003 sur fortios"></label></td>
+  <td class="f-level" role="cell" data-label="Priorité"><span class="level level-watch">À surveiller</span>
     <div class="small"><span class="sev sev-UNKNOWN">Inconnue</span></div></td>
-  <td data-label="CVSS" class="num">0,0</td>
-  <td data-label="EPSS" class="num">0,0 %</td>
-  <td data-label="Vulnérabilité"><a href="/findings/3?back=%2ffindings%3flevel%3dall">CVE-2025-0003</a></td>
-  <td data-label="Actif"><a href="/assets/1">fortios 7.2.4</a></td>
-  <td data-label="Corrigée en"></td>
-  <td data-label="Statut">À analyser</td>
-  <td data-label="Détectée le">04/03/2025 12:20</td>
-  <td data-label="Échéance"><span class="late">Hors délai</span><br><small>02/06/2025</small></td>
-  <td data-label="Résumé" class="text">Score nul.</td>
+  <td class="f-cvss num" role="cell" data-label="CVSS">0,0</td>
+  <td class="f-epss num" role="cell" data-label="EPSS">0,0 %</td>
+  <td class="f-vuln" role="cell" data-label="Vulnérabilité"><a href="/findings/3?back=%2ffindings%3flevel%3dall">CVE-2025-0003</a></td>
+  <td class="f-asset" role="cell" data-label="Actif"><a href="/assets/1">fortios 7.2.4</a></td>
+  <td class="f-fixed" role="cell" data-label="Corrigée en"></td>
+  <td class="f-status" role="cell" data-label="Statut">À analyser</td>
+  <td class="f-seen" role="cell" data-label="Détectée le">04/03/2025 12:20</td>
+  <td class="f-due" role="cell" data-label="Échéance"><span class="late">Hors délai</span><br><small>02/06/2025</small></td>
+  <td class="f-text text" role="cell" data-label="Résumé">Score nul.</td>
 </tr>
 
 </tbody>

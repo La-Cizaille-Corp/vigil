@@ -12,13 +12,13 @@ Il reste nommé dans l'historique de triage et le journal d'audit, et peut être
 </div>
 {{end}}
 
-<table>
-<thead><tr><th>Utilisateur</th><th>Rôle</th><th>Accès</th><th>Double authentification</th><th>Créé le</th><th>État</th><th></th></tr></thead>
-<tbody>
+<table class="cards" role="table">
+<thead role="rowgroup"><tr role="row"><th role="columnheader">Utilisateur</th><th role="columnheader">Rôle</th><th role="columnheader">Accès</th><th role="columnheader">Double authentification</th><th role="columnheader">Créé le</th><th role="columnheader">État</th><th role="columnheader"><span class="sr-only">Actions</span></th></tr></thead>
+<tbody role="rowgroup">
 {{range .Data.Users}}
-<tr>
-  <td>{{.Username}}{{if eq .ID $me}} <span class="muted">(vous)</span>{{end}}</td>
-  <td>{{if or (eq .ID $me) .Disabled}}{{roleLabel .Role}}{{else}}
+<tr role="row">
+  <td class="title" role="cell">{{.Username}}{{if eq .ID $me}} <span class="muted">(vous)</span>{{end}}</td>
+  <td role="cell" data-label="Rôle">{{if or (eq .ID $me) .Disabled}}{{roleLabel .Role}}{{else}}
     <form method="post" action="/settings/users/{{.ID}}/role" class="inline">
       {{template "csrf" $csrf}}
       <select name="role" aria-label="Rôle de {{.Username}}">
@@ -26,7 +26,7 @@ Il reste nommé dans l'historique de triage et le journal d'audit, et peut être
       </select>
       <button type="submit" class="link">Changer</button>
     </form>{{end}}</td>
-  <td>{{if eq .Role "admin"}}Tout l'inventaire <span class="muted small">(administrateur)</span>
+  <td role="cell" data-label="Accès">{{if eq .Role "admin"}}Tout l'inventaire <span class="muted small">(administrateur)</span>
     {{- else if .Access.All}}Tout l'inventaire
     {{- else if .Access.Groups}}{{range $i, $g := .Access.Groups}}{{if $i}}, {{end}}{{index $names $g}}{{end}}
     {{- else}}<span class="late">Aucun groupe : ne voit rien</span>{{end}}
@@ -40,10 +40,10 @@ Il reste nommé dans l'historique de triage et le journal d'audit, et peut être
       </form>
     </details>
     {{end}}</td>
-  <td>{{if .TOTP}}Activée{{else}}<span class="muted">Non</span>{{end}}</td>
-  <td>{{date .CreatedAt}}</td>
-  <td>{{if .Disabled}}<span class="late">Désactivé</span>{{else}}Activé{{end}}</td>
-  <td>{{if ne .ID $me}}
+  <td role="cell" data-label="Double auth.">{{if .TOTP}}Activée{{else}}<span class="muted">Non</span>{{end}}</td>
+  <td role="cell" data-label="Créé le">{{date .CreatedAt}}</td>
+  <td role="cell" data-label="État">{{if .Disabled}}<span class="late">Désactivé</span>{{else}}Activé{{end}}</td>
+  <td class="actions" role="cell">{{if ne .ID $me}}
     {{if .Disabled}}
     <form method="post" action="/settings/users/{{.ID}}/enable" class="inline">
       {{template "csrf" $csrf}}

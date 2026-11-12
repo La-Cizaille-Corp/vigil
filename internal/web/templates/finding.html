@@ -55,7 +55,7 @@
 <h2>Dans l'actualité</h2>
 <p class="muted small">Actualités de veille qui citent cette vulnérabilité :</p>
 <ul class="news">
-{{range .Data.Mentions}}<li>{{if .Link}}<a href="{{.Link}}" rel="noopener noreferrer" target="_blank">{{.Title}}</a>{{else}}{{.Title}}{{end}}
+{{range .Data.Mentions}}<li>{{if .Link}}{{template "newTab" (link .Link .Title)}}{{else}}{{.Title}}{{end}}
   <div class="muted small">{{.FeedName}} · {{date .Published}}</div></li>{{end}}
 </ul>
 {{end}}
@@ -63,7 +63,7 @@
 {{- with .Data.Notices}}
 <h2>Avis groupés</h2>
 <p class="muted small">Avis de mise à jour qui citent aussi cette CVE ; ils ne font pas de ligne à part.</p>
-<ul>{{range .}}<li><a href="{{.Link}}" rel="noopener noreferrer" target="_blank">{{.ID}}</a>{{with .FixedIn}} — corrigée en {{.}}{{end}}
+<ul>{{range .}}<li>{{template "newTab" (link .Link .ID)}}{{with .FixedIn}} — corrigée en {{.}}{{end}}
   {{- if .FindingID}} · <a href="/findings/{{.FindingID}}">sa ligne</a>{{if not .DecidedAt.IsZero}} : « {{statusLabel .DecidedStatus}} » par {{.DecidedBy}} le {{date .DecidedAt}}, décision non reportée sur cette CVE{{end}}{{end}}</li>{{end}}</ul>
 {{end}}
 
@@ -74,7 +74,7 @@
 
 {{if $v.Refs}}
 <h2>Références</h2>
-<ul>{{range $v.Refs}}<li><a href="{{.}}" rel="noopener noreferrer" target="_blank">{{.}}</a></li>{{end}}</ul>
+<ul>{{range $v.Refs}}<li>{{template "newTab" (link . .)}}</li>{{end}}</ul>
 {{end}}
 
 {{if can .User.Role "analyst"}}

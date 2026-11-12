@@ -22,11 +22,11 @@
     <h3>{{.Title}} <code class="small">{{.Name}}</code>{{if .Old}} <span class="tag">ancien nom</span>{{end}}</h3>
     <p class="muted small">{{.Versions}} version(s) référencée(s), la dernière ajoutée le {{day .Latest}}{{if .Old}} :
       plus rien depuis {{.Latest.Year}}. Les vulnérabilités récentes sont sans doute rattachées à un autre nom d'éditeur ou de produit{{end}}.
-      · <a href="{{.Whole.Use}}">Suivre toutes les versions</a></p>
+      · <a href="{{.Whole.Use}}">Suivre toutes les versions<span class="sr-only"> de {{.Title}}</span></a></p>
     {{if .Choices}}
-    <table>
-    <thead><tr><th>Version</th><th>CPE</th><th></th></tr></thead>
-    <tbody>{{range .Choices}}<tr><td>{{.Title}}</td><td><code class="small">{{.CPE}}</code></td><td><a href="{{.Use}}">Utiliser</a></td></tr>{{end}}</tbody>
+    <table class="cards" role="table">
+    <thead role="rowgroup"><tr role="row"><th role="columnheader">Version</th><th role="columnheader">CPE</th><th role="columnheader"><span class="sr-only">Action</span></th></tr></thead>
+    <tbody role="rowgroup">{{range .Choices}}<tr role="row"><td class="title" role="cell">{{.Title}}</td><td role="cell" data-label="CPE"><code class="small">{{.CPE}}</code></td><td class="actions" role="cell"><a href="{{.Use}}">Utiliser<span class="sr-only"> {{.Title}}</span></a></td></tr>{{end}}</tbody>
     </table>
     {{end}}
   </article>
