@@ -41,8 +41,10 @@ func seedCSV(t *testing.T, st *store.Store) {
 	} {
 		must(st.UpsertVulnerability(ctx, v))
 	}
-	must(st.SetExploitSignals(ctx, "CVE-2026-0001", true, "2026-02-01", 0.9731))
-	must(st.SetExploitSignals(ctx, "CVE-2026-0003", false, "", 0.0004))
+	if _, err := st.SetExploitSignals(ctx, store.ExploitSignal{ID: "CVE-2026-0001", KEV: true, KEVDue: "2026-02-01", EPSS: 0.9731},
+		store.ExploitSignal{ID: "CVE-2026-0003", EPSS: 0.0004}); err != nil {
+		t.Fatal(err)
+	}
 	for _, f := range []struct {
 		asset          int64
 		vuln, fixed    string

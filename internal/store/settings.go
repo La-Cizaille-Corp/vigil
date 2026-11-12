@@ -10,7 +10,7 @@ import (
 // Setting returns a setting value, or "" when unset.
 func (s *Store) Setting(ctx context.Context, key string) (string, error) {
 	var v string
-	err := s.db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = ?`, key).Scan(&v)
+	err := s.q(ctx).QueryRowContext(ctx, `SELECT value FROM settings WHERE key = ?`, key).Scan(&v)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
@@ -19,7 +19,7 @@ func (s *Store) Setting(ctx context.Context, key string) (string, error) {
 
 // SetSetting stores a setting value.
 func (s *Store) SetSetting(ctx context.Context, key, value string) error {
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.q(ctx).ExecContext(ctx, `
 		INSERT INTO settings (key, value) VALUES (?, ?)
 		ON CONFLICT (key) DO UPDATE SET value = excluded.value`, key, value)
 	return wrap("set setting "+key, err)
