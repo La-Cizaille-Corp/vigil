@@ -216,11 +216,11 @@ func TestInventoryCounts(t *testing.T) {
 	_, body := c.get("/assets?sort=urgent")
 	srv, lib := itoa(ids["srv"]), itoa(ids["libssl3"])
 	for _, want := range []string{
-		`<td data-label="Urgentes" class="num"><a class="level level-urgent" href="/findings?asset=` + srv + `&amp;level=urgent">1</a></td>`,
-		`<td data-label="Ouvertes" class="num"><a href="/findings?asset=` + srv + `">3</a></td>`,
-		`<td data-label="Ouvertes" class="num"><a href="/findings?asset=` + lib + `">1</a></td>`,
-		`<td data-label="Urgentes" class="num"><span class="muted">0</span></td>`,
-		`<th aria-sort="descending" class="num"><a class="sort" href="/assets?dir=asc&amp;sort=urgent">Urgentes</a></th>`,
+		`<td role="cell" data-label="Urgentes" class="num"><a class="level level-urgent" href="/findings?asset=` + srv + `&amp;level=urgent">1</a></td>`,
+		`<td role="cell" data-label="Ouvertes" class="num"><a href="/findings?asset=` + srv + `">3</a></td>`,
+		`<td role="cell" data-label="Ouvertes" class="num"><a href="/findings?asset=` + lib + `">1</a></td>`,
+		`<td role="cell" data-label="Urgentes" class="num"><span class="muted">0</span></td>`,
+		`<th role="columnheader" aria-sort="descending" class="num"><a class="sort" href="/assets?dir=asc&amp;sort=urgent">Urgentes</a></th>`,
 		`<br><small class="muted">version vérifiée : 3.0.19-1~deb12u2</small>`,
 	} {
 		if !strings.Contains(body, want) {

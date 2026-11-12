@@ -326,6 +326,7 @@ func (s *Server) assetList(w http.ResponseWriter, r *http.Request) {
 	}
 	order := orderFrom(q, assetColumnList, "")
 	sortRows(rows, assetColumnList, order)
+	head := sortHeaders(assetColumnList, "/assets", q, order)
 	projects, err := s.Store.ListProjects(r.Context(), readScope(r))
 	if err != nil {
 		s.serverError(w, r, err)
@@ -345,7 +346,7 @@ func (s *Server) assetList(w http.ResponseWriter, r *http.Request) {
 		Data: map[string]any{"Assets": rows, "Projects": projects, "Project": project, "Tags": tags, "Tag": tag,
 			"Groups": groups, "Group": group, "Query": search,
 			"RetiredView": retiredView, "Retired": len(retired), "Sort": q.Get("sort"), "Dir": q.Get("dir"),
-			"Head": sortHeaders(assetColumnList, "/assets", q, order)}})
+			"Head": head, "SortForm": newSortChoice("/assets", q, head)}})
 }
 
 // assetMatches tells whether the name, purl or CPE of an asset holds text,
@@ -720,11 +721,12 @@ func (s *Server) renderFindings(w http.ResponseWriter, r *http.Request, status i
 	if analyst {
 		noise = noiseLinks(l.Findings, f.Search)
 	}
+	head := sortHeaders(findingColumnList, "/findings", q, l.Order)
 	s.render(w, r, status, "findings", page{Title: "Vulnérabilités", Error: formErr, Data: map[string]any{
 		"Filter": f, "Projects": projects, "Tags": tags, "Groups": groups, "Group": l.Group, "Pager": pages, "Bulk": b, "Confirm": bulkConfirmAbove,
 		"MinEPSSPercent": f.MinEPSS * 100, "Next": back, "Asset": asset, "Noise": noise,
 		"AllAssets": listURL(without(q, "asset", "page")),
-		"Table": findingRows{List: shown, Head: sortHeaders(findingColumnList, "/findings", q, l.Order), Sortable: true,
+		"Table": findingRows{List: shown, Head: head, Sortable: true, Sort: newSortChoice("/findings", q, head),
 			Select: analyst && len(shown) > 0, Checked: b.Checked, Back: back},
 		"Sort": q.Get("sort"), "Dir": q.Get("dir"),
 		"Levels": l.Levels, "Level": q.Get("level"), "Since": sinceDays(q), "More": more,

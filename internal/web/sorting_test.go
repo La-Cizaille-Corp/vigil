@@ -70,7 +70,7 @@ func TestSortAssets(t *testing.T) {
 
 	// The titles keep the filters, tell the order and reverse it.
 	_, body := c.get("/assets?project=web&sort=name&msg=asset-deleted")
-	if !strings.Contains(body, `<th aria-sort="ascending"><a class="sort" href="/assets?dir=desc&amp;project=web&amp;sort=name">Nom</a></th>`) {
+	if !strings.Contains(body, `<th role="columnheader" aria-sort="ascending"><a class="sort" href="/assets?dir=desc&amp;project=web&amp;sort=name">Nom</a></th>`) {
 		t.Errorf("title of the sorted column:\n%s", body)
 	}
 	if !strings.Contains(body, `href="/assets?dir=desc&amp;project=web&amp;sort=criticality">Criticité</a>`) {
@@ -131,13 +131,13 @@ func TestSortFindings(t *testing.T) {
 
 	// The titles keep the filters; the export follows the order.
 	_, body = c.get("/findings?severity=HIGH&sort=cvss")
-	if !strings.Contains(body, `<th aria-sort="descending" class="num"><a class="sort" href="/findings?dir=asc&amp;severity=HIGH&amp;sort=cvss">CVSS</a></th>`) {
+	if !strings.Contains(body, `<th role="columnheader" aria-sort="descending" class="num"><a class="sort" href="/findings?dir=asc&amp;severity=HIGH&amp;sort=cvss">CVSS</a></th>`) {
 		t.Errorf("title of the sorted column:\n%s", body)
 	}
 	if !strings.Contains(body, `name="sort" value="cvss"`) {
 		t.Error("filtering again must keep the order")
 	}
-	if !strings.Contains(body, `<th class="no-sort">Résumé</th>`) {
+	if !strings.Contains(body, `<th role="columnheader" class="no-sort">Résumé</th>`) {
 		t.Error("the summary cannot sort the list")
 	}
 	code, csv := c.get("/findings.csv?sort=cvss&dir=asc")

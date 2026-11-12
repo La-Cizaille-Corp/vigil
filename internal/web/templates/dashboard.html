@@ -79,9 +79,9 @@
     </svg>
     <details class="data-table">
       <summary>Voir les données</summary>
-      <table>
-        <thead><tr><th>Semaine du</th><th>Nouvelles</th><th>Traitées</th></tr></thead>
-        <tbody>{{range .Weeks}}<tr><td>{{day .Start}}</td><td class="num">{{.New}}</td><td class="num">{{.Closed}}</td></tr>{{end}}</tbody>
+      <table class="cards" role="table">
+        <thead role="rowgroup"><tr role="row"><th role="columnheader">Semaine du</th><th class="num" role="columnheader">Nouvelles</th><th class="num" role="columnheader">Traitées</th></tr></thead>
+        <tbody role="rowgroup">{{range .Weeks}}<tr role="row"><td class="title" role="cell">{{day .Start}}</td><td class="num" role="cell" data-label="Nouvelles">{{.New}}</td><td class="num" role="cell" data-label="Traitées">{{.Closed}}</td></tr>{{end}}</tbody>
       </table>
     </details>
     {{end}}{{end}}
@@ -105,9 +105,9 @@
     </svg>
     <details class="data-table">
       <summary>Voir les données</summary>
-      <table>
-        <thead><tr><th>Actif</th><th>Critiques</th><th>Hautes</th><th>Moyennes</th><th>Basses ou inconnues</th><th>Total</th></tr></thead>
-        <tbody>{{range .Rows}}<tr><td><a href="{{.Link}}">{{.Asset.Name}} {{.Asset.Version}}</a></td><td class="num">{{.Asset.Critical}}</td><td class="num">{{.Asset.High}}</td><td class="num">{{.Asset.Medium}}</td><td class="num">{{.Asset.Other}}</td><td class="num">{{.Asset.Total}}</td></tr>{{end}}</tbody>
+      <table class="cards" role="table">
+        <thead role="rowgroup"><tr role="row"><th role="columnheader">Actif</th><th class="num" role="columnheader">Critiques</th><th class="num" role="columnheader">Hautes</th><th class="num" role="columnheader">Moyennes</th><th class="num" role="columnheader">Basses ou inconnues</th><th class="num" role="columnheader">Total</th></tr></thead>
+        <tbody role="rowgroup">{{range .Rows}}<tr role="row"><td class="title" role="cell"><a href="{{.Link}}">{{.Asset.Name}} {{.Asset.Version}}</a></td><td class="num" role="cell" data-label="Critiques">{{.Asset.Critical}}</td><td class="num" role="cell" data-label="Hautes">{{.Asset.High}}</td><td class="num" role="cell" data-label="Moyennes">{{.Asset.Medium}}</td><td class="num" role="cell" data-label="Basses ou inconnues">{{.Asset.Other}}</td><td class="num" role="cell" data-label="Total">{{.Asset.Total}}</td></tr>{{end}}</tbody>
       </table>
     </details>
     {{else}}<p class="empty">Aucun actif n'a de vulnérabilité ouverte.</p>{{end}}{{end}}

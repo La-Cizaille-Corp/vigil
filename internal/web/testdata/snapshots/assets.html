@@ -66,38 +66,44 @@
 </form>
 
 
-<table class="cards sortable">
-<thead><tr><th><a class="sort" href="/assets?dir=asc&amp;sort=name">Nom</a></th><th><a class="sort" href="/assets?dir=asc&amp;sort=vendor">Éditeur</a></th><th><a class="sort" href="/assets?dir=asc&amp;sort=version">Version</a></th><th class="num"><a class="sort" href="/assets?dir=desc&amp;sort=urgent">Urgentes</a></th><th class="num"><a class="sort" href="/assets?dir=desc&amp;sort=open">Ouvertes</a></th><th><a class="sort" href="/assets?dir=asc&amp;sort=kind">Type</a></th><th><a class="sort" href="/assets?dir=asc&amp;sort=id">Identifiant</a></th><th><a class="sort" href="/assets?dir=asc&amp;sort=project">Projet</a></th><th><a class="sort" href="/assets?dir=desc&amp;sort=criticality">Criticité</a></th><th><a class="sort" href="/assets?dir=asc&amp;sort=owner">Responsable</a></th><th><a class="sort" href="/assets?dir=asc&amp;sort=tracking">Détection</a></th></tr></thead>
-<tbody>
+<form method="get" action="/assets" class="sort-form">
+  
+  <label>Trier par <select name="sort"><option value="name">Nom</option><option value="vendor">Éditeur</option><option value="version">Version</option><option value="urgent">Urgentes</option><option value="open">Ouvertes</option><option value="kind">Type</option><option value="id">Identifiant</option><option value="project">Projet</option><option value="criticality">Criticité</option><option value="owner">Responsable</option><option value="tracking">Détection</option></select></label>
+  <label>Ordre <select name="dir"><option value="desc">décroissant</option><option value="asc" selected>croissant</option></select></label>
+  <button type="submit">Trier</button>
+</form>
+<table class="cards sortable" role="table">
+<thead role="rowgroup"><tr role="row"><th role="columnheader"><a class="sort" href="/assets?dir=asc&amp;sort=name">Nom</a></th><th role="columnheader"><a class="sort" href="/assets?dir=asc&amp;sort=vendor">Éditeur</a></th><th role="columnheader"><a class="sort" href="/assets?dir=asc&amp;sort=version">Version</a></th><th role="columnheader" class="num"><a class="sort" href="/assets?dir=desc&amp;sort=urgent">Urgentes</a></th><th role="columnheader" class="num"><a class="sort" href="/assets?dir=desc&amp;sort=open">Ouvertes</a></th><th role="columnheader"><a class="sort" href="/assets?dir=asc&amp;sort=kind">Type</a></th><th role="columnheader"><a class="sort" href="/assets?dir=asc&amp;sort=id">Identifiant</a></th><th role="columnheader"><a class="sort" href="/assets?dir=asc&amp;sort=project">Projet</a></th><th role="columnheader"><a class="sort" href="/assets?dir=desc&amp;sort=criticality">Criticité</a></th><th role="columnheader"><a class="sort" href="/assets?dir=asc&amp;sort=owner">Responsable</a></th><th role="columnheader"><a class="sort" href="/assets?dir=asc&amp;sort=tracking">Détection</a></th></tr></thead>
+<tbody role="rowgroup">
 
-<tr>
-  <td data-label="Nom"><a href="/assets/1">fortios</a></td>
-  <td data-label="Éditeur">Fortinet</td>
-  <td data-label="Version">7.2.4</td>
-  <td data-label="Urgentes" class="num"><a class="level level-urgent" href="/findings?asset=1&amp;level=urgent">2</a></td>
-  <td data-label="Ouvertes" class="num"><a href="/findings?asset=1">3</a></td>
-  <td data-label="Type">Système d&#39;exploitation</td>
-  <td data-label="Identifiant"><code>cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*</code></td>
-  <td data-label="Projet"></td>
-  <td data-label="Criticité">Haute</td>
-  <td data-label="Responsable"></td>
-  <td data-label="Détection">NVD
+<tr role="row">
+  <td role="cell" data-label="Nom"><a href="/assets/1">fortios</a></td>
+  <td role="cell" data-label="Éditeur">Fortinet</td>
+  <td role="cell" data-label="Version">7.2.4</td>
+  <td role="cell" data-label="Urgentes" class="num"><a class="level level-urgent" href="/findings?asset=1&amp;level=urgent">2</a></td>
+  <td role="cell" data-label="Ouvertes" class="num"><a href="/findings?asset=1">3</a></td>
+  <td role="cell" data-label="Type">Système d&#39;exploitation</td>
+  <td role="cell" data-label="Identifiant"><code>cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*</code></td>
+  <td role="cell" data-label="Projet"></td>
+  <td role="cell" data-label="Criticité">Haute</td>
+  <td role="cell" data-label="Responsable"></td>
+  <td role="cell" data-label="Détection">NVD
     <br><small class="muted">depuis le 01/01/2025</small>
     </td>
 </tr>
 
-<tr>
-  <td data-label="Nom"><a href="/assets/2">lodash</a></td>
-  <td data-label="Éditeur">Paquets npm</td>
-  <td data-label="Version">4.17.15</td>
-  <td data-label="Urgentes" class="num"><span class="muted">0</span></td>
-  <td data-label="Ouvertes" class="num"><a href="/findings?asset=2">2</a></td>
-  <td data-label="Type">Paquet / dépendance</td>
-  <td data-label="Identifiant"><code>pkg:npm/lodash@4.17.15</code></td>
-  <td data-label="Projet"></td>
-  <td data-label="Criticité">Moyenne</td>
-  <td data-label="Responsable"></td>
-  <td data-label="Détection">OSV
+<tr role="row">
+  <td role="cell" data-label="Nom"><a href="/assets/2">lodash</a></td>
+  <td role="cell" data-label="Éditeur">Paquets npm</td>
+  <td role="cell" data-label="Version">4.17.15</td>
+  <td role="cell" data-label="Urgentes" class="num"><span class="muted">0</span></td>
+  <td role="cell" data-label="Ouvertes" class="num"><a href="/findings?asset=2">2</a></td>
+  <td role="cell" data-label="Type">Paquet / dépendance</td>
+  <td role="cell" data-label="Identifiant"><code>pkg:npm/lodash@4.17.15</code></td>
+  <td role="cell" data-label="Projet"></td>
+  <td role="cell" data-label="Criticité">Moyenne</td>
+  <td role="cell" data-label="Responsable"></td>
+  <td role="cell" data-label="Détection">OSV
     <br><small class="muted">depuis le 01/01/2025</small>
     </td>
 </tr>

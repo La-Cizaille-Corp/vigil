@@ -141,6 +141,24 @@ messages du journal étaient en fait en français, tous passés en anglais.
 - un lecteur voit les valeurs en lecture seule, pas les liens vers des actions refusées ;
 - chaque compte peut changer son mot de passe (mot de passe actuel exigé, tentatives limitées,
   autres sessions fermées).
+- *Téléphone et accessibilité* (audit d'ergonomie de la 0.4.1, lot 6) : sous 700 px, chaque tableau se lit
+  en cartes (classe `cards`, une étiquette `data-label` par cellule, le nom en tête `title`, les boutons sur
+  toute la largeur `actions`), au lieu de défiler de côté avec ses actions hors de l'écran. Ces tableaux
+  écrivent leurs rôles (`table`, `rowgroup`, `row`, `columnheader`, `cell`), qu'une mise en page en grille
+  retire dans certains navigateurs (Safari avec VoiceOver). Une vulnérabilité y tient en une carte compacte :
+  niveau, sévérité et scores, identifiant, alias plafonnés, résumé, puis actif, version corrigée, statut et
+  échéance deux à deux, au lieu d'onze rangées étiquetées. Une liste triable s'y trie par une liste « Trier
+  par » et un bouton (`sortForm`, qui garde filtres et niveau) : ses titres de colonnes sont masqués. La case
+  de sélection mesure 22 px dans une cible de 44 px, toute la cellule la coche (WCAG 2.5.8). L'en-tête tient
+  en deux lignes : le logo et le compte, puis le menu sur une ligne qui défile ; le style du bandeau ne vise
+  plus que `body > header`, et les en-têtes d'éditeur de la recherche CPE ne se collent plus en haut de
+  l'écran. Un champ a le fond d'une carte et un bord à 3:1 au moins sur la carte comme sur la page
+  (WCAG 1.4.11), et 16 px de texte sur téléphone, qui sinon agrandit la page. Un lien vers un autre site dit
+  en texte masqué qu'il ouvre un nouvel onglet (`newTab`), un lien répété nomme son objet (« Utiliser F5 NGINX
+  1.34.2 »). *Écarté* : des liens de tri en ligne au-dessus des cartes (trois lignes de liens de 16 px de
+  haut). *Différé* : le digest, dont le HTML est écrit une fois, à sa génération, et que le lot 5 de l'audit
+  (digest par niveaux) réécrit ; ses tableaux défilent de côté sur téléphone et ses liens vers la veille ne
+  disent pas encore qu'ils ouvrent un onglet. *Non vérifié* : un vrai lecteur d'écran.
 
 **A79. Dates et nombres à la française, écrits par un seul paquet.** L'audit de code de novembre 2026
 relevait trois formateurs de décimales et deux conventions (le point pour le CVSS et l'EPSS à l'écran et dans

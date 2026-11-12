@@ -125,7 +125,7 @@ func TestAssetPageLayout(t *testing.T) {
 	if details < 0 || vulns < 0 || details > vulns || !strings.Contains(page, `<details class="card edit">`) {
 		t.Fatalf("details at %d, vulnerabilities at %d, folded form: %v", details, vulns, strings.Contains(page, `<details class="card edit">`))
 	}
-	if !strings.Contains(page, `<td data-label="Corrigée en">4.17.21</td>`) || !strings.Contains(page, `<td data-label="Corrigée en"></td>`) {
+	if !strings.Contains(page, `<td class="f-fixed" role="cell" data-label="Corrigée en">4.17.21</td>`) || !strings.Contains(page, `<td class="f-fixed" role="cell" data-label="Corrigée en"></td>`) {
 		t.Error("fixed versions missing, or a placeholder where none is known")
 	}
 
@@ -217,7 +217,7 @@ func TestLandmarksAndBulkPanel(t *testing.T) {
 	c := loginAs(t, base, "analyst", "a-strong-password")
 	_, page := c.get("/findings")
 	for _, want := range []string{`<a class="skip" href="#contenu">`, `<main id="contenu">`,
-		`<nav aria-label="Navigation principale">`, `<td data-label="Résumé" class="text">`} {
+		`<nav aria-label="Navigation principale">`, `<td class="f-text text" role="cell" data-label="Résumé">`} {
 		if !strings.Contains(page, want) {
 			t.Errorf("findings page misses %s", want)
 		}
@@ -346,7 +346,7 @@ func TestLevelWordsInSettings(t *testing.T) {
 		t.Fatalf("disable: %d", code)
 	}
 	_, body = admin.get("/settings/users")
-	if !strings.Contains(body, "<td>Activé</td>") || !strings.Contains(body, `<span class="late">Désactivé</span>`) || strings.Contains(body, "<td>Actif</td>") {
+	if !strings.Contains(body, `<td role="cell" data-label="État">Activé</td>`) || !strings.Contains(body, `<span class="late">Désactivé</span>`) || strings.Contains(body, "<td>Actif</td>") {
 		t.Error("the state of an account is not Activé / Désactivé")
 	}
 }

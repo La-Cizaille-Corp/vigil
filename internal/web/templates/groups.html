@@ -4,17 +4,17 @@
 vulnérabilités. Un compte peut être limité à des groupes (<a href="/settings/users">Utilisateurs</a>) : il ne voit alors
 que leurs actifs et ce qui en dépend. Un administrateur voit tout.</p>
 {{if .Data.Groups}}
-<table>
-<thead><tr><th>Groupe</th><th>Règles</th><th>Actifs</th><th>Comptes limités</th><th>Canaux</th></tr></thead>
-<tbody>
+<table class="cards" role="table">
+<thead role="rowgroup"><tr role="row"><th role="columnheader">Groupe</th><th role="columnheader">Règles</th><th role="columnheader">Actifs</th><th role="columnheader">Comptes limités</th><th role="columnheader">Canaux</th></tr></thead>
+<tbody role="rowgroup">
 {{range .Data.Groups}}
-<tr>
-  <td><a href="/settings/groups/{{.ID}}">{{.Name}}</a></td>
-  <td>{{range .Tags}}<span class="tag">{{.}}</span>{{end}}{{range .Projects}}<span class="tag tag-sector">projet {{.}}</span>{{end}}
+<tr role="row">
+  <td class="title" role="cell"><a href="/settings/groups/{{.ID}}">{{.Name}}</a></td>
+  <td role="cell" data-label="Règles">{{range .Tags}}<span class="tag">{{.}}</span>{{end}}{{range .Projects}}<span class="tag tag-sector">projet {{.}}</span>{{end}}
     {{if not (or .Tags .Projects)}}<span class="muted">aucune : le groupe ne contient aucun actif</span>{{end}}</td>
-  <td><a href="/assets?group={{.ID}}">{{.Assets}}</a></td>
-  <td>{{.Users}}</td>
-  <td>{{.Channels}}</td>
+  <td role="cell" data-label="Actifs"><a href="/assets?group={{.ID}}">{{.Assets}}</a></td>
+  <td role="cell" data-label="Comptes limités">{{.Users}}</td>
+  <td role="cell" data-label="Canaux">{{.Channels}}</td>
 </tr>
 {{end}}
 </tbody>
