@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/La-Cizaille-Corp/vigil/internal/digest"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
@@ -174,15 +173,7 @@ func isOpen(f store.Finding) bool { return f.Status == "in_triage" || f.Status =
 // findingColumnList are the columns of a vulnerability list, as in the
 // findingTable template. The default order is the priority, most urgent first.
 var findingColumnList = []column[store.Finding]{
-	{key: "priority", label: "Priorité", desc: true, compare: func(a, b store.Finding) int {
-		switch {
-		case digest.MoreUrgent(a, b):
-			return 1
-		case digest.MoreUrgent(b, a):
-			return -1
-		}
-		return 0
-	}},
+	{key: "priority", label: "Priorité", desc: true, compare: tracking.ComparePriority},
 	{key: "cvss", label: "CVSS", desc: true, empty: func(f store.Finding) bool { return f.CVSS < 0 },
 		compare: func(a, b store.Finding) int { return cmp.Compare(a.CVSS, b.CVSS) }},
 	{key: "epss", label: "EPSS", desc: true, empty: func(f store.Finding) bool { return f.EPSS < 0 },
@@ -215,7 +206,7 @@ type levelLink struct {
 	Active bool
 }
 
-// Levels of a vulnerability list beside digest.Levels: the open ones (the
+// Levels of a vulnerability list beside tracking.Levels: the open ones (the
 // first three levels, shown by default), the fixed ones, and all of them.
 const (
 	levelOpen  = "open"
@@ -247,7 +238,7 @@ func levelLinks(findings []store.Finding, q url.Values, current string) []levelL
 		case f.Status == "resolved":
 			counts[levelFixed]++
 		}
-		counts[digest.Level(f)]++
+		counts[tracking.Level(f)]++
 	}
 	link := func(level string) string {
 		kept := url.Values{}
@@ -268,14 +259,14 @@ func levelLinks(findings []store.Finding, q url.Values, current string) []levelL
 		return levelLink{Label: label, Href: link(level), N: n, Active: level == current}
 	}
 	out := []levelLink{tab(levelOpen, "Ouvertes", counts[levelOpen])}
-	for _, l := range digest.Levels {
+	for _, l := range tracking.Levels {
 		out = append(out, tab(l.Value, l.Label, counts[l.Value]))
 	}
 	return append(out, tab(levelFixed, "Corrigées", counts[levelFixed]), tab(levelAll, "Toutes", len(findings)))
 }
 
 func isLevel(v string) bool {
-	return slices.ContainsFunc(digest.Levels, func(o inventory.Option) bool { return o.Value == v })
+	return slices.ContainsFunc(tracking.Levels, func(o inventory.Option) bool { return o.Value == v })
 }
 
 // keepLevel keeps the findings of a level (see listLevel); an unknown level
@@ -288,7 +279,7 @@ func keepLevel(findings []store.Finding, level string) []store.Finding {
 	case level == levelFixed:
 		keep = func(f store.Finding) bool { return f.Status == "resolved" }
 	case isLevel(level):
-		keep = func(f store.Finding) bool { return digest.Level(f) == level }
+		keep = func(f store.Finding) bool { return tracking.Level(f) == level }
 	default:
 		return findings
 	}

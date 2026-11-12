@@ -34,11 +34,12 @@ var Kinds = []inventory.Option{
 	{Value: "email", Label: "E-mail"},
 }
 
-// AlertOptions are the immediate alerts a channel can receive.
+// AlertOptions are the immediate alerts a channel can receive: the levels of
+// tracking.Levels they cover.
 var AlertOptions = []inventory.Option{
 	{Value: "", Label: "Aucune alerte immédiate"},
-	{Value: "priority", Label: "Exploitées ou probables (KEV, EPSS ≥ 10 %)"},
-	{Value: "severe", Label: "Exploitées, probables, critiques et élevées"},
+	{Value: "priority", Label: "Urgentes (exploitées, probables ou jugées exploitables)"},
+	{Value: "severe", Label: "Urgentes et à planifier (critiques ou hautes)"},
 }
 
 const (
@@ -223,7 +224,9 @@ func alertReason(a store.Alert) string {
 	switch {
 	case a.KEV:
 		parts = append(parts, "exploitée (CISA KEV)")
-	case a.EPSS >= 0.1:
+	case a.Status == "exploitable":
+		parts = append(parts, "jugée exploitable")
+	case a.EPSS >= store.LikelyEPSS:
 		parts = append(parts, fmt.Sprintf("EPSS %d %%", int(math.Round(a.EPSS*100))))
 	}
 	if a.Raised {

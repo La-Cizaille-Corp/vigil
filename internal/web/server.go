@@ -191,6 +191,7 @@ func (s *Server) parseTemplates() error {
 		"date":        func(t time.Time) string { return t.Local().Format("02/01/2006 15:04") },
 		"isoDate":     isoDate,
 		"sevLabel":    tracking.SeverityLabel,
+		"band":        tracking.Band,
 		"roleLabel":   func(v string) string { return inventory.Label(roles, v) },
 		"roles":       func() []inventory.Option { return roles },
 		"maskURL":     maskURL,
