@@ -9,7 +9,8 @@
 //     negative score is unknown and written "", the caller shows its dash;
 //   - a percentage with a no-break space before its sign, which never
 //     goes alone to the next line: 12,3 % (Percent);
-//   - a number of days, its unit kept the same way: < 1 j, 3,5 j, 12 j (Days).
+//   - a number of days, its unit kept the same way: < 1 j, 3,5 j, 12 j (Days);
+//   - the values a field accepts, in an error: Faible, Moyenne ou Haute (Or).
 //
 // The values of form fields stay as HTML reads them, with a point
 // (input type="number"), and so do machine formats: ISO dates of the CSV
@@ -70,6 +71,14 @@ func Days(d float64) string {
 		return Decimal(d, 1) + nbsp + "j"
 	}
 	return Decimal(d, 0) + nbsp + "j"
+}
+
+// Or writes alternatives: "a", "a ou b", "a, b ou c".
+func Or(words []string) string {
+	if len(words) < 2 {
+		return strings.Join(words, "")
+	}
+	return strings.Join(words[:len(words)-1], ", ") + " ou " + words[len(words)-1]
 }
 
 // Funcs returns the template functions that write dates and numbers, shared

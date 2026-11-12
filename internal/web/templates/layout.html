@@ -31,7 +31,7 @@
 <main id="contenu">
   <h1>{{.Title}}</h1>
   {{if .Flash}}<p class="flash" role="status">{{.Flash}}</p>{{end}}
-  {{if .Error}}<p class="error" role="alert">{{.Error}}</p>{{end}}
+  {{if and .Error (not .ErrorAt)}}<p class="error" role="alert">{{.Error}}</p>{{end}}
   {{template "content" .}}
 </main>
 </body>

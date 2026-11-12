@@ -39,6 +39,9 @@ func TestQuestions(t *testing.T) {
 	if got := choice.KnownOnly(opts, []string{"os", "bsd", "Linux", "os", ""}); !slices.Equal(got, []string{"os", "Linux", ""}) {
 		t.Errorf("KnownOnly = %q", got)
 	}
+	if got := choice.Labels(opts); !slices.Equal(got, []string{"Aucune", "Linux", "Système"}) {
+		t.Errorf("Labels = %q", got)
+	}
 }
 
 // Every list of options has distinct values, each with a label: a value

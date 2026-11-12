@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/choice"
+	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 	"github.com/La-Cizaille-Corp/vigil/internal/limit"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
@@ -41,9 +42,26 @@ func ReadCSV(r io.Reader) ([][]string, error) {
 	cr.FieldsPerRecord = -1 // short rows are allowed, missing cells are empty
 	records, err := cr.ReadAll()
 	if err != nil {
-		return nil, fmt.Errorf("fichier CSV illisible : %w", err)
+		return nil, csvError(err)
 	}
 	return records, nil
+}
+
+// csvError says in French where and why a file cannot be read as CSV: the
+// errors of encoding/csv are in English (A4).
+func csvError(err error) error {
+	var pe *csv.ParseError
+	if !errors.As(err, &pe) {
+		return errors.New("fichier CSV illisible")
+	}
+	why := "format inattendu"
+	switch {
+	case errors.Is(pe.Err, csv.ErrBareQuote):
+		why = "guillemet dans une cellule qui ne commence pas par un guillemet"
+	case errors.Is(pe.Err, csv.ErrQuote):
+		why = "guillemet non refermé"
+	}
+	return fmt.Errorf("fichier CSV illisible, ligne %d : %s", pe.Line, why)
 }
 
 // CSVColumns are the columns of an inventory export, in order. An import
@@ -186,9 +204,16 @@ func AssetsFromCSV(records [][]string, now time.Time) ([]store.Asset, error) {
 		}
 		Normalize(&a)
 		if err := Validate(a); err != nil {
-			errs = append(errs, fmt.Errorf("ligne %d (%s) : %w", line, a.Name, err))
-			if len(errs) == 10 {
-				errs = append(errs, errors.New("…"))
+			// One error a line, each with its line number.
+			where := fmt.Sprintf("ligne %d", line)
+			if a.Name != "" {
+				where += " (" + clip.Text(a.Name, 60) + ")"
+			}
+			for _, e := range each(err) {
+				errs = append(errs, fmt.Errorf("%s : %w", where, e))
+			}
+			if len(errs) >= maxCSVErrors {
+				errs = append(errs[:maxCSVErrors], errors.New("… et peut-être d'autres : corrigez celles-ci, puis importez de nouveau"))
 				break
 			}
 			continue
@@ -204,8 +229,20 @@ func AssetsFromCSV(records [][]string, now time.Time) ([]store.Asset, error) {
 	return assets, nil
 }
 
-// optionValue accepts a code or a French label, case-insensitively; an
-// empty cell gives def. An unknown value is returned as is, so that
+// maxCSVErrors bounds the errors an import reports.
+const maxCSVErrors = 10
+
+// each returns the errors joined in err (errors.Join), or err alone.
+func each(err error) []error {
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		return joined.Unwrap()
+	}
+	return []error{err}
+}
+
+// optionValue accepts a code or a French label, case-insensitively, or one
+// of the words of a label made of two ("Paquet" for "Paquet / dépendance");
+// an empty cell gives def. An unknown value is returned as is, so that
 // Validate reports it.
 func optionValue(options []choice.Option, v, def string) string {
 	if v == "" {
@@ -214,6 +251,11 @@ func optionValue(options []choice.Option, v, def string) string {
 	for _, o := range options {
 		if strings.EqualFold(v, o.Value) || strings.EqualFold(v, o.Label) {
 			return o.Value
+		}
+		for _, part := range strings.Split(o.Label, " / ") {
+			if strings.EqualFold(v, part) {
+				return o.Value
+			}
 		}
 	}
 	return v

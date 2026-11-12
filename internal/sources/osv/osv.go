@@ -286,6 +286,25 @@ func WithoutVersion(purl string) string {
 	return purl[:at] + purl[end:]
 }
 
+// PURLName returns the name of the package a purl designates, decoded, ""
+// when it names none (pkg:npm, pkg:npm/@4.17.21, pkg:npm/@babel/):
+// pkg:npm/%40babel/core@7.0.0 → core.
+func PURLName(purl string) string {
+	at, end := versionSpan(purl)
+	if at < 0 {
+		at = end
+	}
+	kind, path, ok := strings.Cut(strings.TrimPrefix(purl[:at], "pkg:"), "/")
+	if !ok || kind == "" {
+		return ""
+	}
+	name := path[strings.LastIndex(path, "/")+1:]
+	if strings.HasPrefix(name, "@") { // a scope without its package
+		return ""
+	}
+	return purlDecode(name)
+}
+
 // PURLVersion returns the version written in a purl, decoded:
 // pkg:deb/debian/libssl3@1%3A3.0.11?distro=debian-12 → 1:3.0.11.
 func PURLVersion(purl string) string {

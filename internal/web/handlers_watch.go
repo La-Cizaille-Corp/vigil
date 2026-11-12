@@ -404,13 +404,13 @@ func maskURL(raw string) string {
 func (s *Server) sbomImport(w http.ResponseWriter, r *http.Request) {
 	file, _, err := r.FormFile("sbom")
 	if err != nil {
-		s.renderNewAsset(w, r, http.StatusBadRequest, defaultAssetForm(), "Fichier SBOM manquant ou trop volumineux.")
+		s.renderNewAsset(w, r, http.StatusBadRequest, defaultAssetForm(), addSBOM, "Fichier SBOM manquant ou trop volumineux (20 Mo au plus).")
 		return
 	}
 	defer file.Close()
 	doc, err := sbom.Parse(file)
 	if err != nil {
-		s.renderNewAsset(w, r, http.StatusBadRequest, defaultAssetForm(), err.Error())
+		s.renderNewAsset(w, r, http.StatusBadRequest, defaultAssetForm(), addSBOM, "Import refusé, aucun actif modifié : "+err.Error())
 		return
 	}
 	project := strings.TrimSpace(r.PostFormValue("project"))
@@ -418,12 +418,12 @@ func (s *Server) sbomImport(w http.ResponseWriter, r *http.Request) {
 		project = doc.Name
 	}
 	if project == "" || !clip.Fits(project, inventory.MaxProjectLen) {
-		s.renderNewAsset(w, r, http.StatusBadRequest, defaultAssetForm(), "Indiquez un nom de projet.")
+		s.renderNewAsset(w, r, http.StatusBadRequest, defaultAssetForm(), addSBOM, "Indiquez un nom de projet : le SBOM n'en donne pas.")
 		return
 	}
 	res, err := s.Store.ReplaceProjectAssets(r.Context(), writeScope(r), project, doc.Assets)
 	if refusal := sbomRefusal(project, err); refusal != "" {
-		s.renderNewAsset(w, r, http.StatusBadRequest, defaultAssetForm(), refusal)
+		s.renderNewAsset(w, r, http.StatusBadRequest, defaultAssetForm(), addSBOM, refusal)
 		return
 	}
 	if err != nil {

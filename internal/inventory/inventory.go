@@ -11,6 +11,7 @@ import (
 
 	"github.com/La-Cizaille-Corp/vigil/internal/choice"
 	"github.com/La-Cizaille-Corp/vigil/internal/clip"
+	"github.com/La-Cizaille-Corp/vigil/internal/fr"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/nvd"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/osv"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
@@ -151,13 +152,18 @@ func Validate(a store.Asset) error {
 	}
 	check(clip.Fits(a.Name, 200) && clip.Fits(a.Version, 100) && clip.Fits(a.Owner, 200) && clip.Fits(a.Project, MaxProjectLen) &&
 		clip.Fits(a.PURL, 500) && clip.Fits(a.CPE, 500) && clip.Fits(a.Notes, 4000), "un champ dépasse la longueur maximale")
-	check(choice.Has(Kinds, a.Kind), "type d'actif invalide")
-	check(choice.Has(Criticalities, a.Criticality), "criticité invalide")
-	check(a.Ecosystem == "" || contains(Ecosystems, a.Ecosystem), "écosystème non supporté")
-	check(a.PURL == "" || strings.HasPrefix(a.PURL, "pkg:"), "un purl doit commencer par « pkg: »")
+	// A refused value is named with those accepted: a spreadsheet cannot guess them.
+	check(choice.Has(Kinds, a.Kind), fmt.Sprintf("type « %s » inconnu : %s attendu", clip.Text(a.Kind, 40), fr.Or(choice.Labels(Kinds))))
+	check(choice.Has(Criticalities, a.Criticality),
+		fmt.Sprintf("criticité « %s » inconnue : %s attendue", clip.Text(a.Criticality, 40), fr.Or(choice.Labels(Criticalities))))
+	check(a.Ecosystem == "" || contains(Ecosystems, a.Ecosystem),
+		fmt.Sprintf("écosystème « %s » non pris en charge : %s attendu", clip.Text(a.Ecosystem, 40), fr.Or(Ecosystems)))
+	check(a.PURL == "" || strings.HasPrefix(a.PURL, "pkg:") && osv.PURLName(a.PURL) != "",
+		"purl incomplet : pkg:type/nom@version attendu, par exemple pkg:npm/lodash@4.17.21")
 	_, cpe := nvd.SplitCPE(a.CPE)
 	check(a.CPE == "" || cpe, "CPE invalide : 13 champs attendus, par exemple cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*")
-	check(choice.Has(CPEModes, a.CPEMode), "mode de suivi NVD invalide")
+	check(choice.Has(CPEModes, a.CPEMode), fmt.Sprintf("mode de suivi NVD « %s » inconnu : vide (la version de l'actif), "+
+		"« all » (toutes les versions) ou « from » (à partir de la version de cpe_from) attendu", clip.Text(a.CPEMode, 40)))
 	check(a.CPEMode != "from" || (a.CPEFrom != "" && clip.Fits(a.CPEFrom, 100) && !strings.ContainsAny(a.CPEFrom, ":*?")),
 		"indiquez la version de départ du suivi")
 	_, dateErr := time.Parse(dateLayout, a.TrackSince)

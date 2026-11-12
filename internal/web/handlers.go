@@ -49,7 +49,7 @@ func (s *Server) setupForm(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
-	s.render(w, r, http.StatusOK, "setup", page{Title: "Première configuration"})
+	s.render(w, r, http.StatusOK, "setup", page{Title: "Première configuration", Data: ""})
 }
 
 func (s *Server) setupSubmit(w http.ResponseWriter, r *http.Request) {
@@ -63,13 +63,23 @@ func (s *Server) setupSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	username, password := r.PostFormValue("username"), r.PostFormValue("password")
+	// A refusal keeps the name typed; the password is typed twice, as only
+	// the machine can reset it (audit UX 7.4, A88).
+	refuse := func(msg string) {
+		s.render(w, r, http.StatusBadRequest, "setup", page{Title: "Première configuration", Error: msg,
+			Data: clip.Prefix(username, auth.MaxUsernameLength)})
+	}
 	if username == "" || !clip.Fits(username, auth.MaxUsernameLength) {
-		s.render(w, r, http.StatusBadRequest, "setup", page{Title: "Première configuration", Error: "Nom d'utilisateur invalide."})
+		refuse("Nom d'utilisateur invalide.")
+		return
+	}
+	if password != r.PostFormValue("confirm") {
+		refuse("Les deux mots de passe ne correspondent pas.")
 		return
 	}
 	hash, err := auth.HashPassword(password)
 	if err != nil {
-		s.render(w, r, http.StatusBadRequest, "setup", page{Title: "Première configuration", Error: err.Error()})
+		refuse(err.Error())
 		return
 	}
 	id, err := s.Store.CreateFirstAdmin(r.Context(), username, hash)
@@ -346,27 +356,38 @@ func (s *Server) assetList(w http.ResponseWriter, r *http.Request) {
 // assetNew shows the ways to add assets: CPE search, form, SBOM and CSV
 // imports. The form may be prefilled from a CPE search result.
 func (s *Server) assetNew(w http.ResponseWriter, r *http.Request) {
-	s.renderNewAsset(w, r, http.StatusOK, prefilledAssetForm(r.URL.Query()), "")
+	s.renderNewAsset(w, r, http.StatusOK, prefilledAssetForm(r.URL.Query()), "", "")
 }
 
-func (s *Server) renderNewAsset(w http.ResponseWriter, r *http.Request, status int, form store.Asset, formErr string) {
+// The forms of the page of new assets, by their id: a refusal is shown in
+// the form refused (A88).
+const (
+	addPackage = "paquet"
+	addSBOM    = "sbom"
+	addCSV     = "csv"
+)
+
+// renderNewAsset shows the page of new assets with form in its form, and
+// formErr in the form at (one of the add* ids), "" for none.
+func (s *Server) renderNewAsset(w http.ResponseWriter, r *http.Request, status int, form store.Asset, at, formErr string) {
 	f, err := s.newAssetForm(r, form)
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
-	s.render(w, r, status, "asset_new", page{Title: "Ajouter des actifs", Error: formErr, Data: map[string]any{"Form": f}})
+	f.Open = formErr != "" && at == addPackage
+	s.render(w, r, status, "asset_new", page{Title: "Ajouter des actifs", Error: formErr, ErrorAt: at, Data: map[string]any{"Form": f}})
 }
 
 func (s *Server) assetCreate(w http.ResponseWriter, r *http.Request) {
 	a := assetFromForm(r)
 	if err := inventory.Validate(a); err != nil {
-		s.renderNewAsset(w, r, http.StatusBadRequest, a, err.Error())
+		s.renderNewAsset(w, r, http.StatusBadRequest, a, addPackage, err.Error())
 		return
 	}
 	id, err := s.Store.CreateAsset(r.Context(), writeScope(r), a)
 	if msg, refused := outsideGroups(err); refused {
-		s.renderNewAsset(w, r, http.StatusBadRequest, a, msg)
+		s.renderNewAsset(w, r, http.StatusBadRequest, a, addPackage, msg)
 		return
 	}
 	if err != nil {
@@ -375,7 +396,22 @@ func (s *Server) assetCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, "asset_create", "id", id)
 	go s.runAssetSync(id)
-	redirect(w, r, assetPath(id), "asset-created")
+	redirect(w, r, assetPath(id), createdMessage(a))
+}
+
+// createdMessage is the message of an asset just added: it says how its
+// vulnerabilities are looked for, and when that is only by its name, or not
+// at all, what would make it exact (audit UX 7.2, A88).
+func createdMessage(a store.Asset) string {
+	switch {
+	case inventory.Queryable(a):
+		return "asset-created"
+	case a.CPE != "":
+		return "asset-created-cpe"
+	case inventory.ByName(a):
+		return "asset-created-name"
+	}
+	return "asset-created-none"
 }
 
 // assetPath is the page of an asset.
@@ -415,9 +451,10 @@ func (s *Server) renderAsset(w http.ResponseWriter, r *http.Request, status int,
 		s.serverError(w, r, err)
 		return
 	}
+	f.Open = !reflect.DeepEqual(form, a)
 	shown, pages := paginate(findings, r.URL.Query(), assetPath(a.ID))
 	s.render(w, r, status, "asset", page{Title: inventory.Describe(a), Error: formErr,
-		Data: map[string]any{"Asset": a, "Form": f, "Editing": !reflect.DeepEqual(form, a),
+		Data: map[string]any{"Asset": a, "Form": f, "Editing": f.Open,
 			"Findings": shown, "Pager": pages, "Query": query, "Rules": rules, "Groups": groups}})
 }
 
@@ -674,11 +711,15 @@ func (s *Server) renderFindings(w http.ResponseWriter, r *http.Request, status i
 		more++
 	}
 	head := sortHeaders(findingColumnList, "/findings", q, l.Order)
+	reset := "" // a filtered list that comes out empty offers to reset its filters (audit UX 7.5)
+	if f.Search != "" || more > 0 {
+		reset = "/findings"
+	}
 	s.render(w, r, status, "findings", page{Title: "Vulnérabilités", Error: formErr, Data: map[string]any{
 		"Filter": f, "Projects": projects, "Tags": tags, "Groups": groups, "Group": l.Group, "Pager": pages, "Bulk": b, "Confirm": bulkConfirmAbove,
 		"MinEPSSPercent": f.MinEPSS * 100, "Next": back,
 		"Table": findingRows{List: shown, Head: head, Sortable: true, Sort: newSortChoice("/findings", q, head),
-			Select: analyst && len(shown) > 0, Checked: b.Checked, Back: back},
+			Select: analyst && len(shown) > 0, Checked: b.Checked, Back: back, Reset: reset},
 		"Sort": q.Get("sort"), "Dir": q.Get("dir"),
 		"Levels": l.Levels, "Level": q.Get("level"), "Since": sinceDays(q), "More": more,
 		// Re-encoded from the parsed query: a safe relative link with the same filters, every page.

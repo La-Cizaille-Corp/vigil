@@ -512,12 +512,53 @@ d'une vulnérabilité ramenait à la liste sans ses filtres.
 *Écarté* : paginer en SQL (`LIMIT`) : le tri est fait en Go (A54), et les nombres des niveaux comme la décision
 sur toute la liste veulent la liste entière ; une case « tout cocher » (impossible sans JavaScript, et bornée à
 une page) ; une confirmation `<details>` dont le nombre aurait été celui de l'affichage, pas celui de l'envoi ;
-déplacer l'import VEX sur « Ajouter des actifs » (il n'ajoute pas d'actif ; le lot 7 refondra cette page) ; le
+déplacer l'import VEX sur « Ajouter des actifs » (il n'ajoute pas d'actif ; confirmé par A88) ; le
 `Referer` pour le retour à la liste (absent selon les navigateurs et la politique de référent). *Conséquences* :
 les cases cochées valent pour la page affichée (changer de page les perd, faute de script) ; une décision sur
 toute la liste compte comme décision humaine pour les suivantes et pour les règles d'écart ; le rechargement
 d'une liste réaffichée après refus renvoie le formulaire (comme toute réponse à un envoi), sans effet tant
 qu'il est refusé ou demande confirmation.
+
+**A88. Ajouter des actifs : quatre entrées, un formulaire en trois groupes, des refus qui disent quoi
+écrire.** L'audit d'ergonomie de la 0.4.1 (lot 7) relevait une page qui empilait recherche CPE, formulaire de
+15 champs, SBOM et CSV sans dire laquelle choisir, avec quatre paragraphes d'aide entre les champs ; un purl
+`pkg:npm` sans nom accepté, un actif « nginx » de l'écosystème npm sans version passé en silence à la
+recherche par le nom, avec le même message que les autres ; des refus d'import sans les valeurs admises, la
+seconde erreur d'une ligne sans son numéro, et l'erreur Go brute d'un SBOM mal formé ; un mot de passe
+administrateur saisi une seule fois ; un tableau de bord vide chargé d'indicateurs à zéro ; des listes filtrées
+vides qui se disaient vides.
+- *Quatre entrées* en tête de « Ajouter des actifs » (un paquet, un produit, un SBOM, un tableau), liens vers les
+  sections de la même page. Le formulaire d'un actif, commun à l'ajout et à la page d'un actif, tient en trois
+  groupes : ce qu'il faut vérifier (nom, version, type, écosystème, purl, CPE et ses versions suivies), puis
+  « Organisation » et « Période de suivi », repliés sauf s'ils portent une valeur ou si le formulaire est refusé ;
+  une aide d'une ligne sous chaque champ (`aria-describedby`), l'aide longue repliée. Un CPE choisi dans la
+  recherche revient sur ce formulaire, titré « Le produit choisi ».
+- *Un refus dans le formulaire refusé* : l'adresse d'un formulaire finit par l'ancre de sa section
+  (`/assets/import-csv#csv`), que le navigateur garde pour la page de réponse ; le message s'y affiche
+  (`page.ErrorAt`, `errorAt`, modèle `formError`), pas en haut d'une longue page. Le même moyen sert à toute page
+  à plusieurs formulaires.
+- *Validation* : un purl doit nommer un paquet (`osv.PURLName`) ; un refus nomme la valeur refusée et celles qui
+  sont admises (« type « Paquet » inconnu : Paquet / dépendance, Technologie, Produit ou Système d'exploitation
+  attendu », `choice.Labels`, `fr.Or`) ; un import CSV donne une erreur par ligne, chacune numérotée, dix au plus ;
+  un mot d'un libellé double est admis (« Paquet », « dépendance »), comme le code (« os ») ; un CSV ou un SBOM
+  illisible le dit en français, avec la ligne ou l'octet en cause (`csvError`, `sbom.jsonError` : « components
+  doit être une liste, pas un texte »).
+- *Le message d'un ajout dit la détection retenue* : OSV par le paquet et la version, la NVD par le CPE, ou, en
+  le disant, la recherche par le nom (« sans purl, CPE ni version… résultats à vérifier ; une version avec un
+  écosystème, ou un CPE, rend la détection exacte ») ou rien (« son purl ne donne pas de version »). Les messages
+  restent des clés fixes : aucun texte saisi n'y revient.
+- *Première configuration* : le mot de passe se tape deux fois, le nom saisi est gardé après un refus. Tant que
+  l'inventaire est vide, le tableau de bord ne montre que « Pour commencer », avec « Ajouter des actifs » en
+  bouton principal (un lecteur lit qu'un analyste peut en ajouter). Une liste filtrée vide le dit (« Aucun actif
+  ne correspond à ces filtres », « Aucune vulnérabilité ne correspond à ces filtres ») et propose de réinitialiser.
+
+*Écarté* : refuser un écosystème ou un purl sans version (l'audit le proposait aussi) : un export de
+l'inventaire réimporté contient les composants de SBOM sans version, et tout le fichier serait refusé ; le
+message de l'ajout dit ce qui manque. L'import VEX sur cette page : il n'ajoute pas d'actif, il applique des
+analyses aux vulnérabilités, et reste à côté de l'export VEX (A85). Un modèle CSV servi à part : l'export de
+l'inventaire en tient lieu, vide quand l'inventaire l'est. *Conséquences* : un purl sans nom, déjà en base, est
+refusé à la prochaine modification de l'actif ; les messages d'ajout changent ; un appel à `/setup` sans
+`confirm` est refusé.
 
 **A69. Ce que les sources envoient est vérifié avant d'être stocké.** OSV et la NVD sont des hôtes fixes
 en HTTPS, mais leurs champs étaient stockés tels quels : une sévérité hors de la liste (`IMPORTANT` de

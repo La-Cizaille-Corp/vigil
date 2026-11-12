@@ -215,6 +215,7 @@ func (s *Server) parseTemplates() error {
 			return tagSelection{countries, sectors, regulations}
 		},
 		"link":              func(href, text string) textLink { return textLink{href, text} },
+		"errorAt":           errorAt,
 		"accessForm":        accessForm,
 		"newAccessForm":     newAccessForm,
 		"kindLabel":         func(v string) string { return choice.Label(inventory.Kinds, v) },
@@ -294,6 +295,7 @@ type findingRows struct {
 	Select   bool           // checkboxes bound to the form id="bulk" of the page
 	Checked  map[int64]bool // boxes ticked, when a bulk decision is shown again
 	Back     string         // the list a row's page leads back to (?back=), "" for none
+	Reset    string         // the list without its filters, when they leave it empty
 }
 
 // page is the data passed to every template.
@@ -305,7 +307,19 @@ type page struct {
 	CSRF    string
 	Flash   string
 	Error   string
+	// ErrorAt is the id of the form the Error is about: the page shows it
+	// there (errorAt), not at its top, and the address of the form ends with
+	// that #id, so that the browser comes back to it (A88).
+	ErrorAt string
 	Data    any
+}
+
+// errorAt is the error of p when it is about the form id, else "".
+func errorAt(p page, id string) string {
+	if p.ErrorAt != id {
+		return ""
+	}
+	return p.Error
 }
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name string, p page) {
@@ -331,7 +345,13 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name
 
 // flashes maps fixed keys to messages, so no user input is ever reflected.
 var flashes = map[string]string{ // #nosec G101 -- message keys, not credentials
-	"asset-created":     "Actif ajouté ; recherche de ses vulnérabilités lancée : « suivre l'avancement » ci-dessous.",
+	"asset-created":     "Actif ajouté ; Vigil cherche ses vulnérabilités dans OSV, par son paquet et sa version : « suivre l'avancement » ci-dessous.",
+	"asset-created-cpe": "Actif ajouté ; Vigil cherche ses vulnérabilités dans la NVD, par son CPE : « suivre l'avancement » ci-dessous.",
+	// The two below explain what is missing (audit UX 7.2, A88).
+	"asset-created-name": "Actif ajouté sans purl, CPE ni version : Vigil cherche son nom dans les descriptions des CVE de la NVD. " +
+		"Moins précise, cette recherche donne des résultats à vérifier ; une version avec un écosystème, ou un CPE, rend la détection exacte.",
+	"asset-created-none": "Actif ajouté, mais Vigil ne peut pas le vérifier : son purl ne donne pas de version. " +
+		"Indiquez-la dans le champ Version (ou latest) pour qu'OSV soit interrogé.",
 	"asset-updated":     "Actif enregistré ; recherche de ses vulnérabilités relancée : « suivre l'avancement » ci-dessous.",
 	"asset-deleted":     "Actif supprimé.",
 	"scan-started":      "Recherche des vulnérabilités de l'actif lancée : « suivre l'avancement » ci-dessous.",

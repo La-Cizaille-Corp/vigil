@@ -80,6 +80,30 @@ func TestPURLVersion(t *testing.T) {
 	}
 }
 
+// A purl names its package last in its path; one without names nothing.
+func TestPURLName(t *testing.T) {
+	for in, want := range map[string]string{
+		"pkg:npm/lodash@4.17.15?repository_url=x": "lodash",
+		"pkg:npm/lodash":                            "lodash",
+		"pkg:npm/%40angular/core@17.0.0":            "core",
+		"pkg:npm/@babel/core":                       "core",
+		"pkg:golang/github.com/a/b@v1.2.3#sub/dir":  "b",
+		"pkg:github/a/b@releases/v2":                "b",
+		"pkg:deb/debian/libc6?upstream=glibc@2.36":  "libc6",
+		"pkg:deb/debian/lib%2Bplus@1.0":             "lib+plus",
+		"pkg:npm":                                   "",
+		"pkg:npm/":                                  "",
+		"pkg:npm/@4.17.21":                          "",
+		"pkg:npm/@babel/":                           "",
+		"pkg:/lodash@1.0":                           "",
+		"pkg:npm/?repository_url=https://x.example": "",
+	} {
+		if got := PURLName(in); got != want {
+			t.Errorf("PURLName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 // query collects the advisories of a query.
 func query(t *testing.T, c *Client, q Query) []Vuln {
 	t.Helper()

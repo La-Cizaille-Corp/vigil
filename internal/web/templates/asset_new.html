@@ -1,43 +1,95 @@
 {{define "content"}}
+{{$f := .Data.Form}}
 <p><a href="/assets">← Inventaire</a></p>
-<h2 id="ajouter">Ajouter un actif</h2>
-<form method="get" action="/assets/cpe" class="card inline-search">
-  <label>Produit, technologie ou éditeur sans purl ? Trouver son CPE dans le dictionnaire de la NVD (un éditeur seul permet
-    de suivre tous ses produits)
-    <input type="search" name="q" maxlength="100" placeholder="fortios 7.2.4, fortinet, exchange server 2019, nginx…" required></label>
-  <button type="submit">Rechercher</button>
-</form>
-<form method="post" action="/assets" class="card">
+{{- /* Four ways in, each leading to its form further down (A88); a refusal shows in the form
+   refused, which the browser comes back to (#id at the end of its address). */}}
+<p>Que voulez-vous suivre ? Chaque choix mène à son formulaire, plus bas sur cette page.</p>
+<nav class="add-ways" aria-label="Façons d'ajouter des actifs">
+  <a href="#paquet"><strong>Un paquet ou une bibliothèque</strong>
+    <span>npm, PyPI, Maven, Go, paquet Debian ou Red Hat, noyau Linux…</span>
+    <span class="muted small">purl, ou écosystème et version : détection exacte (OSV)</span></a>
+  <a href="#produit"><strong>Un produit ou un équipement</strong>
+    <span>FortiOS, Exchange Server, un pare-feu, un éditeur entier…</span>
+    <span class="muted small">recherche de son CPE dans la NVD</span></a>
+  <a href="#sbom"><strong>Un SBOM</strong>
+    <span>Tous les composants d'une application</span>
+    <span class="muted small">CycloneDX ou SPDX (JSON), ou par l'API d'un pipeline</span></a>
+  <a href="#csv"><strong>Un tableau</strong>
+    <span>Votre inventaire existant</span>
+    <span class="muted small">CSV, à partir d'un modèle</span></a>
+</nav>
+
+<section id="paquet" aria-labelledby="t-paquet">
+<h2 id="t-paquet">{{if $f.CPE}}Le produit choisi{{else}}Un paquet ou une bibliothèque{{end}}</h2>
+{{if $f.CPE}}<p class="muted small">Vérifiez son nom et sa version, puis ajoutez-le ; il sera vérifié dans la NVD par son CPE.</p>{{end}}
+{{template "formError" (errorAt . "paquet")}}
+<form method="post" action="/assets#paquet" class="card">
   {{template "csrf" .CSRF}}
-  {{template "assetFields" .Data.Form}}
+  {{template "assetFields" $f}}
   <button type="submit">Ajouter l'actif</button>
 </form>
+</section>
 
-<h2>Importer un SBOM</h2>
-<form method="post" action="/assets/import" enctype="multipart/form-data" class="card">
+<section id="produit" aria-labelledby="t-produit">
+<h2 id="t-produit">Un produit ou un équipement</h2>
+<form method="get" action="/assets/cpe" class="card inline-search">
+  <label>Éditeur, produit et éventuellement version : son CPE dans le dictionnaire de la NVD (un éditeur seul permet
+    de suivre tous ses produits)
+    <input type="search" name="q" maxlength="100" placeholder="fortios 7.2.4, fortinet, exchange server 2019, nginx…" required></label>
+  <button type="submit">Trouver son CPE</button>
+</form>
+<p class="muted small">Ni purl ni CPE ? <a href="#paquet">Décrivez-le par son nom seul</a>, sans version : Vigil cherche ce nom
+  dans les descriptions des CVE de la NVD. Moins précise, cette recherche donne des résultats à vérifier.</p>
+</section>
+
+<div class="add-imports">
+<section id="sbom" aria-labelledby="t-sbom">
+<h2 id="t-sbom">Un SBOM</h2>
+{{template "formError" (errorAt . "sbom")}}
+<form method="post" action="/assets/import#sbom" enctype="multipart/form-data" class="card">
   {{template "csrf" .CSRF}}
-  <div class="grid">
-    <label>Fichier CycloneDX ou SPDX (JSON, 20 Mo max) <input type="file" name="sbom" accept=".json,application/json" required></label>
-    <label>Projet (par défaut : nom indiqué dans le SBOM) <input name="project" maxlength="200"></label>
-  </div>
-  <p class="muted small">Un nouvel import du même projet remplace ses actifs : les actifs inchangés gardent leur historique de suivi.
-    Les nouveaux actifs sont suivis sur les 120 derniers jours, comme un ajout manuel.</p>
+  <label>Fichier CycloneDX ou SPDX (JSON, 20 Mo au plus) <input type="file" name="sbom" accept=".json,application/json" required></label>
+  <label>Projet (par défaut : le nom indiqué dans le SBOM) <input name="project" maxlength="200"></label>
+  <p class="muted small">Un nouvel import du même projet remplace ses actifs : ceux qui ne changent pas gardent leur historique.
+    Les nouveaux sont suivis sur les 120 derniers jours, comme un ajout à la main. Un pipeline peut envoyer le SBOM
+    lui-même, avec un jeton d'API qu'un administrateur crée dans les paramètres.</p>
   <button type="submit">Importer le SBOM</button>
 </form>
+</section>
 
-<h2>Importer un tableau (CSV)</h2>
-<form method="post" action="/assets/import-csv" enctype="multipart/form-data" class="card">
+<section id="csv" aria-labelledby="t-csv">
+<h2 id="t-csv">Un tableau (CSV)</h2>
+{{template "formError" (errorAt . "csv")}}
+<form method="post" action="/assets/import-csv#csv" enctype="multipart/form-data" class="card">
   {{template "csrf" .CSRF}}
-  <label>Fichier CSV (2 Mo max), séparé par des virgules ou des points-virgules
+  <label>Fichier CSV (2 Mo au plus), séparé par des virgules ou des points-virgules
     <input type="file" name="csv" accept=".csv,text/csv" required></label>
-  <p class="muted small">Première ligne : noms des colonnes. Seule <code>name</code> (ou <code>nom</code>) est obligatoire ;
-    colonnes reconnues : <code>version</code>, <code>kind</code> (<code>type</code>), <code>criticality</code> (<code>criticité</code>),
-    <code>owner</code> (<code>responsable</code>), <code>project</code> (<code>projet</code>), <code>purl</code>, <code>ecosystem</code>,
-    <code>cpe</code>, <code>cpe_mode</code>, <code>cpe_from</code>, <code>track_since</code>, <code>notes</code>, <code>tags</code> (étiquettes, séparées par des virgules).
-    Version <code>latest</code> : toujours à jour sur la dernière version publiée.
-    Les types et criticités s'écrivent comme dans l'interface (« Produit », « Haute »…) ou par leur code. Le plus simple :
-    partir d'un <a href="/assets.csv">export de l'inventaire</a>. Le fichier entier est refusé à la moindre ligne invalide ;
-    les lignes identiques à un actif existant sont ignorées.</p>
+  <p class="muted small">La première ligne nomme les colonnes ; seule <code>name</code> (ou <code>nom</code>) est obligatoire.
+    Le plus simple : partir de l'<a href="/assets.csv">export de l'inventaire</a>, qui sert de modèle. Le fichier entier est
+    refusé à la moindre ligne invalide ; les lignes identiques à un actif existant sont ignorées.</p>
+  <details class="help">
+    <summary>Colonnes reconnues et valeurs admises</summary>
+    <dl class="columns small">
+      <dt><code>name</code> (<code>nom</code>)</dt><dd>obligatoire</dd>
+      <dt><code>version</code></dt><dd>la version vérifiée ; <code>latest</code> : toujours la dernière</dd>
+      <dt><code>kind</code> (<code>type</code>)</dt><dd>{{range $i, $o := kinds}}{{if $i}}, {{end}}{{$o.Label}} (<code>{{$o.Value}}</code>){{end}} ;
+        « Paquet » suffit ; vide : paquet</dd>
+      <dt><code>criticality</code> (<code>criticité</code>)</dt><dd>{{range $i, $o := criticalities}}{{if $i}}, {{end}}{{$o.Label}} (<code>{{$o.Value}}</code>){{end}} ;
+        vide : moyenne</dd>
+      <dt><code>purl</code></dt><dd>type, nom et version du paquet : <code>pkg:npm/lodash@4.17.21</code></dd>
+      <dt><code>ecosystem</code> (<code>écosystème</code>)</dt><dd>{{range $i, $e := ecosystems}}{{if $i}}, {{end}}<code>{{$e}}</code>{{end}}</dd>
+      <dt><code>cpe</code></dt><dd>CPE 2.3 en 13 champs</dd>
+      <dt><code>cpe_mode</code></dt><dd>vide (la version de l'actif), <code>all</code> (toutes les versions) ou <code>from</code>
+        (à partir de <code>cpe_from</code>)</dd>
+      <dt><code>cpe_from</code></dt><dd>la première version suivie, avec <code>from</code></dd>
+      <dt><code>track_since</code> (<code>suivi depuis</code>)</dt><dd>AAAA-MM-JJ ; vide : tout l'historique ; colonne absente :
+        les 120 derniers jours</dd>
+      <dt><code>tags</code> (<code>étiquettes</code>)</dt><dd>séparées par des virgules</dd>
+      <dt><code>owner</code> (<code>responsable</code>), <code>project</code> (<code>projet</code>), <code>notes</code></dt><dd>libres</dd>
+    </dl>
+  </details>
   <button type="submit">Importer le tableau</button>
 </form>
+</section>
+</div>
 {{end}}
