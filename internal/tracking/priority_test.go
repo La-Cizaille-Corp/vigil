@@ -261,13 +261,17 @@ func TestUrgencyEverywhere(t *testing.T) {
 		t.Errorf("%d alerts, want %d", len(alerts), want)
 	}
 
-	// The digest lists them in the same order.
+	// The digest lists them in the same order: the urgent ones at its head,
+	// then the other new ones (A87).
 	d, err := digest.Generate(ctx, st, store.Group{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	section := d.Markdown[strings.Index(d.Markdown, "## Nouvelles vulnérabilités"):]
-	section = section[:strings.Index(section, "\n## ")]
+	sectionOf := func(title string) string {
+		s := d.Markdown[strings.Index(d.Markdown, title):]
+		return s[:strings.Index(s, "\n## ")]
+	}
+	section := sectionOf("## Urgentes") + sectionOf("## Nouvelles vulnérabilités")
 	var listed []string
 	for _, m := range regexp.MustCompile(`CVE-2026-00(?:0\d|1\d)`).FindAllString(section, -1) {
 		if !slices.Contains(listed, m) {

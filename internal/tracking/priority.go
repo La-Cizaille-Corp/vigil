@@ -73,6 +73,16 @@ func Level(f store.Finding) string {
 	return LevelWatch
 }
 
+// CountLevels counts findings by Level: the fixed ones under "". The list of
+// vulnerabilities, the page of an asset and the digest count by it.
+func CountLevels(fs []store.Finding) map[string]int {
+	counts := map[string]int{}
+	for _, f := range fs {
+		counts[Level(f)]++
+	}
+	return counts
+}
+
 // levelNames name one finding of each level, on its badge.
 var levelNames = map[string]string{
 	LevelUrgent: "Urgente", LevelPlan: "À planifier", LevelWatch: "À surveiller", LevelAside: "Écartée",

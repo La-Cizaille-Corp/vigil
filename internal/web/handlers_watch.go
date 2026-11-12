@@ -24,40 +24,85 @@ import (
 
 // --- CTI ------------------------------------------------------------------
 
+// ctiList shows a view of the watch: the most recent news of it
+// (store.MaxCTIItems), a page at a time by day, with the number of news of
+// each view (A87).
 func (s *Server) ctiList(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	filter := store.CTIFilter{Countries: choice.KnownOnly(cti.Countries, q["country"]), Sectors: choice.KnownOnly(cti.Sectors, q["sector"]),
-		Regulations: choice.KnownOnly(cti.Regulations, q["regulation"])}
-	watched, regulatory := false, q.Get("view") == "regulatory"
-	switch {
-	case regulatory:
-		var err error
-		if filter, err = cti.WatchedRegulations(r.Context(), s.Store); err != nil {
-			s.serverError(w, r, err)
-			return
-		}
-	case len(filter.Countries) == 0 && len(filter.Sectors) == 0 && len(filter.Regulations) == 0 && q.Get("all") == "":
-		var err error
-		if filter, err = cti.WatchedFilter(r.Context(), s.Store); err != nil {
-			s.serverError(w, r, err)
-			return
-		}
-		watched = len(filter.Countries) > 0 || len(filter.Sectors) > 0
-	}
-	filter.Concerning = q.Get("concerning") == "1"
-	items, err := s.Store.ListCTIItems(r.Context(), readScope(r), filter)
+	ctx, q := r.Context(), r.URL.Query()
+	watch, err := cti.WatchedFilter(ctx, s.Store)
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
+	regs, err := cti.WatchedRegulations(ctx, s.Store)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	filter := store.CTIFilter{Countries: choice.KnownOnly(cti.Countries, q["country"]), Sectors: choice.KnownOnly(cti.Sectors, q["sector"]),
+		Regulations: choice.KnownOnly(cti.Regulations, q["regulation"])}
+	watched, regulatory, all := false, q.Get("view") == "regulatory", q.Get("all") != ""
+	switch {
+	case regulatory:
+		filter = regs
+	case len(filter.Countries) == 0 && len(filter.Sectors) == 0 && len(filter.Regulations) == 0 && !all:
+		filter = watch
+		watched = len(filter.Countries) > 0 || len(filter.Sectors) > 0
+	}
+	filter.Concerning = q.Get("concerning") == "1"
+	filter.Limit = store.MaxCTIItems
+	items, err := s.Store.ListCTIItems(ctx, readScope(r), filter)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	total, err := s.Store.CountCTIItems(ctx, readScope(r), filter)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	// The views, the one concerning the inventory first: the most useful.
+	concerning := filter.Concerning
+	views := []levelLink{
+		{Level: "concerning", Label: "Qui concernent mon inventaire", Href: "/cti?all=1&concerning=1", Active: concerning},
+		{Level: "threats", Label: "Veille menaces", Href: "/cti", Active: !regulatory && !all && !concerning},
+		{Level: "regulatory", Label: "Veille réglementaire", Href: "/cti?view=regulatory", Active: regulatory && !concerning},
+		{Level: "all", Label: "Toutes les actualités", Href: "/cti?all=1", Active: all && !concerning},
+	}
+	for i, f := range []store.CTIFilter{{Concerning: true}, watch, regs, {}} {
+		if views[i].N, err = s.Store.CountCTIItems(ctx, readScope(r), f); err != nil {
+			s.serverError(w, r, err)
+			return
+		}
+	}
+	shown, pages := paginate(items, q, "/cti")
 	title := "Veille menaces"
 	if regulatory {
 		title = "Veille réglementaire"
 	}
 	s.render(w, r, http.StatusOK, "cti", page{Title: title, Data: map[string]any{
-		"Items": items, "Filter": filter, "Watched": watched, "Regulatory": regulatory, "All": q.Get("all") != "",
-		"Concerning": filter.Concerning,
+		"Days": newsDays(shown), "Pager": pages, "Total": total, "Views": views,
+		"Filter": filter, "Watched": watched, "Regulatory": regulatory, "All": all, "Concerning": concerning,
 	}})
+}
+
+// newsDay is the news of one day on a page of the watch, most recent first.
+type newsDay struct {
+	Day   time.Time
+	Items []store.CTIItem
+}
+
+// newsDays groups news, most recent first, by the day they were published.
+func newsDays(items []store.CTIItem) []newsDay {
+	var days []newsDay
+	for _, it := range items {
+		day := it.Published.Local().Format(time.DateOnly)
+		if n := len(days); n == 0 || days[n-1].Day.Local().Format(time.DateOnly) != day {
+			days = append(days, newsDay{Day: it.Published})
+		}
+		days[len(days)-1].Items = append(days[len(days)-1].Items, it)
+	}
+	return days
 }
 
 // ctiRefresh starts a collection of the feeds in the background, unless one

@@ -210,6 +210,11 @@ var isolationCases = map[string]func(context.Context, *Store, Scope, scopeFixtur
 	"DeleteDismissalRule": func(ctx context.Context, st *Store, sc Scope, fx scopeFixture) (bool, error) {
 		return found(st.DeleteDismissalRule(ctx, sc, fx.asset, fx.rule))
 	},
+	"CountCTIItems": func(ctx context.Context, st *Store, sc Scope, _ scopeFixture) (bool, error) {
+		// News are shared; only those concerning the inventory depend on the scope.
+		n, err := st.CountCTIItems(ctx, sc, CTIFilter{Concerning: true})
+		return n > 0, err
+	},
 	"ListCTIItems": func(ctx context.Context, st *Store, sc Scope, _ scopeFixture) (bool, error) {
 		// News are shared; only the mark "concerns the inventory" depends on the scope.
 		items, err := st.ListCTIItems(ctx, sc, CTIFilter{})

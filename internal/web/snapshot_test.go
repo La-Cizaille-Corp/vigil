@@ -80,6 +80,22 @@ func TestRenderSnapshots(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// Two news of two days: one citing an open vulnerability, one whose
+	// source cut its summary mid-sentence (A87).
+	feed, err := st.CreateFeed(ctx, store.Feed{Name: "CERT-FR", URL: "https://example.org/feed", Country: "FR", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, it := range []store.CTIItem{
+		{GUID: "1", Title: "Correctifs FortiOS (CVE-2025-0001)", Link: "https://example.org/1", Published: seen,
+			Summary: "Une vulnérabilité exploitée affecte FortiOS.", Countries: []string{"FR"}},
+		{GUID: "2", Title: "Campagne d'hameçonnage", Link: "https://example.org/2", Published: seen.Add(-24 * time.Hour),
+			Summary: "Les attaquants visent les établissements de santé, dont"},
+	} {
+		if _, err := st.InsertCTIItem(ctx, feed, it); err != nil {
+			t.Fatal(err)
+		}
+	}
 	d, err := digest.Generate(ctx, st, store.Group{})
 	if err != nil {
 		t.Fatal(err)
@@ -93,6 +109,7 @@ func TestRenderSnapshots(t *testing.T) {
 		"finding-zero.html":  "/findings/3",
 		"asset.html":         "/assets/" + strconv.FormatInt(forti, 10),
 		"assets.html":        "/assets",
+		"cti.html":           "/cti?all=1",
 		"digest.html":        digestPath,
 		"digest-markdown.md": digestPath + "/markdown",
 	} {

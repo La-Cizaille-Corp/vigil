@@ -226,23 +226,8 @@ func TestLandmarksAndBulkPanel(t *testing.T) {
 		t.Errorf("bulk panel at %d, before the list ending at %d", panel, list)
 	}
 	if _, page := c.get("/cti"); !strings.Contains(page, `<nav class="filters" aria-label="Vues de la veille">`) ||
-		!strings.Contains(page, `class="active" aria-current="true">Veille menaces</a>`) {
+		!strings.Contains(page, `class="active" aria-current="true">Veille menaces <small>`) {
 		t.Error("the views of the watch do not say which one is shown")
-	}
-}
-
-// A list row names three aliases at most; the finding page keeps them all.
-func TestAliasList(t *testing.T) {
-	for n, want := range map[int]string{
-		0: "", 1: "A0", 3: "A0, A1, A2", 4: "A0, A1, A2 et 1 autre", 1902: "A0, A1, A2 et 1899 autres",
-	} {
-		list := make([]string, n)
-		for i := range list {
-			list[i] = "A" + strconv.Itoa(i)
-		}
-		if got := aliasList(list); got != want {
-			t.Errorf("%d aliases: %q, want %q", n, got, want)
-		}
 	}
 }
 

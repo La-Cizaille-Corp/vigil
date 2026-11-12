@@ -19,6 +19,7 @@ import (
 
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
 	"github.com/La-Cizaille-Corp/vigil/internal/choice"
+	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 	"github.com/La-Cizaille-Corp/vigil/internal/cti"
 	"github.com/La-Cizaille-Corp/vigil/internal/fr"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
@@ -44,6 +45,9 @@ const (
 	maxUploadBytes  = sbom.MaxSize + 1<<20 // file plus multipart overhead
 	// maxNameLen is the longest name of a feed or an API token, in characters.
 	maxNameLen = 100
+	// maxExcerpt is the longest summary of a news item of the watch, in
+	// characters: a source may give 2 000.
+	maxExcerpt = 300
 )
 
 // Server holds the dependencies of the HTTP handlers.
@@ -208,7 +212,6 @@ func (s *Server) parseTemplates() error {
 		"tracking":    trackingSource,
 		"vendorOf":    inventory.VendorName,
 		"wholeVendor": inventory.WholeVendor,
-		"aliases":     aliasList,
 		"syncStatus":  s.syncStatus,
 		"tags":        splitTags,
 		"dict3": func(countries, sectors, regulations []string) tagSelection {
@@ -234,6 +237,7 @@ func (s *Server) parseTemplates() error {
 		"byName":            inventory.ByName,
 		"wholeDistribution": inventory.WholeDistribution,
 		"checkedVersion":    inventory.CheckedVersion,
+		"excerpt":           func(s string) string { return clip.Excerpt(s, maxExcerpt) }, // a news summary, cut and said to be (A87)
 		"countryLabel":      func(v string) string { return choice.Label(cti.Countries, v) },
 		"sectorLabel":       func(v string) string { return choice.Label(cti.Sectors, v) },
 		"countries":         func() []choice.Option { return cti.Countries },

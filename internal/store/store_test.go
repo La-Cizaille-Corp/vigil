@@ -103,6 +103,12 @@ func TestCTIItemsFilter(t *testing.T) {
 	if len(all) != 3 {
 		t.Fatalf("all items = %d", len(all))
 	}
+	// A count reads the same items as the list, whatever it lists.
+	for want, f := range map[int]CTIFilter{1: {Countries: []string{"FR", "US"}, Sectors: []string{"finance"}}, 3: {Limit: 1}} {
+		if n, err := st.CountCTIItems(ctx, Everything, f); err != nil || n != want {
+			t.Errorf("count of %+v = %d, %v; want %d", f, n, err, want)
+		}
+	}
 }
 
 // A tag is matched literally: "_" is a LIKE wildcard, and "pci_dss" must not

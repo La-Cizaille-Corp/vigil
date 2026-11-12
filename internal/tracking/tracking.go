@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -60,7 +61,24 @@ func TemplateFuncs() map[string]any {
 		"levelName":   levelName,
 		"reason":      Reason,
 		"explain":     explain,
+		"aliases":     aliasList,
 	}
+}
+
+// maxAliases bounds the aliases named in a list row or a digest line: an
+// Ubuntu notice can have nearly two thousand.
+const maxAliases = 3
+
+// aliasList names the first aliases of a vulnerability, then how many more.
+func aliasList(aliases []string) string {
+	if len(aliases) <= maxAliases {
+		return strings.Join(aliases, ", ")
+	}
+	more, word := len(aliases)-maxAliases, "autres"
+	if more == 1 {
+		word = "autre"
+	}
+	return strings.Join(aliases[:maxAliases], ", ") + " et " + strconv.Itoa(more) + " " + word
 }
 
 // Justifications explain a "not_affected" status (CycloneDX vocabulary).

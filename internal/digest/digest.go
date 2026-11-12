@@ -6,9 +6,9 @@ import (
 	"context"
 	_ "embed"
 	"errors"
-	"fmt"
 	htmltemplate "html/template"
 	"maps"
+	"net/url"
 	"slices"
 	"sort"
 	"strconv"
@@ -62,76 +62,130 @@ var (
 // defaultWindow is used for the first digest, when no previous one exists.
 const defaultWindow = 7 * 24 * time.Hour
 
-// data is what the templates render.
+// data is what the templates render: the levels first, as the lists of the
+// interface (A87), each list cut to maxListed lines.
 type data struct {
 	Group       string // the group covered, "" for the whole inventory
+	GroupID     int64
 	Since       time.Time
 	GeneratedAt time.Time
-	New         breakdown // first seen in the period
-	Open        breakdown // still in triage or exploitable, all dates
-	Counts      []statusCount
+	SinceDays   string          // the period in whole days, rounded up: the ?since= of its lists
+	Urgent      listed          // open and urgent, all dates, most urgent first
+	Levels      []levelRow      // the levels, then the fixed ones
+	New         breakdown       // open, first seen in the period
+	NewListed   listed          // the most urgent of New
+	Open        breakdown       // open, all dates
+	Overdue     listed          // open and past their remediation deadline
 	CTI         []store.CTIItem // threat news matching the watched countries/sectors
 	CTIScope    string          // human description of that filter
 	Regulatory  []store.CTIItem // regulation and standards news
 	RegScope    string
-	Overdue     []store.Finding // open and past their remediation deadline
 	Concerning  []store.CTIItem // news of the period citing an open finding's vulnerability
 }
 
 // maxCTIItems bounds the CTI section of a digest.
 const maxCTIItems = 30
 
-// statusCount is a number of findings for one status.
-type statusCount struct {
-	Status string
-	N      int
+// maxListed bounds each list of findings of a digest, so that it stays a
+// summary on a kernel of thousands of vulnerabilities; its counts stay
+// complete, and the lines left out are counted with a link to their list.
+const maxListed = 50
+
+// listed is a list of findings cut to maxListed lines, most urgent first.
+type listed struct {
+	Lines []line
+	Total int    // findings of the list, Lines included
+	More  int    // findings left out of Lines
+	Link  string // the whole list in the interface (data.List)
+	Name  string // what that list is, "la liste des urgentes"
+	Empty string // what to say of an empty list, "" for nothing
 }
 
-// breakdown is a set of findings by vendor, the most exposed vendor first.
+// with names the whole list of l: its link, what it is, and what to say when
+// it is empty.
+func (l listed) with(link, name, empty string) listed {
+	l.Link, l.Name, l.Empty = link, name, empty
+	return l
+}
+
+// line is a finding listed in a digest.
+type line struct {
+	store.Finding
+	New     bool // first seen in the period
+	ShowDue bool // its remediation deadline is what the list is about
+}
+
+// bound sorts findings by priority and cuts them to maxListed lines.
+func bound(fs []store.Finding, since time.Time, showDue bool) listed {
+	tracking.SortByPriority(fs)
+	l := listed{Total: len(fs), More: max(0, len(fs)-maxListed)}
+	for _, f := range fs[:min(len(fs), maxListed)] {
+		l.Lines = append(l.Lines, line{Finding: f, New: !f.FirstSeen.Before(since), ShowDue: showDue})
+	}
+	return l
+}
+
+// levelRow is a level of the digest: how many findings reached it in the
+// period, and how many are at it now.
+type levelRow struct {
+	Level, Label string
+	New, Now     int
+}
+
+// fixedLevel is the value of the fixed findings in the list of the interface
+// (?level=fixed), which have no level of their own.
+const fixedLevel = "fixed"
+
+// newLevels returns the rows of the levels, then of the fixed findings, from
+// the findings of the period, the open ones and the counts by status.
+func newLevels(news, open []store.Finding, statuses map[string]int) []levelRow {
+	added, now := tracking.CountLevels(news), tracking.CountLevels(open)
+	now[tracking.LevelAside] = statuses[store.StatusNotAffected] + statuses[store.StatusFalsePositive]
+	now[""] = statuses[store.StatusResolved]
+	var rows []levelRow
+	for _, l := range tracking.Levels {
+		rows = append(rows, levelRow{Level: l.Value, Label: l.Label, New: added[l.Value], Now: now[l.Value]})
+	}
+	return append(rows, levelRow{Level: fixedLevel, Label: "Corrigées", New: added[""], Now: now[""]})
+}
+
+// List is the address of the vulnerability list of what the digest covers,
+// with the parameters given as key, value…: where its counts and the lines it
+// leaves out lead, in the interface (A87).
+func (d data) List(params ...string) string {
+	q := url.Values{}
+	for i := 0; i+1 < len(params); i += 2 {
+		q.Set(params[i], params[i+1])
+	}
+	if d.GroupID != 0 {
+		q.Set("group", strconv.FormatInt(d.GroupID, 10))
+	}
+	if len(q) == 0 {
+		return "/findings"
+	}
+	return "/findings?" + q.Encode()
+}
+
+// breakdown counts findings by vendor, the most exposed vendor first.
 type breakdown struct {
-	Total  vendorGroup // every finding, most urgent first
+	Total  vendorGroup // every finding
 	Groups []vendorGroup
 }
 
-// vendorGroup is the findings of one vendor, most urgent first (see
-// tracking.ComparePriority).
+// vendorGroup counts the findings of one vendor.
 type vendorGroup struct {
-	Vendor   string
-	Bands    []int // number of findings in each severity band of tracking.Severities
-	KEV      int   // known exploited
-	Findings []store.Finding
-}
-
-// Summary describes the bands of a group: "2 critiques, 1 haute".
-func (g vendorGroup) Summary() string {
-	var parts []string
-	for i, n := range g.Bands {
-		if n == 0 {
-			continue
-		}
-		band := tracking.Severities[i]
-		label := strings.ToLower(band.Label)
-		if band.Value == "UNKNOWN" {
-			label = "de sévérité " + label
-		} else if n > 1 {
-			label += "s"
-		}
-		parts = append(parts, strconv.Itoa(n)+" "+label)
-	}
-	switch {
-	case g.KEV == 1:
-		parts = append(parts, "dont 1 exploitée")
-	case g.KEV > 1:
-		parts = append(parts, fmt.Sprintf("dont %d exploitées", g.KEV))
-	}
-	return strings.Join(parts, ", ")
+	Vendor string
+	N      int
+	Urgent int   // at the level Urgentes
+	Bands  []int // in each severity band of tracking.Severities
 }
 
 // unknownVendor files the findings of assets without CPE nor purl.
 const unknownVendor = "Éditeur non renseigné"
 
 // byVendor groups findings by the vendor of their asset (see
-// inventory.VendorName) and counts them by severity band.
+// inventory.VendorName) and counts them by severity band; the vendor with the
+// most urgent ones comes first, then by bands.
 func byVendor(fs []store.Finding) breakdown {
 	b := breakdown{Total: newGroup("Total")}
 	index := map[string]int{}
@@ -149,12 +203,11 @@ func byVendor(fs []store.Finding) breakdown {
 		b.Groups[i].add(f)
 		b.Total.add(f)
 	}
-	tracking.SortByPriority(b.Total.Findings)
-	for _, g := range b.Groups {
-		tracking.SortByPriority(g.Findings)
-	}
 	sort.SliceStable(b.Groups, func(i, j int) bool {
 		a, c := b.Groups[i], b.Groups[j]
+		if a.Urgent != c.Urgent {
+			return a.Urgent > c.Urgent
+		}
 		for k := range a.Bands {
 			if a.Bands[k] != c.Bands[k] {
 				return a.Bands[k] > c.Bands[k]
@@ -165,26 +218,15 @@ func byVendor(fs []store.Finding) breakdown {
 	return b
 }
 
-// maxListed bounds the findings listed per vendor among open ones: a vendor
-// subscription can hold thousands, the counts above them stay complete.
-const maxListed = 25
-
-// Listed returns the most urgent findings of the group, at most maxListed.
-func (g vendorGroup) Listed() []store.Finding { return g.Findings[:min(len(g.Findings), maxListed)] }
-
-// Unlisted is the number of findings Listed leaves out.
-func (g vendorGroup) Unlisted() int { return len(g.Findings) - len(g.Listed()) }
-
 func newGroup(vendor string) vendorGroup {
 	return vendorGroup{Vendor: vendor, Bands: make([]int, len(tracking.Severities))}
 }
 
 func (g *vendorGroup) add(f store.Finding) {
-	g.Findings = append(g.Findings, f)
-	band := tracking.Band(f)
-	g.Bands[choice.Rank(tracking.Severities, band)]++
-	if f.KEV {
-		g.KEV++
+	g.N++
+	g.Bands[choice.Rank(tracking.Severities, tracking.Band(f))]++
+	if tracking.Level(f) == tracking.LevelUrgent {
+		g.Urgent++
 	}
 }
 
@@ -207,32 +249,34 @@ func Generate(ctx context.Context, st *store.Store, group store.Group) (store.Di
 		since = now.Add(-defaultWindow)
 	}
 
-	d := data{Since: since, GeneratedAt: now, Group: group.Name}
+	d := data{Since: since, GeneratedAt: now, Group: group.Name, GroupID: group.ID,
+		SinceDays: strconv.Itoa(max(1, int((now.Sub(since)+24*time.Hour-1)/(24*time.Hour))))}
 	news, err := st.ListFindings(ctx, sc, store.FindingFilter{Since: since, Now: now})
 	if err != nil {
 		return store.Digest{}, err
 	}
-	d.New = byVendor(news)
-	var open []store.Finding
-	for _, status := range []string{store.StatusExploitable, store.StatusInTriage} {
-		fs, err := st.ListFindings(ctx, sc, store.FindingFilter{Status: status, Now: now})
-		if err != nil {
-			return store.Digest{}, err
-		}
-		open = append(open, fs...)
-	}
-	d.Open = byVendor(open)
-	counts, err := st.CountFindingsByStatus(ctx, sc)
+	open, err := st.ListFindings(ctx, sc, store.FindingFilter{Statuses: []string{store.StatusExploitable, store.StatusInTriage}, Now: now})
 	if err != nil {
 		return store.Digest{}, err
 	}
-	for _, s := range tracking.Statuses {
-		d.Counts = append(d.Counts, statusCount{Status: s.Value, N: counts[s.Value]})
-	}
-	if d.Overdue, err = st.ListFindings(ctx, sc, store.FindingFilter{Overdue: true, Now: now}); err != nil {
+	statuses, err := st.CountFindingsByStatus(ctx, sc)
+	if err != nil {
 		return store.Digest{}, err
 	}
-	tracking.SortByPriority(d.Overdue)
+	d.Levels = newLevels(news, open, statuses)
+	newOpen := slices.DeleteFunc(slices.Clone(news), func(f store.Finding) bool { return !f.Open() })
+	d.New, d.Open = byVendor(newOpen), byVendor(open)
+	urgent := func(f store.Finding) bool { return tracking.Level(f) == tracking.LevelUrgent }
+	d.Urgent = bound(slices.DeleteFunc(slices.Clone(open), func(f store.Finding) bool { return !urgent(f) }), since, false).
+		with(d.List("level", tracking.LevelUrgent), "la liste des urgentes", "Aucune vulnérabilité urgente.")
+	// The new ones beside the urgent ones, listed first.
+	d.NewListed = bound(slices.DeleteFunc(slices.Clone(newOpen), urgent), since, false).
+		with(d.List("since", d.SinceDays), "la liste des nouvelles", "")
+	overdue, err := st.ListFindings(ctx, sc, store.FindingFilter{Overdue: true, Now: now})
+	if err != nil {
+		return store.Digest{}, err
+	}
+	d.Overdue = bound(overdue, since, true).with(d.List("overdue", "1"), "la liste des vulnérabilités hors délai", "")
 	if d.Concerning, err = st.ListCTIItems(ctx, sc, store.CTIFilter{Concerning: true, Since: since, Limit: maxCTIItems}); err != nil {
 		return store.Digest{}, err
 	}

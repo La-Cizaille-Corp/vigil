@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Veille menaces · Vigil</title>
+
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<a class="skip" href="#contenu">Aller au contenu</a>
+<header>
+  <a class="brand" href="/"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="logo-shield" d="M12 2 4 5v6c0 5 3.4 9.3 8 11 4.6-1.7 8-6 8-11V5l-8-3Z"/><path class="logo-eye" d="M12 8.5c-2.6 0-4.7 1.6-5.5 3.5.8 1.9 2.9 3.5 5.5 3.5s4.7-1.6 5.5-3.5c-.8-1.9-2.9-3.5-5.5-3.5Zm0 5.5a2 2 0 1 1 0-4 2 2 0 0 1 0 4Z"/></svg>Vigil</a>
+  
+  <nav aria-label="Navigation principale">
+    <a href="/" >Tableau de bord</a>
+    <a href="/assets" >Inventaire</a>
+    <a href="/findings" >Vulnérabilités</a>
+    <a href="/cti" aria-current="page">Veille</a>
+    <a href="/digests" >Digests</a>
+    <a href="/settings" >Paramètres</a>
+  </nav>
+  <form method="post" action="/logout" class="inline">
+    <input type="hidden" name="csrf" value="CSRF">
+    <a class="account-link" href="/account" title="Mon compte" >analyst</a>
+    <span class="muted small">analyste</span>
+    <button type="submit" class="link">Déconnexion</button>
+  </form>
+  
+</header>
+<main id="contenu">
+  <h1>Veille menaces</h1>
+  
+  
+  
+
+<nav class="filters" aria-label="Vues de la veille">
+  <a href="/cti?all=1&amp;concerning=1" >Qui concernent mon inventaire <small>1</small></a>
+  <a href="/cti" >Veille menaces <small>2</small></a>
+  <a href="/cti?view=regulatory" >Veille réglementaire <small>0</small></a>
+  <a href="/cti?all=1" class="active" aria-current="true">Toutes les actualités <small>2</small></a>
+  
+</nav>
+
+
+
+
+<details class="card" >
+  <summary>Filtrer par pays, secteur ou réglementation</summary>
+  <form method="get" action="/cti">
+    <input type="hidden" name="all" value="1">
+    
+<div class="grid">
+  <fieldset><legend>Pays</legend>
+    <label class="check"><input type="checkbox" name="country" value="FR" > France</label><label class="check"><input type="checkbox" name="country" value="BE" > Belgique</label><label class="check"><input type="checkbox" name="country" value="CH" > Suisse</label><label class="check"><input type="checkbox" name="country" value="CA" > Canada</label><label class="check"><input type="checkbox" name="country" value="DE" > Allemagne</label><label class="check"><input type="checkbox" name="country" value="GB" > Royaume-Uni</label><label class="check"><input type="checkbox" name="country" value="US" > États-Unis</label><label class="check"><input type="checkbox" name="country" value="IT" > Italie</label><label class="check"><input type="checkbox" name="country" value="ES" > Espagne</label><label class="check"><input type="checkbox" name="country" value="NL" > Pays-Bas</label><label class="check"><input type="checkbox" name="country" value="PL" > Pologne</label><label class="check"><input type="checkbox" name="country" value="UA" > Ukraine</label><label class="check"><input type="checkbox" name="country" value="RU" > Russie</label><label class="check"><input type="checkbox" name="country" value="CN" > Chine</label><label class="check"><input type="checkbox" name="country" value="KP" > Corée du Nord</label><label class="check"><input type="checkbox" name="country" value="IR" > Iran</label><label class="check"><input type="checkbox" name="country" value="IL" > Israël</label><label class="check"><input type="checkbox" name="country" value="IN" > Inde</label><label class="check"><input type="checkbox" name="country" value="JP" > Japon</label><label class="check"><input type="checkbox" name="country" value="AU" > Australie</label><label class="check"><input type="checkbox" name="country" value="EU" > Union européenne</label>
+  </fieldset>
+  <fieldset><legend>Secteurs</legend>
+    <label class="check"><input type="checkbox" name="sector" value="energy" > Énergie</label><label class="check"><input type="checkbox" name="sector" value="health" > Santé</label><label class="check"><input type="checkbox" name="sector" value="finance" > Finance</label><label class="check"><input type="checkbox" name="sector" value="government" > Administration publique</label><label class="check"><input type="checkbox" name="sector" value="defense" > Défense</label><label class="check"><input type="checkbox" name="sector" value="transport" > Transports</label><label class="check"><input type="checkbox" name="sector" value="telecom" > Télécommunications</label><label class="check"><input type="checkbox" name="sector" value="education" > Éducation et recherche</label><label class="check"><input type="checkbox" name="sector" value="manufacturing" > Industrie</label><label class="check"><input type="checkbox" name="sector" value="retail" > Commerce</label><label class="check"><input type="checkbox" name="sector" value="water" > Eau</label><label class="check"><input type="checkbox" name="sector" value="digital" > Services numériques / IT</label>
+  </fieldset>
+  <fieldset><legend>Réglementations et normes</legend>
+    <label class="check"><input type="checkbox" name="regulation" value="nis2" > NIS2</label><label class="check"><input type="checkbox" name="regulation" value="cra" > Cyber Resilience Act</label><label class="check"><input type="checkbox" name="regulation" value="dora" > DORA</label><label class="check"><input type="checkbox" name="regulation" value="gdpr" > RGPD</label><label class="check"><input type="checkbox" name="regulation" value="ai_act" > AI Act</label><label class="check"><input type="checkbox" name="regulation" value="cybersecurity_act" > Cybersecurity Act / certification UE</label><label class="check"><input type="checkbox" name="regulation" value="eidas" > eIDAS</label><label class="check"><input type="checkbox" name="regulation" value="data_act" > Data Act</label><label class="check"><input type="checkbox" name="regulation" value="iso27001" > ISO/IEC 27001</label><label class="check"><input type="checkbox" name="regulation" value="secnumcloud" > SecNumCloud</label><label class="check"><input type="checkbox" name="regulation" value="hds" > HDS (données de santé)</label><label class="check"><input type="checkbox" name="regulation" value="pci_dss" > PCI DSS</label><label class="check"><input type="checkbox" name="regulation" value="lpm" > LPM / OIV</label><label class="check"><input type="checkbox" name="regulation" value="nist_csf" > NIST CSF / SP 800</label>
+  </fieldset>
+</div>
+
+    <button type="submit">Filtrer</button>
+    <a href="/cti?all=1">Réinitialiser</a>
+  </form>
+</details>
+
+<div class="toolbar">
+  
+  <form method="post" action="/cti/refresh" class="inline">
+    <input type="hidden" name="csrf" value="CSRF">
+    <button type="submit">Collecter les flux</button>
+  </form>
+  
+</div>
+
+
+
+<p class="muted">2 actualité(s)</p>
+
+<h2 class="news-day">04/03/2025</h2>
+<ul class="news">
+
+<li>
+  <a href="https://example.org/1" rel="noopener noreferrer" target="_blank">Correctifs FortiOS (CVE-2025-0001)</a>
+  <div class="concerns small"><span class="concern-badge">Vous concerne</span>
+    <a href="/findings?q=CVE-2025-0001&amp;status=in_triage&amp;status=exploitable">CVE-2025-0001</a> </div>
+  <div class="muted small">CERT-FR · 04/03/2025 10:20
+    <span class="tag">France</span>
+    
+    
+  </div>
+  <p class="small">Une vulnérabilité exploitée affecte FortiOS.</p>
+</li>
+
+</ul>
+
+<h2 class="news-day">03/03/2025</h2>
+<ul class="news">
+
+<li>
+  <a href="https://example.org/2" rel="noopener noreferrer" target="_blank">Campagne d&#39;hameçonnage</a>
+  
+  <div class="muted small">CERT-FR · 03/03/2025 10:20
+    
+    
+    
+  </div>
+  <p class="small">Les attaquants visent les établissements de santé, dont…</p>
+</li>
+
+</ul>
+
+
+
+
+</main>
+</body>
+</html>

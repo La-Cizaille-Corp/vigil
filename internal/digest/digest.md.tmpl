@@ -2,51 +2,38 @@
 
 Généré le {{date .GeneratedAt}} — période depuis le {{date .Since}}.
 
-## Nouvelles vulnérabilités ({{len .New.Total.Findings}})
+## Urgentes ({{.Urgent.Total}})
+{{template "lines" .Urgent}}
+## Par niveau
+
+| Niveau | Nouvelles sur la période | Au total |
+|---|--:|--:|
+{{- range .Levels}}
+| {{.Label}} | {{.New}} | {{.Now}} |
+{{- end}}
+
+## Nouvelles vulnérabilités ouvertes ({{.New.Total.N}})
 {{if .New.Groups}}
 {{template "breakdown" .New}}
-{{range .New.Groups}}
-### {{md .Vendor}} ({{len .Findings}}) — {{.Summary}}
-
-| Sévérité | Vulnérabilité | Actif | Statut | Résumé |
-|---|---|---|---|---|
-{{- range .Findings}}
-| {{if .KEV}}**EXPLOITÉE (KEV)** {{end}}{{sevLabel (band .)}}{{with cvss .CVSS}} · CVSS {{.}}{{end}}{{with epss .EPSS}} · EPSS {{.}}{{end}} | {{cell .VulnID}}{{if .Aliases}} ({{cell (join .Aliases ", ")}}){{end}} | {{cell .AssetName}} {{cell .AssetVersion}} | {{statusLabel .Status}} | {{cell .Summary}} |
-{{- end}}
+{{if and .New.Total.Urgent .NewListed.Lines}}
+Les urgentes sont en tête du digest ; les autres, les plus urgentes d'abord :
+{{else if .New.Total.Urgent}}
+Toutes sont urgentes, en tête du digest.
+{{end}}{{template "lines" .NewListed}}{{else}}
+Aucune nouvelle vulnérabilité ouverte sur la période.
 {{end}}
-{{- else}}
-Aucune nouvelle vulnérabilité sur la période.
-{{end}}
-{{if .Overdue}}## Hors délai de traitement ({{len .Overdue}})
-
-{{range .Overdue}}
-- **{{sevLabel (band .)}}**{{if .KEV}} **EXPLOITÉE (KEV)**{{end}} {{md .VulnID}} — {{md .AssetName}} {{md .AssetVersion}} — échéance {{day .Due}}
-{{- end}}
-
+{{if .Overdue.Total}}## Hors délai de traitement ({{.Overdue.Total}})
+{{template "lines" .Overdue}}
 {{end}}{{if .Concerning}}## Actualités citant vos vulnérabilités ({{len .Concerning}})
-
 {{range .Concerning}}
 - {{link .Title .Link}} — {{md .FeedName}}, {{date .Published}} · {{md (join .Concerns ", ")}}
 {{- end}}
 
-{{end}}## Vulnérabilités ouvertes ({{len .Open.Total.Findings}})
+{{end}}## Vulnérabilités ouvertes ({{.Open.Total.N}})
 {{if .Open.Groups}}
 {{template "breakdown" .Open}}
-{{range .Open.Groups}}
-### {{md .Vendor}} ({{len .Findings}}) — {{.Summary}}
-{{range .Listed}}
-- {{if .KEV}}**EXPLOITÉE (KEV)** {{end}}**{{sevLabel (band .)}}**{{with cvss .CVSS}} (CVSS {{.}}){{end}}{{with epss .EPSS}} (EPSS {{.}}){{end}} {{md .VulnID}} — {{md .AssetName}} {{md .AssetVersion}} — {{statusLabel .Status}}
-{{- end}}
-{{- with .Unlisted}}
-- … et {{.}} autres, moins urgentes, à consulter dans Vigil
-{{- end}}
-{{end}}
 {{- else}}
 Aucune vulnérabilité ouverte.
-{{end}}
-## Synthèse par statut
-{{range .Counts}}
-- {{statusLabel .Status}} : {{.N}}
 {{- end}}
 
 ## Veille menaces ({{len .CTI}}) — {{.CTIScope}}
@@ -66,9 +53,20 @@ Aucune actualité correspondante sur la période.
 {{else}}
 Aucune actualité réglementaire sur la période.
 {{end}}
-{{define "breakdown"}}| Éditeur | Critiques | Hautes | Moyennes | Basses | Inconnues | Total | Exploitées (KEV) |
+{{- /* lines: a list cut to maxListed lines, then how many it leaves out, named
+   (the Markdown digest does not know the address of the interface). Data: listed. */}}
+{{define "lines"}}{{if .Lines}}{{range .Lines}}
+- **{{levelName (level .Finding)}}** · {{sevLabel (band .Finding)}}{{with reason .Finding}} · {{.}}{{end}} — {{md .VulnID}}{{with aliases .Aliases}} ({{md .}}){{end}} — {{md .AssetName}} {{md .AssetVersion}}{{if .ShowDue}} — échéance {{day .Finding.Due}}{{end}}{{if .New}} — nouvelle{{end}}
+{{- end}}
+{{- with .More}}
+- … et {{.}} autres, dans Vigil : {{$.Name}}
+{{- end}}
+{{else if .Empty}}
+{{.Empty}}
+{{end}}{{end}}
+{{- define "breakdown"}}| Éditeur | Urgentes | Critiques | Hautes | Moyennes | Basses | Inconnues | Total |
 |---|--:|--:|--:|--:|--:|--:|--:|
 {{- range .Groups}}
-| {{cell .Vendor}} |{{range .Bands}} {{.}} |{{end}} {{len .Findings}} | {{.KEV}} |
+| {{cell .Vendor}} | {{.Urgent}} |{{range .Bands}} {{.}} |{{end}} {{.N}} |
 {{- end}}
-| **Total** |{{range .Total.Bands}} **{{.}}** |{{end}} **{{len .Total.Findings}}** | **{{.Total.KEV}}** |{{end}}
+| **Total** | **{{.Total.Urgent}}** |{{range .Total.Bands}} **{{.}}** |{{end}} **{{.Total.N}}** |{{end}}
