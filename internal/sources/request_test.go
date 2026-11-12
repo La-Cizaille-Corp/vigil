@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
+	"github.com/La-Cizaille-Corp/vigil/internal/limit"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources"
 )
 
@@ -67,7 +67,7 @@ func TestDo(t *testing.T) {
 		t.Errorf("request without a body: %v, %v, %q", err, got.Header, sent)
 	}
 
-	var tooLarge *netsafe.TooLargeError
+	var tooLarge *limit.TooLargeError
 	for _, c := range []struct {
 		path      string
 		max       int64
@@ -92,7 +92,7 @@ func TestDo(t *testing.T) {
 			t.Errorf("%s: status %+v, want %d", c.path, status, c.code)
 		}
 		if c.max == 9 && !errors.As(err, &tooLarge) {
-			t.Errorf("%s: %T, want a *netsafe.TooLargeError", c.path, err)
+			t.Errorf("%s: %T, want a *limit.TooLargeError", c.path, err)
 		}
 	}
 
@@ -120,7 +120,7 @@ func TestOpenBound(t *testing.T) {
 	}
 	defer body.Close()
 	var out map[string]string
-	var tooLarge *netsafe.TooLargeError
+	var tooLarge *limit.TooLargeError
 	if err := json.NewDecoder(body).Decode(&out); !errors.As(err, &tooLarge) || tooLarge.Max != 50 {
 		t.Errorf("stream past its bound: %v", err)
 	}

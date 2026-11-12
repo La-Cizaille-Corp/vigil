@@ -21,7 +21,7 @@ import (
 	"unicode"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/clip"
-	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
+	"github.com/La-Cizaille-Corp/vigil/internal/limit"
 )
 
 // NewRequest returns a request made by the client named userAgent. A body
@@ -84,7 +84,7 @@ func Temporary(err error) bool {
 
 // Open sends req with c and returns the body of the answer, which the caller
 // closes. SECURITY: never an unbounded read from the network: past max bytes,
-// reading the body fails with a *netsafe.TooLargeError instead of ending as if
+// reading the body fails with a *limit.TooLargeError instead of ending as if
 // the answer were whole. An answer other than 200 OK is a *StatusError.
 func Open(c *http.Client, req *http.Request, max int64) (io.ReadCloser, error) {
 	// #nosec G704 -- req is made by NewRequest for the fixed address of a
@@ -100,7 +100,7 @@ func Open(c *http.Client, req *http.Request, max int64) (io.ReadCloser, error) {
 	return struct {
 		io.Reader
 		io.Closer
-	}{netsafe.LimitReader(resp.Body, max), resp.Body}, nil
+	}{limit.Reader(resp.Body, max), resp.Body}, nil
 }
 
 // Do sends req with c and decodes the JSON answer into out, read whole and at
@@ -113,7 +113,7 @@ func Do(c *http.Client, req *http.Request, max int64, out any) error {
 	}
 	defer body.Close()
 	data, err := io.ReadAll(body)
-	var tooLarge *netsafe.TooLargeError
+	var tooLarge *limit.TooLargeError
 	switch {
 	case errors.As(err, &tooLarge):
 		return err

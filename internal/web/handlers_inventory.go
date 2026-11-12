@@ -1,12 +1,9 @@
 package web
 
 import (
-	"bytes"
 	"context"
 	"encoding/csv"
-	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"slices"
@@ -19,9 +16,6 @@ import (
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 	"github.com/La-Cizaille-Corp/vigil/internal/versions"
 )
-
-// maxCSVBytes bounds an inventory CSV upload.
-const maxCSVBytes = 2 << 20
 
 // --- CPE search -------------------------------------------------------------
 
@@ -254,20 +248,17 @@ func (s *Server) assetCSV(w http.ResponseWriter, r *http.Request) {
 		}
 		assets = kept
 	}
-	cw := csvDownload(w, "vigil-inventaire")
-	_ = cw.Write(inventory.CSVColumns)
+	rows := make([][]string, 0, len(assets))
 	for _, a := range assets {
-		_ = cw.Write(inventory.CSVRow(a))
+		rows = append(rows, inventory.CSVRow(a))
 	}
-	cw.Flush()
-	if err := cw.Error(); err != nil {
-		s.Log.Warn("csv export failed", "err", err)
-	}
+	s.writeCSV(w, "vigil-inventaire", inventory.CSVColumns, rows)
 }
 
-// assetCSVImport adds the assets of a CSV file. Rows identical to an existing
-// asset (same name, version, purl, CPE and project) are skipped, so that the
-// same file can be imported again after adding lines to it.
+// assetCSVImport adds the assets of a CSV file, all or none. Rows identical
+// to an existing asset (same name, version, purl, CPE and project) are
+// skipped, so that the same file can be imported again after adding lines to
+// it.
 func (s *Server) assetCSVImport(w http.ResponseWriter, r *http.Request) {
 	file, _, err := r.FormFile("csv") // body bounded by limitBody
 	if err != nil {
@@ -275,7 +266,7 @@ func (s *Server) assetCSVImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
-	records, err := readCSV(file)
+	records, err := inventory.ReadCSV(file)
 	var assets []store.Asset
 	if err == nil {
 		assets, err = inventory.AssetsFromCSV(records, time.Now())
@@ -296,18 +287,20 @@ func (s *Server) assetCSVImport(w http.ResponseWriter, r *http.Request) {
 	for _, a := range existing {
 		known[key(a)] = true
 	}
-	added, skipped := 0, 0
+	var fresh []store.Asset
 	for _, a := range assets {
-		if known[key(a)] {
-			skipped++
-			continue
+		if !known[key(a)] {
+			known[key(a)] = true
+			fresh = append(fresh, a)
 		}
-		known[key(a)] = true
-		if _, err := s.Store.CreateAsset(r.Context(), writeScope(r), a); err != nil {
+	}
+	added, skipped := len(fresh), len(assets)-len(fresh)
+	// One transaction: a failure in the middle adds none, as the page says.
+	if added > 0 {
+		if _, err := s.Store.CreateAssets(r.Context(), writeScope(r), fresh); err != nil {
 			s.serverError(w, r, err)
 			return
 		}
-		added++
 	}
 	s.audit(r, "csv_import", fmt.Sprintf("+%d, %d déjà présents", added, skipped))
 	if added > 0 {
@@ -316,43 +309,33 @@ func (s *Server) assetCSVImport(w http.ResponseWriter, r *http.Request) {
 	redirect(w, r, "/assets", "csv-imported")
 }
 
-// readCSV reads a CSV file as written by spreadsheet software: optional
-// UTF-8 BOM, comma, semicolon (Excel in French) or tab separated.
-func readCSV(r io.Reader) ([][]string, error) {
-	data, err := io.ReadAll(io.LimitReader(r, maxCSVBytes+1))
-	if err != nil {
-		return nil, err
-	}
-	if len(data) > maxCSVBytes {
-		return nil, errors.New("fichier supérieur à 2 Mo")
-	}
-	data = bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF})
-	header, _, _ := bytes.Cut(data, []byte("\n"))
-	cr := csv.NewReader(bytes.NewReader(data))
-	commas := bytes.Count(header, []byte(","))
-	switch {
-	case bytes.Count(header, []byte(";")) > commas:
-		cr.Comma = ';'
-	case bytes.Count(header, []byte("\t")) > commas:
-		cr.Comma = '\t'
-	}
-	cr.FieldsPerRecord = -1 // short rows are allowed, missing cells are empty
-	records, err := cr.ReadAll()
-	if err != nil {
-		return nil, fmt.Errorf("fichier CSV illisible : %w", err)
-	}
-	return records, nil
-}
-
-// csvDownload starts a CSV download named after base and today's date. The
-// separator is a semicolon, with decimal commas: what Excel expects in French,
-// and what the import reads back.
-func csvDownload(w http.ResponseWriter, base string) *csv.Writer {
+// writeCSV sends header and rows as a CSV download named after base and
+// today's date: every export goes through it. The separator is a semicolon,
+// with decimal commas written by the caller: what Excel expects in French,
+// and what inventory.ReadCSV reads back. A failure, a client gone most often,
+// stops the writing and is logged once, at the end.
+//
+// SECURITY: every cell is neutralised here against formula injection
+// (inventory.CSVCell): no export can forget it.
+func (s *Server) writeCSV(w http.ResponseWriter, base string, header []string, rows [][]string) {
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s-%s.csv"`, base, time.Now().Format("20060102")))
 	// A BOM lets spreadsheet software detect UTF-8 (accents in French labels).
-	_, _ = w.Write([]byte{0xEF, 0xBB, 0xBF})
+	_, _ = w.Write([]byte{0xEF, 0xBB, 0xBF}) // a failure fails the writes below too
 	cw := csv.NewWriter(w)
 	cw.Comma = ';'
-	return cw
+	cells := make([]string, 0, len(header))
+	for _, row := range append([][]string{header}, rows...) {
+		cells = cells[:0]
+		for _, v := range row {
+			cells = append(cells, inventory.CSVCell(v))
+		}
+		if cw.Write(cells) != nil {
+			break // the error stays: cw.Error reports it below
+		}
+	}
+	cw.Flush()
+	if err := cw.Error(); err != nil {
+		s.Log.Warn("csv export failed", "err", err)
+	}
 }

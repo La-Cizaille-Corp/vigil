@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
@@ -35,6 +36,22 @@ func TestRoundTrip(t *testing.T) {
 	}
 	if _, ok := idx.Match(Statement{VulnID: "CVE-2020-8203", Ref: "pkg:npm/other@1"}); ok {
 		t.Error("matched another component")
+	}
+}
+
+// A VEX saved by a tool on Windows starts with a byte order mark; one past
+// maxSize is refused.
+func TestParseByteOrderMarkAndSize(t *testing.T) {
+	var buf bytes.Buffer
+	if err := Export(&buf, []store.Finding{{VulnID: "CVE-2024-21762", AssetPURL: "pkg:npm/x@1", Status: "exploitable"}}, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := Parse(bytes.NewBufferString("\xef\xbb\xbf" + buf.String())); err != nil || len(st) != 1 {
+		t.Errorf("with a byte order mark: %+v, %v", st, err)
+	}
+	big := bytes.NewBufferString(buf.String() + strings.Repeat(" ", maxSize))
+	if _, err := Parse(big); err == nil || err.Error() != "fichier VEX trop volumineux ou illisible" {
+		t.Errorf("past %d bytes: %v", maxSize, err)
 	}
 }
 

@@ -26,7 +26,13 @@ import (
 // admin "admin" and an analyst "analyst" (password "a-strong-password").
 func newServerWith(t *testing.T, setup func(*Server)) (*store.Store, string) {
 	t.Helper()
-	st, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "web.db"))
+	return newServerAt(t, filepath.Join(t.TempDir(), "web.db"), setup)
+}
+
+// newServerAt is newServerWith on the database file path.
+func newServerAt(t *testing.T, path string, setup func(*Server)) (*store.Store, string) {
+	t.Helper()
+	st, err := store.Open(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}

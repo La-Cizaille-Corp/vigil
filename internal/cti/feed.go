@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/clip"
+	"github.com/La-Cizaille-Corp/vigil/internal/limit"
 	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
 )
 
@@ -47,7 +48,7 @@ func Fetch(ctx context.Context, client *http.Client, url, userAgent string) ([]I
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("réponse HTTP %d", resp.StatusCode)
 	}
-	body, err := netsafe.ReadLimited(resp.Body, maxFeedBytes)
+	body, err := limit.Read(resp.Body, maxFeedBytes)
 	if err != nil {
 		return nil, err
 	}

@@ -17,9 +17,13 @@ func TestCSVRowRoundTrip(t *testing.T) {
 		{Name: "FortiOS", Version: "7.2.4", Kind: "os", Criticality: "critical", CPE: "cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*",
 			Owner: "réseau", Notes: "=HYPERLINK(\"http://evil\")"},
 	}
-	records := [][]string{CSVColumns}
+	rows := [][]string{CSVColumns}
 	for _, a := range in {
-		records = append(records, CSVRow(a))
+		rows = append(rows, CSVRow(a))
+	}
+	records, err := ReadCSV(strings.NewReader(writeCSV(t, rows...)))
+	if err != nil {
+		t.Fatal(err)
 	}
 	if got := records[2][12]; got != `'=HYPERLINK("http://evil")` {
 		t.Errorf("formula not neutralised: %q", got)
@@ -106,13 +110,24 @@ func TestCSVCell(t *testing.T) {
 	}
 }
 
-// writeCSV writes rows as the exports do, with semicolons.
+// writeCSV writes rows as the exports do (web.writeCSV): semicolons, every
+// cell neutralised by CSVCell.
 func writeCSV(t *testing.T, rows ...[]string) string {
 	t.Helper()
 	var b bytes.Buffer
 	w := csv.NewWriter(&b)
 	w.Comma = ';'
-	if err := w.WriteAll(rows); err != nil {
+	for _, row := range rows {
+		cells := make([]string, len(row))
+		for i, v := range row {
+			cells[i] = CSVCell(v)
+		}
+		if err := w.Write(cells); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w.Flush()
+	if err := w.Error(); err != nil {
 		t.Fatal(err)
 	}
 	return b.String()
@@ -139,8 +154,8 @@ func TestCSVCellOtherSeparators(t *testing.T) {
 			}
 		}
 	}
-	if got := CSVRow(store.Asset{Tags: []string{"prod", "=1+1"}})[13]; got != "prod, '=1+1" {
-		t.Errorf("tags cell = %q", got)
+	if got := writeCSV(t, CSVRow(store.Asset{Tags: []string{"prod", "=1+1"}})); !strings.HasSuffix(got, ";prod, '=1+1\n") {
+		t.Errorf("tags cell: %q", got)
 	}
 }
 
@@ -166,5 +181,34 @@ func TestCSVExportImportExact(t *testing.T) {
 		!slices.Equal(got.Tags, in.Tags) {
 		t.Errorf("round trip:\n got %q %q %q %q %q\nwant %q %q %q %q %q", got.Name, got.Owner, got.Project, got.Notes, got.Tags,
 			in.Name, in.Owner, in.Project, in.Notes, in.Tags)
+	}
+}
+
+// A file is read with or without the byte order mark that spreadsheet
+// software on Windows puts in front, and with the separator its header uses.
+func TestReadCSV(t *testing.T) {
+	want := [][]string{{"name", "version"}, {"lodash", "4.17.15"}, {"nginx"}}
+	for name, file := range map[string]string{
+		"semicolons":         "name;version\nlodash;4.17.15\nnginx\n",
+		"semicolons and BOM": "\xef\xbb\xbfname;version\nlodash;4.17.15\nnginx\n",
+		"commas and BOM":     "\xef\xbb\xbfname,version\r\nlodash,4.17.15\r\nnginx\r\n",
+		"tabs":               "name\tversion\nlodash\t4.17.15\nnginx\n",
+	} {
+		got, err := ReadCSV(strings.NewReader(file))
+		if err != nil || !slices.EqualFunc(got, want, slices.Equal) {
+			t.Errorf("%s: %q, %v", name, got, err)
+		}
+	}
+	if _, err := ReadCSV(strings.NewReader("name\n" + strings.Repeat("x", MaxCSVBytes))); err == nil || err.Error() != "fichier supérieur à 2 Mo" {
+		t.Errorf("file past the bound: %v", err)
+	}
+	if _, err := ReadCSV(strings.NewReader("name;notes\nlodash;\"open quote\n")); err == nil || !strings.HasPrefix(err.Error(), "fichier CSV illisible") {
+		t.Errorf("unreadable file: %v", err)
+	}
+	// What the exports write, ReadCSV reads back.
+	rows := [][]string{{"lodash", "a;b\n\"c\""}}
+	if got, err := ReadCSV(strings.NewReader(writeCSV(t, append([][]string{{"name", "notes"}}, rows...)...))); err != nil ||
+		len(got) != 2 || got[0][0] != "name" || !slices.Equal(got[1], rows[0]) {
+		t.Errorf("written then read: %q, %v", got, err)
 	}
 }

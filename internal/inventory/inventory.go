@@ -112,7 +112,7 @@ func FollowPURL(a *store.Asset, old store.Asset) {
 // Tag limits: enough for team, environment, site, application... MaxTagLen
 // is in characters, wherever a tag is read: asset, CSV import, list filters.
 const (
-	MaxTags   = 20
+	maxTags   = 20
 	MaxTagLen = 40
 )
 
@@ -147,7 +147,7 @@ func Validate(a store.Asset) error {
 		}
 	}
 	check(a.Name != "", "le nom est obligatoire")
-	check(len(a.Tags) <= MaxTags, fmt.Sprintf("%d étiquettes au plus", MaxTags))
+	check(len(a.Tags) <= maxTags, fmt.Sprintf("%d étiquettes au plus", maxTags))
 	for _, t := range a.Tags {
 		check(clip.Fits(t, MaxTagLen) && !strings.ContainsAny(t, ",;\x00"),
 			fmt.Sprintf("étiquette « %s » : %d caractères au plus, sans virgule", t, MaxTagLen))
