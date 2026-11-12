@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/La-Cizaille-Corp/vigil/internal/auth"
+	"github.com/La-Cizaille-Corp/vigil/internal/choice"
 	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 	"github.com/La-Cizaille-Corp/vigil/internal/cti"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
@@ -24,8 +26,8 @@ import (
 
 func (s *Server) ctiList(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	filter := store.CTIFilter{Countries: cti.KnownOnly(cti.Countries, q["country"]), Sectors: cti.KnownOnly(cti.Sectors, q["sector"]),
-		Regulations: cti.KnownOnly(cti.Regulations, q["regulation"])}
+	filter := store.CTIFilter{Countries: choice.KnownOnly(cti.Countries, q["country"]), Sectors: choice.KnownOnly(cti.Sectors, q["sector"]),
+		Regulations: choice.KnownOnly(cti.Regulations, q["regulation"])}
 	watched, regulatory := false, q.Get("view") == "regulatory"
 	switch {
 	case regulatory:
@@ -102,7 +104,7 @@ func (s *Server) renderSettings(w http.ResponseWriter, r *http.Request, status i
 	}
 	var hooks []store.Webhook
 	var tokens []store.APIToken
-	if sess, _ := sessionFrom(ctx); sess.User.Role == "admin" {
+	if sess, _ := sessionFrom(ctx); auth.RoleAtLeast(sess.User.Role, auth.RoleAdmin) {
 		if hooks, err = s.Store.ListWebhooks(ctx); err != nil {
 			s.serverError(w, r, err)
 			return
@@ -146,9 +148,9 @@ func (s *Server) saveWatch(w http.ResponseWriter, r *http.Request) {
 // feedTagsFromForm reads the tags a feed applies to its items, or the watched
 // ones: several countries, sectors and regulations each, known values only.
 func feedTagsFromForm(r *http.Request) (country, sectors, regulations string) {
-	return strings.Join(cti.KnownOnly(cti.Countries, r.PostForm["country"]), ","),
-		strings.Join(cti.KnownOnly(cti.Sectors, r.PostForm["sector"]), ","),
-		strings.Join(cti.KnownOnly(cti.Regulations, r.PostForm["regulation"]), ",")
+	return strings.Join(choice.KnownOnly(cti.Countries, r.PostForm["country"]), ","),
+		strings.Join(choice.KnownOnly(cti.Sectors, r.PostForm["sector"]), ","),
+		strings.Join(choice.KnownOnly(cti.Regulations, r.PostForm["regulation"]), ",")
 }
 
 func (s *Server) feedCreate(w http.ResponseWriter, r *http.Request) {
@@ -297,7 +299,7 @@ func (s *Server) webhookTest(w http.ResponseWriter, r *http.Request) {
 // webhookDelivery chooses what a channel receives: digests, alerts or both.
 func (s *Server) webhookDelivery(w http.ResponseWriter, r *http.Request) {
 	alerts := r.PostFormValue("alerts")
-	if inventory.Label(notify.AlertOptions, alerts) == alerts && alerts != "" {
+	if !choice.Has(notify.AlertOptions, alerts) {
 		http.Error(w, "Niveau d'alerte invalide.", http.StatusBadRequest)
 		return
 	}

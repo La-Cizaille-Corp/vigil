@@ -9,8 +9,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/La-Cizaille-Corp/vigil/internal/choice"
 	"github.com/La-Cizaille-Corp/vigil/internal/fr"
-	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
 
@@ -255,7 +255,6 @@ func rated(ad *reportedAdvisory) bool { return ad.stored != nil && ad.stored.Sev
 // compareKept orders the findings of one CVE, the one to keep first: the one a
 // user decided on last, then an open one, then one rated, then the oldest.
 func compareKept(x, y store.FindingTriage, advs map[string]*reportedAdvisory) int {
-	open := func(f store.FindingTriage) bool { return f.Status == "in_triage" || f.Status == "exploitable" }
 	ratedRow := func(f store.FindingTriage) bool { ad := advs[f.VulnID]; return ad != nil && rated(ad) }
 	first := func(b bool) int { // true first
 		if b {
@@ -266,8 +265,8 @@ func compareKept(x, y store.FindingTriage, advs map[string]*reportedAdvisory) in
 	switch {
 	case x.Decision != y.Decision:
 		return first(x.Decision > y.Decision)
-	case open(x) != open(y):
-		return first(open(x))
+	case x.Open() != y.Open():
+		return first(x.Open())
 	case ratedRow(x) != ratedRow(y):
 		return first(ratedRow(x))
 	}
@@ -282,7 +281,7 @@ func divergence(kept, folded store.FindingTriage) string {
 		return ""
 	}
 	return fmt.Sprintf("décision divergente sur %s : « %s », par %s le %s ; la plus récente, celle-ci, est gardée",
-		folded.VulnID, inventory.Label(Statuses, folded.DecidedStatus), folded.DecidedBy, fr.Date(folded.DecidedAt))
+		folded.VulnID, choice.Label(Statuses, folded.DecidedStatus), folded.DecidedBy, fr.Date(folded.DecidedAt))
 }
 
 // NoticeRef is a grouped advisory shown on the finding of one of its CVEs.

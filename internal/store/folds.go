@@ -38,6 +38,9 @@ type FindingTriage struct {
 // Decided reports whether a user decided on the finding.
 func (f FindingTriage) Decided() bool { return f.Decision != 0 }
 
+// Open reports whether the finding is still to triage or to fix.
+func (f FindingTriage) Open() bool { return Finding{Status: f.Status}.Open() }
+
 // lastDecision joins, to the finding aliased f, the last event of its history
 // made by a user (e, through the index finding_events_finding) and its author
 // (u).

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	htmltemplate "html/template"
 	"maps"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/chattext"
+	"github.com/La-Cizaille-Corp/vigil/internal/choice"
 	"github.com/La-Cizaille-Corp/vigil/internal/cti"
 	"github.com/La-Cizaille-Corp/vigil/internal/fr"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
@@ -179,7 +179,7 @@ func newGroup(vendor string) vendorGroup {
 func (g *vendorGroup) add(f store.Finding) {
 	g.Findings = append(g.Findings, f)
 	band := tracking.Band(f)
-	g.Bands[slices.IndexFunc(tracking.Severities, func(o inventory.Option) bool { return o.Value == band })]++
+	g.Bands[choice.Rank(tracking.Severities, band)]++
 	if f.KEV {
 		g.KEV++
 	}
@@ -205,7 +205,7 @@ func Generate(ctx context.Context, st *store.Store) (store.Digest, error) {
 	}
 	d.New = byVendor(news)
 	var open []store.Finding
-	for _, status := range []string{"exploitable", "in_triage"} {
+	for _, status := range []string{store.StatusExploitable, store.StatusInTriage} {
 		fs, err := st.ListFindings(ctx, store.Everything, store.FindingFilter{Status: status, Now: now})
 		if err != nil {
 			return store.Digest{}, err
@@ -265,10 +265,10 @@ func Generate(ctx context.Context, st *store.Store) (store.Digest, error) {
 	return dg, nil
 }
 
-func labels(tags []cti.Tag, values []string) string {
+func labels(tags []choice.Option, values []string) string {
 	out := make([]string, len(values))
 	for i, v := range values {
-		out[i] = cti.Label(tags, v)
+		out[i] = choice.Label(tags, v)
 	}
 	return strings.Join(out, ", ")
 }

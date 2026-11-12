@@ -26,7 +26,7 @@
 {{- if .Data.Grouped}}
 <div class="notice">Avis groupé : chacune de ses CVE a son propre avis pour cet actif ({{.Data.CVEFindings}} vulnérabilité(s)),
   qui la suit. Il n'apparaît plus dans les listes ; son historique reste ci-dessous.
-  {{if and (can .User.Role "analyst") .Data.Apply (ne $f.Status "in_triage")}}
+  {{if and (can .User.Role "analyst") .Data.Apply}}
   <form method="post" action="/findings/bulk" class="inline">
     {{template "csrf" .CSRF}}
     <input type="hidden" name="next" value="/findings">

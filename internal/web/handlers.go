@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
+	"github.com/La-Cizaille-Corp/vigil/internal/choice"
 	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 	"github.com/La-Cizaille-Corp/vigil/internal/digest"
 	"github.com/La-Cizaille-Corp/vigil/internal/fr"
@@ -571,7 +572,7 @@ func (s *Server) findingCSV(w http.ResponseWriter, r *http.Request) {
 		rows = append(rows, []string{strconv.FormatInt(fd.ID, 10), fd.VulnID, strings.Join(fd.Aliases, " "),
 			tracking.SeverityLabel(fd.Severity), fr.Score(fd.CVSS), fr.Score(fd.EPSS * 100),
 			yesNo(fd.KEV), fd.AssetName, fd.AssetVersion, fd.FixedIn, fd.AssetProject,
-			inventory.Label(tracking.Statuses, fd.Status), inventory.Label(tracking.Justifications, fd.Justification),
+			choice.Label(tracking.Statuses, fd.Status), choice.Label(tracking.Justifications, fd.Justification),
 			fd.Comment, fd.FirstSeen.Format(time.DateOnly), due, yesNo(fd.Late), fd.Summary, link})
 	}
 	s.writeCSV(w, "vigil-vulnerabilites", []string{"id", "vulnerabilite", "alias", "severite", "cvss", "epss", "exploitee_kev",
@@ -630,7 +631,7 @@ func (s *Server) findingBulk(w http.ResponseWriter, r *http.Request) {
 // for « not affected » only (as in VEX), and a comment.
 func triageFromForm(r *http.Request) (status, justif, comment string) {
 	status, justif, comment = r.PostFormValue("status"), r.PostFormValue("justification"), r.PostFormValue("comment")
-	if status != "not_affected" {
+	if status != store.StatusNotAffected {
 		justif = ""
 	}
 	return status, justif, comment
@@ -645,17 +646,8 @@ func (s *Server) renderFindingsAt(w http.ResponseWriter, r *http.Request, next, 
 }
 
 // findingFilterFrom reads the filter form. Unknown values and duplicates are
-// dropped, so a crafted URL can only narrow the list (see cti.KnownOnly).
+// dropped, so a crafted URL can only narrow the list (see choice.KnownOnly).
 func findingFilterFrom(q url.Values) store.FindingFilter {
-	keep := func(values []string, allowed []inventory.Option) []string {
-		var out []string
-		for _, v := range values {
-			if inventory.Label(allowed, v) != v && !slices.Contains(out, v) {
-				out = append(out, v)
-			}
-		}
-		return out
-	}
 	number := func(key string, maxValue float64) float64 {
 		v, err := strconv.ParseFloat(strings.ReplaceAll(q.Get(key), ",", "."), 64)
 		if err != nil || v < 0 || v > maxValue {
@@ -664,9 +656,9 @@ func findingFilterFrom(q url.Values) store.FindingFilter {
 		return v
 	}
 	f := store.FindingFilter{
-		Statuses:   keep(q["status"], tracking.Statuses),
-		Severities: keep(q["severity"], severities),
-		Kinds:      keep(q["kind"], inventory.Kinds),
+		Statuses:   choice.KnownOnly(tracking.Statuses, q["status"]),
+		Severities: choice.KnownOnly(severities, q["severity"]),
+		Kinds:      choice.KnownOnly(inventory.Kinds, q["kind"]),
 		KEV:        q.Get("kev") == "1",
 		Priority:   q.Get("priority") == "1",
 		Overdue:    q.Get("overdue") == "1",
@@ -777,9 +769,9 @@ func (s *Server) foldedFindings(r *http.Request, f store.Finding, asset store.As
 		if err != nil {
 			return err
 		}
-		var apply []int64
+		var apply []int64 // only a decision taken is applied
 		for _, row := range rows {
-			if (row.Status != f.Status || row.Justification != f.Justification) && len(apply) < maxBulk {
+			if f.Status != store.StatusInTriage && (row.Status != f.Status || row.Justification != f.Justification) && len(apply) < maxBulk {
 				apply = append(apply, row.ID)
 			}
 		}

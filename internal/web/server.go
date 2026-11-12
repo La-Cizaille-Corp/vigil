@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
+	"github.com/La-Cizaille-Corp/vigil/internal/choice"
 	"github.com/La-Cizaille-Corp/vigil/internal/cti"
 	"github.com/La-Cizaille-Corp/vigil/internal/fr"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
@@ -193,8 +194,8 @@ func (s *Server) routes() []route {
 func (s *Server) parseTemplates() error {
 	funcs := template.FuncMap{
 		"isoDate":     isoDate,
-		"roleLabel":   func(v string) string { return inventory.Label(roles, v) },
-		"roles":       func() []inventory.Option { return roles },
+		"roleLabel":   func(v string) string { return choice.Label(auth.Roles, v) },
+		"roles":       func() []choice.Option { return auth.Roles },
 		"maskURL":     maskURL,
 		"syncFor":     s.syncFor,
 		"tracking":    trackingSource,
@@ -206,34 +207,34 @@ func (s *Server) parseTemplates() error {
 		"dict3": func(countries, sectors, regulations []string) tagSelection {
 			return tagSelection{countries, sectors, regulations}
 		},
-		"kindLabel":         func(v string) string { return inventory.Label(inventory.Kinds, v) },
-		"critLabel":         func(v string) string { return inventory.Label(inventory.Criticalities, v) },
-		"justifLabel":       func(v string) string { return inventory.Label(tracking.Justifications, v) },
+		"kindLabel":         func(v string) string { return choice.Label(inventory.Kinds, v) },
+		"critLabel":         func(v string) string { return choice.Label(inventory.Criticalities, v) },
+		"justifLabel":       func(v string) string { return choice.Label(tracking.Justifications, v) },
 		"can":               auth.RoleAtLeast,
 		"passwordHelp":      func() string { return auth.PasswordHelp },
 		"hasPrefix":         strings.HasPrefix,
 		"lower":             strings.ToLower,
-		"kinds":             func() []inventory.Option { return inventory.Kinds },
-		"criticalities":     func() []inventory.Option { return inventory.Criticalities },
-		"cpeModes":          func() []inventory.Option { return inventory.CPEModes },
-		"severities":        func() []inventory.Option { return severities },
+		"kinds":             func() []choice.Option { return inventory.Kinds },
+		"criticalities":     func() []choice.Option { return inventory.Criticalities },
+		"cpeModes":          func() []choice.Option { return inventory.CPEModes },
+		"severities":        func() []choice.Option { return severities },
 		"ecosystems":        func() []string { return inventory.Ecosystems },
-		"statuses":          func() []inventory.Option { return tracking.Statuses },
-		"justifs":           func() []inventory.Option { return tracking.Justifications },
+		"statuses":          func() []choice.Option { return tracking.Statuses },
+		"justifs":           func() []choice.Option { return tracking.Justifications },
 		"queryable":         inventory.Queryable,
 		"byName":            inventory.ByName,
 		"wholeDistribution": inventory.WholeDistribution,
-		"countryLabel":      func(v string) string { return cti.Label(cti.Countries, v) },
-		"sectorLabel":       func(v string) string { return cti.Label(cti.Sectors, v) },
-		"countries":         func() []cti.Tag { return cti.Countries },
-		"sectors":           func() []cti.Tag { return cti.Sectors },
-		"regulations":       func() []cti.Tag { return cti.Regulations },
-		"regulationLabel":   func(v string) string { return cti.Label(cti.Regulations, v) },
-		"webhookKinds":      func() []inventory.Option { return notify.Kinds },
-		"webhookKindLabel":  func(v string) string { return inventory.Label(notify.Kinds, v) },
+		"countryLabel":      func(v string) string { return choice.Label(cti.Countries, v) },
+		"sectorLabel":       func(v string) string { return choice.Label(cti.Sectors, v) },
+		"countries":         func() []choice.Option { return cti.Countries },
+		"sectors":           func() []choice.Option { return cti.Sectors },
+		"regulations":       func() []choice.Option { return cti.Regulations },
+		"regulationLabel":   func(v string) string { return choice.Label(cti.Regulations, v) },
+		"webhookKinds":      func() []choice.Option { return notify.Kinds },
+		"webhookKindLabel":  func(v string) string { return choice.Label(notify.Kinds, v) },
 		"target":            notify.Target,
-		"alertOptions":      func() []inventory.Option { return notify.AlertOptions },
-		"alertLabel":        func(v string) string { return inventory.Label(notify.AlertOptions, v) },
+		"alertOptions":      func() []choice.Option { return notify.AlertOptions },
+		"alertLabel":        func(v string) string { return choice.Label(notify.AlertOptions, v) },
 		"findingRows": func(list []store.Finding, selectable bool) map[string]any {
 			return map[string]any{"List": list, "Select": selectable, "Head": plainHeaders(findingColumnList)}
 		},

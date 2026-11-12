@@ -155,7 +155,7 @@ func (s *Store) ApplyDismissalRules(ctx context.Context) (int, error) {
 			if err != nil {
 				return err
 			}
-			if err := insertEvent(ctx, tx, m.finding, 0, "in_triage", "not_affected", dismissalComment(m.text), ts); err != nil {
+			if err := insertEvent(ctx, tx, m.finding, 0, StatusInTriage, StatusNotAffected, dismissalComment(m.text), ts); err != nil {
 				return err
 			}
 			done++
@@ -179,7 +179,7 @@ func restoreFindings(ctx context.Context, tx querier, ids []int64, ruleComment, 
 			WHERE id = ?`, ts, ruleComment, id); err != nil {
 			return err
 		}
-		if err := insertEvent(ctx, tx, id, 0, "not_affected", "in_triage", reason, ts); err != nil {
+		if err := insertEvent(ctx, tx, id, 0, StatusNotAffected, StatusInTriage, reason, ts); err != nil {
 			return err
 		}
 	}
