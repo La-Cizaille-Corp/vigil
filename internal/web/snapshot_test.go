@@ -110,6 +110,7 @@ func TestRenderSnapshots(t *testing.T) {
 		"asset.html":         "/assets/" + strconv.FormatInt(forti, 10),
 		"assets.html":        "/assets",
 		"cti.html":           "/cti?all=1",
+		"asset-new.html":     "/assets/new",
 		"digest.html":        digestPath,
 		"digest-markdown.md": digestPath + "/markdown",
 	} {

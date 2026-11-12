@@ -1,6 +1,10 @@
 {{/* csrf: the hidden field of the CSRF token, in every form sent by POST. Data: the token. */}}
 {{define "csrf"}}<input type="hidden" name="csrf" value="{{.}}">{{end}}
 
+{{/* formError: why a form was refused, shown above it, where the browser comes back to (the
+   address of the form ends with its #id, A88). Data: the message (errorAt), "" for none. */}}
+{{define "formError"}}{{with .}}<p class="error" role="alert">{{.}}</p>{{end}}{{end}}
+
 {{/* findingTable: a vulnerability list. Data: findingRows; with Select, checkboxes bound to the
    form id="bulk" of the page, ticked again from Checked; with Back, each row leads back to it.
    On a phone each row is a compact card laid out by the classes of its cells (style.css); the
@@ -30,6 +34,8 @@
 {{end}}
 </tbody>
 </table>
+{{else if .Reset}}
+<p class="muted">Aucune vulnérabilité ne correspond à ces filtres. <a href="{{.Reset}}">Réinitialiser les filtres</a></p>
 {{else}}
 <p class="muted">Aucune vulnérabilité.</p>
 {{end}}
@@ -91,61 +97,82 @@
 {{end}}
 
 
+{{/* assetFields: the form of an asset, in three groups (A88): what is checked, its
+   organisation and its tracked period, folded unless they hold a value or the form was
+   refused (Open). A hint of one line under each field, the long help folded. Data: assetForm. */}}
 {{define "assetFields"}}
-<div class="grid">
-  <label>Nom * <input name="name" value="{{.Name}}" required maxlength="200" placeholder="lodash, nginx, Windows Server…"></label>
-  <label>Version <input name="version" value="{{.Version}}" maxlength="100" placeholder="4.17.21, ou latest"></label>
-  <label>Type
-    <select name="kind">{{range kinds}}<option value="{{.Value}}" {{if eq .Value $.Kind}}selected{{end}}>{{.Label}}</option>{{end}}</select>
-  </label>
-  <label>Criticité
-    <select name="criticality">{{range criticalities}}<option value="{{.Value}}" {{if eq .Value $.Criticality}}selected{{end}}>{{.Label}}</option>{{end}}</select>
-  </label>
-  <label>Responsable <input name="owner" value="{{.Owner}}" maxlength="200"></label>
-  <label>Projet <input name="project" value="{{.Project}}" maxlength="200"></label>
-  <label>Étiquettes, séparées par des virgules <input name="tags" value="{{join .Tags ", "}}" maxlength="900"
-    placeholder="prod, équipe web, site de Lyon…"></label>
-</div>
-{{with .KnownTags}}<p class="muted small">Étiquettes existantes : {{range $i, $t := .}}{{if $i}}, {{end}}{{$t.Tag}}{{end}}.
-  Toute nouvelle étiquette est créée à l'enregistrement.</p>{{end}}
-{{- if or .GroupTags .GroupProjects}}
-<p class="muted small">Votre compte est limité à des groupes : pour y rester, l'actif doit
-  {{with .GroupTags}}porter une de ces étiquettes : {{join . ", "}}{{end}}{{if and .GroupTags .GroupProjects}}, ou {{end}}
-  {{- with .GroupProjects}}appartenir à un de ces projets : {{join . ", "}}{{end}}.</p>{{end}}
 <fieldset class="plain">
-  <legend>Détection des vulnérabilités</legend>
-  <p class="muted small">Renseignez un purl, ou un écosystème avec une version : l'actif est vérifié dans OSV.
-    Si le purl porte une autre version que le champ Version, c'est le champ Version qui est vérifié.
-    Pour une distribution, précisez sa version (<code>Debian:12</code>) et nommez le paquet source (<code>openssl</code>, pas <code>libssl3</code>).
-    Pour un produit ou une technologie sans purl, renseignez un CPE : il est vérifié dans la NVD
-    (pour le trouver : « Trouver son CPE » sur la page Inventaire ; mettez « * » à la place de la version pour suivre le produit
-    entier, et aussi à la place du produit pour suivre tout l'éditeur : <code>cpe:2.3:*:fortinet:*:*:*:*:*:*:*:*:*</code>).
-    Sans purl ni CPE, Vigil cherche le nom de l'actif dans les descriptions des CVE de la NVD : donnez-lui le nom employé
-    par l'éditeur (« Ivanti Connect Secure », « FortiOS »). Moins précise, cette recherche donne des résultats à vérifier.</p>
-  <p class="muted small">Le noyau Linux est un paquet comme un autre : <code>linux</code> dans <code>Debian:12</code>, <code>kernel</code>
-    dans <code>AlmaLinux:9</code>, ou l'écosystème <code>Linux</code> pour le noyau officiel, avec sa version.</p>
-  <p class="muted small">Version <code>latest</code> : l'actif est tenu à jour sur la dernière version publiée. Seules les
-    vulnérabilités sans version corrigée connue sont signalées, et elles sont marquées corrigées dès que le correctif sort.</p>
+  <legend>1. Ce qu'il faut vérifier</legend>
   <div class="grid">
-    <label>purl <input name="purl" value="{{.PURL}}" maxlength="500" placeholder="pkg:npm/lodash@4.17.15"></label>
-    <label>Écosystème
-      <select name="ecosystem">
+    <div><label>Nom <span class="muted">(obligatoire)</span> <input name="name" value="{{.Name}}" required maxlength="200"
+      placeholder="lodash, nginx, Windows Server…" aria-describedby="h-name"></label>
+      <p class="hint" id="h-name">Pour une distribution, le paquet source : openssl, pas libssl3.</p></div>
+    <div><label>Version <input name="version" value="{{.Version}}" maxlength="100" placeholder="4.17.21, ou latest" aria-describedby="h-version"></label>
+      <p class="hint" id="h-version">C'est elle qui est vérifiée ; <code>latest</code> : toujours la dernière.</p></div>
+    <div><label>Type
+      <select name="kind">{{range kinds}}<option value="{{.Value}}" {{if eq .Value $.Kind}}selected{{end}}>{{.Label}}</option>{{end}}</select>
+    </label></div>
+    <div><label>Écosystème
+      <select name="ecosystem" aria-describedby="h-ecosystem">
         <option value="">—</option>
         {{range ecosystems}}<option {{if eq . $.Ecosystem}}selected{{end}}>{{.}}</option>{{end}}
       </select>
     </label>
-    <label>CPE <input name="cpe" value="{{.CPE}}" maxlength="500" placeholder="cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*"></label>
-    <label>Versions suivies dans la NVD (CPE)
+      <p class="hint" id="h-ecosystem">Avec la version, l'actif est vérifié dans OSV.</p></div>
+    <div><label>purl <input name="purl" value="{{.PURL}}" maxlength="500" placeholder="pkg:npm/lodash@4.17.15" aria-describedby="h-purl"></label>
+      <p class="hint" id="h-purl">À la place de l'écosystème : type, nom et version du paquet.</p></div>
+    <div><label>CPE <input name="cpe" value="{{.CPE}}" maxlength="500" placeholder="cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*" aria-describedby="h-cpe"></label>
+      <p class="hint" id="h-cpe">Pour un produit sans purl, vérifié dans la NVD : <a href="/assets/new#produit">trouver son CPE</a>.</p></div>
+    <div><label>Versions suivies dans la NVD (CPE)
       <select name="cpe_mode">{{range cpeModes}}<option value="{{.Value}}" {{if eq .Value $.CPEMode}}selected{{end}}>{{.Label}}</option>{{end}}</select>
-    </label>
-    <label>À partir de la version <input name="cpe_from" value="{{.CPEFrom}}" maxlength="100" placeholder="7.2.0"></label>
-    <label>Vulnérabilités publiées depuis le <input type="date" name="track_since" value="{{.TrackSince}}"></label>
+    </label></div>
+    <div><label>À partir de la version <input name="cpe_from" value="{{.CPEFrom}}" maxlength="100" placeholder="7.2.0" aria-describedby="h-cpe-from"></label>
+      <p class="hint" id="h-cpe-from">Avec « Versions à partir de… ».</p></div>
   </div>
-  <p class="muted small">Période de suivi : par défaut, les 120 jours précédant l'ajout de l'actif, puis toutes les nouvelles
-    vulnérabilités. Celles publiées avant ne sont signalées que si elles sont activement exploitées (CISA KEV).
-    Videz la date pour suivre tout l'historique.</p>
+  <details class="help">
+    <summary>Aide : comment Vigil trouve les vulnérabilités</summary>
+    <p class="muted small">Un purl, ou un écosystème avec une version : l'actif est vérifié dans OSV. Si le purl porte une autre
+      version que le champ Version, c'est le champ Version qui est vérifié. Pour une distribution, précisez sa version
+      (<code>Debian:12</code>) et nommez le paquet source (<code>openssl</code>, pas <code>libssl3</code>). Le noyau Linux est un
+      paquet comme un autre : <code>linux</code> dans <code>Debian:12</code>, <code>kernel</code> dans <code>AlmaLinux:9</code>,
+      ou l'écosystème <code>Linux</code> pour le noyau officiel, avec sa version.</p>
+    <p class="muted small">Un produit ou une technologie sans purl : un CPE, vérifié dans la NVD (« Trouver son CPE » sur la page
+      Ajouter des actifs). Mettez « * » à la place de la version pour suivre le produit entier, et aussi à la place du produit
+      pour suivre tout l'éditeur : <code>cpe:2.3:*:fortinet:*:*:*:*:*:*:*:*:*</code>.</p>
+    <p class="muted small">Sans purl, CPE ni version, Vigil cherche le nom de l'actif dans les descriptions des CVE de la NVD :
+      donnez-lui le nom employé par l'éditeur (« Ivanti Connect Secure », « FortiOS »). Moins précise, cette recherche donne
+      des résultats à vérifier.</p>
+    <p class="muted small">Version <code>latest</code> : l'actif est tenu à jour sur la dernière version publiée. Seules les
+      vulnérabilités sans version corrigée connue sont signalées, et elles sont marquées corrigées dès que le correctif sort.</p>
+  </details>
 </fieldset>
-<label>Notes <textarea name="notes" maxlength="4000" rows="2">{{.Notes}}</textarea></label>
+{{- $restricted := or .GroupTags .GroupProjects}}
+<details class="group"{{if or .Open $restricted .Owner .Project .Notes .Tags (ne .Criticality "medium")}} open{{end}}>
+  <summary>2. Organisation <span class="muted small">(criticité, responsable, projet, étiquettes, notes)</span></summary>
+  <div class="grid">
+    <label>Criticité
+      <select name="criticality">{{range criticalities}}<option value="{{.Value}}" {{if eq .Value $.Criticality}}selected{{end}}>{{.Label}}</option>{{end}}</select>
+    </label>
+    <label>Responsable <input name="owner" value="{{.Owner}}" maxlength="200"></label>
+    <label>Projet <input name="project" value="{{.Project}}" maxlength="200"></label>
+    <label>Étiquettes, séparées par des virgules <input name="tags" value="{{join .Tags ", "}}" maxlength="900"
+      placeholder="prod, équipe web, site de Lyon…"></label>
+  </div>
+  {{with .KnownTags}}<p class="muted small">Étiquettes existantes : {{range $i, $t := .}}{{if $i}}, {{end}}{{$t.Tag}}{{end}}.
+    Toute nouvelle étiquette est créée à l'enregistrement.</p>{{end}}
+  {{- if $restricted}}
+  <p class="muted small">Votre compte est limité à des groupes : pour y rester, l'actif doit
+    {{with .GroupTags}}porter une de ces étiquettes : {{join . ", "}}{{end}}{{if and .GroupTags .GroupProjects}}, ou {{end}}
+    {{- with .GroupProjects}}appartenir à un de ces projets : {{join . ", "}}{{end}}.</p>{{end}}
+  <label>Notes <textarea name="notes" maxlength="4000" rows="2">{{.Notes}}</textarea></label>
+</details>
+<details class="group"{{if .Open}} open{{end}}>
+  <summary>3. Période de suivi <span class="muted small">({{if .TrackSince}}publiées depuis le {{isoDate .TrackSince}}, plus les exploitées{{else}}tout l'historique{{end}})</span></summary>
+  <label class="narrow">Vulnérabilités publiées depuis le <input type="date" name="track_since" value="{{.TrackSince}}"></label>
+  <p class="muted small">Par défaut, les 120 jours précédant l'ajout de l'actif, puis toutes les nouvelles vulnérabilités. Celles
+    publiées avant ne sont signalées que si elles sont activement exploitées (CISA KEV). Videz la date pour suivre tout
+    l'historique.</p>
+</details>
 {{end}}
 
 {{/* accessFields: what an account sees (A68), a choice required for a new

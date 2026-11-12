@@ -147,6 +147,16 @@ func TestValidate(t *testing.T) {
 	if err := Validate(bad); err == nil {
 		t.Fatal("invalid asset accepted")
 	}
+	// A purl that names no package checks nothing (audit UX 7.2, A88).
+	for _, purl := range []string{"pkg:npm", "pkg:npm/", "pkg:npm/@4.17.21", "pkg:/lodash"} {
+		if err := Validate(store.Asset{Name: "x", Kind: "package", Criticality: "low", PURL: purl}); err == nil ||
+			!strings.Contains(err.Error(), "purl incomplet") {
+			t.Errorf("%s: %v", purl, err)
+		}
+	}
+	if err := Validate(store.Asset{Name: "x", Kind: "package", Criticality: "low", PURL: "pkg:npm/%40babel/core"}); err != nil {
+		t.Errorf("scoped purl: %v", err)
+	}
 }
 
 // Only a well-formed CPE 2.3 name is accepted, as nvd.SplitCPE reads it: the

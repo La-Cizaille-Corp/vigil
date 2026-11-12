@@ -218,6 +218,22 @@ form.delivery { display: flex; flex-wrap: wrap; gap: .4rem .6rem; align-items: c
 form.delivery select { width: auto; max-width: 18rem; font-size: .85rem; }
 form.delivery label { margin: 0; }
 form.delivery input[type="search"] { width: auto; min-width: 15rem; }
+/* Adding assets: four ways in, each a link to its form further down the page (A88). */
+.add-ways { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: .75rem; margin: .5rem 0 1.5rem; }
+.add-ways a { display: flex; flex-direction: column; gap: .2rem; padding: .85rem 1rem; color: var(--fg); background: var(--card);
+  border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+.add-ways a:hover { text-decoration: none; border-color: var(--accent); }
+.add-ways strong { color: var(--accent); }
+.add-imports { display: grid; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); gap: 0 1.25rem; }
+section[id] { scroll-margin-top: 4.5rem; } /* below the sticky banner when a link leads there */
+/* A hint of one line under its field; the long help and the optional groups folded. */
+.hint { margin: -.45rem 0 .6rem; font-size: .8rem; color: var(--muted); }
+details.help { margin: .25rem 0 .5rem; }
+details.help > summary, details.group > summary { color: var(--accent); font-weight: 600; }
+details.group { border-top: 1px solid var(--border); padding: .6rem 0 .1rem; }
+details.group[open] > summary { margin-bottom: .6rem; }
+details.group + button { margin-top: .6rem; }
+dl.columns { grid-template-columns: max-content minmax(0, 1fr); gap: .3rem 1rem; }
 ul.rules { list-style: none; padding: 0; margin: .25rem 0 1rem; }
 ul.rules li { display: flex; flex-wrap: wrap; gap: .25rem .75rem; align-items: center; }
 ul.rules form.inline { margin: 0; }
@@ -299,6 +315,8 @@ svg.donut { width: 168px; height: 168px; flex: none; }
   details > summary { padding: .15rem 0; }
   .sort-form { display: flex; flex-wrap: wrap; gap: .5rem .75rem; align-items: flex-end; margin: .25rem 0 .75rem; }
   .sort-form label { flex: 1 1 8rem; margin: 0; }
+  dl.columns { grid-template-columns: minmax(0, 1fr); }
+  dl.columns dd { margin-bottom: .35rem; }
   /* Long lists read as cards on a phone: every column stays visible. */
   table.cards { overflow: visible; border: 0; background: none; box-shadow: none; }
   table.cards thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }

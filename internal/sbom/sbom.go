@@ -41,7 +41,7 @@ func Parse(r io.Reader) (Document, error) {
 		SPDXVersion string `json:"spdxVersion"`
 	}
 	if err := json.Unmarshal(data, &probe); err != nil {
-		return Document{}, fmt.Errorf("SBOM JSON invalide : %w", err)
+		return Document{}, jsonError("", len(data), err)
 	}
 	switch {
 	case probe.BOMFormat == "CycloneDX":
@@ -50,6 +50,48 @@ func Parse(r io.Reader) (Document, error) {
 		return parseSPDX(data)
 	}
 	return Document{}, errors.New("format non reconnu : CycloneDX ou SPDX au format JSON attendu")
+}
+
+// jsonError says in French why a file of size bytes is not a valid SBOM of
+// format ("" when it is not known yet), without the Go names of encoding/json
+// (A4): « ce n'est pas un SBOM CycloneDX valide : components doit être une
+// liste, pas un texte ».
+func jsonError(format string, size int, err error) error {
+	what := "un SBOM au format JSON"
+	if format != "" {
+		what = "un SBOM " + format + " valide"
+	}
+	var syntax *json.SyntaxError
+	var typ *json.UnmarshalTypeError
+	switch {
+	case errors.As(err, &syntax) && syntax.Offset >= int64(size):
+		return fmt.Errorf("ce n'est pas %s : le fichier est incomplet", what)
+	case errors.As(err, &syntax):
+		return fmt.Errorf("ce n'est pas %s : JSON illisible à l'octet %d", what, syntax.Offset)
+	case errors.As(err, &typ) && typ.Field != "":
+		return fmt.Errorf("ce n'est pas %s : %s doit être %s, pas %s", what, strings.TrimPrefix(typ.Field, "."),
+			jsonKind(typ.Type.Kind().String()), jsonKind(typ.Value))
+	}
+	return fmt.Errorf("ce n'est pas %s", what)
+}
+
+// jsonKind names a kind of JSON value, given as encoding/json names it (the
+// value found) or as a Go kind (the value expected).
+func jsonKind(kind string) string {
+	switch kind {
+	case "array", "slice":
+		return "une liste"
+	case "object", "struct", "map":
+		return "un objet"
+	case "string":
+		return "un texte"
+	case "bool":
+		return "vrai ou faux"
+	}
+	if strings.HasPrefix(kind, "number") || strings.HasPrefix(kind, "int") || strings.HasPrefix(kind, "float") {
+		return "un nombre"
+	}
+	return "une autre valeur"
 }
 
 type cdxComponent struct {
@@ -92,7 +134,7 @@ func parseCycloneDX(data []byte) (Document, error) {
 		Components []cdxComponent `json:"components"`
 	}
 	if err := json.Unmarshal(data, &bom); err != nil {
-		return Document{}, fmt.Errorf("CycloneDX invalide : %w", err)
+		return Document{}, jsonError("CycloneDX", len(data), err)
 	}
 	doc := Document{Format: "CycloneDX", Name: bom.Metadata.Component.Name}
 	var walk func([]cdxComponent)
@@ -119,7 +161,7 @@ func parseSPDX(data []byte) (Document, error) {
 		} `json:"packages"`
 	}
 	if err := json.Unmarshal(data, &spdx); err != nil {
-		return Document{}, fmt.Errorf("SPDX invalide : %w", err)
+		return Document{}, jsonError("SPDX", len(data), err)
 	}
 	doc := Document{Format: "SPDX", Name: spdx.Name}
 	for _, p := range spdx.Packages {

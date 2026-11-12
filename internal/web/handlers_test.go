@@ -431,7 +431,7 @@ func TestAuditDetailOfEachAction(t *testing.T) {
 
 	// First setup, on a database of its own.
 	first, fresh := newTestServer(t)
-	if code := newClient(t, fresh).post("/setup", url.Values{"username": {"root"}, "password": {"a-strong-password"}}); code != http.StatusSeeOther {
+	if code := newClient(t, fresh).post("/setup", url.Values{"username": {"root"}, "password": {"a-strong-password"}, "confirm": {"a-strong-password"}}); code != http.StatusSeeOther {
 		t.Fatalf("setup: %d", code)
 	}
 	root, _ := first.AnyUserByName(ctx, "root")
