@@ -464,6 +464,9 @@ func runUser(ctx context.Context, args []string) error {
 	}
 	defer st.Close()
 	id, err := st.CreateUser(ctx, *username, hash, *role)
+	if errors.Is(err, store.ErrExists) {
+		return fmt.Errorf("le nom d'utilisateur %q existe déjà (majuscules et minuscules ne comptent pas)", *username)
+	}
 	if err != nil {
 		return err
 	}

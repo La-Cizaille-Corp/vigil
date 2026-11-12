@@ -26,23 +26,34 @@ var ErrLastAdmin = errors.New("last active administrator")
 // cannot both remove the last one.
 const otherAdmin = `EXISTS (SELECT 1 FROM users o WHERE o.role = 'admin' AND o.disabled_at = '' AND o.id <> users.id)`
 
+// selectAccount reads the columns of an Account (see scanAccount).
+const selectAccount = `SELECT id, username, role, totp_secret <> '', disabled_at <> '', created_at FROM users `
+
+// scanAccount reads a row of selectAccount; no row is ErrNotFound.
+func scanAccount(row interface{ Scan(...any) error }) (Account, error) {
+	var a Account
+	var created string
+	err := row.Scan(&a.ID, &a.Username, &a.Role, &a.TOTP, &a.Disabled, &created)
+	if errors.Is(err, sql.ErrNoRows) {
+		return a, ErrNotFound
+	}
+	a.CreatedAt = parseTime(created)
+	return a, err
+}
+
 // ListAccounts returns every user, active ones first, by name.
 func (s *Store) ListAccounts(ctx context.Context) ([]Account, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, username, role, totp_secret <> '', disabled_at <> '', created_at
-		FROM users ORDER BY disabled_at <> '', username COLLATE NOCASE`)
+	rows, err := s.db.QueryContext(ctx, selectAccount+`ORDER BY disabled_at <> '', username COLLATE NOCASE`)
 	if err != nil {
 		return nil, fmt.Errorf("list accounts: %w", err)
 	}
 	defer rows.Close()
 	var out []Account
 	for rows.Next() {
-		var a Account
-		var created string
-		if err := rows.Scan(&a.ID, &a.Username, &a.Role, &a.TOTP, &a.Disabled, &created); err != nil {
+		a, err := scanAccount(rows)
+		if err != nil {
 			return nil, err
 		}
-		a.CreatedAt = parseTime(created)
 		out = append(out, a)
 	}
 	return out, rows.Err()
@@ -60,29 +71,13 @@ type rowQuerier interface {
 }
 
 func accountByID(ctx context.Context, q rowQuerier, id int64) (Account, error) {
-	var a Account
-	var created string
-	err := q.QueryRowContext(ctx, `
-		SELECT id, username, role, totp_secret <> '', disabled_at <> '', created_at FROM users WHERE id = ?`, id).
-		Scan(&a.ID, &a.Username, &a.Role, &a.TOTP, &a.Disabled, &created)
-	if errors.Is(err, sql.ErrNoRows) {
-		return a, ErrNotFound
-	}
-	a.CreatedAt = parseTime(created)
-	return a, err
+	return scanAccount(q.QueryRowContext(ctx, selectAccount+`WHERE id = ?`, id))
 }
 
-// AccountByName returns one user by name, disabled or not.
+// AccountByName returns one user by its exact name, disabled or not, in a
+// single query whether it exists or not (see the failed sign-in).
 func (s *Store) AccountByName(ctx context.Context, username string) (Account, error) {
-	var id int64
-	err := s.db.QueryRowContext(ctx, `SELECT id FROM users WHERE username = ?`, username).Scan(&id)
-	if errors.Is(err, sql.ErrNoRows) {
-		return Account{}, ErrNotFound
-	}
-	if err != nil {
-		return Account{}, err
-	}
-	return s.AccountByID(ctx, id)
+	return scanAccount(s.db.QueryRowContext(ctx, selectAccount+`WHERE username = ?`, username))
 }
 
 // CreateFirstAdmin creates the first administrator in a single statement, so

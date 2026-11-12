@@ -60,16 +60,16 @@ func (s *Server) userCreate(w http.ResponseWriter, r *http.Request) {
 		s.renderUsers(w, r, http.StatusBadRequest, "Indiquez un nom (64 caractères maximum) et un rôle.", nil)
 		return
 	}
-	if _, err := s.Store.AccountByName(r.Context(), username); err == nil {
-		s.renderUsers(w, r, http.StatusBadRequest, "Ce nom d'utilisateur existe déjà.", nil)
-		return
-	}
 	password, hash, err := temporaryPassword()
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
 	id, err := s.Store.CreateUser(r.Context(), username, hash, role)
+	if errors.Is(err, store.ErrExists) {
+		s.renderUsers(w, r, http.StatusBadRequest, "Ce nom d'utilisateur existe déjà (majuscules et minuscules ne comptent pas).", nil)
+		return
+	}
 	if err != nil {
 		s.serverError(w, r, err)
 		return

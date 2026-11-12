@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -31,15 +32,45 @@ func (s *Store) CountUsers(ctx context.Context) (int, error) {
 	return n, err
 }
 
-// CreateUser inserts a user; passwordHash must already be hashed.
+// CreateUser inserts a user; passwordHash must already be hashed. A name that
+// differs from an existing one only by case is refused (ErrExists): « Alice »
+// and « alice » would be confused in the history and the audit log. Names are
+// compared in Go, as SQLite's NOCASE only folds ASCII letters; the check and
+// the insert share a transaction, so concurrent creations cannot both pass.
+// Accounts that already overlap are kept.
 func (s *Store) CreateUser(ctx context.Context, username, passwordHash, role string) (int64, error) {
-	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)`,
-		username, passwordHash, role, now())
+	var id int64
+	err := s.inTx(ctx, func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx, `SELECT username FROM users`)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				return err
+			}
+			if strings.EqualFold(name, username) {
+				return ErrExists
+			}
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx,
+			`INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)`,
+			username, passwordHash, role, now())
+		if err != nil {
+			return err
+		}
+		id, err = res.LastInsertId()
+		return err
+	})
 	if err != nil {
 		return 0, fmt.Errorf("create user: %w", err)
 	}
-	return res.LastInsertId()
+	return id, nil
 }
 
 // UserByName looks up an active user by username; a disabled one is

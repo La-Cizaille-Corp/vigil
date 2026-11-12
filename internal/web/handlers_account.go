@@ -37,13 +37,27 @@ func (s *Server) totpAttempt(w http.ResponseWriter, r *http.Request, userID int6
 	return key, true
 }
 
-// endOtherSessions logs out the user's other browsers after a security change.
+// endOtherSessions logs out the user's other browsers after a security
+// change, or on demand (see closeOtherSessions).
 func (s *Server) endOtherSessions(r *http.Request, userID int64) error {
 	cookie, err := r.Cookie(s.cookieName())
 	if err != nil {
 		return err
 	}
 	return s.Store.DeleteOtherSessions(r.Context(), userID, auth.HashToken(cookie.Value))
+}
+
+// closeOtherSessions ends the sessions of the signed-in user in other
+// browsers, keeping this one: after signing in on a shared computer, or when
+// a device may be compromised.
+func (s *Server) closeOtherSessions(w http.ResponseWriter, r *http.Request) {
+	sess, _ := sessionFrom(r.Context())
+	if err := s.endOtherSessions(r, sess.User.ID); err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	s.audit(r, "sessions_close", "")
+	redirect(w, r, "/account", "sessions-closed")
 }
 
 func (s *Server) account(w http.ResponseWriter, r *http.Request) {
