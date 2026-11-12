@@ -126,6 +126,37 @@ func TestOpenBound(t *testing.T) {
 	}
 }
 
+// A body cut by the network while read as a stream is a temporary failure:
+// asked again, the answer may come whole. A body that ends early but cleanly
+// is a malformed answer, which would come back the same.
+func TestOpenCut(t *testing.T) {
+	srv := serve(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/short" {
+			io.WriteString(w, `{"id":`)
+			return
+		}
+		w.Header().Set("Content-Length", "1000") // more than is sent: the connection is lost
+		io.WriteString(w, `{"id":`)
+		w.(http.Flusher).Flush()
+		if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
+			conn.Close()
+		}
+	})
+	for path, temporary := range map[string]bool{"/cut": true, "/short": false} {
+		req, _ := sources.NewRequest(context.Background(), http.MethodGet, srv.URL+path, "vigil-test", nil)
+		body, err := sources.Open(srv.Client(), req, 1<<20)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out map[string]string
+		err = json.NewDecoder(body).Decode(&out)
+		body.Close()
+		if err == nil || sources.Temporary(err) != temporary {
+			t.Errorf("%s: %v (temporary %v), want temporary %v", path, err, sources.Temporary(err), temporary)
+		}
+	}
+}
+
 // A temporary failure is tried again after each delay, a definite one is not;
 // tested without waiting, with delays of zero.
 func TestRetry(t *testing.T) {

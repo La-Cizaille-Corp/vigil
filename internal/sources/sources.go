@@ -82,10 +82,26 @@ func Temporary(err error) bool {
 	return errors.As(err, &network)
 }
 
+// cutReader makes a failure of reading a body a *netError, so that Temporary
+// tells it from a malformed answer: the connection was cut or closed (an
+// HTTP/2 GOAWAY, a body shorter than announced), or the time limit came while
+// reading. The end of the body and a body past its bound are left as they are.
+type cutReader struct{ r io.Reader }
+
+func (c cutReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	var tooLarge *netsafe.TooLargeError
+	if err != nil && err != io.EOF && !errors.As(err, &tooLarge) {
+		err = &netError{err}
+	}
+	return n, err
+}
+
 // Open sends req with c and returns the body of the answer, which the caller
 // closes. SECURITY: never an unbounded read from the network: past max bytes,
 // reading the body fails with a *netsafe.TooLargeError instead of ending as if
-// the answer were whole. An answer other than 200 OK is a *StatusError.
+// the answer were whole. An answer other than 200 OK is a *StatusError. A
+// reading cut short fails with an error that Temporary accepts.
 func Open(c *http.Client, req *http.Request, max int64) (io.ReadCloser, error) {
 	// #nosec G704 -- req is made by NewRequest for the fixed address of a
 	// source; it is not an incoming request, whose URL a user would choose.
@@ -100,7 +116,7 @@ func Open(c *http.Client, req *http.Request, max int64) (io.ReadCloser, error) {
 	return struct {
 		io.Reader
 		io.Closer
-	}{netsafe.LimitReader(resp.Body, max), resp.Body}, nil
+	}{cutReader{netsafe.LimitReader(resp.Body, max)}, resp.Body}, nil
 }
 
 // Do sends req with c and decodes the JSON answer into out, read whole and at
@@ -113,12 +129,8 @@ func Do(c *http.Client, req *http.Request, max int64, out any) error {
 	}
 	defer body.Close()
 	data, err := io.ReadAll(body)
-	var tooLarge *netsafe.TooLargeError
-	switch {
-	case errors.As(err, &tooLarge):
-		return err
-	case err != nil:
-		return &netError{err} // connection cut, or time limit reached while reading
+	if err != nil {
+		return err // too large, or cut short (a *netError, see cutReader)
 	}
 	if err := json.Unmarshal(data, out); err != nil {
 		return fmt.Errorf("réponse illisible : %w", err)
