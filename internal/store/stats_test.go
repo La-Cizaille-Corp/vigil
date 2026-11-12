@@ -92,3 +92,61 @@ func TestDashboardStats(t *testing.T) {
 		t.Errorf("top assets: %+v", s.TopAssets)
 	}
 }
+
+// The mean time to fix leaves out the findings of the first sync of their
+// asset: they predate its arrival in Vigil.
+func TestMeanDaysToFixAfterFirstSync(t *testing.T) {
+	ctx := context.Background()
+	st := openTest(t)
+	now := time.Now()
+	server, _ := st.CreateAsset(ctx, Everything, Asset{Name: "server", Kind: "os", Criticality: "high", Source: "manual"})
+	lib, _ := st.CreateAsset(ctx, Everything, Asset{Name: "lib", Kind: "package", Criticality: "low", Source: "manual"})
+	first, next := now.Add(-60*24*time.Hour), now.Add(-10*24*time.Hour)
+	for _, o := range []struct {
+		asset int64
+		vuln  string
+		seen  time.Time
+	}{
+		{server, "CVE-OLD-1", first}, // the first sync of the server: two old vulnerabilities
+		{server, "CVE-OLD-2", first},
+		{server, "CVE-NEW", next}, // a later sync: a new one, fixed in 10 days
+		{lib, "CVE-LIB", next},    // the first sync of the library, later than the server's
+	} {
+		if err := st.UpsertVulnerability(ctx, Vulnerability{ID: o.vuln, Severity: "HIGH", EPSS: -1, CVSS: 7.5}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.ObserveFinding(ctx, o.asset, o.vuln, "", o.seen); err != nil {
+			t.Fatal(err)
+		}
+	}
+	list, _ := st.ListFindings(ctx, Everything, FindingFilter{})
+	fix := func(keep string) {
+		t.Helper()
+		for _, f := range list {
+			if f.VulnID != keep && f.Status != "resolved" {
+				if err := st.SetFindingStatus(ctx, Everything, f.ID, 0, "resolved", "", ""); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		list, _ = st.ListFindings(ctx, Everything, FindingFilter{})
+	}
+
+	// Only findings of first syncs are fixed: no mean yet.
+	fix("CVE-NEW")
+	s, err := st.DashboardStats(ctx, Everything, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Closed90 != 0 || s.MeanDaysToFix != -1 {
+		t.Errorf("first syncs only: closed %d in %.2f days, want none", s.Closed90, s.MeanDaysToFix)
+	}
+	fix("")
+	if s, _ = st.DashboardStats(ctx, Everything, now); s.Closed90 != 1 || s.MeanDaysToFix < 9.9 || s.MeanDaysToFix > 10.1 {
+		t.Errorf("closed %d in %.2f days, want 1 in 10", s.Closed90, s.MeanDaysToFix)
+	}
+	// The activity chart still counts every closing.
+	if closed := s.Weeks[len(s.Weeks)-1].Closed; closed != 4 {
+		t.Errorf("%d closings this week, want 4", closed)
+	}
+}

@@ -559,6 +559,17 @@ serveur calcule la géométrie et produit du SVG ; couleurs par classes CSS (th�
 info-bulle native (`<title>`) sur chaque marque, tableau des données sous chaque graphique, aucun
 attribut `style`. Palettes vérifiées avec un validateur (daltonisme, contraste) : la sévérité est
 une rampe ordinale d'une seule teinte (rouge), l'activité un couple bleu / vert d'eau.
+*Délai moyen (novembre 2026)* : il ne compte plus que les vulnérabilités détectées après la première
+synchronisation de leur actif. Celles de la première synchronisation datent d'avant l'arrivée de l'actif
+dans Vigil : leur délai mesure le rattrapage d'un arriéré, pas la réaction à une vulnérabilité nouvelle, et
+faussait la moyenne. Une synchronisation date de son début toutes les vulnérabilités qu'elle crée, et rien
+d'autre n'en crée : celles de la première synchronisation sont donc celles qui portent la plus ancienne
+date de détection de l'actif, sans colonne ni migration. *Écarté* : enregistrer la date de la première
+synchronisation sur l'actif (exact, mais une migration pour une seule statistique) ; une fenêtre après la
+création de l'actif (une première synchronisation peut attendre l'intervalle, ou échouer). *Conséquence* :
+pour un actif sans vulnérabilité à sa première synchronisation, la première qui en trouve est aussi laissée
+hors de la moyenne ; celle-ci y perd quelques valeurs, sans jamais compter un arriéré. L'activité
+hebdomadaire compte toujours toutes les vulnérabilités traitées.
 
 **A34. Plusieurs pays, secteurs et réglementations par flux, modifiables.** Un flux européen ou
 un site de normalisation couvre souvent plusieurs pays ou textes : un sélecteur unique obligeait

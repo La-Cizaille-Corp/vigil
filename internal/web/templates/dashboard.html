@@ -38,7 +38,7 @@
   <div class="kpi">
     <span class="kpi-label">Délai moyen de traitement</span>
     <span class="kpi-value">{{if ge $s.MeanDaysToFix 0.0}}{{days $s.MeanDaysToFix}}{{else}}—{{end}}</span>
-    <span class="kpi-note">{{$s.Closed90}} vulnérabilité(s) traitée(s) en 90 jours</span>
+    <span class="kpi-note">{{$s.Closed90}} vulnérabilité(s) traitée(s) en 90 jours, hors celles trouvées à la première analyse de leur actif</span>
   </div>
   <a class="kpi" href="/assets">
     <span class="kpi-label">Couverture de détection</span>
