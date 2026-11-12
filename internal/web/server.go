@@ -223,7 +223,6 @@ func (s *Server) parseTemplates() error {
 		"tracking":    trackingSource,
 		"vendorOf":    inventory.VendorName,
 		"wholeVendor": inventory.WholeVendor,
-		"syncStatus":  s.syncStatus,
 		"tags":        splitTags,
 		"dict3": func(countries, sectors, regulations []string) tagSelection {
 			return tagSelection{countries, sectors, regulations}
@@ -247,7 +246,6 @@ func (s *Server) parseTemplates() error {
 		"ecosystems":        func() []string { return inventory.Ecosystems },
 		"statuses":          func() []choice.Option { return tracking.Statuses },
 		"justifs":           func() []choice.Option { return tracking.Justifications },
-		"queryable":         inventory.Queryable,
 		"byName":            inventory.ByName,
 		"wholeDistribution": inventory.WholeDistribution,
 		"checkedVersion":    inventory.CheckedVersion,
@@ -262,7 +260,6 @@ func (s *Server) parseTemplates() error {
 		"webhookKindLabel":  func(v string) string { return choice.Label(notify.Kinds, v) },
 		"target":            notify.Target,
 		"alertOptions":      func() []choice.Option { return notify.AlertOptions },
-		"alertLabel":        func(v string) string { return choice.Label(notify.AlertOptions, v) },
 		// A list that is not sorted by its reader (dashboard, asset page); the
 		// vulnerability list builds its own findingRows.
 		"findingRows": func(list []store.Finding) findingRows {
