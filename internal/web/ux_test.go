@@ -315,7 +315,7 @@ func TestNewsFrequency(t *testing.T) {
 	st.CreateUser(ctx, "admin", hash, auth.RoleAdmin, store.Access{All: true})
 	st.CreateUser(ctx, "bob", hash, auth.RoleViewer, store.Access{All: true})
 	c := loginAs(t, base, "admin", "a-strong-password")
-	_, body := c.get("/settings")
+	_, body := c.get("/settings/feeds")
 	if !strings.Contains(body, `<option value="4" selected>4 fois par jour</option>`) || !strings.Contains(body, "À la demande seulement") {
 		t.Errorf("default frequency not offered:\n%s", body)
 	}
@@ -334,7 +334,7 @@ func TestNewsFrequency(t *testing.T) {
 	if code := viewer.post("/settings/news", url.Values{"csrf": {viewer.csrf()}, "per_day": {"1"}}); code != http.StatusForbidden {
 		t.Errorf("a reader changed the frequency: %d", code)
 	}
-	if _, body := viewer.get("/settings"); !strings.Contains(body, "12 fois par jour") || strings.Contains(body, `name="per_day"`) {
+	if _, body := viewer.get("/settings/feeds"); !strings.Contains(body, "12 fois par jour") || strings.Contains(body, `name="per_day"`) {
 		t.Errorf("reader's view:\n%s", body)
 	}
 }
@@ -344,8 +344,9 @@ func TestNewsFrequency(t *testing.T) {
 func TestLevelWordsInSettings(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	admin := loginAs(t, base, "admin", "a-strong-password")
-	_, body := admin.get("/settings")
-	for _, want := range []string{">Aucune alerte immédiate</option>", ">Urgentes seulement</option>", ">Urgentes et À planifier</option>"} {
+	_, body := admin.get("/settings/webhooks")
+	for _, want := range []string{`value=""> <span>Aucune alerte immédiate`, `value="priority" checked> <span>Urgentes seulement`,
+		`value="severe"> <span>Urgentes et À planifier`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("settings miss %s", want)
 		}

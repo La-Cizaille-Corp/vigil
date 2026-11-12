@@ -110,7 +110,7 @@ serveur, et ce qui change de la 0.3 à la 0.4 : [docs/MISE_A_JOUR.md](docs/MISE_
 
 ### Notifications
 
-Dans **Paramètres → Canaux de notification**, chaque canal (webhook ou e-mail) reçoit les digests,
+Dans **Paramètres → Notifications**, chaque canal (webhook ou e-mail) reçoit les digests,
 les alertes immédiates, ou les deux. L'e-mail demande un serveur SMTP :
 `vigil serve -smtp-addr smtp.example.org:587 -smtp-from vigil@example.org -smtp-username …`, mot de
 passe dans `VIGIL_SMTP_PASSWORD`. Les délais de traitement se règlent dans la même page.

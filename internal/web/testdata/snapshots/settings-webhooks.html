@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notifications · Vigil</title>
+
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<a class="skip" href="#contenu">Aller au contenu</a>
+<header>
+  <a class="brand" href="/"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="logo-shield" d="M12 2 4 5v6c0 5 3.4 9.3 8 11 4.6-1.7 8-6 8-11V5l-8-3Z"/><path class="logo-eye" d="M12 8.5c-2.6 0-4.7 1.6-5.5 3.5.8 1.9 2.9 3.5 5.5 3.5s4.7-1.6 5.5-3.5c-.8-1.9-2.9-3.5-5.5-3.5Zm0 5.5a2 2 0 1 1 0-4 2 2 0 0 1 0 4Z"/></svg>Vigil</a>
+  
+  <nav aria-label="Navigation principale">
+    <a href="/" >Tableau de bord</a>
+    <a href="/assets" >Inventaire</a>
+    <a href="/findings" >Vulnérabilités</a>
+    <a href="/cti" >Veille</a>
+    <a href="/digests" >Digests</a>
+    <a href="/settings" aria-current="page">Paramètres</a>
+  </nav>
+  <form method="post" action="/logout" class="inline">
+    <input type="hidden" name="csrf" value="CSRF">
+    <a class="account-link" href="/account" title="Mon compte" >admin</a>
+    <span class="muted small">administrateur</span>
+    <button type="submit" class="link">Déconnexion</button>
+  </form>
+  
+</header>
+<main id="contenu">
+  <h1>Notifications</h1>
+  
+  
+  <div class="settings">
+  <nav class="settings-nav" aria-label="Sections des paramètres">
+  <p class="settings-group">Alertes</p>
+  <ul><li><a href="/settings/webhooks" aria-current="page">Notifications</a></li><li><a href="/settings/sla">Délais de traitement</a></li></ul>
+  <p class="settings-group">Veille</p>
+  <ul><li><a href="/settings/watch">Filtres de veille</a></li><li><a href="/settings/feeds">Flux</a></li></ul>
+  <p class="settings-group">Accès</p>
+  <ul><li><a href="/settings/users">Utilisateurs</a></li><li><a href="/settings/groups">Groupes</a></li><li><a href="/settings/tokens">Jetons d&#39;API</a></li><li><a href="/settings/audit">Journal d&#39;audit</a></li></ul>
+  
+</nav>
+  <div class="settings-page">
+
+<p class="muted">Chaque canal reçoit les digests et, s'il le souhaite, des <strong>alertes immédiates</strong> envoyées à la fin
+  de chaque synchronisation pour les vulnérabilités ouvertes qui atteignent un niveau : Urgentes (exploitées, probables
+  ou jugées exploitables), et, au choix, À planifier (critiques ou hautes). Une seule alerte par vulnérabilité, sauf si
+  elle devient plus urgente. L'URL d'un webhook est secrète et n'est plus affichée après l'enregistrement.
+  Un canal limité à un groupe d'actifs ne reçoit que les alertes et le digest de ce groupe.</p>
+
+<div class="notice"><strong>Aucun canal pour l'instant.</strong> Sans canal, les urgentes n'apparaissent que dans Vigil.</div>
+
+<p class="muted small">E-mail : aucun serveur SMTP configuré (options <code>-smtp-addr</code> et
+  <code>-smtp-from</code>) ; Slack, Teams, Mattermost ou un webhook restent possibles.</p>
+
+<section id="nouveau-canal">
+<h2>Ajouter un canal</h2>
+
+<form method="post" action="/settings/webhooks#nouveau-canal" class="card">
+  <input type="hidden" name="csrf" value="CSRF">
+  <div class="grid">
+    <label>Nom <input name="name" value="" required maxlength="100"></label>
+    <label>Type <select name="kind"><option value="slack">Slack</option><option value="mattermost">Mattermost</option><option value="teams">Microsoft Teams</option><option value="generic">JSON générique</option><option value="email">E-mail</option></select></label>
+    <label>URL du webhook (https), ou adresses e-mail séparées par des virgules
+      <input name="url" value="" required maxlength="2000" autocomplete="off"></label>
+    
+  </div>
+  <fieldset class="plain">
+    <legend>Alertes immédiates</legend>
+    <label class="check"><input type="radio" name="alerts" value=""> <span>Aucune alerte immédiate
+      <span class="muted small">(digests seulement)</span></span></label>
+    <label class="check"><input type="radio" name="alerts" value="priority" checked> <span>Urgentes seulement
+      <span class="muted small">(exploitées, probables ou jugées exploitables)</span></span></label>
+    <label class="check"><input type="radio" name="alerts" value="severe"> <span>Urgentes et À planifier
+      <span class="muted small">(plus les critiques et les hautes)</span></span></label>
+    
+  </fieldset>
+  <label class="check"><input type="checkbox" name="digests" value="1" checked> Recevoir aussi les digests</label>
+  <div class="toolbar form-actions"><button type="submit">Ajouter le canal</button>
+    <span class="muted small">puis « Envoyer un test » sur la ligne du canal.</span></div>
+</form>
+</section>
+</div>
+  </div>
+</main>
+</body>
+</html>

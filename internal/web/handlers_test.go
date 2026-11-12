@@ -162,6 +162,9 @@ func TestRedirectKeepsTheQuery(t *testing.T) {
 		{"/assets", "asset-deleted", "/assets?msg=asset-deleted"},
 		{"/assets?project=app+web", "sbom-imported", "/assets?project=app+web&msg=sbom-imported"},
 		{"/findings?severity=HIGH", "", "/findings?severity=HIGH"},
+		// A fragment stays last, after the message (A89).
+		{"/settings/tokens#jeton", "token-created", "/settings/tokens?msg=token-created#jeton"},
+		{"/settings/feeds?x=1#contenu", "feed-created", "/settings/feeds?x=1&msg=feed-created#contenu"},
 	} {
 		w := httptest.NewRecorder()
 		redirect(w, httptest.NewRequest(http.MethodPost, "/", nil), c.path, c.msg)

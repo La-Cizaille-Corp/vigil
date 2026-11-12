@@ -219,6 +219,20 @@ func (s *Server) runAssetSync(id int64) {
 	}
 }
 
+// keyGroups writes a key in groups of four characters, easier to copy by
+// hand into an authenticator ("ABCD EFGH IJ"); the applications ignore the
+// spaces (audit UX 8.4).
+func keyGroups(key string) string {
+	var b strings.Builder
+	for i, r := range []rune(key) {
+		if i > 0 && i%4 == 0 {
+			b.WriteByte(' ')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
 // sentences formats error messages for display: Go errors are lowercase
 // without final period, joined by newlines (errors.Join). A line that ends
 // with a colon introduces the next ones, and keeps it.

@@ -1,6 +1,5 @@
 {{define "content"}}
 {{$csrf := .CSRF}}{{$me := .User.ID}}{{$groups := .Data.Groups}}{{$names := .Data.GroupNames}}
-<p><a href="/settings">← Paramètres</a></p>
 <p class="muted">Un compte désactivé ne peut plus se connecter et ses sessions sont fermées aussitôt.
 Il reste nommé dans l'historique de triage et le journal d'audit, et peut être réactivé.</p>
 

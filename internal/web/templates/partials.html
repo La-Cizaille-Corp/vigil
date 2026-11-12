@@ -1,6 +1,14 @@
 {{/* csrf: the hidden field of the CSRF token, in every form sent by POST. Data: the token. */}}
 {{define "csrf"}}<input type="hidden" name="csrf" value="{{.}}">{{end}}
 
+{{/* settingsNav: the menu of the sub-pages of the settings the account may open, in groups, the
+   current one marked, the feeds in failure counted (A89). Data: settingsMenu. */}}
+{{define "settingsNav"}}<nav class="settings-nav" aria-label="Sections des paramètres">
+  {{range .Groups}}<p class="settings-group">{{.Label}}</p>
+  <ul>{{range .Links}}<li><a href="{{.Href}}"{{if .Current}} aria-current="page"{{end}}>{{.Label}}{{with .Failing}} <span class="danger-link small">· {{.}} en échec</span>{{end}}</a></li>{{end}}</ul>
+  {{end}}
+</nav>{{end}}
+
 {{/* formError: why a form was refused, shown above it, where the browser comes back to (the
    address of the form ends with its #id, A88). Data: the message (errorAt), "" for none. */}}
 {{define "formError"}}{{with .}}<p class="error" role="alert">{{.}}</p>{{end}}{{end}}

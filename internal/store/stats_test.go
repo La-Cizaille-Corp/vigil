@@ -184,3 +184,24 @@ func TestFindingsJudgedAtTheGivenTime(t *testing.T) {
 		}
 	}
 }
+
+// Deadlines decrease from Basse to Critique, 0 (none) being the longest
+// (audit UX 8.3, A89).
+func TestSLAOrdered(t *testing.T) {
+	for _, c := range []struct {
+		sla  SLA
+		want bool
+	}{
+		{defaultSLA, true},
+		{SLA{Critical: 15, High: 15, Medium: 15, Low: 15}, true},
+		{SLA{Critical: 15, High: 30, Medium: 90, Low: 0}, true},
+		{SLA{}, true},
+		{SLA{Critical: 15, High: 5, Medium: 90, Low: 180}, false},
+		{SLA{Critical: 0, High: 30, Medium: 90, Low: 180}, false},
+		{SLA{Critical: 15, High: 30, Medium: 200, Low: 180}, false},
+	} {
+		if got := c.sla.Ordered(); got != c.want {
+			t.Errorf("%v: Ordered = %v", c.sla, got)
+		}
+	}
+}

@@ -94,7 +94,8 @@ func (s *Server) tokenCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if t.Name == "" || !clip.Fits(t.Name, maxNameLen) || t.Project == "" || !clip.Fits(t.Project, inventory.MaxProjectLen) ||
 		strings.ContainsAny(t.Project, "/?#") {
-		s.renderSettings(w, r, http.StatusBadRequest, "Indiquez un nom et un projet (sans / ? #).")
+		s.renderTokens(w, r, http.StatusBadRequest, tokenForm{Name: t.Name, Project: t.Project, Group: groupParam(r.PostForm)},
+			"Indiquez un nom et un projet (sans / ? #).")
 		return
 	}
 	// The group, if one is chosen, is looked up before the token is made.
@@ -125,7 +126,7 @@ func (s *Server) tokenCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	// SECURITY: the secret is displayed once, on the page this redirects to.
 	s.keepOnce(r, onceToken, secret)
-	redirect(w, r, "/settings", "token-created")
+	redirect(w, r, "/settings/tokens#jeton", "token-created")
 }
 
 // addProjectToGroup adds the project of a new token to the group g chosen in
@@ -145,6 +146,6 @@ func (s *Server) addProjectToGroup(r *http.Request, g store.Group, project strin
 }
 
 func (s *Server) tokenDelete(w http.ResponseWriter, r *http.Request) {
-	s.change(w, r, change{action: "api_token_delete", to: "/settings", msg: "token-deleted",
+	s.change(w, r, change{action: "api_token_delete", to: "/settings/tokens", msg: "token-deleted",
 		apply: func(id int64) error { return s.Store.DeleteAPIToken(r.Context(), id) }})
 }

@@ -560,6 +560,46 @@ l'inventaire en tient lieu, vide quand l'inventaire l'est. *Conséquences* : un 
 refusé à la prochaine modification de l'actif ; les messages d'ajout changent ; un appel à `/setup` sans
 `confirm` est refusé.
 
+**A89. Les paramètres en sous-pages, un formulaire refusé tel qu'il a été saisi.** L'audit d'ergonomie de la
+0.4.1 (lot 8) mesurait une page de 3 517 px (8 841 sur téléphone) où les canaux, troisième étape de « Pour
+commencer », venaient après les filtres, onze flux et 47 cases ; une erreur de formulaire renvoyait en haut et
+vidait la saisie (un canal en `http://` : le message 2 700 px au-dessus du formulaire, nom et type perdus) ; des
+délais incohérents (haute 5 jours, critique 15) enregistrés sans remarque ; une clé de double authentification
+de 32 caractères d'un bloc.
+- *Sous-pages*, chacune à son adresse, celle où son formulaire envoie déjà : Alertes (Notifications
+  `/settings/webhooks`, Délais de traitement `/settings/sla`), Veille (Filtres `/settings/watch`, Flux
+  `/settings/feeds`), Accès (Utilisateurs, Groupes, Jetons d'API `/settings/tokens`, Journal d'audit). Un menu
+  les liste à côté de la page (au-dessus sur téléphone), la page courante marquée, les flux en échec comptés
+  (« Flux · 1 en échec »). Le menu ne propose que les sous-pages que le rôle ouvre, et il le lit dans la table
+  des routes (`pageRoles`, `opens`) : il ne peut pas offrir une page qui refuse. `/settings` mène à la première :
+  Notifications pour un administrateur, Filtres de veille pour les autres ; rien ne change pour un lecteur, qui
+  voit les filtres et les flux. « Ajouter un flux » est replié. Les sections venues depuis l'audit y ont leur
+  place : Groupes et l'accès des comptes sous Accès, le périmètre d'un canal sur Notifications, le groupe d'un
+  jeton sur Jetons d'API.
+- *Un formulaire refusé revient tel qu'il a été saisi*, son message en lui (le moyen d'A88 : `ErrorAt`, l'ancre
+  dans l'adresse du formulaire) : canal (nom, type, URL, alertes, digests, périmètre), flux (nom, URL,
+  étiquettes), jeton (nom, projet, groupe), délais. Accepté, il mène en haut de sa sous-page, où est son message
+  (`redirect` garde un `#fragment`, sans quoi le navigateur garderait celui du formulaire) ; un jeton créé
+  s'affiche en tête de sa sous-page, et l'adresse y mène (`#jeton`, constat 1.4).
+- *Mots des alertes* : le choix d'un canal se fait par trois boutons, chacun avec ce qu'il couvre (« Urgentes
+  seulement (exploitées, probables ou jugées exploitables) », « Urgentes et À planifier (plus les critiques et
+  les hautes) », « Aucune alerte immédiate (digests seulement) ») ; un canal absent le dit (« Sans canal, les
+  urgentes n'apparaissent que dans Vigil »).
+- *Délais incohérents* : enregistrés, puis signalés sur leur sous-page tant qu'ils ne décroissent pas de Basse à
+  Critique (`SLA.Ordered`, 0 étant le plus long).
+- *Clé de double authentification* par groupes de quatre caractères (`keyGroups`), les applications ignorant
+  les espaces ; son cadre a la largeur de celui du mot de passe.
+
+*Écarté* : refuser des délais incohérents (un choix délibéré reste possible, comme une critique à 0 pour la
+suivre ailleurs) ; un QR code de la clé, rendu par le serveur en SVG : une dépendance ou quelques centaines de
+lignes d'encodage (A26), pour une saisie qui se fait une fois ; garder `/settings` comme page de tous les
+réglages, avec des ancres (une page de 3 500 px, que les sous-pages remplacent) ; une liste des rôles par
+sous-page écrite à part (une seconde politique à tenir à côté de la table des routes). *Conséquences* : cinq
+pages GET nouvelles (`/settings/watch`, `/settings/feeds`, `/settings/webhooks`, `/settings/sla`,
+`/settings/tokens`), dans la table des routes et dans `wantPolicy` ; les liens anciens vers `/settings#canaux`
+mènent à la première sous-page ; l'URL tapée d'un canal refusé revient dans le formulaire de celui qui l'a
+saisie, jamais celle d'un canal enregistré.
+
 **A69. Ce que les sources envoient est vérifié avant d'être stocké.** OSV et la NVD sont des hôtes fixes
 en HTTPS, mais leurs champs étaient stockés tels quels : une sévérité hors de la liste (`IMPORTANT` de
 Red Hat, `NONE`, du HTML) n'entrait dans aucun filtre, pas même « Inconnue », un score CVSS de 1e300

@@ -1,0 +1,23 @@
+{{define "content"}}
+{{$f := .Data.Form}}{{$l := .Data.SLA}}
+<p class="muted">Échéance d'une vulnérabilité ouverte, en jours depuis sa détection, selon sa sévérité. Une vulnérabilité
+  exploitée (CISA KEV) reçoit le délai « critique » ; une sévérité inconnue, le délai « moyenne ». 0 = pas d'échéance.
+  Les valeurs par défaut suivent la directive CISA BOD 19-02 (15 jours pour les critiques, 30 pour les hautes).</p>
+{{- /* Deadlines that grow with the severity are pointed out, not refused (audit UX 8.3, A89). */}}
+{{if not .Data.Ordered}}<p class="notice" role="status">Ces délais ne décroissent pas de Basse à Critique (critique {{$l.Critical}} j,
+  haute {{$l.High}} j, moyenne {{$l.Medium}} j, basse {{$l.Low}} j ; 0 : aucun) : une vulnérabilité plus grave a plus de
+  temps qu'une moins grave. Vérifiez-les.</p>{{end}}
+<section id="delais">
+{{template "formError" (errorAt . "delais")}}
+<form method="post" action="/settings/sla#delais" class="card">
+  {{template "csrf" .CSRF}}
+  <div class="grid">
+    <label>Critique (jours) <input type="number" name="critical" min="0" max="1000" value="{{$f.Critical}}" required></label>
+    <label>Haute (jours) <input type="number" name="high" min="0" max="1000" value="{{$f.High}}" required></label>
+    <label>Moyenne (jours) <input type="number" name="medium" min="0" max="1000" value="{{$f.Medium}}" required></label>
+    <label>Basse (jours) <input type="number" name="low" min="0" max="1000" value="{{$f.Low}}" required></label>
+  </div>
+  <button type="submit">Enregistrer les délais</button>
+</form>
+</section>
+{{end}}

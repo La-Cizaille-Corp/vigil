@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/La-Cizaille-Corp/vigil/internal/auth"
 	"github.com/La-Cizaille-Corp/vigil/internal/choice"
 	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 	"github.com/La-Cizaille-Corp/vigil/internal/cti"
@@ -78,70 +77,14 @@ func (s *Server) ctiRefresh(w http.ResponseWriter, r *http.Request) {
 	redirect(w, r, "/cti", "cti-started")
 }
 
-// --- settings -------------------------------------------------------------
-
-func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
-	s.renderSettings(w, r, http.StatusOK, "")
-}
-
-func (s *Server) renderSettings(w http.ResponseWriter, r *http.Request, status int, formErr string) {
-	ctx := r.Context()
-	watch, err := cti.WatchedFilter(ctx, s.Store)
-	if err != nil {
-		s.serverError(w, r, err)
-		return
-	}
-	regs, err := cti.WatchedRegulations(ctx, s.Store)
-	if err != nil {
-		s.serverError(w, r, err)
-		return
-	}
-	watch.Regulations = regs.Regulations
-	feeds, err := s.Store.ListFeeds(ctx)
-	if err != nil {
-		s.serverError(w, r, err)
-		return
-	}
-	var hooks []store.Webhook
-	var tokens []store.APIToken
-	var groups []store.Group
-	if sess, _ := sessionFrom(ctx); auth.RoleAtLeast(sess.User.Role, auth.RoleAdmin) {
-		if hooks, err = s.Store.ListWebhooks(ctx); err != nil {
-			s.serverError(w, r, err)
-			return
-		}
-		if tokens, err = s.Store.ListAPITokens(ctx); err != nil {
-			s.serverError(w, r, err)
-			return
-		}
-		if groups, err = s.Store.ListGroups(ctx, readScope(r)); err != nil {
-			s.serverError(w, r, err)
-			return
-		}
-	}
-	sla, err := s.Store.SLA(ctx)
-	if err != nil {
-		s.serverError(w, r, err)
-		return
-	}
-	newsPerDay, err := cti.NewsPerDay(ctx, s.Store)
-	if err != nil {
-		s.serverError(w, r, err)
-		return
-	}
-	s.render(w, r, status, "settings", page{Title: "Paramètres", Error: formErr, Data: map[string]any{
-		"Watch": watch, "Feeds": feeds, "Webhooks": hooks, "NewsPerDay": newsPerDay, "NewsFrequencies": cti.NewsFrequencies,
-		"Tokens": tokens, "NewToken": s.newToken(r), "BaseURL": s.BaseURL, "Groups": groups,
-		"SLA": sla, "Mail": s.Notifier != nil && s.Notifier.Mail != nil,
-	}})
-}
+// --- settings (sub-pages in handlers_settings.go) -------------------------
 
 // saveWatch sets the watched countries, sectors and regulations: a setting
 // common to every account, so that an account restricted to groups may not
 // change what the others see (A68, D4).
 func (s *Server) saveWatch(w http.ResponseWriter, r *http.Request) {
 	if sess, _ := sessionFrom(r.Context()); sess.User.Restricted() {
-		s.renderSettings(w, r, http.StatusForbidden,
+		s.renderWatch(w, r, http.StatusForbidden,
 			"Les filtres de veille sont communs à tous les comptes : seul un compte qui voit tout l'inventaire peut les changer.")
 		return
 	}
@@ -155,7 +98,7 @@ func (s *Server) saveWatch(w http.ResponseWriter, r *http.Request) {
 	}
 	countries, sectors, regulations := feedTagsFromForm(r) // what was saved: the known values
 	s.audit(r, "watch_update", "countries", countries, "sectors", sectors, "regulations", regulations)
-	redirect(w, r, "/settings", "watch-saved")
+	redirect(w, r, "/settings/watch#contenu", "watch-saved")
 }
 
 // feedTagsFromForm reads the tags a feed applies to its items, or the watched
@@ -177,17 +120,19 @@ func (s *Server) feedCreate(w http.ResponseWriter, r *http.Request) {
 		Enabled: true,
 	}
 	f.Country, f.Sectors, f.Regulations = feedTagsFromForm(r)
+	// A refusal shows the form again as typed, its message in it (A89).
+	refuse := func(msg string) { s.renderFeeds(w, r, http.StatusBadRequest, feedFormFrom(r), formFeed, msg) }
 	if f.Name == "" || !clip.Fits(f.Name, maxNameLen) {
-		s.renderSettings(w, r, http.StatusBadRequest, "Nom de flux invalide.")
+		refuse("Nom de flux invalide : 1 à 100 caractères.")
 		return
 	}
 	if err := netsafe.ValidateURL(f.URL); err != nil {
-		s.renderSettings(w, r, http.StatusBadRequest, err.Error())
+		refuse(err.Error())
 		return
 	}
 	id, err := s.Store.CreateFeed(r.Context(), f)
 	if errors.Is(err, store.ErrExists) {
-		s.renderSettings(w, r, http.StatusBadRequest, "Ce flux existe déjà.")
+		refuse("Ce flux existe déjà.")
 		return
 	}
 	if err != nil {
@@ -195,7 +140,7 @@ func (s *Server) feedCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "feed_create", "id", id, "name", f.Name, "url", maskURL(f.URL))
-	redirect(w, r, "/settings", "feed-created")
+	redirect(w, r, "/settings/feeds#contenu", "feed-created")
 }
 
 // feedUpdate changes the tags of a feed and applies them to the items
@@ -219,7 +164,7 @@ func (s *Server) feedUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "feed_update", "id", f.ID, "name", f.Name, "url", maskURL(f.URL))
-	redirect(w, r, "/settings", "feed-updated")
+	redirect(w, r, "/settings/feeds", "feed-updated")
 }
 
 func (s *Server) feedToggle(w http.ResponseWriter, r *http.Request) {
@@ -228,12 +173,12 @@ func (s *Server) feedToggle(w http.ResponseWriter, r *http.Request) {
 	if enabled {
 		msg = "feed-enabled"
 	}
-	s.change(w, r, change{action: "feed_toggle", detail: []any{"enabled", enabled}, to: "/settings", msg: msg,
+	s.change(w, r, change{action: "feed_toggle", detail: []any{"enabled", enabled}, to: "/settings/feeds", msg: msg,
 		apply: func(id int64) error { return s.Store.SetFeedEnabled(r.Context(), id, enabled) }})
 }
 
 func (s *Server) feedDelete(w http.ResponseWriter, r *http.Request) {
-	s.change(w, r, change{action: "feed_delete", to: "/settings", msg: "feed-deleted",
+	s.change(w, r, change{action: "feed_delete", to: "/settings/feeds", msg: "feed-deleted",
 		apply: func(id int64) error { return s.Store.DeleteFeed(r.Context(), id) }})
 }
 
@@ -251,12 +196,13 @@ func (s *Server) webhookCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.Group = group.ID
+	// A refusal shows the form again as typed, its message in it (A89).
 	if err := notify.ValidateWebhook(h); err != nil {
-		s.renderSettings(w, r, http.StatusBadRequest, err.Error())
+		s.renderWebhooks(w, r, http.StatusBadRequest, h, err.Error())
 		return
 	}
 	if h.Kind == "email" && (s.Notifier == nil || s.Notifier.Mail == nil) {
-		s.renderSettings(w, r, http.StatusBadRequest,
+		s.renderWebhooks(w, r, http.StatusBadRequest, h,
 			"Aucun serveur SMTP n'est configuré : démarrez Vigil avec -smtp-addr et -smtp-from (voir docs/INSTALL.md).")
 		return
 	}
@@ -271,7 +217,7 @@ func (s *Server) webhookCreate(w http.ResponseWriter, r *http.Request) {
 		detail = append(detail, "group", group.Name)
 	}
 	s.audit(r, "webhook_create", detail...)
-	redirect(w, r, "/settings", "hook-created")
+	redirect(w, r, "/settings/webhooks#contenu", "hook-created")
 }
 
 // channelGroup reads the group a channel is limited to (A68): the zero Group
@@ -296,7 +242,7 @@ func (s *Server) webhookToggle(w http.ResponseWriter, r *http.Request) {
 	if enabled {
 		msg = "hook-enabled"
 	}
-	s.change(w, r, change{action: "webhook_toggle", detail: []any{"enabled", enabled}, to: "/settings", msg: msg,
+	s.change(w, r, change{action: "webhook_toggle", detail: []any{"enabled", enabled}, to: "/settings/webhooks", msg: msg,
 		apply: func(id int64) error { return s.Store.SetWebhookEnabled(r.Context(), id, enabled) }})
 }
 
@@ -304,7 +250,7 @@ func (s *Server) webhookToggle(w http.ResponseWriter, r *http.Request) {
 func (s *Server) newsFrequency(w http.ResponseWriter, r *http.Request) {
 	n, err := strconv.Atoi(r.PostFormValue("per_day"))
 	if err != nil || !slices.Contains(cti.NewsFrequencies, n) {
-		s.renderSettings(w, r, http.StatusBadRequest, "Fréquence de collecte invalide.")
+		s.renderFeeds(w, r, http.StatusBadRequest, feedForm{}, formNews, "Fréquence de collecte invalide.")
 		return
 	}
 	if err := s.Store.SetSetting(r.Context(), cti.SettingNewsPerDay, strconv.Itoa(n)); err != nil {
@@ -312,7 +258,7 @@ func (s *Server) newsFrequency(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "news_frequency", "per_day", n)
-	redirect(w, r, "/settings", "news-updated")
+	redirect(w, r, "/settings/feeds#contenu", "news-updated")
 }
 
 // webhookTest sends a short message to a channel, to check its settings without
@@ -331,7 +277,7 @@ func (s *Server) webhookTest(w http.ResponseWriter, r *http.Request) {
 		msg, sent = "hook-test-failed", false
 	}
 	s.audit(r, "webhook_test", "id", h.ID, "target", notify.Target(h), "sent", sent)
-	redirect(w, r, "/settings", msg)
+	redirect(w, r, "/settings/webhooks", msg)
 }
 
 // webhookDelivery chooses what a channel receives: digests, alerts or both,
@@ -348,7 +294,7 @@ func (s *Server) webhookDelivery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.change(w, r, change{action: "webhook_delivery", detail: []any{"digests", digests, "alerts", alerts, "group", group.Name},
-		to: "/settings", msg: "hook-updated",
+		to: "/settings/webhooks", msg: "hook-updated",
 		apply: func(id int64) error { return s.Store.SetWebhookDelivery(r.Context(), id, digests, alerts, group.ID) }})
 }
 
@@ -363,7 +309,8 @@ func (s *Server) slaSave(w http.ResponseWriter, r *http.Request) {
 	}
 	l := store.SLA{Critical: days("critical"), High: days("high"), Medium: days("medium"), Low: days("low")}
 	if !l.Valid() {
-		s.renderSettings(w, r, http.StatusBadRequest, fmt.Sprintf("Indiquez des délais entre 0 (aucun) et %d jours.", store.MaxSLADays))
+		typed := slaForm{r.PostFormValue("critical"), r.PostFormValue("high"), r.PostFormValue("medium"), r.PostFormValue("low")}
+		s.renderSLA(w, r, http.StatusBadRequest, typed, fmt.Sprintf("Indiquez des délais entre 0 (aucun) et %d jours.", store.MaxSLADays))
 		return
 	}
 	if err := s.Store.SetSLA(r.Context(), l); err != nil {
@@ -371,7 +318,7 @@ func (s *Server) slaSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "sla_update", "critical", l.Critical, "high", l.High, "medium", l.Medium, "low", l.Low)
-	redirect(w, r, "/settings", "sla-saved")
+	redirect(w, r, "/settings/sla#contenu", "sla-saved")
 }
 
 // auditList shows the most recent entries of the audit log.
@@ -385,7 +332,7 @@ func (s *Server) auditList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) webhookDelete(w http.ResponseWriter, r *http.Request) {
-	s.change(w, r, change{action: "webhook_delete", to: "/settings", msg: "hook-deleted",
+	s.change(w, r, change{action: "webhook_delete", to: "/settings/webhooks", msg: "hook-deleted",
 		apply: func(id int64) error { return s.Store.DeleteWebhook(r.Context(), id) }})
 }
 

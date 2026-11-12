@@ -74,6 +74,10 @@ type Server struct {
 	once     onceStore     // values shown once after a redirect
 	limiter  *auth.Limiter // failed attempts per client (see clientKey), or per user from a session
 	accounts *auth.Limiter // failed sign-ins per account name
+
+	// pageRoles is the least role of each route, by pattern: what a menu
+	// may offer (see opens).
+	pageRoles map[string]string
 }
 
 // Handler builds the routes and middleware.
@@ -91,7 +95,9 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux := http.NewServeMux()
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(static)))
 
+	s.pageRoles = map[string]string{}
 	for _, rt := range s.routes() {
+		s.pageRoles[rt.pattern] = rt.role
 		switch {
 		case rt.role == public:
 			mux.HandleFunc(rt.pattern, rt.handler)
@@ -161,17 +167,21 @@ func (s *Server) routes() []route {
 		{"POST /assets/import", auth.RoleAnalyst, s.sbomImport},
 		{"GET /cti", auth.RoleViewer, s.ctiList},
 		{"POST /cti/refresh", auth.RoleAnalyst, s.ctiRefresh},
-		{"GET /settings", auth.RoleViewer, s.settings},
+		{"GET /settings", auth.RoleViewer, s.settingsHome},
+		{"GET /settings/watch", auth.RoleViewer, s.watchSettings},
 		{"POST /settings/watch", auth.RoleAnalyst, s.saveWatch},
+		{"GET /settings/feeds", auth.RoleViewer, s.feedSettings},
 		{"POST /settings/feeds", auth.RoleAdmin, s.feedCreate},
 		{"POST /settings/news", auth.RoleAdmin, s.newsFrequency},
 		{"POST /settings/feeds/{id}", auth.RoleAdmin, s.feedUpdate},
 		{"POST /settings/feeds/{id}/toggle", auth.RoleAdmin, s.feedToggle},
 		{"POST /settings/feeds/{id}/delete", auth.RoleAdmin, s.feedDelete},
+		{"GET /settings/webhooks", auth.RoleAdmin, s.webhookSettings},
 		{"POST /settings/webhooks", auth.RoleAdmin, s.webhookCreate},
 		{"POST /settings/webhooks/{id}", auth.RoleAdmin, s.webhookDelivery},
 		{"POST /settings/webhooks/{id}/toggle", auth.RoleAdmin, s.webhookToggle},
 		{"POST /settings/webhooks/{id}/test", auth.RoleAdmin, s.webhookTest},
+		{"GET /settings/sla", auth.RoleAdmin, s.slaSettings},
 		{"POST /settings/sla", auth.RoleAdmin, s.slaSave},
 		{"GET /settings/audit", auth.RoleAdmin, s.auditList},
 		{"GET /settings/users", auth.RoleAdmin, s.userList},
@@ -191,6 +201,7 @@ func (s *Server) routes() []route {
 		{"POST /settings/users/totp-policy", auth.RoleAdmin, s.userTOTPPolicy},
 		{"GET /sync", auth.RoleViewer, s.syncPage},
 		{"POST /settings/webhooks/{id}/delete", auth.RoleAdmin, s.webhookDelete},
+		{"GET /settings/tokens", auth.RoleAdmin, s.tokenSettings},
 		{"POST /settings/tokens", auth.RoleAdmin, s.tokenCreate},
 		{"POST /settings/tokens/{id}/delete", auth.RoleAdmin, s.tokenDelete},
 		// Token-authenticated API for CI pipelines (no session, no CSRF: no cookie is used).
@@ -216,6 +227,7 @@ func (s *Server) parseTemplates() error {
 		},
 		"link":              func(href, text string) textLink { return textLink{href, text} },
 		"errorAt":           errorAt,
+		"keyGroups":         keyGroups,
 		"accessForm":        accessForm,
 		"newAccessForm":     newAccessForm,
 		"kindLabel":         func(v string) string { return choice.Label(inventory.Kinds, v) },
@@ -311,6 +323,7 @@ type page struct {
 	// there (errorAt), not at its top, and the address of the form ends with
 	// that #id, so that the browser comes back to it (A88).
 	ErrorAt string
+	Menu    *settingsMenu // on a page of the settings, the menu of their sub-pages (A89)
 	Data    any
 }
 
@@ -331,6 +344,14 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name
 	}
 	p.Path = r.URL.Path
 	p.Error = sentences(p.Error)
+	if current, ok := settingsPages[name]; ok && p.User != nil {
+		menu, err := s.settingsMenuFor(r.Context(), p.User.Role, current)
+		if err != nil {
+			s.serverError(w, r, err)
+			return
+		}
+		p.Menu = &menu
+	}
 	t, ok := s.pages[name]
 	if !ok {
 		s.serverError(w, r, errors.New("unknown template "+name))
@@ -387,7 +408,7 @@ var flashes = map[string]string{ // #nosec G101 -- message keys, not credentials
 	"password-changed":  "Mot de passe modifié ; vos autres sessions ont été fermées.",
 	"sessions-closed":   "Vos autres sessions ont été fermées ; celle-ci reste ouverte.",
 	"token-deleted":     "Jeton révoqué.",
-	"token-created":     "Jeton créé.",
+	"token-created":     "Jeton créé : copiez-le ci-dessous, il ne sera plus affiché.",
 	"user-created":      "Compte créé.",
 	"password-reset":    "Mot de passe provisoire généré ; les sessions de l'utilisateur sont fermées.",
 	"user-updated":      "Rôle modifié ; il s'applique aussitôt.",
@@ -407,14 +428,21 @@ var flashes = map[string]string{ // #nosec G101 -- message keys, not credentials
 }
 
 // redirect sends the browser to path once a form is done, with the message
-// msg (a key of flashes) if any; path may already hold a query string.
+// msg (a key of flashes) if any; path may already hold a query string, and
+// end with a #fragment. A form whose address ends with one (A88) gives one
+// here too: the browser would otherwise keep it, and land on the form
+// instead of the message.
 func redirect(w http.ResponseWriter, r *http.Request, path, msg string) {
+	path, fragment, _ := strings.Cut(path, "#")
 	if msg != "" {
 		sep := "?"
 		if strings.Contains(path, "?") {
 			sep = "&"
 		}
 		path += sep + "msg=" + url.QueryEscape(msg)
+	}
+	if fragment != "" {
+		path += "#" + fragment
 	}
 	http.Redirect(w, r, path, http.StatusSeeOther)
 }
