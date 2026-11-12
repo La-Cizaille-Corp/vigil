@@ -13,6 +13,7 @@ import (
 
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
 	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
+	"github.com/La-Cizaille-Corp/vigil/internal/sources/nvd"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
 
@@ -157,7 +158,9 @@ func (d *Document) add(name, version, purl, cpe string, isOS bool) {
 	a := store.Asset{Name: name, Kind: kind, Version: version, PURL: purl, CPE: cpe, Source: "sbom",
 		TrackSince: inventory.DefaultSince(time.Now())}
 	inventory.Normalize(&a)
-	if !strings.HasPrefix(a.CPE, "cpe:2.3:") {
+	// A component is kept by its purl: a CPE that is not a CPE 2.3 name is
+	// dropped, rather than the component with it (see inventory.Validate).
+	if _, ok := nvd.SplitCPE(a.CPE); !ok {
 		a.CPE = ""
 	}
 	if inventory.Validate(a) != nil {

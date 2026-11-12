@@ -71,8 +71,9 @@ func (e *netError) Unwrap() error { return e.err }
 
 // Temporary reports whether a request that failed with err (from Open or Do)
 // may succeed if sent again: the network failed, or the source answered 429
-// (too many requests) or 5xx. A refusal, an answer too large or unreadable
-// would fail the same way.
+// (too many requests) or 5xx. A refusal, a redirect refused by
+// netsafe.CheckRedirect, an answer too large or unreadable would fail the
+// same way.
 func Temporary(err error) bool {
 	var status *StatusError
 	if errors.As(err, &status) {
@@ -90,6 +91,9 @@ func Open(c *http.Client, req *http.Request, max int64) (io.ReadCloser, error) {
 	// #nosec G704 -- req is made by NewRequest for the fixed address of a
 	// source; it is not an incoming request, whose URL a user would choose.
 	resp, err := c.Do(req)
+	if errors.As(err, new(*netsafe.RedirectError)) {
+		return nil, err // refused by the policy of the client, not by the network
+	}
 	if err != nil {
 		return nil, &netError{err}
 	}

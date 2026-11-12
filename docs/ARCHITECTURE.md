@@ -117,7 +117,7 @@ libellé français ; les messages d'erreur Go restent en minuscules (convention 
 forme de phrase à l'affichage. Leur langue suit leur lecteur : français pour une erreur faite pour
 l'écran ou la ligne de commande (saisie, fichier importé, URL refusée, collecte déjà en cours),
 anglais pour une erreur interne et pour le journal du service, messages comme clés, que lisent aussi
-des outils. La raison technique d'un échec de source reste celle de la source (`status 503`,
+des outils. La raison technique d'un échec de source reste celle de la source (`HTTP 503`,
 `HTTP 404 (Invalid apiKey.)`). L'audit de code de novembre 2026 en relevait deux exceptions ; dix-sept
 messages du journal étaient en fait en français, tous passés en anglais.
 
@@ -185,7 +185,12 @@ qui garde les deux-points échappés des noms du dictionnaire (`lemonldap\:\:ng`
 les 13 champs d'un CPE 2.3 : requêtes NVD, recherche dans le dictionnaire, versions corrigées et
 éditeur ou produit de l'inventaire l'appellent ; `inventory` l'importe comme il importe déjà `osv`
 pour les purl. Écarté : un découpage par « : » à chaque endroit, qui refusait ces CPE au suivi et
-les coupait en deux dans la recherche.
+les coupait en deux dans la recherche. `SplitCPE` vérifie aussi la forme : champs non vides, partie
+`a`, `o`, `h` ou `*`, ni espace ni caractère de contrôle, pas de barre oblique finale. Un actif
+n'accepte que ces CPE (`inventory.Validate` ne vérifiait que le préfixe `cpe:2.3:`, et la NVD
+refusait les autres à chaque synchronisation) ; le CPE mal formé d'un composant de SBOM est retiré,
+le composant gardé par son purl. Un nom d'éditeur ou de produit s'affiche sans ses échappements
+(`nvd.Unescape` : `lemonldap::ng`, `At&t`), la valeur stockée et envoyée à la NVD les gardant.
 
 **A12. Un actif avec purl et CPE n'est interrogé que par son purl.** Interroger les deux
 doublerait les alertes (GHSA et CVE pour la même faille) et le CPE est moins précis. Il n'y a pas
@@ -381,7 +386,8 @@ la raison est l'en-tête `message` de la NVD ou le champ `message` d'une répons
 de 200 caractères au plus. Une lecture qui dépasse sa borne échoue (`netsafe.LimitReader`, sur lequel
 repose désormais `ReadLimited`), en flux aussi pour les pages de `/v1/query`. Une requête est renvoyée
 après une panne du réseau, à l'aller comme pendant la lecture, un 429 ou un 5xx, et le 403 de la limite
-de débit de la NVD ; pas après un autre refus, ni après une réponse trop grosse ou illisible, qui
+de débit de la NVD ; pas après un autre refus, une redirection refusée par `netsafe.CheckRedirect`
+(`netsafe.RedirectError` : vers une URL non https, ou plus de 5), une réponse trop grosse ou illisible, qui
 échoueraient de même. Les plafonds de lecture ne changent pas. Les clients ont la même forme : `URL` (vide : l'API publique), `HTTP` (donné par
 `main`), `UserAgent` ; `kev.Client.Catalogue` et `epss.Client.Scores` remplacent les fonctions libres, et
 le `Syncer` porte ces deux clients au lieu d'un client HTTP et de deux URL. OSV reçoit de `main` une copie
@@ -535,7 +541,7 @@ provisoires y passent aussi, sans effet : aucune entrée n'a leur forme (vérifi
 
 *Conséquences* : un mot de passe déjà en place reste valable jusqu'à son prochain changement ; une
 variante d'un mot de passe courant (un chiffre ajouté) passe ; la licence MIT de SecLists accompagne
-chaque archive de release.
+chaque archive de release et l'image Docker (`/usr/share/doc/vigil/`, avec celle de Vigil).
 
 **A21. TOTP implémenté en interne.** RFC 6238 en une trentaine de lignes (vecteurs de la RFC en
 test) plutôt qu'une bibliothèque. Anti-rejeu atomique en base, essais limités, désactivation
@@ -849,7 +855,9 @@ option `-nom` peut venir de `VIGIL_NOM` ; la ligne de commande l'emporte. Convie
 **A28. Binaire d'abord, Docker en option.** Le binaire Go suffit (systemd fourni). L'image
 existe pour les équipes dont l'exploitation passe par des conteneurs : distroless, non-root,
 lecture seule hors `/data`. Le Compose d'exemple ajoute Caddy pour le HTTPS automatique, puisque
-l'image n'écoute pas en clair sur le réseau sans proxy.
+l'image n'écoute pas en clair sur le réseau sans proxy. Elle porte les licences des archives de
+release (celle de Vigil et celle de la liste SecLists embarquée, dans `/usr/share/doc/vigil/`) :
+un test les rapproche de `.goreleaser.yaml`, et la CI les relit dans l'image construite.
 
 **A29. Releases vérifiables.** GoReleaser : builds reproductibles (`-trimpath`, horodatage du
 commit), six plateformes, checksums, SBOM par archive, attestation de provenance signée ; release

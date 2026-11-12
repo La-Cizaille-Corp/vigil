@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -123,6 +124,41 @@ func TestOpenBound(t *testing.T) {
 	var tooLarge *netsafe.TooLargeError
 	if err := json.NewDecoder(body).Decode(&out); !errors.As(err, &tooLarge) || tooLarge.Max != 50 {
 		t.Errorf("stream past its bound: %v", err)
+	}
+}
+
+// A redirect refused by netsafe.CheckRedirect, to plain HTTP or one too many,
+// is not a failure of the network: it is not sent again, for it would be
+// refused the same way.
+func TestRefusedRedirectIsDefinite(t *testing.T) {
+	ctx := context.Background()
+	plain := serve(t, func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, `{"id":"A"}`) })
+	var srv *httptest.Server
+	srv = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/insecure":
+			http.Redirect(w, r, plain.URL, http.StatusFound)
+		case "/loop":
+			http.Redirect(w, r, srv.URL+"/loop", http.StatusFound)
+		}
+	}))
+	defer srv.Close()
+	client := srv.Client()
+	client.CheckRedirect = netsafe.CheckRedirect()
+	for path, want := range map[string]string{"/insecure": "redirection vers une URL non https refusée", "/loop": "trop de redirections"} {
+		calls := 0
+		err := sources.Retry(ctx, []time.Duration{0, 0}, func() (bool, error) {
+			calls++
+			req, err := sources.NewRequest(ctx, http.MethodGet, srv.URL+path, "vigil-test", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = sources.Do(client, req, 100, new(map[string]string))
+			return sources.Temporary(err), err
+		})
+		if err == nil || !strings.Contains(err.Error(), want) || sources.Temporary(err) || calls != 1 {
+			t.Errorf("%s: %d calls, %v (temporary %v), want one call and %q", path, calls, err, sources.Temporary(err), want)
+		}
 	}
 }
 
