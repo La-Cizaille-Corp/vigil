@@ -228,8 +228,8 @@ func TestSourcePURL(t *testing.T) {
 		"pkg:rpm/redhat/kernel-core@5.14.0-362.el9?arch=x86_64":                                           "pkg:rpm/redhat/kernel@5.14.0-362.el9",
 		"pkg:rpm/redhat/openssl-libs@3.0.7-24.el9?upstream=openssl-3.0.7-24.el9.src.rpm":                  "pkg:rpm/redhat/openssl@3.0.7-24.el9",
 	} {
-		if got := SourcePURL(in); got != want {
-			t.Errorf("SourcePURL(%q) = %q, want %q", in, got, want)
+		if got := sourcePURL(in); got != want {
+			t.Errorf("sourcePURL(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

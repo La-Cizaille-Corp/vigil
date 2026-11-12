@@ -331,7 +331,7 @@ func PURLVersion(purl string) string {
 // without the release it compares the version with the advisories of all of
 // them, where any version of Debian 12 is below the fix of Debian 14.
 func PURLQuery(purl, version string) Query {
-	source := SourcePURL(purl)
+	source := sourcePURL(purl)
 	if version != "" && purlDecode(version) != PURLVersion(purl) {
 		source = WithoutVersion(source)
 	}
@@ -407,11 +407,11 @@ func releaseEcosystem(namespace, distro string) string {
 	return ""
 }
 
-// SourcePURL returns a purl without what OSV cannot match: its qualifiers, and
+// sourcePURL returns a purl without what OSV cannot match: its qualifiers, and
 // the name of a binary package. OSV files the packages of a distribution under
 // their source package: the upstream qualifier of an SBOM (linux-image-amd64,
 // upstream=linux) gives it, as kernelSource does for the names of a kernel.
-func SourcePURL(purl string) string {
+func sourcePURL(purl string) string {
 	purl, _, _ = strings.Cut(purl, "#")
 	base, rawQualifiers, _ := strings.Cut(purl, "?")
 	slash := strings.LastIndex(base, "/")
