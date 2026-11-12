@@ -209,6 +209,7 @@ func (s *Server) parseTemplates() error {
 		"statusLabel":   func(v string) string { return inventory.Label(tracking.Statuses, v) },
 		"justifLabel":   func(v string) string { return inventory.Label(tracking.Justifications, v) },
 		"can":           auth.RoleAtLeast,
+		"passwordHelp":  func() string { return auth.PasswordHelp },
 		"join":          strings.Join,
 		"hasPrefix":     strings.HasPrefix,
 		"lower":         strings.ToLower,

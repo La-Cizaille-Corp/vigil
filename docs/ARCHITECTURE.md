@@ -515,7 +515,10 @@ ligne malgré la limitation des tentatives, ou hors ligne sur une base volée. L
 de 12 caractères ou plus, tirés de SecLists (provenance, extraction et licence dans
 [DEPENDENCIES.md](DEPENDENCIES.md)), sont embarqués dans le binaire (`//go:embed`, 42 Ko) et
 refusés, casse ignorée, par `auth.HashPassword`, par où passe déjà tout mot de passe choisi :
-installation, « Mon compte », `vigil user add` et `vigil user reset-password`. Les mots de passe
+installation, « Mon compte », `vigil user add` et `vigil user reset-password`. Les aides le disent,
+d'une seule phrase (`auth.PasswordHelp` : « 12 caractères minimum, et pas l'un des plus courants ») :
+à côté des champs de l'installation et de « Mon compte », avec le mot de passe provisoire de
+Paramètres → Utilisateurs, et dans l'aide et l'invite de la ligne de commande. Les mots de passe
 provisoires y passent aussi, sans effet : aucune entrée n'a leur forme (vérifié par test). Écarté :
 - *le service Pwned Passwords* (Have I Been Pwned, par k-anonymat) : un hôte sortant de plus à
   chaque choix de mot de passe, un échec quand la machine ne l'atteint pas (réseau fermé), un

@@ -59,6 +59,8 @@ Usage :
   vigil user reset-totp -username nom | -all [-db fichier]
   vigil version
 
+Mot de passe de user add et user reset-password : ` + auth.PasswordHelp + `.
+
 La base par défaut se trouve dans le dossier de configuration de l'utilisateur
 (variable VIGIL_DB pour la changer). Clé NVD facultative : VIGIL_NVD_API_KEY.
 Chaque option peut aussi venir de l'environnement : -sync-interval → VIGIL_SYNC_INTERVAL ;
@@ -557,7 +559,7 @@ func auditCLI(ctx context.Context, st *store.Store, action, detail string) {
 func readPassword() (string, error) {
 	fd := int(os.Stdin.Fd())
 	if term.IsTerminal(fd) {
-		fmt.Fprint(os.Stderr, "Mot de passe : ")
+		fmt.Fprint(os.Stderr, "Mot de passe ("+auth.PasswordHelp+") : ")
 		b, err := term.ReadPassword(fd)
 		fmt.Fprintln(os.Stderr)
 		return string(b), err
