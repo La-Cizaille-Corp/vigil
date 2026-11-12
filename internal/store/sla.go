@@ -14,8 +14,8 @@ type SLA struct {
 	Critical, High, Medium, Low int
 }
 
-// DefaultSLA follows common practice: CISA BOD 19-02 for critical and high.
-var DefaultSLA = SLA{Critical: 15, High: 30, Medium: 90, Low: 180}
+// defaultSLA follows common practice: CISA BOD 19-02 for critical and high.
+var defaultSLA = SLA{Critical: 15, High: 30, Medium: 90, Low: 180}
 
 // MaxSLADays bounds a deadline (about three years).
 const MaxSLADays = 1000
@@ -47,25 +47,25 @@ func (l SLA) Valid() bool {
 	return true
 }
 
-// SLA returns the remediation deadlines, DefaultSLA until they are set.
+// SLA returns the remediation deadlines, defaultSLA until they are set.
 func (s *Store) SLA(ctx context.Context) (SLA, error) {
 	v, err := s.Setting(ctx, slaKey)
 	if err != nil || v == "" {
-		return DefaultSLA, err
+		return defaultSLA, err
 	}
 	parts := strings.Split(v, ",")
 	if len(parts) != 4 {
-		return DefaultSLA, nil
+		return defaultSLA, nil
 	}
 	var days [4]int
 	for i, p := range parts {
 		if days[i], err = strconv.Atoi(p); err != nil {
-			return DefaultSLA, nil
+			return defaultSLA, nil
 		}
 	}
 	l := SLA{Critical: days[0], High: days[1], Medium: days[2], Low: days[3]}
 	if !l.Valid() {
-		return DefaultSLA, nil
+		return defaultSLA, nil
 	}
 	return l, nil
 }

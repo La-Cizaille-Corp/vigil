@@ -49,7 +49,6 @@ type Finding struct {
 	Comment       string
 	FixedIn       string // versions fixing it for the asset, "" when unknown (see tracking.FixedIn)
 	FirstSeen     time.Time
-	UpdatedAt     time.Time
 	Due           time.Time // remediation deadline (see SLA), zero without one
 	Late          bool      // open and past its deadline
 }
@@ -82,23 +81,11 @@ type FindingFilter struct {
 	Overdue    bool     // open and past the remediation deadline
 	Search     string   // substring of the vulnerability id, aliases, summary or asset name
 	Matching   string   // text a dismissal rule would look for (see previewMatchExpr)
-	Sort       string   // "cvss", "epss", "recent" (default) or "" handled by the caller
-}
 
-// inClause adds "column IN (?, ?...)" for a non-empty list.
-func inClause(where []string, args []any, column string, values []string) ([]string, []any) {
-	if len(values) == 0 {
-		return where, args
-	}
-	marks := strings.TrimSuffix(strings.Repeat("?, ", len(values)), ", ")
-	for _, v := range values {
-		args = append(args, v)
-	}
-	return append(where, column+" IN ("+marks+")"), args
+	// Now is the time Overdue and Late are judged at, so that a page agrees
+	// with the figures computed at the same time; zero is the current time.
+	Now time.Time
 }
-
-// likeEscaper protects LIKE wildcards in user search terms.
-var likeEscaper = strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`)
 
 // VulnModified returns the stored "modified" date of a vulnerability.
 func (s *Store) VulnModified(ctx context.Context, id string) (string, bool, error) {
@@ -107,7 +94,7 @@ func (s *Store) VulnModified(ctx context.Context, id string) (string, bool, erro
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", false, nil
 	}
-	return m, err == nil, err
+	return m, err == nil, wrap("vulnerability modified "+id, err)
 }
 
 // UpsertVulnerability inserts or refreshes an advisory.
@@ -141,7 +128,7 @@ func (s *Store) Vulnerability(ctx context.Context, id string) (Vulnerability, er
 		return v, ErrNotFound
 	}
 	if err != nil {
-		return v, err
+		return v, fmt.Errorf("vulnerability %s: %w", id, err)
 	}
 	if err := json.Unmarshal([]byte(aliases), &v.Aliases); err != nil {
 		return v, fmt.Errorf("decode aliases of %s: %w", id, err)
@@ -234,34 +221,17 @@ func (s *Store) AutoResolveStale(ctx context.Context, assetID int64, reported []
 	ts := now()
 	closed := 0
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
-		rows, err := tx.QueryContext(ctx, `
-			SELECT f.id, f.vuln_id, f.status FROM findings f JOIN vulnerabilities v ON v.id = f.vuln_id
+		open, err := collect(ctx, tx, "open findings", scanFindingState, `
+			SELECT f.id, f.status, f.vuln_id FROM findings f JOIN vulnerabilities v ON v.id = f.vuln_id
 			WHERE f.asset_id = ? AND f.status IN ('in_triage', 'exploitable') AND `+inPeriod,
 			assetID, since, since)
 		if err != nil {
 			return err
 		}
-		type stale struct {
-			id     int64
-			status string
-		}
-		var list []stale
-		for rows.Next() {
-			var st stale
-			var vulnID string
-			if err := rows.Scan(&st.id, &vulnID, &st.status); err != nil {
-				_ = rows.Close() // already failing, or fully read
-				return err
+		for _, st := range open {
+			if still[st.vulnID] {
+				continue
 			}
-			if !still[vulnID] {
-				list = append(list, st)
-			}
-		}
-		_ = rows.Close() // already failing, or fully read
-		if err := rows.Err(); err != nil {
-			return err
-		}
-		for _, st := range list {
 			if _, err := tx.ExecContext(ctx, `
 				UPDATE findings SET status = 'resolved', auto_resolved = 1, updated_at = ? WHERE id = ?`,
 				ts, st.id); err != nil {
@@ -274,7 +244,25 @@ func (s *Store) AutoResolveStale(ctx context.Context, assetID int64, reported []
 		}
 		return nil
 	})
-	return closed, err
+	if err != nil {
+		return 0, fmt.Errorf("auto-resolve findings of asset %d: %w", assetID, err)
+	}
+	return closed, nil
+}
+
+// findingState is a finding about to change status: its id, its status, and
+// the vulnerability or the rule it refers to.
+type findingState struct {
+	id     int64
+	status string
+	vulnID string
+}
+
+// scanFindingState reads id, status and, if selected, the vulnerability.
+func scanFindingState(row scanner) (findingState, error) {
+	var st findingState
+	err := row.Scan(&st.id, &st.status, &st.vulnID)
+	return st, err
 }
 
 // ListFindings returns the findings of the scope with their asset and
@@ -284,6 +272,11 @@ func (s *Store) ListFindings(ctx context.Context, sc Scope, f FindingFilter) ([]
 	if err != nil {
 		return nil, err
 	}
+	at := f.Now
+	if at.IsZero() {
+		at = time.Now()
+	}
+	today := day(at)
 	cond, condArgs := sc.cond("a")
 	where := []string{cond}
 	args := append(sla.args(), condArgs...) // the deadline column of findingSelect comes first
@@ -330,8 +323,8 @@ func (s *Store) ListFindings(ctx context.Context, sc Scope, f FindingFilter) ([]
 		args = append(args, f.MinEPSS)
 	}
 	if f.Overdue {
-		where = append(where, "f.status IN "+openStatuses+" AND "+dueExpr+" < date('now')")
-		args = append(args, sla.args()...)
+		where = append(where, "f.status IN "+openStatuses+" AND "+dueExpr+" < ?")
+		args = append(append(args, sla.args()...), today)
 	}
 	if f.Search != "" {
 		where = append(where, `(f.vuln_id LIKE ? ESCAPE '\' OR v.aliases LIKE ? ESCAPE '\'
@@ -344,30 +337,10 @@ func (s *Store) ListFindings(ctx context.Context, sc Scope, f FindingFilter) ([]
 		args = append(args, f.Matching, f.Matching, f.Matching)
 	}
 	// #nosec G202 -- only fixed expressions, the scope's included, are joined; the values are parameters.
-	q := findingSelect + " WHERE " + strings.Join(where, " AND ")
-	switch f.Sort {
-	case "cvss":
-		q += " ORDER BY v.cvss DESC, f.first_seen DESC, f.id DESC"
-	case "epss":
-		q += " ORDER BY v.epss DESC, f.first_seen DESC, f.id DESC"
-	default:
-		q += " ORDER BY f.first_seen DESC, f.id DESC"
-	}
-
-	rows, err := s.db.QueryContext(ctx, q, args...)
-	if err != nil {
-		return nil, fmt.Errorf("list findings: %w", err)
-	}
-	defer rows.Close()
-	var out []Finding
-	for rows.Next() {
-		fd, err := scanFinding(rows)
-		if err != nil {
-			return nil, fmt.Errorf("scan finding: %w", err)
-		}
-		out = append(out, fd)
-	}
-	return out, rows.Err()
+	q := findingSelect + " WHERE " + strings.Join(where, " AND ") + " ORDER BY f.first_seen DESC, f.id DESC"
+	return collect(ctx, s.db, "list findings", func(row scanner) (Finding, error) {
+		return scanFinding(row, today)
+	}, q, args...)
 }
 
 // Finding returns one finding of the scope: ErrNotFound outside of it.
@@ -378,11 +351,11 @@ func (s *Store) Finding(ctx context.Context, sc Scope, id int64) (Finding, error
 	}
 	cond, condArgs := sc.cond("a")
 	args := append(append(sla.args(), id), condArgs...)
-	fd, err := scanFinding(s.db.QueryRowContext(ctx, findingSelect+" WHERE f.id = ? AND "+cond, args...))
+	fd, err := scanFinding(s.db.QueryRowContext(ctx, findingSelect+" WHERE f.id = ? AND "+cond, args...), day(time.Now()))
 	if errors.Is(err, sql.ErrNoRows) {
 		return fd, ErrNotFound
 	}
-	return fd, err
+	return fd, wrap("finding", err)
 }
 
 // openStatuses are the statuses of findings still to triage or to fix.
@@ -392,7 +365,7 @@ const openStatuses = `('in_triage', 'exploitable')`
 // vulnerability; the deadline column takes the SLA arguments first.
 const (
 	findingColumns = `f.id, f.asset_id, a.name, a.version, a.purl, a.cpe, a.project, f.vuln_id, v.aliases, v.summary, v.severity,
-	       v.cvss, v.kev, v.epss, f.status, f.justification, f.comment, f.fixed_in, f.first_seen, f.updated_at, ` + dueExpr
+	       v.cvss, v.kev, v.epss, f.status, f.justification, f.comment, f.fixed_in, f.first_seen, ` + dueExpr
 	findingFrom = `
 	FROM findings f
 	JOIN assets a ON a.id = f.asset_id
@@ -400,14 +373,15 @@ const (
 	findingSelect = "SELECT " + findingColumns + findingFrom
 )
 
-// scanFinding reads the columns of findingSelect, then extra ones if given.
-func scanFinding(row interface{ Scan(...any) error }, extra ...any) (Finding, error) {
+// scanFinding reads the columns of findingSelect, then extra ones if given; a
+// finding is late when its deadline is before today (see day).
+func scanFinding(row scanner, today string, extra ...any) (Finding, error) {
 	var fd Finding
-	var aliases, first, updated string
+	var aliases, first string
 	var due sql.NullString
 	dest := append([]any{&fd.ID, &fd.AssetID, &fd.AssetName, &fd.AssetVersion,
 		&fd.AssetPURL, &fd.AssetCPE, &fd.AssetProject, &fd.VulnID, &aliases,
-		&fd.Summary, &fd.Severity, &fd.CVSS, &fd.KEV, &fd.EPSS, &fd.Status, &fd.Justification, &fd.Comment, &fd.FixedIn, &first, &updated,
+		&fd.Summary, &fd.Severity, &fd.CVSS, &fd.KEV, &fd.EPSS, &fd.Status, &fd.Justification, &fd.Comment, &fd.FixedIn, &first,
 		&due}, extra...)
 	if err := row.Scan(dest...); err != nil {
 		return fd, err
@@ -415,10 +389,9 @@ func scanFinding(row interface{ Scan(...any) error }, extra ...any) (Finding, er
 	if err := json.Unmarshal([]byte(aliases), &fd.Aliases); err != nil {
 		return fd, fmt.Errorf("decode aliases of %s: %w", fd.VulnID, err)
 	}
-	fd.FirstSeen, fd.UpdatedAt = parseTime(first), parseTime(updated)
+	fd.FirstSeen = parseTime(first)
 	if due.Valid {
-		fd.Due, _ = time.Parse(time.DateOnly, due.String)
-		today := time.Now().UTC().Format(time.DateOnly)
+		fd.Due, _ = time.Parse(time.DateOnly, due.String) // written by SQLite's date()
 		fd.Late = (fd.Status == "in_triage" || fd.Status == "exploitable") && due.String < today
 	}
 	return fd, nil
@@ -428,7 +401,7 @@ func scanFinding(row interface{ Scan(...any) error }, extra ...any) (Finding, er
 // records it in the history.
 func (s *Store) SetFindingStatus(ctx context.Context, sc Scope, id, userID int64, status, justification, comment string) error {
 	ts := now()
-	return s.inTx(ctx, func(tx *sql.Tx) error {
+	return wrap("set finding status", s.inTx(ctx, func(tx *sql.Tx) error {
 		old, err := findingStatus(ctx, tx, sc, id)
 		if err != nil {
 			return err
@@ -439,7 +412,7 @@ func (s *Store) SetFindingStatus(ctx context.Context, sc Scope, id, userID int64
 			return err
 		}
 		return insertEvent(ctx, tx, id, userID, old, status, comment, ts)
-	})
+	}))
 }
 
 // StatusChange is a triage decision for one finding.
@@ -489,56 +462,41 @@ func (s *Store) SetFindingStatuses(ctx context.Context, sc Scope, userID int64, 
 func (s *Store) FindingEvents(ctx context.Context, sc Scope, findingID int64) ([]FindingEvent, error) {
 	cond, args := sc.cond("a")
 	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
-	rows, err := s.db.QueryContext(ctx, `
+	return collect(ctx, s.db, "list finding events", func(row scanner) (FindingEvent, error) {
+		var e FindingEvent
+		var created string
+		err := row.Scan(&e.Username, &e.OldStatus, &e.NewStatus, &e.Comment, &created)
+		e.CreatedAt = parseTime(created)
+		return e, err
+	}, `
 		SELECT COALESCE(u.username, ''), e.old_status, e.new_status, e.comment, e.created_at
 		FROM finding_events e JOIN findings f ON f.id = e.finding_id JOIN assets a ON a.id = f.asset_id
 		LEFT JOIN users u ON u.id = e.user_id
 		WHERE e.finding_id = ? AND `+cond+` ORDER BY e.id`, append([]any{findingID}, args...)...)
-	if err != nil {
-		return nil, fmt.Errorf("list finding events: %w", err)
-	}
-	defer rows.Close()
-	var out []FindingEvent
-	for rows.Next() {
-		var e FindingEvent
-		var created string
-		if err := rows.Scan(&e.Username, &e.OldStatus, &e.NewStatus, &e.Comment, &created); err != nil {
-			return nil, err
-		}
-		e.CreatedAt = parseTime(created)
-		out = append(out, e)
-	}
-	return out, rows.Err()
 }
 
 // CountFindingsByStatus returns the number of findings of the scope per status.
 func (s *Store) CountFindingsByStatus(ctx context.Context, sc Scope) (map[string]int, error) {
 	cond, args := sc.cond("a")
 	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
-	rows, err := s.db.QueryContext(ctx, `SELECT f.status, COUNT(*) FROM findings f JOIN assets a ON a.id = f.asset_id
+	counts, err := collect(ctx, s.db, "count findings", scanCount, `SELECT f.status, COUNT(*) FROM findings f JOIN assets a ON a.id = f.asset_id
 		WHERE `+cond+` GROUP BY f.status`, args...)
 	if err != nil {
-		return nil, fmt.Errorf("count findings: %w", err)
+		return nil, err
 	}
-	defer rows.Close()
-	out := map[string]int{}
-	for rows.Next() {
-		var st string
-		var n int
-		if err := rows.Scan(&st, &n); err != nil {
-			return nil, err
-		}
-		out[st] = n
+	out := make(map[string]int, len(counts))
+	for _, c := range counts {
+		out[c.key] = c.n
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // findingStatus returns the status of a finding of the scope, ErrNotFound when
 // it does not exist or is outside the scope.
-func findingStatus(ctx context.Context, tx *sql.Tx, sc Scope, id int64) (string, error) {
+func findingStatus(ctx context.Context, q querier, sc Scope, id int64) (string, error) {
 	cond, args := sc.cond("a")
 	var status string
-	err := tx.QueryRowContext(ctx, `SELECT f.status FROM findings f JOIN assets a ON a.id = f.asset_id
+	err := q.QueryRowContext(ctx, `SELECT f.status FROM findings f JOIN assets a ON a.id = f.asset_id
 		WHERE f.id = ? AND `+cond, append([]any{id}, args...)...).Scan(&status)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", ErrNotFound
@@ -546,49 +504,38 @@ func findingStatus(ctx context.Context, tx *sql.Tx, sc Scope, id int64) (string,
 	return status, err
 }
 
-func insertEvent(ctx context.Context, tx *sql.Tx, findingID, userID int64, old, status, comment, ts string) error {
-	var uid any
-	if userID != 0 {
-		uid = userID
-	}
-	_, err := tx.ExecContext(ctx, `
+// insertEvent records a change of status in the history of a finding.
+func insertEvent(ctx context.Context, q querier, findingID, userID int64, old, status, comment, ts string) error {
+	_, err := q.ExecContext(ctx, `
 		INSERT INTO finding_events (finding_id, user_id, old_status, new_status, comment, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)`, findingID, uid, old, status, comment, ts)
+		VALUES (?, ?, ?, ?, ?, ?)`, findingID, nullID(userID), old, status, comment, ts)
 	return err
-}
-
-func nonNil(s []string) []string {
-	if s == nil {
-		return []string{}
-	}
-	return s
 }
 
 // VulnCVEs returns, for every stored vulnerability, its CVE identifiers
 // (its own id when it is a CVE, plus its CVE aliases).
 func (s *Store) VulnCVEs(ctx context.Context) (map[string][]string, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	pairs, err := collect(ctx, s.db, "list vulnerability CVEs", func(row scanner) ([2]string, error) {
+		var p [2]string
+		err := row.Scan(&p[0], &p[1])
+		return p, err
+	}, `
 		SELECT id, id FROM vulnerabilities WHERE id LIKE 'CVE-%'
 		UNION
 		SELECT v.id, j.value FROM vulnerabilities v, json_each(v.aliases) j WHERE j.value LIKE 'CVE-%'`)
 	if err != nil {
-		return nil, fmt.Errorf("list vulnerability CVEs: %w", err)
+		return nil, err
 	}
-	defer rows.Close()
 	out := map[string][]string{}
-	for rows.Next() {
-		var id, cve string
-		if err := rows.Scan(&id, &cve); err != nil {
-			return nil, err
-		}
-		out[id] = append(out[id], cve)
+	for _, p := range pairs {
+		out[p[0]] = append(out[p[0]], p[1])
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // SetExploitSignals stores KEV and EPSS data for a vulnerability.
 func (s *Store) SetExploitSignals(ctx context.Context, id string, kev bool, kevDue string, epss float64) error {
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE vulnerabilities SET kev = ?, kev_due = ?, epss = ? WHERE id = ?`, kev, kevDue, epss, id)
-	return err
+	return wrap("set exploit signals of "+id, err)
 }

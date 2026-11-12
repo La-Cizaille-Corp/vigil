@@ -171,3 +171,12 @@ func TestResetAllTOTP(t *testing.T) {
 		t.Errorf("session of an account without second factor ended: %v", err)
 	}
 }
+
+// An unknown account has no second factor to read: ErrNotFound, as for the
+// other lookups, rather than the driver's "no rows".
+func TestUserTOTPOfUnknownUser(t *testing.T) {
+	st := openTest(t)
+	if _, _, _, err := st.UserTOTP(context.Background(), 42); !errors.Is(err, ErrNotFound) {
+		t.Errorf("UserTOTP of an unknown user: %v, want ErrNotFound", err)
+	}
+}

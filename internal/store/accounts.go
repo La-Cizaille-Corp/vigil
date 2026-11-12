@@ -30,7 +30,7 @@ const otherAdmin = `EXISTS (SELECT 1 FROM users o WHERE o.role = 'admin' AND o.d
 const selectAccount = `SELECT id, username, role, totp_secret <> '', disabled_at <> '', created_at FROM users `
 
 // scanAccount reads a row of selectAccount; no row is ErrNotFound.
-func scanAccount(row interface{ Scan(...any) error }) (Account, error) {
+func scanAccount(row scanner) (Account, error) {
 	var a Account
 	var created string
 	err := row.Scan(&a.ID, &a.Username, &a.Role, &a.TOTP, &a.Disabled, &created)
@@ -43,20 +43,7 @@ func scanAccount(row interface{ Scan(...any) error }) (Account, error) {
 
 // ListAccounts returns every user, active ones first, by name.
 func (s *Store) ListAccounts(ctx context.Context) ([]Account, error) {
-	rows, err := s.db.QueryContext(ctx, selectAccount+`ORDER BY disabled_at <> '', username COLLATE NOCASE`)
-	if err != nil {
-		return nil, fmt.Errorf("list accounts: %w", err)
-	}
-	defer rows.Close()
-	var out []Account
-	for rows.Next() {
-		a, err := scanAccount(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, a)
-	}
-	return out, rows.Err()
+	return collect(ctx, s.db, "list accounts", scanAccount, selectAccount+`ORDER BY disabled_at <> '', username COLLATE NOCASE`)
 }
 
 // AccountByID returns one user, disabled or not.
@@ -64,20 +51,22 @@ func (s *Store) AccountByID(ctx context.Context, id int64) (Account, error) {
 	return accountByID(ctx, s.db, id)
 }
 
-// rowQuerier is a *sql.DB or a *sql.Tx: with a single connection, a query
-// made inside a transaction must go through it.
-type rowQuerier interface {
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-}
-
-func accountByID(ctx context.Context, q rowQuerier, id int64) (Account, error) {
-	return scanAccount(q.QueryRowContext(ctx, selectAccount+`WHERE id = ?`, id))
+func accountByID(ctx context.Context, q querier, id int64) (Account, error) {
+	a, err := scanAccount(q.QueryRowContext(ctx, selectAccount+`WHERE id = ?`, id))
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		return a, fmt.Errorf("account %d: %w", id, err)
+	}
+	return a, err
 }
 
 // AccountByName returns one user by its exact name, disabled or not, in a
 // single query whether it exists or not (see the failed sign-in).
 func (s *Store) AccountByName(ctx context.Context, username string) (Account, error) {
-	return scanAccount(s.db.QueryRowContext(ctx, selectAccount+`WHERE username = ?`, username))
+	a, err := scanAccount(s.db.QueryRowContext(ctx, selectAccount+`WHERE username = ?`, username))
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		return a, fmt.Errorf("account by name: %w", err)
+	}
+	return a, err
 }
 
 // CreateFirstAdmin creates the first administrator in a single statement, so
@@ -87,13 +76,11 @@ func (s *Store) CreateFirstAdmin(ctx context.Context, username, passwordHash str
 	res, err := s.db.ExecContext(ctx, `
 		INSERT INTO users (username, password_hash, role, created_at)
 		SELECT ?, ?, 'admin', ? WHERE NOT EXISTS (SELECT 1 FROM users)`, username, passwordHash, now())
-	if err != nil {
-		return 0, fmt.Errorf("create first admin: %w", err)
+	if err := expectRow(res, err); err != nil {
+		return 0, wrap("create first admin", err)
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return 0, ErrNotFound
-	}
-	return res.LastInsertId()
+	id, err := res.LastInsertId()
+	return id, wrap("create first admin", err)
 }
 
 // SetRole changes the role of an active user. The role is read at every
@@ -102,16 +89,15 @@ func (s *Store) SetRole(ctx context.Context, id int64, role string) error {
 	res, err := s.db.ExecContext(ctx, `
 		UPDATE users SET role = ?
 		WHERE id = ? AND disabled_at = '' AND (role <> 'admin' OR ? = 'admin' OR `+otherAdmin+`)`, role, id, role)
-	return accountChanged(ctx, s.db, id, res, err)
+	return wrap("set role", accountChanged(ctx, s.db, id, res, err))
 }
 
 // SetDisabled disables a user, ending its sessions, or enables it again.
 func (s *Store) SetDisabled(ctx context.Context, id int64, disabled bool) error {
 	if !disabled {
-		res, err := s.db.ExecContext(ctx, `UPDATE users SET disabled_at = '' WHERE id = ?`, id)
-		return expectRow(res, err)
+		return wrap("enable account", expectRow(s.db.ExecContext(ctx, `UPDATE users SET disabled_at = '' WHERE id = ?`, id)))
 	}
-	return s.inTx(ctx, func(tx *sql.Tx) error {
+	return wrap("disable account", s.inTx(ctx, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx, `
 			UPDATE users SET disabled_at = ?
 			WHERE id = ? AND disabled_at = '' AND (role <> 'admin' OR `+otherAdmin+`)`, now(), id)
@@ -120,31 +106,31 @@ func (s *Store) SetDisabled(ctx context.Context, id int64, disabled bool) error 
 		}
 		_, err = tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ?`, id)
 		return err
-	})
+	}))
 }
 
 // ResetPassword replaces the password of a user and ends its sessions.
 func (s *Store) ResetPassword(ctx context.Context, id int64, passwordHash string) error {
-	return s.inTx(ctx, func(tx *sql.Tx) error {
+	return wrap("reset password", s.inTx(ctx, func(tx *sql.Tx) error {
 		if err := expectRow(tx.ExecContext(ctx, `UPDATE users SET password_hash = ? WHERE id = ?`, passwordHash, id)); err != nil {
 			return err
 		}
 		_, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ?`, id)
 		return err
-	})
+	}))
 }
 
 // ResetTOTP removes the second factor of a user who lost it, and ends the
 // user's sessions.
 func (s *Store) ResetTOTP(ctx context.Context, id int64) error {
-	return s.inTx(ctx, func(tx *sql.Tx) error {
+	return wrap("reset totp", s.inTx(ctx, func(tx *sql.Tx) error {
 		if err := expectRow(tx.ExecContext(ctx,
 			`UPDATE users SET totp_secret = '', totp_pending = '', totp_last_step = 0 WHERE id = ?`, id)); err != nil {
 			return err
 		}
 		_, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ?`, id)
 		return err
-	})
+	}))
 }
 
 // ResetAllTOTP removes the second factor of every account that has one, or
@@ -167,50 +153,14 @@ func (s *Store) ResetAllTOTP(ctx context.Context) (int64, error) {
 		n, err = res.RowsAffected()
 		return err
 	})
-	return n, err
-}
-
-// TOTP policies: who must use a second factor.
-const (
-	TOTPOptional = ""
-	TOTPAdmins   = "admin"
-	TOTPEveryone = "all"
-)
-
-const totpPolicyKey = "totp_required"
-
-// TOTPPolicy returns who must use a second factor.
-func (s *Store) TOTPPolicy(ctx context.Context) (string, error) {
-	return s.Setting(ctx, totpPolicyKey)
-}
-
-// SetTOTPPolicy sets who must use a second factor.
-func (s *Store) SetTOTPPolicy(ctx context.Context, policy string) error {
-	switch policy {
-	case TOTPOptional, TOTPAdmins, TOTPEveryone:
-		return s.SetSetting(ctx, totpPolicyKey, policy)
-	}
-	return fmt.Errorf("unknown second factor policy %q", policy)
-}
-
-// PurgeAudit deletes the audit entries older than before; it returns how
-// many were deleted.
-func (s *Store) PurgeAudit(ctx context.Context, before time.Time) (int64, error) {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM audit_log WHERE created_at < ?`, formatTime(before))
-	if err != nil {
-		return 0, fmt.Errorf("purge audit log: %w", err)
-	}
-	return res.RowsAffected()
+	return n, wrap("reset every totp", err)
 }
 
 // accountChanged explains an UPDATE of a user that changed nothing: unknown
 // or disabled user (ErrNotFound), or last active administrator.
-func accountChanged(ctx context.Context, q rowQuerier, id int64, res sql.Result, err error) error {
-	if err != nil {
+func accountChanged(ctx context.Context, q querier, id int64, res sql.Result, err error) error {
+	if err := expectRow(res, err); !errors.Is(err, ErrNotFound) {
 		return err
-	}
-	if n, _ := res.RowsAffected(); n > 0 {
-		return nil
 	}
 	a, err := accountByID(ctx, q, id)
 	if err != nil {

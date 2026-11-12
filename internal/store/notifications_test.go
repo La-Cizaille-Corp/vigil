@@ -60,8 +60,8 @@ func TestCTIMentions(t *testing.T) {
 		"XCVE-2024-1234 CVE-2024-12345678 CVE-2024-123 CVE-2024-1234a CVE-":  nil,
 		"fin CVE-2026-42897": {"CVE-2026-42897"},
 	} {
-		if got := ExtractCVEs(text); !reflect.DeepEqual(got, want) {
-			t.Errorf("ExtractCVEs(%q) = %v, want %v", text, got, want)
+		if got := extractCVEs(text); !reflect.DeepEqual(got, want) {
+			t.Errorf("extractCVEs(%q) = %v, want %v", text, got, want)
 		}
 	}
 	feeds, _ := st.ListFeeds(ctx)

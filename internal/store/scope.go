@@ -58,7 +58,7 @@ func (sc Scope) writable() error {
 
 // assetInScope returns ErrNotFound when the asset does not exist or is outside
 // the scope: the caller cannot tell one from the other.
-func assetInScope(ctx context.Context, q rowQuerier, sc Scope, id int64) error {
+func assetInScope(ctx context.Context, q querier, sc Scope, id int64) error {
 	cond, args := sc.cond("a")
 	var one int
 	err := q.QueryRowContext(ctx, `SELECT 1 FROM assets a WHERE a.id = ? AND `+cond, append([]any{id}, args...)...).Scan(&one)

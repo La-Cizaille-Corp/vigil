@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"time"
-
-	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 )
 
 // Webhook is a chat or HTTP endpoint receiving digests.
@@ -27,23 +25,16 @@ var AlertLevels = map[string]int{"priority": AlertPriority, "severe": AlertSever
 
 // ListWebhooks returns every webhook.
 func (s *Store) ListWebhooks(ctx context.Context) ([]Webhook, error) {
-	rows, err := s.db.QueryContext(ctx,
+	return collect(ctx, s.db, "list webhooks", scanWebhook,
 		`SELECT id, name, kind, url, enabled, last_error, created_at, digests, alerts FROM webhooks ORDER BY name COLLATE NOCASE`)
-	if err != nil {
-		return nil, fmt.Errorf("list webhooks: %w", err)
-	}
-	defer rows.Close()
-	var out []Webhook
-	for rows.Next() {
-		var w Webhook
-		var created string
-		if err := rows.Scan(&w.ID, &w.Name, &w.Kind, &w.URL, &w.Enabled, &w.LastError, &created, &w.Digests, &w.Alerts); err != nil {
-			return nil, err
-		}
-		w.CreatedAt = parseTime(created)
-		out = append(out, w)
-	}
-	return out, rows.Err()
+}
+
+func scanWebhook(row scanner) (Webhook, error) {
+	var w Webhook
+	var created string
+	err := row.Scan(&w.ID, &w.Name, &w.Kind, &w.URL, &w.Enabled, &w.LastError, &created, &w.Digests, &w.Alerts)
+	w.CreatedAt = parseTime(created)
+	return w, err
 }
 
 // CreateWebhook adds a webhook.
@@ -54,30 +45,27 @@ func (s *Store) CreateWebhook(ctx context.Context, w Webhook) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("create webhook: %w", err)
 	}
-	return res.LastInsertId()
+	id, err := res.LastInsertId()
+	return id, wrap("create webhook", err)
 }
 
 // DeleteWebhook removes a webhook.
 func (s *Store) DeleteWebhook(ctx context.Context, id int64) error {
-	return expectRow(s.db.ExecContext(ctx, `DELETE FROM webhooks WHERE id = ?`, id))
+	return wrap("delete webhook", expectRow(s.db.ExecContext(ctx, `DELETE FROM webhooks WHERE id = ?`, id)))
 }
 
 // RecordWebhookResult stores the last delivery error ("" on success).
 func (s *Store) RecordWebhookResult(ctx context.Context, id int64, deliveryErr error) error {
-	msg := ""
-	if deliveryErr != nil {
-		msg = clip.Text(deliveryErr.Error(), 300)
-	}
-	_, err := s.db.ExecContext(ctx, `UPDATE webhooks SET last_error = ? WHERE id = ?`, msg, id)
-	return err
+	_, err := s.db.ExecContext(ctx, `UPDATE webhooks SET last_error = ? WHERE id = ?`, errText(deliveryErr), id)
+	return wrap("record webhook result", err)
 }
 
 // SetWebhookDelivery chooses what a channel receives.
 func (s *Store) SetWebhookDelivery(ctx context.Context, id int64, digests bool, alerts string) error {
-	return expectRow(s.db.ExecContext(ctx, `UPDATE webhooks SET digests = ?, alerts = ? WHERE id = ?`, digests, alerts, id))
+	return wrap("set webhook delivery", expectRow(s.db.ExecContext(ctx, `UPDATE webhooks SET digests = ?, alerts = ? WHERE id = ?`, digests, alerts, id)))
 }
 
 // SetWebhookEnabled turns a webhook on or off.
 func (s *Store) SetWebhookEnabled(ctx context.Context, id int64, enabled bool) error {
-	return expectRow(s.db.ExecContext(ctx, `UPDATE webhooks SET enabled = ? WHERE id = ?`, enabled, id))
+	return wrap("set webhook enabled", expectRow(s.db.ExecContext(ctx, `UPDATE webhooks SET enabled = ? WHERE id = ?`, enabled, id)))
 }

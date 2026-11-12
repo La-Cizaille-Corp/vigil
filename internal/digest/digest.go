@@ -250,14 +250,14 @@ func Generate(ctx context.Context, st *store.Store) (store.Digest, error) {
 	}
 
 	d := Data{Since: since, GeneratedAt: now}
-	news, err := st.ListFindings(ctx, store.Everything, store.FindingFilter{Since: since})
+	news, err := st.ListFindings(ctx, store.Everything, store.FindingFilter{Since: since, Now: now})
 	if err != nil {
 		return store.Digest{}, err
 	}
 	d.New = ByVendor(news)
 	var open []store.Finding
 	for _, status := range []string{"exploitable", "in_triage"} {
-		fs, err := st.ListFindings(ctx, store.Everything, store.FindingFilter{Status: status})
+		fs, err := st.ListFindings(ctx, store.Everything, store.FindingFilter{Status: status, Now: now})
 		if err != nil {
 			return store.Digest{}, err
 		}
@@ -271,7 +271,7 @@ func Generate(ctx context.Context, st *store.Store) (store.Digest, error) {
 	for _, s := range tracking.Statuses {
 		d.Counts = append(d.Counts, Count{Status: s.Value, N: counts[s.Value]})
 	}
-	if d.Overdue, err = st.ListFindings(ctx, store.Everything, store.FindingFilter{Overdue: true}); err != nil {
+	if d.Overdue, err = st.ListFindings(ctx, store.Everything, store.FindingFilter{Overdue: true, Now: now}); err != nil {
 		return store.Digest{}, err
 	}
 	SortBySeverity(d.Overdue)

@@ -220,7 +220,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	recent, err := s.Store.ListFindings(ctx, readScope(r), store.FindingFilter{Since: now.Add(-7 * 24 * time.Hour)})
+	recent, err := s.Store.ListFindings(ctx, readScope(r), store.FindingFilter{Since: now.Add(-7 * 24 * time.Hour), Now: now})
 	if err != nil {
 		s.serverError(w, r, err)
 		return

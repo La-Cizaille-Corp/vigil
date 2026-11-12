@@ -25,7 +25,8 @@ func (s *Store) CreateDigest(ctx context.Context, d Digest) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("create digest: %w", err)
 	}
-	return res.LastInsertId()
+	id, err := res.LastInsertId()
+	return id, wrap("create digest", err)
 }
 
 // Digest returns one digest of the scope: ErrNotFound outside of it.
@@ -39,29 +40,20 @@ func (s *Store) Digest(ctx context.Context, sc Scope, id int64) (Digest, error) 
 		return d, ErrNotFound
 	}
 	d.Since, d.CreatedAt = parseTime(since), parseTime(created)
-	return d, err
+	return d, wrap("digest", err)
 }
 
 // ListDigests returns the digests of the scope without their content, most
 // recent first.
 func (s *Store) ListDigests(ctx context.Context, sc Scope) ([]Digest, error) {
 	// #nosec G202 -- digestCond is a fixed expression.
-	rows, err := s.db.QueryContext(ctx, `SELECT id, since, created_at FROM digests WHERE `+sc.digestCond()+` ORDER BY id DESC`)
-	if err != nil {
-		return nil, fmt.Errorf("list digests: %w", err)
-	}
-	defer rows.Close()
-	var out []Digest
-	for rows.Next() {
+	return collect(ctx, s.db, "list digests", func(row scanner) (Digest, error) {
 		var d Digest
 		var since, created string
-		if err := rows.Scan(&d.ID, &since, &created); err != nil {
-			return nil, err
-		}
+		err := row.Scan(&d.ID, &since, &created)
 		d.Since, d.CreatedAt = parseTime(since), parseTime(created)
-		out = append(out, d)
-	}
-	return out, rows.Err()
+		return d, err
+	}, `SELECT id, since, created_at FROM digests WHERE `+sc.digestCond()+` ORDER BY id DESC`)
 }
 
 // LastDigestTime returns when the latest digest was produced, or zero.
@@ -69,7 +61,7 @@ func (s *Store) LastDigestTime(ctx context.Context) (time.Time, error) {
 	var created sql.NullString
 	err := s.db.QueryRowContext(ctx, `SELECT MAX(created_at) FROM digests`).Scan(&created)
 	if err != nil || !created.Valid {
-		return time.Time{}, err
+		return time.Time{}, wrap("last digest time", err)
 	}
 	return parseTime(created.String), nil
 }
