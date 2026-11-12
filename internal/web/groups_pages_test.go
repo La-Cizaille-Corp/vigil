@@ -3,17 +3,23 @@ package web
 import (
 	"context"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
+	"github.com/La-Cizaille-Corp/vigil/internal/digest"
+	"github.com/La-Cizaille-Corp/vigil/internal/notify"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
 )
@@ -53,7 +59,8 @@ func TestNothingOfAnotherGroupLeaks(t *testing.T) {
 		"/assets/"+id(fx.asset["p"])+"?q=9002", "/findings?level=all", "/findings?level=all&q=9002",
 		"/findings?level=all&group="+id(fx.groupB), "/findings.csv?level=all", "/findings.csv?level=all&group="+id(fx.groupB),
 		"/findings/vex", "/findings/"+id(fx.finding["a"]), "/cti?all=1", "/cti?all=1&concerning=1",
-		"/digests/"+id(fx.digest)+"/markdown", "/settings/groups/"+id(fx.groupB))
+		"/digests/"+id(fx.digest)+"/markdown", "/settings/groups/"+id(fx.groupB),
+		"/digests/"+id(fx.digests["dB"]), "/digests/"+id(fx.digests["dB"])+"/markdown", "/digests/"+id(fx.digests["dA"])+"/markdown")
 	for path := range echoes {
 		paths = append(paths, path)
 	}
@@ -488,6 +495,134 @@ func TestTokenProjectJoinsAGroup(t *testing.T) {
 	}
 	if _, body := fx.client["lec-a"].get("/assets"); !strings.Contains(body, "pousse-par-ci") {
 		t.Error("the components pushed for the project are not seen by its group")
+	}
+}
+
+// A restricted account reads and generates the digests of its groups only;
+// an account that sees everything reads them all and generates the digest of
+// the whole inventory by default.
+func TestDigestsOfAGroupThroughThePages(t *testing.T) {
+	fx := newGroupFixture(t)
+	c := fx.client["ana-a"]
+	group := func(id int64) string { return strconv.FormatInt(id, 10) }
+	_, body := fx.client["lec-a"].get("/digests")
+	if !strings.Contains(body, "/digests/"+group(fx.digests["dA"])) || strings.Contains(body, "/digests/"+group(fx.digests["dB"])) ||
+		strings.Contains(body, "/digests/"+group(fx.digest)+"\"") {
+		t.Errorf("digests listed for A: %s", body)
+	}
+	if _, body := fx.client["analyst"].get("/digests"); !strings.Contains(body, "groupe Groupe temoinb") ||
+		!strings.Contains(body, `<option value="">tout l'inventaire</option>`) {
+		t.Errorf("an account that sees everything does not list every digest, or cannot choose the whole inventory: %s", body)
+	}
+	if code, _ := c.postBody("/digests", url.Values{"csrf": {c.csrf()}}); code != http.StatusBadRequest {
+		t.Errorf("digest of the whole inventory by A: %d", code)
+	}
+	if code := c.post("/digests", url.Values{"csrf": {c.csrf()}, "group": {group(fx.groupB)}}); code != http.StatusNotFound {
+		t.Errorf("digest of B by A: %d", code)
+	}
+	code, loc := c.postLocation("/digests", url.Values{"csrf": {c.csrf()}, "group": {group(fx.groupA)}})
+	if code != http.StatusSeeOther {
+		t.Fatalf("digest of A by A: %d", code)
+	}
+	path, _, _ := strings.Cut(loc, "?")
+	if code, body := fx.client["lec-a"].get(path + "/markdown"); code != http.StatusOK || !strings.Contains(body, "Digest de veille sécurité — Équipe A") ||
+		strings.Contains(body, witness) {
+		t.Errorf("new digest of A: %d", code)
+	}
+	entries, _ := fx.st.ListAudit(context.Background(), 1)
+	if want := "id=" + path[strings.LastIndex(path, "/")+1:] + ` group="Équipe A"`; len(entries) != 1 || entries[0].Detail != want {
+		t.Errorf("audit: %+v, want %q", entries, want)
+	}
+	if code, loc := fx.client["analyst"].postLocation("/digests", url.Values{"csrf": {fx.client["analyst"].csrf()}}); code != http.StatusSeeOther {
+		t.Errorf("digest of the whole inventory: %d %s", code, loc)
+	}
+}
+
+// T3, messages: a channel limited to a group receives the alerts and the
+// digest of that group only, nothing of the other groups; a channel of the
+// whole inventory receives everything, as before. A group with a channel is
+// not deleted (D7).
+func TestChannelsOfAGroup(t *testing.T) {
+	fx := newGroupFixture(t)
+	ctx := context.Background()
+	var mu sync.Mutex
+	received := map[string]string{}
+	hook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		received[r.URL.Path] += string(b)
+		mu.Unlock()
+	}))
+	defer hook.Close()
+	admin := fx.client["admin"]
+	// The form limits a channel to a group (an address of its own, never
+	// called: the channel is disabled at once).
+	if code := admin.post("/settings/webhooks", url.Values{"csrf": {admin.csrf()}, "name": {"équipe A"}, "kind": {"generic"},
+		"url": {"https://hooks.example.org/a"}, "group": {strconv.FormatInt(fx.groupA, 10)}}); code != http.StatusSeeOther {
+		t.Fatalf("channel of A by the form: %d", code)
+	}
+	hooks, _ := fx.st.ListWebhooks(ctx)
+	if len(hooks) != 1 || hooks[0].Group != fx.groupA {
+		t.Fatalf("channels: %+v", hooks)
+	}
+	if err := fx.st.SetWebhookEnabled(ctx, hooks[0].ID, false); err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := fx.st.ListAudit(ctx, 1)
+	if want := fmt.Sprintf(`id=%d target=https://hooks.example.org/… group="Équipe A"`, hooks[0].ID); len(entries) != 1 || entries[0].Detail != want {
+		t.Errorf("audit: %+v, want %q", entries, want)
+	}
+	if code := admin.post("/settings/webhooks", url.Values{"csrf": {admin.csrf()}, "name": {"x"}, "kind": {"generic"},
+		"url": {"https://hooks.example.org/x"}, "group": {"999"}}); code != http.StatusNotFound {
+		t.Errorf("channel of an unknown group: %d", code)
+	}
+	for path, group := range map[string]int64{"/tout": 0, "/a": fx.groupA, "/b": fx.groupB} {
+		if _, err := fx.st.CreateWebhook(ctx, store.Webhook{Name: "canal " + path, Kind: "generic", URL: hook.URL + path,
+			Enabled: true, Digests: true, Alerts: "severe", Group: group}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	n := &notify.Notifier{Store: fx.st, HTTP: hook.Client(), Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	if err := n.SendAlerts(ctx); err != nil {
+		t.Fatal(err)
+	}
+	made, err := digest.Run(ctx, fx.st, func(d store.Digest) error { return n.SendDigest(ctx, d, "") })
+	if err != nil || len(made) != 3 {
+		t.Fatalf("digests made: %d, %v (whole inventory, A, B)", len(made), err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	for path, want := range map[string]bool{"/tout": true, "/a": false, "/b": true} {
+		got := received[path]
+		alert, digestPart, ok := strings.Cut(got, `"event":"digest"`)
+		if !ok || !strings.Contains(alert, `"event":"alert"`) {
+			t.Errorf("%s did not receive an alert, then a digest: %.200s", path, got)
+		}
+		// The digest lists the public news of the watch, the one citing b's
+		// vulnerability among them: that one is checked in the alerts only.
+		if strings.Contains(got, witness) != want || strings.Contains(alert, witnessCVE) != want {
+			t.Errorf("%s receives the witness of B: %v, want %v", path, !want, want)
+		}
+		if strings.Contains(digestPart, "Actualités citant vos vulnérabilités") != want {
+			t.Errorf("%s: the news citing b concerns it: %v, want %v", path, !want, want)
+		}
+	}
+	if !strings.Contains(received["/a"], "partage") || strings.Contains(received["/a"], "orphelin") {
+		t.Error("the channel of A does not receive exactly its assets")
+	}
+
+	_, body := admin.get("/settings")
+	if !strings.Contains(body, `aria-label="Périmètre de canal /a"`) || !strings.Contains(body, "Créer le jeton") ||
+		!strings.Contains(body, fmt.Sprintf(`<option value="%d" selected>groupe Équipe A</option>`, fx.groupA)) {
+		t.Error("the settings do not show the group of each channel")
+	}
+	_, body = admin.get("/settings/groups/" + strconv.FormatInt(fx.groupA, 10))
+	if !strings.Contains(body, "2 canal(aux)") {
+		t.Error("the page of a group does not count its channels")
+	}
+	if code, body := admin.postBody("/settings/groups/"+strconv.FormatInt(fx.groupA, 10)+"/delete", url.Values{"csrf": {admin.csrf()}}); code != http.StatusConflict ||
+		!strings.Contains(body, "Des canaux de notification sont limités à ce groupe") {
+		t.Errorf("group with a channel deleted: %d", code)
 	}
 }
 

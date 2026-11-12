@@ -2,7 +2,7 @@
 {{$g := .Data.Group}}{{$csrf := .CSRF}}
 <p><a href="/settings/groups">← Groupes</a></p>
 <p>Ce groupe couvre <a href="/assets?group={{$g.ID}}">{{$g.Assets}} actif(s)</a> ; {{$g.Users}} compte(s) y ont accès
-sans voir le reste de l'inventaire.</p>
+sans voir le reste de l'inventaire ; {{$g.Channels}} canal(aux) de notification n'en reçoivent que les alertes et le digest.</p>
 
 <h2>Règles</h2>
 <p class="muted">Un actif fait partie du groupe s'il porte une des étiquettes cochées ou appartient à un des projets cochés.
@@ -31,8 +31,9 @@ de leur projet dès leur import.</p>
 </form>
 
 <h2>Supprimer</h2>
-<p class="small muted">Les actifs restent dans l'inventaire. Les comptes limités à ce groupe ne voient plus ses actifs ;
-sans autre groupe, ils ne voient plus rien.</p>
+<p class="small muted">Les actifs restent dans l'inventaire ; les digests du groupe sont supprimés avec lui. Les comptes
+limités à ce groupe ne voient plus ses actifs ; sans autre groupe, ils ne voient plus rien. Un groupe auquel des canaux de
+notification sont limités ne se supprime pas : ils recevraient sinon tout l'inventaire.</p>
 <details class="confirm">
   <summary>Supprimer le groupe…</summary>
   <form method="post" action="/settings/groups/{{$g.ID}}/delete" class="inline">

@@ -398,7 +398,7 @@ func TestPriorityOrderEverywhere(t *testing.T) {
 			t.Errorf("%s: %v\nwant %v", path, findingOrder(body), want)
 		}
 	}
-	d, err := digest.Generate(ctx, st)
+	d, err := digest.Generate(ctx, st, store.Group{})
 	if err != nil {
 		t.Fatal(err)
 	}

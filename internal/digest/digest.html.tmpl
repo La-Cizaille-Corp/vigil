@@ -1,5 +1,6 @@
 <section class="digest">
-<p>Généré le {{date .GeneratedAt}} — période depuis le {{date .Since}}.</p>
+{{with .Group}}<p><strong>Groupe {{.}}</strong> : les actifs de ce groupe et leurs vulnérabilités.</p>
+{{end}}<p>Généré le {{date .GeneratedAt}} — période depuis le {{date .Since}}.</p>
 
 <h2>Nouvelles vulnérabilités ({{len .New.Total.Findings}})</h2>
 {{if .New.Groups}}

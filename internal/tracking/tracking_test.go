@@ -133,7 +133,7 @@ func TestSyncLifecycle(t *testing.T) {
 	}
 
 	// 6. The digest lists the vulnerability.
-	d, err := digest.Generate(ctx, st)
+	d, err := digest.Generate(ctx, st, store.Group{})
 	if err != nil {
 		t.Fatal(err)
 	}
