@@ -107,6 +107,10 @@ var isolationCases = map[string]func(context.Context, *Store, Scope, scopeFixtur
 		_, err := st.CreateAsset(ctx, sc, Asset{Name: "new", Kind: "package", Criticality: "low", Source: "manual"})
 		return found(err)
 	},
+	"CreateAssets": func(ctx context.Context, st *Store, sc Scope, _ scopeFixture) (bool, error) {
+		_, err := st.CreateAssets(ctx, sc, []Asset{{Name: "new", Kind: "package", Criticality: "low", Source: "manual"}})
+		return found(err)
+	},
 	"UpdateAsset": func(ctx context.Context, st *Store, sc Scope, fx scopeFixture) (bool, error) {
 		return found(st.UpdateAsset(ctx, sc, Asset{ID: fx.asset, Name: "renamed", Kind: "package", Criticality: "low"}))
 	},

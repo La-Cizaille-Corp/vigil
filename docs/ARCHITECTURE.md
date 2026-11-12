@@ -48,6 +48,7 @@ internal/cti           Flux RSS/Atom, étiquetage pays / secteur / réglementati
 internal/digest        Génération du digest (Markdown + HTML)
 internal/notify        Digests et alertes vers les webhooks et par e-mail (SMTP)
 internal/netsafe       Client HTTP anti-SSRF pour les URL fournies par les utilisateurs
+internal/limit         Lecture bornée des réponses réseau et des fichiers déposés
 internal/auth          argon2id, mots de passe courants refusés, jetons, TOTP, limitation des tentatives, rôles
 internal/web           Handlers HTTP, middleware de sécurité, templates, API CI
 deploy/                Docker Compose + Caddy, unité systemd, exemple d'environnement
@@ -401,8 +402,8 @@ d'OSV recopiait 512 octets de la réponse dans le message affiché. Le paquet `s
 `NewRequest` (agent, corps JSON), `Open` et `Do` (statut, lecture bornée, décodage), `StatusError`,
 `Temporary`, `Retry` et `Sleep`. Tout statut autre que 200 est une erreur, affichée `HTTP 404 (raison)` :
 la raison est l'en-tête `message` de la NVD ou le champ `message` d'une réponse JSON (OSV), sur une ligne
-de 200 caractères au plus. Une lecture qui dépasse sa borne échoue (`netsafe.LimitReader`, sur lequel
-repose désormais `ReadLimited`), en flux aussi pour les pages de `/v1/query`. Une requête est renvoyée
+de 200 caractères au plus. Une lecture qui dépasse sa borne échoue (`limit.Reader`, voir A74), en flux
+aussi pour les pages de `/v1/query`. Une requête est renvoyée
 après une panne du réseau, à l'aller comme pendant la lecture, un 429 ou un 5xx, et le 403 de la limite
 de débit de la NVD ; pas après un autre refus, une redirection refusée par `netsafe.CheckRedirect`
 (`netsafe.RedirectError` : vers une URL non https, ou plus de 5), une réponse trop grosse ou illisible, qui
@@ -437,6 +438,30 @@ l'actif, sous un message trompeur. Lors d'un essai réel, le noyau Ubuntu 22.04 
 
 *Écarté* : relire toute la requête depuis la première page, soit 25 minutes pour ce noyau ; garder une
 page en mémoire pour la relire, alors qu'elle peut dépasser 64 Mo (A55).
+
+**A74. Une seule lecture bornée, hors de `netsafe`, et une seule écriture CSV.** L'audit de code de
+novembre 2026 (R6) relevait que le BOM UTF-8 se retirait de trois façons (SBOM, VEX, CSV), que la
+lecture d'un fichier CSV déposé vivait dans `web` avec sa propre borne, et que `netsafe.ReadLimited`,
+prévu pour les réponses HTTP, servait aussi aux fichiers déposés : le paquet anti-SSRF portait une
+lecture qui n'a rien à voir avec les adresses, et le contrôle de capacités (capslock) lui prêtait les
+capacités « fichiers » de tout lecteur appelé derrière l'interface `io.Reader`.
+Le paquet neutre `limit` porte la lecture bornée : `Reader` et `Read` pour les réponses du réseau
+(sources, flux CTI), qui échouent en `*TooLargeError` au-delà de la borne, et `File` pour un fichier
+envoyé par un utilisateur (SBOM, VEX, CSV) : borne, BOM retiré, et un message pour l'écran qui parle
+d'un fichier (« fichier supérieur à 20 Mo », au lieu de « réponse supérieure à 20971520 octets » pour
+un SBOM). `netsafe` ne garde que les règles d'URL et le client anti-SSRF. La lecture d'un CSV rejoint
+`inventory`, à côté de la correspondance lignes ↔ actifs (`ReadCSV` : borne, BOM, séparateur deviné).
+L'écriture reste dans `web`, en une seule fonction pour l'inventaire comme pour les vulnérabilités
+(`writeCSV` : BOM, point-virgule, chaque cellule neutralisée par `inventory.CSVCell`), avec une seule
+gestion d'erreur, journalisée une fois à la fin. *Écarté* : laisser la lecture dans `netsafe` ou la
+mettre dans `sources`, que `sbom`, `vex` et `inventory` importeraient sans rien interroger ;
+neutraliser les cellules dans chaque fonction qui construit des lignes, où un nouvel export pourrait
+l'oublier ; écrire le CSV dans `inventory`, qui recevrait la réponse HTTP derrière un `io.Writer` et
+que capslock dirait alors capable d'écrire sur le réseau ; un paquet CSV à part, pour un seul
+utilisateur. *Conséquences* : le message d'un SBOM trop gros change ; `inventory.CSVRow` rend les
+valeurs telles quelles, et seule l'écriture les neutralise ; les exports restent identiques octet
+pour octet (test) ; capslock voit `limit` capable de lire fichiers et réseau (son lecteur ne sait pas
+ce qu'il lit), et `netsafe` ne l'est plus de lire des fichiers.
 
 **A13. Statuts CycloneDX / VEX.** Des statuts maison auraient été plus « parlants » mais non
 interopérables. Les états VEX (`in_triage`, `exploitable`, `resolved`, `not_affected` +
@@ -714,7 +739,9 @@ vulnérabilités ouvertes (identifiant ou alias). Écartés : rapprochement par 
 dans un tableur. Export des vulnérabilités (avec les filtres affichés) et de l'inventaire ; import
 de l'inventaire en virgules ou points-virgules (Excel en français), en-têtes et libellés français
 acceptés. Import tout ou rien : la moindre ligne invalide refuse le fichier, avec les numéros de
-ligne. Les exports utilisent le point-virgule et la virgule décimale, comme Excel en français.
+ligne, et les actifs sont écrits en une transaction (`Store.CreateAssets`) : une panne au milieu de
+l'écriture n'en ajoute aucun, comme le dit la page (audit de novembre 2026, R12 ; ils étaient créés un
+par un). Les exports utilisent le point-virgule et la virgule décimale, comme Excel en français.
 *Sécurité* : toute cellule commençant par `=`, `+`, `-`, `@` est préfixée d'une apostrophe
 (injection de formules à l'ouverture dans un tableur), de même qu'un tel caractère placé dans une
 valeur après une virgule, un point-virgule, une tabulation ou un saut de ligne, éventuellement
@@ -758,7 +785,7 @@ sont mises en minuscules pour qu'une même étiquette ne se dédouble pas (« Pr
 Stockage comme les étiquettes de la veille (`,prod,web,`, migration 010). Filtres de l'inventaire et
 des vulnérabilités, export et import CSV. Écarté : une table d'étiquettes avec administration
 (complexité sans besoin avéré). Une étiquette compte 40 caractères au plus (`inventory.MaxTagLen`),
-20 par actif (`MaxTags`). Les deux filtres lisent l'étiquette demandée comme elle est stockée
+20 par actif (`maxTags`). Les deux filtres lisent l'étiquette demandée comme elle est stockée
 (`tagParam`, par `inventory.NormalizeTags`) et ignorent une étiquette plus longue que cette borne,
 qu'aucun actif ne peut porter : le filtre des vulnérabilités en acceptait 100 caractères, celui de
 l'inventaire la prenait telle que tapée (« Prod » n'y trouvait rien).

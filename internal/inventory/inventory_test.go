@@ -187,7 +187,7 @@ func TestTags(t *testing.T) {
 	if Validate(a) == nil {
 		t.Error("tag too long accepted")
 	}
-	a.Tags = make([]string, MaxTags+1)
+	a.Tags = make([]string, maxTags+1)
 	for i := range a.Tags {
 		a.Tags[i] = fmt.Sprint("t", i)
 	}

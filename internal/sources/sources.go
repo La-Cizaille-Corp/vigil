@@ -21,6 +21,7 @@ import (
 	"unicode"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/clip"
+	"github.com/La-Cizaille-Corp/vigil/internal/limit"
 	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
 )
 
@@ -91,7 +92,7 @@ type cutReader struct{ r io.Reader }
 
 func (c cutReader) Read(p []byte) (int, error) {
 	n, err := c.r.Read(p)
-	var tooLarge *netsafe.TooLargeError
+	var tooLarge *limit.TooLargeError
 	if err != nil && err != io.EOF && !errors.As(err, &tooLarge) {
 		err = &netError{err}
 	}
@@ -100,7 +101,7 @@ func (c cutReader) Read(p []byte) (int, error) {
 
 // Open sends req with c and returns the body of the answer, which the caller
 // closes. SECURITY: never an unbounded read from the network: past max bytes,
-// reading the body fails with a *netsafe.TooLargeError instead of ending as if
+// reading the body fails with a *limit.TooLargeError instead of ending as if
 // the answer were whole. An answer other than 200 OK is a *StatusError. A
 // reading cut short fails with an error that Temporary accepts.
 func Open(c *http.Client, req *http.Request, max int64) (io.ReadCloser, error) {
@@ -120,7 +121,7 @@ func Open(c *http.Client, req *http.Request, max int64) (io.ReadCloser, error) {
 	return struct {
 		io.Reader
 		io.Closer
-	}{cutReader{netsafe.LimitReader(resp.Body, max)}, resp.Body}, nil
+	}{cutReader{limit.Reader(resp.Body, max)}, resp.Body}, nil
 }
 
 // Do sends req with c and decodes the JSON answer into out, read whole and at

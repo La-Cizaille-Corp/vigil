@@ -62,6 +62,15 @@ func TestComponentCPE(t *testing.T) {
 	}
 }
 
+// A file past MaxSize is refused with a message that says so: it spoke of a
+// network answer of 20971520 bytes, for a file sent by the user.
+func TestParseTooLarge(t *testing.T) {
+	big := strings.NewReader(cyclonedx + strings.Repeat(" ", MaxSize))
+	if _, err := Parse(big); err == nil || err.Error() != "fichier supérieur à 20 Mo" {
+		t.Errorf("SBOM past %d bytes: %v", MaxSize, err)
+	}
+}
+
 func TestParseSPDX(t *testing.T) {
 	doc, err := Parse(strings.NewReader(spdx))
 	if err != nil {

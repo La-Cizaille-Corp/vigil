@@ -547,10 +547,8 @@ func (s *Server) findingCSV(w http.ResponseWriter, r *http.Request) {
 	}
 	findings = keepLevel(findings, listLevel(q)) // what the page shows
 	sortRows(findings, findingColumnList, orderFrom(q, findingColumnList, defaultFindingOrder))
-	cw := csvDownload(w, "vigil-vulnerabilites")
-	_ = cw.Write([]string{"id", "vulnerabilite", "alias", "severite", "cvss", "epss", "exploitee_kev", "actif", "version",
-		"corrigee_en", "projet", "statut", "justification", "commentaire", "detectee_le", "echeance", "hors_delai", "resume", "lien"})
 	base := strings.TrimRight(s.BaseURL, "/")
+	rows := make([][]string, 0, len(findings))
 	for _, fd := range findings {
 		due, link := "", ""
 		if !fd.Due.IsZero() {
@@ -559,20 +557,15 @@ func (s *Server) findingCSV(w http.ResponseWriter, r *http.Request) {
 		if base != "" {
 			link = base + "/findings/" + strconv.FormatInt(fd.ID, 10)
 		}
-		row := []string{strconv.FormatInt(fd.ID, 10), fd.VulnID, strings.Join(fd.Aliases, " "),
+		rows = append(rows, []string{strconv.FormatInt(fd.ID, 10), fd.VulnID, strings.Join(fd.Aliases, " "),
 			tracking.SeverityLabel(fd.Severity), formatScore(fd.CVSS, 1), formatScore(fd.EPSS*100, 1),
 			yesNo(fd.KEV), fd.AssetName, fd.AssetVersion, fd.FixedIn, fd.AssetProject,
 			inventory.Label(tracking.Statuses, fd.Status), inventory.Label(tracking.Justifications, fd.Justification),
-			fd.Comment, fd.FirstSeen.Format(time.DateOnly), due, yesNo(fd.Late), fd.Summary, link}
-		for i := range row {
-			row[i] = inventory.CSVCell(row[i])
-		}
-		if err := cw.Write(row); err != nil {
-			s.Log.Warn("csv export failed", "err", err)
-			return
-		}
+			fd.Comment, fd.FirstSeen.Format(time.DateOnly), due, yesNo(fd.Late), fd.Summary, link})
 	}
-	cw.Flush()
+	s.writeCSV(w, "vigil-vulnerabilites", []string{"id", "vulnerabilite", "alias", "severite", "cvss", "epss", "exploitee_kev",
+		"actif", "version", "corrigee_en", "projet", "statut", "justification", "commentaire", "detectee_le", "echeance",
+		"hors_delai", "resume", "lien"}, rows)
 }
 
 func formatScore(v float64, decimals int) string {
