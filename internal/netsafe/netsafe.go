@@ -246,12 +246,45 @@ func WithoutURL(err error) error {
 
 // ReadLimited reads at most max bytes of r and fails if there is more.
 func ReadLimited(r io.Reader, max int64) ([]byte, error) {
-	b, err := io.ReadAll(io.LimitReader(r, max+1))
+	b, err := io.ReadAll(LimitReader(r, max))
 	if err != nil {
 		return nil, err
 	}
-	if int64(len(b)) > max {
-		return nil, fmt.Errorf("réponse supérieure à %d octets", max)
-	}
 	return b, nil
+}
+
+// TooLargeError is the failure of a reading that goes past its bound.
+type TooLargeError struct{ Max int64 }
+
+func (e *TooLargeError) Error() string {
+	return fmt.Sprintf("réponse supérieure à %d octets", e.Max)
+}
+
+// LimitReader returns a reader of the first max bytes of r, which fails with a
+// *TooLargeError if r holds more. io.LimitReader would end there as if the data
+// were whole: a document cut at the bound must not pass for a complete one, nor
+// fail as a malformed one.
+func LimitReader(r io.Reader, max int64) io.Reader {
+	return &limitedReader{r: r, max: max, left: max}
+}
+
+type limitedReader struct {
+	r         io.Reader
+	max, left int64 // left < 0 once r went past max
+}
+
+func (l *limitedReader) Read(p []byte) (int, error) {
+	if l.left < 0 {
+		return 0, &TooLargeError{Max: l.max}
+	}
+	if int64(len(p)) > l.left+1 {
+		p = p[:l.left+1] // one byte more tells whether r goes past max
+	}
+	n, err := l.r.Read(p)
+	if int64(n) > l.left {
+		n, l.left = int(l.left), -1
+		return n, &TooLargeError{Max: l.max}
+	}
+	l.left -= int64(n)
+	return n, err
 }

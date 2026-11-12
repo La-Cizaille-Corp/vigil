@@ -2,13 +2,13 @@
 package kev
 
 import (
+	"cmp"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
 
-	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
+	"github.com/La-Cizaille-Corp/vigil/internal/sources"
 )
 
 // DefaultURL is the official JSON feed.
@@ -16,36 +16,30 @@ const DefaultURL = "https://www.cisa.gov/sites/default/files/feeds/known_exploit
 
 const maxBody = 32 << 20
 
+// Client downloads the catalogue.
+type Client struct {
+	URL       string // empty: DefaultURL
+	HTTP      *http.Client
+	UserAgent string
+}
+
 // Entry is one exploited CVE.
 type Entry struct {
 	CVE     string `json:"cveID"`
 	DueDate string `json:"dueDate"`
 }
 
-// Fetch returns the catalogue indexed by CVE identifier.
-func Fetch(ctx context.Context, client *http.Client, url, userAgent string) (map[string]Entry, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", userAgent)
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("kev: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("kev: status %d", resp.StatusCode)
-	}
-	body, err := netsafe.ReadLimited(resp.Body, maxBody)
-	if err != nil {
-		return nil, fmt.Errorf("kev: %w", err)
-	}
+// Catalogue returns the catalogue indexed by CVE identifier.
+func (c *Client) Catalogue(ctx context.Context) (map[string]Entry, error) {
 	var doc struct {
 		Vulnerabilities []Entry `json:"vulnerabilities"`
 	}
-	if err := json.Unmarshal(body, &doc); err != nil {
-		return nil, fmt.Errorf("kev: decode: %w", err)
+	req, err := sources.NewRequest(ctx, http.MethodGet, cmp.Or(c.URL, DefaultURL), c.UserAgent, nil)
+	if err == nil {
+		err = sources.Do(c.HTTP, req, maxBody, &doc)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("kev: %w", err)
 	}
 	out := make(map[string]Entry, len(doc.Vulnerabilities))
 	for _, e := range doc.Vulnerabilities {

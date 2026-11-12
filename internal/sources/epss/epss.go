@@ -2,15 +2,15 @@
 package epss
 
 import (
+	"cmp"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 
-	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
+	"github.com/La-Cizaille-Corp/vigil/internal/sources"
 )
 
 // DefaultURL is the public API endpoint.
@@ -21,37 +21,31 @@ const batchSize = 100
 
 const maxBody = 4 << 20
 
+// Client queries the API.
+type Client struct {
+	URL       string // empty: DefaultURL
+	HTTP      *http.Client
+	UserAgent string
+}
+
 // Scores returns the EPSS probability (0..1) of each CVE known to FIRST.
-func Scores(ctx context.Context, client *http.Client, endpoint, userAgent string, cves []string) (map[string]float64, error) {
+func (c *Client) Scores(ctx context.Context, cves []string) (map[string]float64, error) {
 	out := make(map[string]float64, len(cves))
 	for start := 0; start < len(cves); start += batchSize {
 		end := min(start+batchSize, len(cves))
-		u := endpoint + "?cve=" + url.QueryEscape(strings.Join(cves[start:end], ","))
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("User-Agent", userAgent)
-		resp, err := client.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("epss: %w", err)
-		}
-		body, err := netsafe.ReadLimited(resp.Body, maxBody)
-		_ = resp.Body.Close() // body fully read
-		if err != nil {
-			return nil, fmt.Errorf("epss: %w", err)
-		}
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("epss: status %d", resp.StatusCode)
-		}
 		var doc struct {
 			Data []struct {
 				CVE  string `json:"cve"`
 				EPSS string `json:"epss"`
 			} `json:"data"`
 		}
-		if err := json.Unmarshal(body, &doc); err != nil {
-			return nil, fmt.Errorf("epss: decode: %w", err)
+		u := cmp.Or(c.URL, DefaultURL) + "?cve=" + url.QueryEscape(strings.Join(cves[start:end], ","))
+		req, err := sources.NewRequest(ctx, http.MethodGet, u, c.UserAgent, nil)
+		if err == nil {
+			err = sources.Do(c.HTTP, req, maxBody, &doc)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("epss: %w", err)
 		}
 		for _, d := range doc.Data {
 			// A probability: anything else (NaN, out of range) is ignored

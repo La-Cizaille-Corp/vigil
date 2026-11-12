@@ -70,8 +70,7 @@ func TestLatestPackage(t *testing.T) {
 			 "affected":[{"package":{"purl":"pkg:npm/left"},"ranges":[{"type":"SEMVER","events":[{"introduced":"0"},{"fixed":"1.2.0"}]}]}]}]}`)
 	}))
 	defer srv.Close()
-	client := osv.New(http.DefaultClient, "vigil-test")
-	client.BaseURL = srv.URL
+	client := &osv.Client{URL: srv.URL, HTTP: http.DefaultClient, UserAgent: "vigil-test"}
 	syncer := &tracking.Syncer{Store: st, OSV: client, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 
 	id, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "left", Kind: "package", PURL: "pkg:npm/left@1.0.0", Version: "latest",
@@ -139,7 +138,7 @@ func TestByNameAndLatestCPE(t *testing.T) {
 		io.WriteString(w, `{"totalResults":4,"vulnerabilities":[`+list+`]}`)
 	}))
 	defer srv.Close()
-	syncer := &tracking.Syncer{Store: st, OSV: osv.New(http.DefaultClient, "vigil-test"), Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	syncer := &tracking.Syncer{Store: st, OSV: &osv.Client{HTTP: http.DefaultClient}, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		NVD: &nvd.Client{URL: srv.URL, HTTP: srv.Client()}}
 
 	add := func(a store.Asset) int64 {

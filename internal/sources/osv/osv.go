@@ -2,7 +2,7 @@
 package osv
 
 import (
-	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -15,11 +15,16 @@ import (
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/cvss"
+	"github.com/La-Cizaille-Corp/vigil/internal/sources"
 	"github.com/La-Cizaille-Corp/vigil/internal/versions"
 )
 
-// DefaultBaseURL is the public OSV API.
-const DefaultBaseURL = "https://api.osv.dev"
+// DefaultURL is the public OSV API.
+const DefaultURL = "https://api.osv.dev"
+
+// Timeout is the time limit an OSV request needs, longer than that of the
+// other sources: a page of /v1/query can take minutes to read.
+const Timeout = 5 * time.Minute
 
 // maxBatch is the OSV limit of queries per querybatch call.
 const maxBatch = 1000
@@ -34,20 +39,12 @@ const (
 	maxPage = 1 << 30
 )
 
-// Client talks to OSV.
+// Client talks to OSV. Its HTTP client is that of the other sources, with the
+// same transport and redirect policy, but a time limit of Timeout.
 type Client struct {
-	BaseURL   string
+	URL       string // empty: DefaultURL
 	HTTP      *http.Client
 	UserAgent string
-}
-
-// New returns a client of the public API. Its requests go through a copy of
-// hc, with the same transport and redirect policy (that of the other sources)
-// but a longer timeout: a page can take a while to read.
-func New(hc *http.Client, userAgent string) *Client {
-	c := *hc
-	c.Timeout = 5 * time.Minute
-	return &Client{BaseURL: DefaultBaseURL, HTTP: &c, UserAgent: userAgent}
 }
 
 // Package identifies a package, either by purl or by name and ecosystem.
@@ -607,20 +604,29 @@ func (a *Advisories) openPage(ctx context.Context) error {
 		body["page_token"] = a.token
 	}
 	a.token = ""
-	resp, err := a.client.send(ctx, http.MethodPost, "/v1/query", body)
+	var page io.ReadCloser
+	err := a.client.send(ctx, http.MethodPost, "/v1/query", body, func(req *http.Request) (err error) {
+		page, err = sources.Open(a.client.HTTP, req, maxPage)
+		return err
+	})
 	if err != nil {
 		return err
 	}
-	a.body = resp.Body
-	// SECURITY: never read an unbounded response from the network.
-	a.dec = json.NewDecoder(io.LimitReader(resp.Body, maxPage))
+	a.body = page
+	a.dec = json.NewDecoder(page)
 	return a.expect('{')
+}
+
+// unreadable is the failure to read a page of /v1/query: a malformed one, or
+// one cut short or past maxPage.
+func unreadable(err error) error {
+	return fmt.Errorf("osv /v1/query: réponse illisible : %w", err)
 }
 
 func (a *Advisories) decodeVuln() error {
 	var v Vuln
 	if err := a.dec.Decode(&v); err != nil {
-		return fmt.Errorf("osv /v1/query: decode: %w", err)
+		return unreadable(err)
 	}
 	a.vuln = v
 	return nil
@@ -630,7 +636,7 @@ func (a *Advisories) decodeVuln() error {
 func (a *Advisories) readField() error {
 	key, err := a.dec.Token()
 	if err != nil {
-		return fmt.Errorf("osv /v1/query: decode: %w", err)
+		return unreadable(err)
 	}
 	switch key {
 	case "vulns":
@@ -643,7 +649,7 @@ func (a *Advisories) readField() error {
 		err = a.dec.Decode(&skipped)
 	}
 	if err != nil {
-		return fmt.Errorf("osv /v1/query: decode: %w", err)
+		return unreadable(err)
 	}
 	return nil
 }
@@ -652,10 +658,10 @@ func (a *Advisories) readField() error {
 func (a *Advisories) expect(delim json.Delim) error {
 	token, err := a.dec.Token()
 	if err != nil {
-		return fmt.Errorf("osv /v1/query: decode: %w", err)
+		return unreadable(err)
 	}
 	if token != delim {
-		return fmt.Errorf("osv /v1/query: decode: %v instead of %v", token, delim)
+		return unreadable(fmt.Errorf("%v au lieu de %v", token, delim))
 	}
 	return nil
 }
@@ -669,70 +675,34 @@ func (c *Client) Vuln(ctx context.Context, id string) (Vuln, error) {
 	return v, nil
 }
 
+// do sends a request and decodes its answer into out, read whole.
 func (c *Client) do(ctx context.Context, method, path string, body, out any) error {
-	resp, err := c.send(ctx, method, path, body)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	// SECURITY: never read an unbounded response from the network.
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxBody)).Decode(out); err != nil {
-		return fmt.Errorf("osv %s: decode: %w", path, err)
-	}
-	return nil
+	return c.send(ctx, method, path, body, func(req *http.Request) error {
+		return sources.Do(c.HTTP, req, maxBody, out)
+	})
 }
 
 // retryDelays are the waits before asking again after a temporary failure: a
 // network glitch on the batch request would fail the whole synchronisation.
 var retryDelays = []time.Duration{5 * time.Second, 15 * time.Second}
 
-// send makes a request and returns its response when it succeeds.
-func (c *Client) send(ctx context.Context, method, path string, body any) (*http.Response, error) {
-	for attempt := 0; ; attempt++ {
-		resp, temporary, err := c.sendOnce(ctx, method, path, body)
-		if err == nil || !temporary || attempt == len(retryDelays) || ctx.Err() != nil {
-			return resp, err
-		}
-		delay := retryDelays[attempt]
-		if c.BaseURL != DefaultBaseURL {
-			delay = 0 // tests and mirrors
-		}
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(delay):
-		}
+// send makes a request to path and has it sent by call (sources.Do or Open),
+// again after a temporary failure.
+func (c *Client) send(ctx context.Context, method, path string, body any, call func(*http.Request) error) error {
+	base, delays := cmp.Or(c.URL, DefaultURL), retryDelays
+	if base != DefaultURL {
+		delays = make([]time.Duration, len(retryDelays)) // tests and mirrors
 	}
-}
-
-// sendOnce makes a request; temporary says whether trying again may succeed.
-func (c *Client) sendOnce(ctx context.Context, method, path string, body any) (resp *http.Response, temporary bool, err error) {
-	var reader io.Reader
-	if body != nil {
-		b, err := json.Marshal(body)
+	err := sources.Retry(ctx, delays, func() (bool, error) {
+		req, err := sources.NewRequest(ctx, method, base+path, c.UserAgent, body)
 		if err != nil {
-			return nil, false, err
+			return false, err
 		}
-		reader = bytes.NewReader(b)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, reader)
+		err = call(req)
+		return sources.Temporary(err), err
+	})
 	if err != nil {
-		return nil, false, err
+		return fmt.Errorf("osv %s: %w", path, err)
 	}
-	req.Header.Set("User-Agent", c.UserAgent)
-	req.Header.Set("Accept", "application/json")
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	resp, err = c.HTTP.Do(req)
-	if err != nil {
-		return nil, true, fmt.Errorf("osv %s: %w", path, err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		defer resp.Body.Close()
-		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		temporary = resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
-		return nil, temporary, fmt.Errorf("osv %s: status %d: %s", path, resp.StatusCode, bytes.TrimSpace(snippet))
-	}
-	return resp, false, nil
+	return nil
 }

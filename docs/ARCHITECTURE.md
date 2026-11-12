@@ -37,6 +37,7 @@ internal/store         SQLite, migrations, toutes les requêtes SQL, sauvegardes
 internal/inventory     Validation et normalisation des actifs
 internal/sbom          Lecture CycloneDX / SPDX (JSON) → actifs
 internal/vex           Export / import VEX CycloneDX
+internal/sources       Requête commune des sources : statut, lecture bornée, décodage, essais
 internal/sources/osv   Client OSV.dev (paquets identifiés par purl)
 internal/sources/nvd   Client NVD API 2.0 (produits identifiés par CPE)
 internal/sources/kev   Catalogue CISA Known Exploited Vulnerabilities
@@ -367,6 +368,31 @@ que le digest ne classerait plus d'après le score ; traduire aussi dans le dige
 sévérités déjà traduites (aucune version publiée n'a stocké `MODERATE`). *Conséquence* : une fiche déjà
 en base est corrigée à sa prochaine écriture (chaque synchronisation pour la NVD, la prochaine
 modification de l'avis pour OSV).
+
+**A75. Une seule façon d'interroger une source.** Les clients d'OSV, de la NVD, de KEV et d'EPSS
+refaisaient chacun la requête, l'en-tête `User-Agent`, le contrôle du statut, la lecture bornée et le
+décodage, avec trois formes de message (`status 503`, `HTTP 503`, `nvd : HTTP 404`), deux boucles de
+nouvelles tentatives et trois attentes annulables. Deux lectures d'OSV s'arrêtaient en silence à leur
+borne (`io.LimitReader`) : la réponse tronquée échouait ensuite en erreur de décodage trompeuse. Un refus
+d'OSV recopiait 512 octets de la réponse dans le message affiché. Le paquet `sources` remplace ces copies :
+`NewRequest` (agent, corps JSON), `Open` et `Do` (statut, lecture bornée, décodage), `StatusError`,
+`Temporary`, `Retry` et `Sleep`. Tout statut autre que 200 est une erreur, affichée `HTTP 404 (raison)` :
+la raison est l'en-tête `message` de la NVD ou le champ `message` d'une réponse JSON (OSV), sur une ligne
+de 200 caractères au plus. Une lecture qui dépasse sa borne échoue (`netsafe.LimitReader`, sur lequel
+repose désormais `ReadLimited`), en flux aussi pour les pages de `/v1/query`. Une requête est renvoyée
+après une panne du réseau, à l'aller comme pendant la lecture, un 429 ou un 5xx, et le 403 de la limite
+de débit de la NVD ; pas après un autre refus, ni après une réponse trop grosse ou illisible, qui
+échoueraient de même. Les plafonds de lecture ne changent pas. Les clients ont la même forme : `URL` (vide : l'API publique), `HTTP` (donné par
+`main`), `UserAgent` ; `kev.Client.Catalogue` et `epss.Client.Scores` remplacent les fonctions libres, et
+le `Syncer` porte ces deux clients au lieu d'un client HTTP et de deux URL. OSV reçoit de `main` une copie
+du client commun, avec sa politique de redirection, au délai `osv.Timeout` (5 minutes). *Écarté* : un
+client commun incorporé à chaque source, qui alourdit chaque déclaration ; des délais de nouvelle
+tentative réglables par client pour les seuls tests, alors qu'un miroir ou un serveur de test est déjà
+réinterrogé sans attente ; les flux CTI et les webhooks, dont les URL sont saisies par les utilisateurs,
+dont les erreurs taisent l'adresse et dont la réponse n'est pas du JSON : ils gardent leur requête.
+*Conséquences* : des messages d'erreur affichés changent (`HTTP 503` pour toutes les sources, `réponse
+illisible`, plus de `temporarily unavailable`) ; une lecture d'OSV coupée en route est désormais renvoyée,
+comme pour la NVD, et une réponse trop grosse de la NVD ne l'est plus.
 
 **A13. Statuts CycloneDX / VEX.** Des statuts maison auraient été plus « parlants » mais non
 interopérables. Les états VEX (`in_triage`, `exploitable`, `resolved`, `not_affected` +
