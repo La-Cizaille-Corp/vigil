@@ -5,18 +5,20 @@
   {{- /* What the alerts announced, and why, by the rule of the ranking (A84). */}}
   <dt>Niveau</dt><dd>{{with level $f}}<span class="level level-{{.}}">{{levelName .}}</span>, car {{explain $f}}{{else}}aucun : corrigée, elle sort du classement{{end}}</dd>
   <dt>Sévérité</dt><dd><span class="sev sev-{{$v.Severity}}">{{sevLabel $v.Severity}}</span>{{with cvss $v.CVSS}} — CVSS {{.}}{{else}}{{if $v.Severity}} <span class="muted small">(évaluation de la source, sans score CVSS)</span>{{end}}{{end}}</dd>
-  <dt>Exploitation</dt><dd>{{if $v.KEV}}<span class="kev">Exploitée activement (CISA KEV)</span>{{if $v.KEVDue}} — échéance CISA {{isoDate $v.KEVDue}}{{end}}{{else}}Non listée dans CISA KEV{{end}}
+  <dt>Exploitation</dt><dd>{{if $v.KEV}}<span class="kev">Exploitée activement (CISA KEV)</span>{{if $v.KEVDue}} — échéance CISA {{isoDate $v.KEVDue}}{{if .Data.KEVLate}} <span class="late">dépassée</span>{{end}}{{end}}{{else}}Non listée dans CISA KEV{{end}}
     {{with epss $v.EPSS}} · probabilité EPSS {{.}}{{end}}</dd>
   <dt>Correction</dt><dd>{{with .Data.Fixes}}<ul class="fixes">{{range .}}<li>{{if .Yours}}<strong>{{.Text}}</strong> <span class="muted small">({{if $.Data.Latest}}concerne la dernière version{{else}}votre version{{end}})</span>{{else}}{{.Text}}{{end}}</li>{{end}}</ul>
     {{else}}<span class="muted">non indiquée par la source</span>{{end}}</dd>
-  {{if $v.Aliases}}<dt>Alias</dt><dd>{{join $v.Aliases ", "}}</dd>{{end}}
+  {{if $v.Aliases}}<dt>Alias</dt><dd>{{if gt (len $v.Aliases) 20}}{{aliases $v.Aliases}}
+    <details><summary>Les {{len $v.Aliases}} alias</summary>{{join $v.Aliases ", "}}</details>{{else}}{{join $v.Aliases ", "}}{{end}}</dd>{{end}}
   <dt>Actif</dt><dd><a href="/assets/{{$f.AssetID}}">{{$f.AssetName}} {{$f.AssetVersion}}</a>{{with $f.AssetProject}} <span class="muted">(projet {{.}})</span>{{end}}
+    {{- with .Data.CVE}} · <a href="/findings?q={{.}}&amp;level=all">{{.}} sur tous les actifs</a>{{end}}
     {{if .Data.Latest}}<div class="muted small">Tenu à jour sur la dernière version : signalée faute de version corrigée connue,
       cette vulnérabilité sera marquée corrigée dès que la source en indiquera une.</div>{{end}}
     {{if .Data.ByName}}<div class="muted small">Trouvée par le nom de l'actif dans la description de la CVE : vérifiez qu'elle le concerne bien.</div>{{end}}</dd>
   <dt>Statut</dt><dd>{{statusLabel $f.Status}}{{if $f.Justification}} — {{justifLabel $f.Justification}}{{end}}</dd>
   <dt>Détectée le</dt><dd>{{date $f.FirstSeen}}</dd>
-  {{if not $f.Due.IsZero}}<dt>Échéance de traitement</dt><dd>{{day $f.Due}}{{if $f.Late}} <span class="late">Hors délai</span>{{end}}
+  {{if and (not $f.Due.IsZero) $f.Open}}<dt>Échéance de traitement</dt><dd>{{day $f.Due}}{{if $f.Late}} <span class="late">Hors délai</span>{{end}}
     <small class="muted">(selon la sévérité{{if $v.KEV}} ; exploitée : délai « critique »{{end}})</small></dd>{{end}}
   <dt>Publiée le</dt><dd>{{with $v.Published}}{{isoDate .}}{{else}}<span class="muted">inconnu</span>{{end}}</dd>
 </dl>
@@ -45,6 +47,8 @@
 
 <h2>Résumé</h2>
 <p>{{$v.Summary}}</p>
+{{- /* An advisory of a distribution or a package registry often sums up its update: the CVE says what it fixes (A86). */}}
+{{with .Data.CVE}}{{if ne . $v.ID}}<p class="small"><a href="https://nvd.nist.gov/vuln/detail/{{.}}" rel="noopener noreferrer" target="_blank">Description de {{.}} dans la NVD</a></p>{{end}}{{end}}
 {{if $v.Details}}<details><summary>Détails</summary><pre class="wrap">{{$v.Details}}</pre></details>{{end}}
 
 {{if .Data.Mentions}}

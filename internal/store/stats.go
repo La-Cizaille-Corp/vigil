@@ -34,11 +34,13 @@ type WeekCount struct {
 	Closed int // findings closed
 }
 
-// AssetLoad is an asset with its open findings by severity.
+// AssetLoad is an asset with its open findings by severity, and how many of
+// them are urgent (the level of AlertPriority, as Stats.Priority).
 type AssetLoad struct {
 	ID                            int64
 	Name, Version                 string
 	Critical, High, Medium, Other int
+	Urgent                        int
 }
 
 // Total is the number of open findings of the asset.
@@ -197,23 +199,41 @@ func (s *Store) weeklyStats(ctx context.Context, sc Scope, now time.Time, st *St
 }
 
 func (s *Store) topAssets(ctx context.Context, sc Scope, _ time.Time, st *Stats) error {
+	list, err := s.assetLoads(ctx, sc, false)
+	st.TopAssets = list[:min(len(list), topAssets)]
+	return err
+}
+
+// AssetLoads returns the assets of the scope that have open findings, with
+// them by severity and the urgent ones, the most exposed first: what each
+// asset of the inventory exposes (A86).
+func (s *Store) AssetLoads(ctx context.Context, sc Scope) ([]AssetLoad, error) {
+	return s.assetLoads(ctx, sc, true)
+}
+
+// assetLoads reads the loads of the assets of the scope; the dashboard shows
+// the first ones without their urgent ones (Urgent 0), whose count reads the
+// exploitation signals of every vulnerability: 0.09 s on the kernel base of
+// the audit, where they follow its stored advisory in the row.
+func (s *Store) assetLoads(ctx context.Context, sc Scope, urgent bool) ([]AssetLoad, error) {
+	urgentSum := "0"
+	if urgent {
+		urgentSum = "SUM(" + urgentExpr + ")"
+	}
 	cond, args := sc.cond("a")
-	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
-	list, err := collect(ctx, s.q(ctx), "top assets", func(row scanner) (AssetLoad, error) {
+	// #nosec G202 -- urgentSum and cond are fixed expressions (urgentExpr, Scope.cond); the values are parameters.
+	return collect(ctx, s.q(ctx), "asset loads", func(row scanner) (AssetLoad, error) {
 		var a AssetLoad
-		err := row.Scan(&a.ID, &a.Name, &a.Version, &a.Critical, &a.High, &a.Medium, &a.Other)
+		err := row.Scan(&a.ID, &a.Name, &a.Version, &a.Critical, &a.High, &a.Medium, &a.Other, &a.Urgent)
 		return a, err
 	}, `
 		SELECT a.id, a.name, a.version,
 		       SUM(v.severity = 'CRITICAL'), SUM(v.severity = 'HIGH'), SUM(v.severity = 'MEDIUM'),
-		       SUM(v.severity NOT IN ('CRITICAL', 'HIGH', 'MEDIUM'))
+		       SUM(v.severity NOT IN ('CRITICAL', 'HIGH', 'MEDIUM')), `+urgentSum+`
 		FROM findings f JOIN assets a ON a.id = f.asset_id JOIN vulnerabilities v ON v.id = f.vuln_id
 		WHERE f.status IN `+openStatuses+` AND `+shownExpr+` AND `+cond+`
 		GROUP BY a.id
-		ORDER BY 4 DESC, 5 DESC, COUNT(*) DESC, a.name
-		LIMIT ?`, append(args, topAssets)...)
-	st.TopAssets = list
-	return err
+		ORDER BY 4 DESC, 5 DESC, COUNT(*) DESC, a.name`, args...)
 }
 
 func (s *Store) ctiStats(ctx context.Context, sc Scope, now time.Time, st *Stats) error {

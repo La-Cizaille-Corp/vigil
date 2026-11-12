@@ -6,11 +6,12 @@
 <p class="muted">Composants absents du dernier SBOM de leur projet. Leur historique de triage est conservé ;
   ils reviennent tels quels si un prochain SBOM les liste. <a href="/assets">← Inventaire</a></p>
 {{end}}
-{{if or .Data.Projects .Data.Tags .Data.Groups}}
+{{if or .Data.Assets .Data.Query .Data.Projects .Data.Tags .Data.Groups}}
 <form method="get" action="/assets" class="filter-bar">
   {{if .Data.RetiredView}}<input type="hidden" name="retired" value="1">{{end}}
   {{with .Data.Sort}}<input type="hidden" name="sort" value="{{.}}">{{end}}
   {{with .Data.Dir}}<input type="hidden" name="dir" value="{{.}}">{{end}}
+  <label>Chercher un actif <input type="search" name="q" value="{{.Data.Query}}" maxlength="200" placeholder="nom, purl ou CPE"></label>
   {{if .Data.Projects}}<label>Projet
     <select name="project"><option value="">Tous</option>
       {{range .Data.Projects}}<option {{if eq . $.Data.Project}}selected{{end}}>{{.}}</option>{{end}}
@@ -27,7 +28,7 @@
     </select>
   </label>{{end}}
   <button type="submit">Filtrer</button>
-  {{if or .Data.Project .Data.Tag .Data.Group}}<a href="/assets">Réinitialiser</a>{{end}}
+  {{if or .Data.Project .Data.Tag .Data.Group .Data.Query}}<a href="/assets">Réinitialiser</a>{{end}}
   {{with .Data.Project}}<a href="/findings?project={{.}}">Vulnérabilités de ce projet</a>{{end}}
   {{with .Data.Tag}}<a href="/findings?tag={{.}}">Vulnérabilités de ces actifs</a>{{end}}
   {{with .Data.Group}}<a href="/findings?group={{.}}">Vulnérabilités de ce groupe</a>{{end}}
@@ -40,14 +41,17 @@
 {{range .Data.Assets}}
 <tr>
   <td data-label="Nom"><a href="/assets/{{.ID}}">{{.Name}}</a>{{if .Tags}}<br>{{range .Tags}}<a class="tag" href="/assets?tag={{.}}">{{.}}</a>{{end}}{{end}}</td>
-  <td data-label="Éditeur">{{vendorOf .}}</td>
-  <td data-label="Version">{{if wholeVendor .}}<span class="muted">tous les produits</span>{{else}}{{.Version}}{{end}}</td>
+  <td data-label="Éditeur">{{vendorOf .Asset}}</td>
+  <td data-label="Version">{{if wholeVendor .Asset}}<span class="muted">tous les produits</span>{{else}}{{.Version}}{{end}}</td>
+  {{- /* What each asset exposes, a link to its list at that level (A86). */}}
+  <td data-label="Urgentes" class="num">{{if .Urgent}}<a class="level level-urgent" href="/findings?asset={{.ID}}&amp;level=urgent">{{.Urgent}}</a>{{else}}<span class="muted">0</span>{{end}}</td>
+  <td data-label="Ouvertes" class="num">{{if .Open}}<a href="/findings?asset={{.ID}}">{{.Open}}</a>{{else}}<span class="muted">0</span>{{end}}</td>
   <td data-label="Type">{{kindLabel .Kind}}</td>
-  <td data-label="Identifiant">{{if .PURL}}<code>{{.PURL}}</code>{{else if .CPE}}<code>{{.CPE}}</code>{{else}}{{.Ecosystem}}{{end}}</td>
+  <td data-label="Identifiant">{{if .PURL}}<code>{{.PURL}}</code>{{with checkedVersion .Asset}}<br><small class="muted">version vérifiée : {{.}}</small>{{end}}{{else if .CPE}}<code>{{.CPE}}</code>{{else}}{{.Ecosystem}}{{end}}</td>
   <td data-label="Projet">{{.Project}}</td>
   <td data-label="Criticité">{{critLabel .Criticality}}</td>
   <td data-label="Responsable">{{.Owner}}</td>
-  <td data-label="Détection">{{with tracking .}}{{.}}{{else}}<span class="muted">aucune</span>{{end}}
+  <td data-label="Détection">{{with tracking .Asset}}{{.}}{{else}}<span class="muted">aucune</span>{{end}}
     <br><small class="muted">{{if .TrackSince}}depuis le {{isoDate .TrackSince}}{{else}}tout l'historique{{end}}</small>
     {{if and .OlderVulns .TrackSince}}<br><small class="muted">{{.OlderVulns}} antérieure(s) non signalée(s)</small>{{end}}</td>
 </tr>
@@ -56,7 +60,7 @@
 </table>
 <p class="muted small"><a href="/assets.csv{{with .Data.Project}}?project={{.}}{{end}}">Exporter {{if .Data.Project}}les actifs du projet{{else}}l'inventaire{{end}} (CSV)</a></p>
 {{else}}
-<p class="muted">{{if .Data.RetiredView}}Aucun composant retiré.{{else}}Aucun actif pour le moment.{{end}}</p>
+<p class="muted">{{if .Data.Query}}Aucun actif ne contient « {{.Data.Query}} ».{{else if .Data.RetiredView}}Aucun composant retiré.{{else}}Aucun actif pour le moment.{{end}}</p>
 {{end}}
 {{if and .Data.Retired (not .Data.RetiredView)}}
 <p class="muted small"><a href="/assets?retired=1">{{.Data.Retired}} composant(s) retiré(s) des SBOM</a>, historique conservé.</p>

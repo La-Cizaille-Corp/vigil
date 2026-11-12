@@ -106,6 +106,16 @@ func FollowPURL(a *store.Asset, old store.Asset) {
 	}
 }
 
+// CheckedVersion is the version checked for an asset whose purl names another
+// one, the Version field prevailing (A63), "" when they agree: a page showing
+// both says which one is checked.
+func CheckedVersion(a store.Asset) string {
+	if v := osv.PURLVersion(a.PURL); v != "" && a.Version != "" && v != a.Version {
+		return a.Version
+	}
+	return ""
+}
+
 // Tag limits: enough for team, environment, site, application... MaxTagLen
 // is in characters, wherever a tag is read: asset, CSV import, list filters.
 const (

@@ -52,12 +52,17 @@ func listScope(r *http.Request, q url.Values) (store.Scope, int64) {
 }
 
 // groupParam reads the group filter of a list, 0 for none.
-func groupParam(q url.Values) int64 {
-	g, err := strconv.ParseInt(q.Get("group"), 10, 64)
-	if err != nil || g < 0 {
+func groupParam(q url.Values) int64 { return idParam(q, "group") }
+
+// idParam reads the identifier given as key in q (?group=, ?asset=), 0 for
+// none or anything else than a positive number. SECURITY: it only names what
+// to look for; the scope of the request decides what is found (A67).
+func idParam(q url.Values, key string) int64 {
+	id, err := strconv.ParseInt(q.Get(key), 10, 64)
+	if err != nil || id < 0 {
 		return 0
 	}
-	return g
+	return id
 }
 
 // inScope binds a lookup of the inventory by id to the scope of the request

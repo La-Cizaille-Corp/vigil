@@ -2,6 +2,9 @@
 {{$f := .Data.Filter}}
 {{template "syncBar" .}}
 {{$more := .Data.More}}
+{{- /* The list of one asset (A86): named only when the account sees it. */}}
+{{with .Data.Asset.ID}}<p class="filter-asset">{{with $.Data.Asset.Name}}Vulnérabilités de l'actif <a href="/assets/{{$.Data.Asset.ID}}">{{.}}</a>{{else}}Actif introuvable : aucune vulnérabilité à montrer{{end}}
+  · <a href="{{$.Data.AllAssets}}">tous les actifs</a></p>{{end}}
 {{- /* The open findings and their levels, then, apart, those closed; all of them in a quiet link (A84). */}}
 <nav class="filters" aria-label="Niveaux">
   {{range .Data.Levels.Open}}{{template "levelLink" .}}
@@ -13,6 +16,7 @@
   {{with .Data.Level}}<input type="hidden" name="level" value="{{.}}">{{end}}
   {{with .Data.Sort}}<input type="hidden" name="sort" value="{{.}}">{{end}}
   {{with .Data.Dir}}<input type="hidden" name="dir" value="{{.}}">{{end}}
+  {{with $f.AssetID}}<input type="hidden" name="asset" value="{{.}}">{{end}}
   <label>Recherche <input type="search" name="q" value="{{$f.Search}}" maxlength="200" placeholder="CVE-2021-44228, log4j, injection…"></label>
   <details class="more-filters"{{if $more}} open{{end}}>
     <summary>Plus de filtres{{with $more}} ({{.}} appliqué{{if gt . 1}}s{{end}}){{end}}</summary>
@@ -54,9 +58,12 @@
   </details>
   <div class="toolbar form-actions">
     <button type="submit">Filtrer</button>
-    <a href="/findings">Réinitialiser</a>
+    <a href="/findings{{with $f.AssetID}}?asset={{.}}{{end}}">Réinitialiser</a>
   </div>
 </form>
+{{- /* A search that finds noise leads to the dismissal rule of its text on each asset (A61, A86). */}}
+{{with .Data.Noise.Links}}<p class="notice small">Du bruit dans ces résultats ? Écartez « {{$.Data.Noise.Text}} » sur un actif, après avoir vu ce qui correspond :
+  {{range $i, $n := .}}{{if $i}} · {{end}}<a href="{{$n.Href}}">{{$n.Asset}} ({{$n.N}})</a>{{end}}{{with $.Data.Noise.More}} · et {{.}} autre(s) actif(s){{end}}.</p>{{end}}
 {{$analyst := can .User.Role "analyst"}}{{$p := .Data.Pager}}{{$b := .Data.Bulk}}
 {{- /* Above the table: what the list holds, and what can be done with all of it (A85). */}}
 <div class="list-bar">

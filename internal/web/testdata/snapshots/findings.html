@@ -48,6 +48,7 @@
 </div>
 
 
+
 <nav class="filters" aria-label="Niveaux">
   <a href="/findings?level=open" >Ouvertes <small>5</small></a>
   <a href="/findings?level=urgent" >Urgentes <small>2</small></a>
@@ -60,6 +61,7 @@
 </nav>
 <form method="get" action="/findings" class="card filters-form">
   <input type="hidden" name="level" value="all">
+  
   
   
   <label>Recherche <input type="search" name="q" value="" maxlength="200" placeholder="CVE-2021-44228, log4j, injection…"></label>
@@ -101,6 +103,7 @@
     <a href="/findings">Réinitialiser</a>
   </div>
 </form>
+
 
 <div class="list-bar">
   <p class="muted">5 vulnérabilité(s)</p>

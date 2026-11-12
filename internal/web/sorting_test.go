@@ -311,7 +311,8 @@ func TestDismissalFlow(t *testing.T) {
 	c := loginAs(t, base, "analyst", "a-strong-password")
 
 	_, body := c.get(page + "?q=wifi:")
-	if got := findingOrder(body); len(got) != 2 {
+	// What the rule would set aside is listed apart from the most urgent ones (A86).
+	if got := findingOrder(body[strings.Index(body, `id="apercu"`)+1:]); len(got) != 2 {
 		t.Errorf("search: %v", got)
 	}
 	if !strings.Contains(body, "Écarter tout ce qui correspond") || !strings.Contains(body, `name="text" value="wifi:"`) {

@@ -128,23 +128,44 @@
   </details>
 </details>
 
-
-<h2>Vulnérabilités de cet actif</h2>
+<h2 id="vulnerabilites">Vulnérabilités de cet actif <span class="muted small">· 3</span></h2>
 <p class="muted small">Période de suivi : vulnérabilités publiées depuis le 01/01/2025, plus les plus anciennes
-  activement exploitées (CISA KEV). Pour voir tout l'historique, videz la date de début ci-dessous.
+  activement exploitées (CISA KEV).
   
   
   </p>
 
-<form method="get" action="/assets/1" class="delivery">
-  <label>Chercher dans ces vulnérabilités
-    <input type="search" name="q" value="" maxlength="100" placeholder="wifi:, CVE-2026-…"></label>
-  <button type="submit">Chercher</button>
+<nav class="kpis levels" aria-label="Niveaux de cet actif">
+  <a class="kpi level-card-urgent" href="/findings?asset=1&amp;level=urgent">
+    <span class="kpi-label">Urgentes</span>
+    <span class="kpi-value">2</span>
+    <span class="kpi-note">exploitées ou probables</span>
+  </a>
+  <a class="kpi level-card-plan" href="/findings?asset=1&amp;level=plan">
+    <span class="kpi-label">À planifier</span>
+    <span class="kpi-value">0</span>
+    <span class="kpi-note">critiques ou hautes</span>
+  </a>
+  <a class="kpi level-card-watch" href="/findings?asset=1&amp;level=watch">
+    <span class="kpi-label">À surveiller</span>
+    <span class="kpi-value">1</span>
+    <span class="kpi-note">le reste</span>
+  </a>
+  <a class="kpi level-card-aside" href="/findings?asset=1&amp;level=aside">
+    <span class="kpi-label">Écartées</span>
+    <span class="kpi-value">0</span>
+    <span class="kpi-note">non affectées ou faux positifs</span>
+  </a>
+  <a class="kpi level-card-fixed" href="/findings?asset=1&amp;level=fixed">
+    <span class="kpi-label">Corrigées</span>
+    <span class="kpi-value">0</span>
+    <span class="kpi-note">historique</span>
+  </a>
   
-</form>
-
-
-
+</nav>
+<section class="card" aria-labelledby="dabord">
+  <h3 id="dabord">À traiter d'abord</h3>
+  
 
 <table class="cards">
 <thead><tr><th class="no-sort">Priorité</th><th class="no-sort num">CVSS</th><th class="no-sort num">EPSS</th><th class="no-sort">Vulnérabilité</th><th class="no-sort">Actif</th><th class="no-sort">Corrigée en</th><th class="no-sort">Statut</th><th class="no-sort">Détectée le</th><th class="no-sort">Échéance</th><th class="no-sort">Résumé</th></tr></thead>
@@ -152,17 +173,17 @@
 
 <tr>
   
-  <td data-label="Priorité"><span class="level level-watch">À surveiller</span>
-    <div class="small"><span class="sev sev-UNKNOWN">Inconnue</span></div></td>
-  <td data-label="CVSS" class="num">0,0</td>
-  <td data-label="EPSS" class="num">0,0 %</td>
-  <td data-label="Vulnérabilité"><a href="/findings/3">CVE-2025-0003</a></td>
+  <td data-label="Priorité"><span class="level level-urgent">Urgente</span>
+    <div class="small"><span class="sev sev-CRITICAL">Critique</span> · <span class="reason">exploitée (CISA KEV)</span></div></td>
+  <td data-label="CVSS" class="num">9,8</td>
+  <td data-label="EPSS" class="num">97,3 %</td>
+  <td data-label="Vulnérabilité"><a href="/findings/1">CVE-2025-0001</a></td>
   <td data-label="Actif"><a href="/assets/1">fortios 7.2.4</a></td>
   <td data-label="Corrigée en"></td>
   <td data-label="Statut">À analyser</td>
-  <td data-label="Détectée le">04/03/2025 12:20</td>
-  <td data-label="Échéance"><span class="late">Hors délai</span><br><small>02/06/2025</small></td>
-  <td data-label="Résumé" class="text">Score nul.</td>
+  <td data-label="Détectée le">04/03/2025 10:20</td>
+  <td data-label="Échéance"><span class="late">Hors délai</span><br><small>19/03/2025</small></td>
+  <td data-label="Résumé" class="text">Contournement de l&#39;authentification.</td>
 </tr>
 
 <tr>
@@ -182,23 +203,38 @@
 
 <tr>
   
-  <td data-label="Priorité"><span class="level level-urgent">Urgente</span>
-    <div class="small"><span class="sev sev-CRITICAL">Critique</span> · <span class="reason">exploitée (CISA KEV)</span></div></td>
-  <td data-label="CVSS" class="num">9,8</td>
-  <td data-label="EPSS" class="num">97,3 %</td>
-  <td data-label="Vulnérabilité"><a href="/findings/1">CVE-2025-0001</a></td>
+  <td data-label="Priorité"><span class="level level-watch">À surveiller</span>
+    <div class="small"><span class="sev sev-UNKNOWN">Inconnue</span></div></td>
+  <td data-label="CVSS" class="num">0,0</td>
+  <td data-label="EPSS" class="num">0,0 %</td>
+  <td data-label="Vulnérabilité"><a href="/findings/3">CVE-2025-0003</a></td>
   <td data-label="Actif"><a href="/assets/1">fortios 7.2.4</a></td>
   <td data-label="Corrigée en"></td>
   <td data-label="Statut">À analyser</td>
-  <td data-label="Détectée le">04/03/2025 10:20</td>
-  <td data-label="Échéance"><span class="late">Hors délai</span><br><small>19/03/2025</small></td>
-  <td data-label="Résumé" class="text">Contournement de l&#39;authentification.</td>
+  <td data-label="Détectée le">04/03/2025 12:20</td>
+  <td data-label="Échéance"><span class="late">Hors délai</span><br><small>02/06/2025</small></td>
+  <td data-label="Résumé" class="text">Score nul.</td>
 </tr>
 
 </tbody>
 </table>
 
 
+  <p class="list-nav"><a href="/findings?asset=1&amp;level=urgent"><strong>Voir les 2 urgente(s) ›</strong></a> · <a href="/findings?asset=1&amp;level=open">Toute la liste de cet actif (3 ouverte(s)) : tri, filtres, traitement par lot ›</a></p>
+</section>
+
+<section class="card" id="bruit" aria-labelledby="bruit-titre">
+  <h2 id="bruit-titre">Écarter le bruit</h2>
+  <p class="small">Un composant absent de cet actif (<code>wifi</code>, <code>bluetooth</code>, <code>drm</code> sur un serveur…) ?
+    Cherchez-le : les vulnérabilités qui le citent dans leur identifiant ou leur résumé s'affichent, puis écartez-les. Elles passent en
+    « Non affecté – code vulnérable absent », les prochaines aussi. Les vulnérabilités exploitées ou probables restent visibles, et ce que
+    quelqu'un a déjà décidé ne change pas. Réversible : supprimer la règle rétablit ces vulnérabilités.</p>
+  <form method="get" action="/assets/1#bruit" class="delivery">
+    <label>Texte cherché <input type="search" name="q" value="" minlength="3" maxlength="100" placeholder="wifi, bluetooth, drm…"></label>
+    <button type="submit">Voir</button>
+    
+  </form>
+</section>
 
 
 </main>

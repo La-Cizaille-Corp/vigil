@@ -230,6 +230,13 @@ a.kpi:hover { text-decoration: none; border-color: var(--accent); }
 .kpi-hero { background: var(--accent-soft); border-color: transparent; }
 .kpi-hero .kpi-value { font-size: 3rem; color: var(--accent); }
 .kpi .alert { color: var(--danger); font-weight: 600; }
+/* The levels of an asset, each count a link to its list (A86); the urgent
+   one in --danger on --err-bg (5.7:1 light, 5.6:1 dark; its note 5.1:1 and 6.2:1). */
+.kpis.levels { grid-template-columns: repeat(5, minmax(0, 1fr)); margin-bottom: 1rem; }
+@media (max-width: 640px) { .kpis.levels { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.kpi.level-card-urgent { background: var(--err-bg); border-color: transparent; }
+.kpi.level-card-urgent .kpi-label, .kpi.level-card-urgent .kpi-value { color: var(--danger); }
+p.filter-asset { margin: 0 0 .5rem; font-weight: 600; }
 .dash-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin-bottom: 1rem; }
 .dash-grid .card { margin: 0; }
 .span-2 { grid-column: span 2; }

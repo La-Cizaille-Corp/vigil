@@ -91,6 +91,10 @@ func TestDashboardStats(t *testing.T) {
 	if len(s.TopAssets) != 1 || s.TopAssets[0].Total() != 3 || s.TopAssets[0].Critical != 1 {
 		t.Errorf("top assets: %+v", s.TopAssets)
 	}
+	// The inventory counts the urgent ones of each asset: those of the dashboard, for its only asset.
+	if loads, err := st.AssetLoads(ctx, Everything); err != nil || len(loads) != 1 || loads[0].Urgent != s.Priority || loads[0].Total() != s.Open {
+		t.Errorf("asset loads: %+v, %v", loads, err)
+	}
 }
 
 // The mean time to fix leaves out the findings of the first sync of their
