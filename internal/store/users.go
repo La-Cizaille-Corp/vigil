@@ -12,27 +12,47 @@ import (
 	"unicode/utf8"
 )
 
-// User is an account able to sign in.
+// User is an account.
 type User struct {
 	ID           int64
 	Username     string
-	PasswordHash string
+	PasswordHash string // read by UserByName only, to sign in
 	Role         string
-	TOTP         bool // second factor enabled (set on sessions)
+	TOTP         bool // second factor enabled
+	Disabled     bool
+	CreatedAt    time.Time
+}
+
+// userColumns are those of a User but its password hash (see scanUser).
+const (
+	userColumns = `id, username, role, totp_secret <> '', disabled_at <> '', created_at`
+	selectUser  = `SELECT ` + userColumns + ` FROM users `
+)
+
+// scanUser reads the columns of userColumns, then extra ones if given; no row
+// is ErrNotFound.
+func scanUser(row scanner, extra ...any) (User, error) {
+	var u User
+	var created string
+	err := row.Scan(append([]any{&u.ID, &u.Username, &u.Role, &u.TOTP, &u.Disabled, &created}, extra...)...)
+	if errors.Is(err, sql.ErrNoRows) {
+		return u, ErrNotFound
+	}
+	u.CreatedAt = parseTime(created)
+	return u, err
 }
 
 // Session is an authenticated browser session with its user.
 type Session struct {
 	User      User
 	CSRFToken string
-	ExpiresAt time.Time
 }
 
 // CountUsers returns the number of accounts.
 func (s *Store) CountUsers(ctx context.Context) (int, error) {
 	var n int
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&n)
-	return n, err
+	return n, wrap("count users", err)
 }
 
 // CreateUser inserts a user; passwordHash must already be hashed. A name that
@@ -45,22 +65,14 @@ func (s *Store) CountUsers(ctx context.Context) (int, error) {
 func (s *Store) CreateUser(ctx context.Context, username, passwordHash, role string) (int64, error) {
 	var id int64
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
-		rows, err := tx.QueryContext(ctx, `SELECT username FROM users`)
+		names, err := collect(ctx, tx, "user names", value[string], `SELECT username FROM users`)
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
-		for rows.Next() {
-			var name string
-			if err := rows.Scan(&name); err != nil {
-				return err
-			}
+		for _, name := range names {
 			if strings.EqualFold(name, username) {
 				return ErrExists
 			}
-		}
-		if err := rows.Err(); err != nil {
-			return err
 		}
 		res, err := tx.ExecContext(ctx,
 			`INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)`,
@@ -77,17 +89,17 @@ func (s *Store) CreateUser(ctx context.Context, username, passwordHash, role str
 	return id, nil
 }
 
-// UserByName looks up an active user by username; a disabled one is
-// ErrNotFound, so that it cannot sign in.
+// UserByName looks up an active user by username, with its password hash; a
+// disabled one is ErrNotFound, so that it cannot sign in.
 func (s *Store) UserByName(ctx context.Context, username string) (User, error) {
-	var u User
-	err := s.db.QueryRowContext(ctx,
-		`SELECT id, username, password_hash, role FROM users WHERE username = ? AND disabled_at = ''`, username).
-		Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role)
-	if errors.Is(err, sql.ErrNoRows) {
-		return u, ErrNotFound
+	var hash string
+	u, err := scanUser(s.db.QueryRowContext(ctx,
+		`SELECT `+userColumns+`, password_hash FROM users WHERE username = ? AND disabled_at = ''`, username), &hash)
+	u.PasswordHash = hash
+	if errors.Is(err, ErrNotFound) {
+		return u, err
 	}
-	return u, err
+	return u, wrap("user by name", err)
 }
 
 // CreateSession stores a session identified by the hash of its token.
@@ -95,41 +107,45 @@ func (s *Store) CreateSession(ctx context.Context, tokenHash string, userID int6
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO sessions (token_hash, user_id, csrf_token, expires_at) VALUES (?, ?, ?, ?)`,
 		tokenHash, userID, csrf, formatTime(expires))
-	return err
+	return wrap("create session", err)
 }
 
-// SessionByHash returns a non-expired session.
-func (s *Store) SessionByHash(ctx context.Context, tokenHash string) (Session, error) {
+// Session returns a non-expired session.
+func (s *Store) Session(ctx context.Context, tokenHash string) (Session, error) {
 	var sess Session
-	var expires string
-	err := s.db.QueryRowContext(ctx, `
-		SELECT u.id, u.username, u.role, u.totp_secret <> '', s.csrf_token, s.expires_at
+	var err error
+	sess.User, err = scanUser(s.db.QueryRowContext(ctx, `
+		SELECT `+userColumns+`, s.csrf_token
 		FROM sessions s JOIN users u ON u.id = s.user_id
-		WHERE s.token_hash = ? AND s.expires_at > ? AND u.disabled_at = ''`, tokenHash, now()).
-		Scan(&sess.User.ID, &sess.User.Username, &sess.User.Role, &sess.User.TOTP, &sess.CSRFToken, &expires)
-	if errors.Is(err, sql.ErrNoRows) {
-		return sess, ErrNotFound
+		WHERE s.token_hash = ? AND s.expires_at > ? AND u.disabled_at = ''`, tokenHash, now()), &sess.CSRFToken)
+	if errors.Is(err, ErrNotFound) {
+		return sess, err
 	}
-	sess.ExpiresAt = parseTime(expires)
-	return sess, err
+	return sess, wrap("session", err)
 }
 
 // DeleteSession removes a session (logout).
 func (s *Store) DeleteSession(ctx context.Context, tokenHash string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE token_hash = ?`, tokenHash)
-	return err
+	return wrap("delete session", err)
 }
 
 // DeleteOtherSessions ends every session of a user except the current one.
 func (s *Store) DeleteOtherSessions(ctx context.Context, userID int64, keepHash string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?`, userID, keepHash)
-	return err
+	return wrap("delete other sessions", err)
 }
 
 // DeleteExpiredSessions purges stale sessions.
 func (s *Store) DeleteExpiredSessions(ctx context.Context) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE expires_at <= ?`, now())
-	return err
+	return wrap("delete expired sessions", err)
+}
+
+// SetPassword replaces the password hash of a user, who changes it: the
+// caller ends the user's other sessions (ResetPassword ends them all).
+func (s *Store) SetPassword(ctx context.Context, userID int64, passwordHash string) error {
+	return wrap("set password", expectRow(s.db.ExecContext(ctx, `UPDATE users SET password_hash = ? WHERE id = ?`, passwordHash, userID)))
 }
 
 // AuditDetail writes the detail of an audit entry, the one format of new
@@ -163,19 +179,10 @@ func AuditDetail(kv ...any) string {
 // Audit records a security-relevant action, its detail written by
 // AuditDetail. userID 0 means the system.
 func (s *Store) Audit(ctx context.Context, userID int64, action, detail string) error {
-	var uid any
-	if userID != 0 {
-		uid = userID
-	}
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO audit_log (user_id, action, detail, created_at) VALUES (?, ?, ?, ?)`,
-		uid, action, detail, now())
-	return err
-}
-
-// SetPassword replaces the password hash of a user.
-func (s *Store) SetPassword(ctx context.Context, userID int64, passwordHash string) error {
-	return expectRow(s.db.ExecContext(ctx, `UPDATE users SET password_hash = ? WHERE id = ?`, passwordHash, userID))
+		nullID(userID), action, detail, now())
+	return wrap("audit", err)
 }
 
 // AuditEntry is one line of the audit log.
@@ -188,23 +195,21 @@ type AuditEntry struct {
 
 // ListAudit returns the most recent audit entries, newest first.
 func (s *Store) ListAudit(ctx context.Context, limit int) ([]AuditEntry, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	return collect(ctx, s.db, "list audit", func(row scanner) (AuditEntry, error) {
+		var e AuditEntry
+		var created string
+		err := row.Scan(&e.Username, &e.Action, &e.Detail, &created)
+		e.CreatedAt = parseTime(created)
+		return e, err
+	}, `
 		SELECT COALESCE(u.username, ''), l.action, l.detail, l.created_at
 		FROM audit_log l LEFT JOIN users u ON u.id = l.user_id
 		ORDER BY l.id DESC LIMIT ?`, limit)
-	if err != nil {
-		return nil, fmt.Errorf("list audit: %w", err)
-	}
-	defer rows.Close()
-	var out []AuditEntry
-	for rows.Next() {
-		var e AuditEntry
-		var created string
-		if err := rows.Scan(&e.Username, &e.Action, &e.Detail, &created); err != nil {
-			return nil, err
-		}
-		e.CreatedAt = parseTime(created)
-		out = append(out, e)
-	}
-	return out, rows.Err()
+}
+
+// PurgeAudit deletes the audit entries older than before; it returns how
+// many were deleted.
+func (s *Store) PurgeAudit(ctx context.Context, before time.Time) (int, error) {
+	n, err := purge(ctx, s.db, `DELETE FROM audit_log WHERE created_at < ?`, before)
+	return n, wrap("purge audit log", err)
 }

@@ -668,7 +668,7 @@ func runUserChange(ctx context.Context, cmd string, args []string) error {
 	}
 	defer st.Close()
 	if cmd == "list" {
-		accounts, err := st.ListAccounts(ctx)
+		accounts, err := st.ListUsers(ctx)
 		if err != nil {
 			return err
 		}
@@ -685,7 +685,7 @@ func runUserChange(ctx context.Context, cmd string, args []string) error {
 		}
 		return nil
 	}
-	a, err := st.AccountByName(ctx, *username)
+	a, err := st.AnyUserByName(ctx, *username)
 	if err != nil {
 		return fmt.Errorf("utilisateur %q : %w", *username, err)
 	}
@@ -737,7 +737,7 @@ func runResetTOTP(ctx context.Context, args []string) error {
 		fmt.Printf("double authentification retirée de %d compte(s), leurs sessions sont fermées : chacun la reconfigure à sa prochaine connexion\n", n)
 		return nil
 	}
-	if err := st.DisableTOTPByName(ctx, *username); err != nil {
+	if err := st.ResetTOTPByName(ctx, *username); err != nil {
 		return fmt.Errorf("utilisateur %q : %w", *username, err)
 	}
 	auditCLI(ctx, st, "totp_reset", "user", *username)

@@ -25,7 +25,7 @@ func TestBackupWhileWriting(t *testing.T) {
 		}
 	}()
 	dest := filepath.Join(t.TempDir(), "copy.db")
-	if err := st.Backup(ctx, dest); err != nil {
+	if err := backup(ctx, st.db, dest); err != nil {
 		t.Fatal(err)
 	}
 	<-done
@@ -48,10 +48,10 @@ func TestRotateBackups(t *testing.T) {
 	dir := t.TempDir()
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	for i := 0; i < 5; i++ {
-		os.WriteFile(filepath.Join(dir, BackupName(base.Add(time.Duration(i)*time.Hour))), nil, 0o600)
+		os.WriteFile(filepath.Join(dir, backupName(base.Add(time.Duration(i)*time.Hour))), nil, 0o600)
 	}
 	os.WriteFile(filepath.Join(dir, "unrelated.db"), nil, 0o600)
-	if err := RotateBackups(dir, 2); err != nil {
+	if err := rotateBackups(dir, 2); err != nil {
 		t.Fatal(err)
 	}
 	entries, _ := os.ReadDir(dir)
@@ -59,7 +59,7 @@ func TestRotateBackups(t *testing.T) {
 	for _, e := range entries {
 		names = append(names, e.Name())
 	}
-	want := []string{"unrelated.db", BackupName(base.Add(3 * time.Hour)), BackupName(base.Add(4 * time.Hour))}
+	want := []string{"unrelated.db", backupName(base.Add(3 * time.Hour)), backupName(base.Add(4 * time.Hour))}
 	if len(names) != 3 {
 		t.Fatalf("after rotation: %v, want %v", names, want)
 	}
@@ -79,17 +79,17 @@ func TestRotateBackups(t *testing.T) {
 func TestRotateKeepsManualCopies(t *testing.T) {
 	dir := t.TempDir()
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	for _, n := range []string{"vigil-avant-maj.db", "vigil-2026-01-01.db", BackupName(base), BackupName(base.Add(time.Hour))} {
+	for _, n := range []string{"vigil-avant-maj.db", "vigil-2026-01-01.db", backupName(base), backupName(base.Add(time.Hour))} {
 		os.WriteFile(filepath.Join(dir, n), nil, 0o600)
 	}
-	if err := RotateBackups(dir, 1); err != nil {
+	if err := rotateBackups(dir, 1); err != nil {
 		t.Fatal(err)
 	}
 	entries, _ := os.ReadDir(dir)
 	if len(entries) != 3 {
 		t.Errorf("after rotation: %d files, want the 2 manual copies and the newest backup", len(entries))
 	}
-	if _, err := os.Stat(filepath.Join(dir, BackupName(base))); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, backupName(base))); !os.IsNotExist(err) {
 		t.Error("oldest scheduled backup kept")
 	}
 }
@@ -98,13 +98,13 @@ func TestRotateKeepsManualCopies(t *testing.T) {
 // abandoned; only the newest copies taken before a schema upgrade are kept.
 func TestBackupLeftovers(t *testing.T) {
 	dir := t.TempDir()
-	stale := filepath.Join(dir, BackupName(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))+".tmp")
-	fresh := filepath.Join(dir, BackupName(time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC))+".tmp")
+	stale := filepath.Join(dir, backupName(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))+".tmp")
+	fresh := filepath.Join(dir, backupName(time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC))+".tmp")
 	os.WriteFile(stale, nil, 0o600)
 	os.WriteFile(fresh, nil, 0o600)
 	old := time.Now().Add(-2 * time.Hour)
 	os.Chtimes(stale, old, old)
-	if err := RotateBackups(dir, 5); err != nil {
+	if err := rotateBackups(dir, 5); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
@@ -130,5 +130,37 @@ func TestBackupLeftovers(t *testing.T) {
 		if strings.Contains(m, "schema-8.") || strings.Contains(m, "schema-9.") {
 			t.Errorf("oldest copy kept: %s", m)
 		}
+	}
+}
+
+// The copies taken before an upgrade are ordered by the time in their name,
+// as the scheduled backups are: a copy moved or restored by hand gets a new
+// date, not a new age. A file the upgrade did not write is left alone.
+func TestUpgradeBackupsPrunedByName(t *testing.T) {
+	dir := t.TempDir()
+	db := filepath.Join(dir, "vigil.db")
+	for i := range 4 {
+		p := fmt.Sprintf("%s.schema-%d.2026010%d-000000.bak", db, 8+i, i+1)
+		os.WriteFile(p, nil, 0o600)
+	}
+	// The oldest copy was copied back last.
+	recent := time.Now()
+	os.Chtimes(db+".schema-8.20260101-000000.bak", recent, recent)
+	manual := db + ".schema-9.avant-maj.bak"
+	os.WriteFile(manual, nil, 0o600)
+	old := time.Now().Add(-48 * time.Hour)
+	os.Chtimes(manual, old, old)
+
+	if err := pruneUpgradeBackups(db, 3); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(db + ".schema-8.20260101-000000.bak"); !os.IsNotExist(err) {
+		t.Error("oldest copy kept because of its file date")
+	}
+	if _, err := os.Stat(manual); err != nil {
+		t.Errorf("copy made by hand removed: %v", err)
+	}
+	if matches, _ := filepath.Glob(db + ".schema-*.2026*.bak"); len(matches) != 3 {
+		t.Errorf("upgrade copies kept: %v", matches)
 	}
 }

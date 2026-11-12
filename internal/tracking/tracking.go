@@ -653,7 +653,7 @@ func (s *Syncer) storeOSV(ctx context.Context, v osv.Vuln, changed bool) error {
 
 // enrich refreshes the KEV flag and EPSS score of every stored vulnerability.
 func (s *Syncer) enrich(ctx context.Context) error {
-	byVuln, err := s.Store.VulnCVEs(ctx)
+	byVuln, err := s.Store.ListVulnCVEs(ctx)
 	if err != nil || len(byVuln) == 0 {
 		return err
 	}

@@ -56,7 +56,7 @@ func TestEverythingOnlyInScopeFile(t *testing.T) {
 // package store): the UI must not call them.
 func TestSystemMethodsStayOutOfWeb(t *testing.T) {
 	system := []string{"ObserveFinding", "InTrackedPeriod", "AutoResolveStale", "SetOlderVulns", "ApplyDismissalRules",
-		"UpsertVulnerability", "VulnModified", "SetExploitSignals", "VulnCVEs", "MarkAlerted", "CreateDigest", "LastDigestTime"}
+		"UpsertVulnerability", "VulnModified", "SetExploitSignals", "ListVulnCVEs", "MarkAlerted", "CreateDigest", "LastDigestTime"}
 	for name, f := range webSources(t) {
 		ast.Inspect(f, func(n ast.Node) bool {
 			if sel, ok := n.(*ast.SelectorExpr); ok && slices.Contains(system, sel.Sel.Name) {

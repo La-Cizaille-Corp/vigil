@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -35,7 +36,7 @@ func dismissalComment(text string) string { return "Écartée par la règle « "
 // rule that already exists is left as it is.
 func (s *Store) CreateDismissalRule(ctx context.Context, sc Scope, assetID int64, text string) error {
 	if err := assetInScope(ctx, s.db, sc, assetID); err != nil {
-		return err
+		return wrap("create dismissal rule", err)
 	}
 	if _, err := s.db.ExecContext(ctx, `
 		INSERT INTO dismissal_rules (asset_id, text, created_at) VALUES (?, ?, ?)
@@ -46,48 +47,39 @@ func (s *Store) CreateDismissalRule(ctx context.Context, sc Scope, assetID int64
 	return err
 }
 
-// DismissalRules returns the rules of an asset of the scope, with the findings
+// ListDismissalRules returns the rules of an asset of the scope, with the findings
 // each sets aside.
-func (s *Store) DismissalRules(ctx context.Context, sc Scope, assetID int64) ([]DismissalRule, error) {
+func (s *Store) ListDismissalRules(ctx context.Context, sc Scope, assetID int64) ([]DismissalRule, error) {
 	cond, args := sc.cond("a")
 	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
-	rows, err := s.db.QueryContext(ctx, `
+	return collect(ctx, s.db, "dismissal rules", func(row scanner) (DismissalRule, error) {
+		var r DismissalRule
+		var created string
+		err := row.Scan(&r.ID, &r.AssetID, &r.Text, &created, &r.Findings)
+		r.CreatedAt = parseTime(created)
+		return r, err
+	}, `
 		SELECT r.id, r.asset_id, r.text, r.created_at,
 		       (SELECT count(*) FROM findings f WHERE f.dismissed_by = r.id)
 		FROM dismissal_rules r JOIN assets a ON a.id = r.asset_id
 		WHERE r.asset_id = ? AND `+cond+` ORDER BY r.text COLLATE NOCASE`, append([]any{assetID}, args...)...)
-	if err != nil {
-		return nil, fmt.Errorf("dismissal rules: %w", err)
-	}
-	defer rows.Close()
-	var out []DismissalRule
-	for rows.Next() {
-		var r DismissalRule
-		var created string
-		if err := rows.Scan(&r.ID, &r.AssetID, &r.Text, &created, &r.Findings); err != nil {
-			return nil, fmt.Errorf("dismissal rules: %w", err)
-		}
-		r.CreatedAt = parseTime(created)
-		out = append(out, r)
-	}
-	return out, rows.Err()
 }
 
 // DeleteDismissalRule removes a rule of an asset of the scope: the findings it
 // set aside are to analyse again.
 func (s *Store) DeleteDismissalRule(ctx context.Context, sc Scope, assetID, id int64) error {
-	var text string
 	cond, args := sc.cond("a")
-	err := s.db.QueryRowContext(ctx, `SELECT r.text FROM dismissal_rules r JOIN assets a ON a.id = r.asset_id
-		WHERE r.id = ? AND r.asset_id = ? AND `+cond, append([]any{id, assetID}, args...)...).Scan(&text)
-	if err != nil {
-		if err == sql.ErrNoRows {
+	return wrap("delete dismissal rule", s.inTx(ctx, func(tx *sql.Tx) error {
+		var text string
+		err := tx.QueryRowContext(ctx, `SELECT r.text FROM dismissal_rules r JOIN assets a ON a.id = r.asset_id
+			WHERE r.id = ? AND r.asset_id = ? AND `+cond, append([]any{id, assetID}, args...)...).Scan(&text)
+		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		}
-		return err
-	}
-	return s.inTx(ctx, func(tx *sql.Tx) error {
-		list, err := idsOf(ctx, tx, `SELECT id FROM findings WHERE dismissed_by = ?`, id)
+		if err != nil {
+			return err
+		}
+		list, err := collect(ctx, tx, "set aside findings", value[int64], `SELECT id FROM findings WHERE dismissed_by = ?`, id)
 		if err != nil {
 			return err
 		}
@@ -96,7 +88,7 @@ func (s *Store) DeleteDismissalRule(ctx context.Context, sc Scope, assetID, id i
 		}
 		_, err = tx.ExecContext(ctx, `DELETE FROM dismissal_rules WHERE id = ?`, id)
 		return err
-	})
+	}))
 }
 
 // ApplyDismissalRules sets aside the findings to analyse that match a rule of
@@ -105,8 +97,18 @@ func (s *Store) DeleteDismissalRule(ctx context.Context, sc Scope, assetID, id i
 func (s *Store) ApplyDismissalRules(ctx context.Context) (int, error) {
 	done := 0
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
-		exploited, err := tx.QueryContext(ctx, `
-			SELECT f.id, r.text FROM findings f
+		// A match is a finding and the rule setting it aside, or that would.
+		type match struct {
+			finding, rule int64
+			text          string
+		}
+		scanMatch := func(row scanner) (match, error) {
+			var m match
+			err := row.Scan(&m.finding, &m.rule, &m.text)
+			return m, err
+		}
+		exploited, err := collect(ctx, tx, "exploited findings set aside", scanMatch, `
+			SELECT f.id, r.id, r.text FROM findings f
 			JOIN dismissal_rules r ON r.id = f.dismissed_by
 			JOIN vulnerabilities v ON v.id = f.vuln_id
 			WHERE `+exploitedExpr)
@@ -114,18 +116,8 @@ func (s *Store) ApplyDismissalRules(ctx context.Context) (int, error) {
 			return err
 		}
 		given := map[string][]int64{}
-		for exploited.Next() {
-			var id int64
-			var text string
-			if err := exploited.Scan(&id, &text); err != nil {
-				_ = exploited.Close() // already failing
-				return err
-			}
-			given[text] = append(given[text], id)
-		}
-		_ = exploited.Close() // fully read
-		if err := exploited.Err(); err != nil {
-			return err
+		for _, m := range exploited {
+			given[m.text] = append(given[m.text], m.finding)
 		}
 		for text, list := range given {
 			if err := restoreFindings(ctx, tx, list, dismissalComment(text), "exploitée ou probable : sortie de la règle d'écart"); err != nil {
@@ -133,7 +125,7 @@ func (s *Store) ApplyDismissalRules(ctx context.Context) (int, error) {
 			}
 		}
 
-		rows, err := tx.QueryContext(ctx, `
+		matches, err := collect(ctx, tx, "findings to set aside", scanMatch, `
 			SELECT f.id, r.id, r.text FROM dismissal_rules r
 			JOIN findings f ON f.asset_id = r.asset_id
 			JOIN vulnerabilities v ON v.id = f.vuln_id
@@ -142,35 +134,18 @@ func (s *Store) ApplyDismissalRules(ctx context.Context) (int, error) {
 		if err != nil {
 			return err
 		}
-		type match struct {
-			finding, rule int64
-			text          string
-		}
-		var matches []match
-		for rows.Next() {
-			var m match
-			if err := rows.Scan(&m.finding, &m.rule, &m.text); err != nil {
-				_ = rows.Close() // already failing
-				return err
-			}
-			matches = append(matches, m)
-		}
-		_ = rows.Close() // fully read
-		if err := rows.Err(); err != nil {
-			return err
-		}
 		ts := now()
 		for _, m := range matches {
 			// Two rules can match: the first one has set it aside.
-			res, err := tx.ExecContext(ctx, `
+			err := expectRow(tx.ExecContext(ctx, `
 				UPDATE findings SET status = 'not_affected', justification = 'code_not_present', dismissed_by = ?, updated_at = ?,
 				       comment = CASE WHEN comment = '' THEN ? ELSE comment END
-				WHERE id = ? AND status = 'in_triage'`, m.rule, ts, dismissalComment(m.text), m.finding)
+				WHERE id = ? AND status = 'in_triage'`, m.rule, ts, dismissalComment(m.text), m.finding))
+			if errors.Is(err, ErrNotFound) {
+				continue
+			}
 			if err != nil {
 				return err
-			}
-			if n, _ := res.RowsAffected(); n == 0 {
-				continue
 			}
 			if err := insertEvent(ctx, tx, m.finding, 0, "in_triage", "not_affected", dismissalComment(m.text), ts); err != nil {
 				return err
@@ -185,27 +160,9 @@ func (s *Store) ApplyDismissalRules(ctx context.Context) (int, error) {
 	return done, nil
 }
 
-// idsOf returns the ids selected by a query.
-func idsOf(ctx context.Context, tx *sql.Tx, query string, args ...any) ([]int64, error) {
-	rows, err := tx.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		out = append(out, id)
-	}
-	return out, rows.Err()
-}
-
 // restoreFindings puts findings set aside by a rule back to analyse, with the
 // reason in their history. Their comment goes if it is the rule's.
-func restoreFindings(ctx context.Context, tx *sql.Tx, ids []int64, ruleComment, reason string) error {
+func restoreFindings(ctx context.Context, tx querier, ids []int64, ruleComment, reason string) error {
 	ts := now()
 	for _, id := range ids {
 		if _, err := tx.ExecContext(ctx, `

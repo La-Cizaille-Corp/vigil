@@ -120,10 +120,11 @@ func (c *Collector) run(ctx context.Context, every time.Duration) (int, error) {
 		}
 		total += n
 	}
-	if err := c.Store.PurgeCTIItems(ctx, time.Now().Add(-Retention)); err != nil {
+	purged, err := c.Store.PurgeCTIItems(ctx, time.Now().Add(-Retention))
+	if err != nil {
 		return total, err
 	}
-	c.Log.Info("cti done", "new_items", total)
+	c.Log.Info("cti done", "new_items", total, "purged", purged)
 	return total, nil
 }
 

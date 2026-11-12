@@ -298,7 +298,7 @@ func TestAuditDetailOfEachAction(t *testing.T) {
 	post(analyst, "/assets/"+asset+"/dismissals", url.Values{"text": {"wifi: driver"}})
 	want(st, "dismissal_create", "asset="+asset+` text="wifi: driver"`)
 	assetID, _ := strconv.ParseInt(asset, 10, 64)
-	rules, _ := st.DismissalRules(ctx, store.Everything, assetID)
+	rules, _ := st.ListDismissalRules(ctx, store.Everything, assetID)
 	if len(rules) != 1 {
 		t.Fatalf("rules: %+v", rules)
 	}
@@ -412,7 +412,7 @@ func TestAuditDetailOfEachAction(t *testing.T) {
 
 	// Users.
 	post(admin, "/settings/users", url.Values{"username": {"bob"}, "role": {"analyst"}})
-	bob, _ := st.AccountByName(ctx, "bob")
+	bob, _ := st.AnyUserByName(ctx, "bob")
 	user := strconv.FormatInt(bob.ID, 10)
 	want(st, "user_create", "id="+user+" user=bob role=analyst")
 	post(admin, "/settings/users/"+user+"/role", url.Values{"role": {"viewer"}})
@@ -433,6 +433,6 @@ func TestAuditDetailOfEachAction(t *testing.T) {
 	if code := newClient(t, fresh).post("/setup", url.Values{"username": {"root"}, "password": {"a-strong-password"}}); code != http.StatusSeeOther {
 		t.Fatalf("setup: %d", code)
 	}
-	root, _ := first.AccountByName(ctx, "root")
+	root, _ := first.AnyUserByName(ctx, "root")
 	want(first, "setup", "id="+strconv.FormatInt(root.ID, 10))
 }

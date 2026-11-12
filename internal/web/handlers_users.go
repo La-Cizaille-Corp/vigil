@@ -27,7 +27,7 @@ func (s *Server) newToken(r *http.Request) string {
 }
 
 func (s *Server) renderUsers(w http.ResponseWriter, r *http.Request, status int, formErr string, secret *newPassword) {
-	accounts, err := s.Store.ListAccounts(r.Context())
+	accounts, err := s.Store.ListUsers(r.Context())
 	if err != nil {
 		s.serverError(w, r, err)
 		return
@@ -111,7 +111,7 @@ func (s *Server) userTOTPReset(w http.ResponseWriter, r *http.Request) {
 // temporary one and ends its sessions.
 func (s *Server) userPassword(w http.ResponseWriter, r *http.Request) {
 	s.userChange(w, r, change{action: "password_reset", msg: "password-reset", apply: func(id int64) error {
-		a, err := s.Store.AccountByID(r.Context(), id)
+		a, err := s.Store.User(r.Context(), id)
 		if err != nil {
 			return err
 		}

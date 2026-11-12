@@ -211,7 +211,7 @@ func (l latin1Reader) Read(p []byte) (int, error) {
 
 // Retag recomputes the tags of the items of feed f, after its own tags changed.
 func Retag(ctx context.Context, st *store.Store, f store.Feed) error {
-	items, err := st.FeedItems(ctx, f.ID)
+	items, err := st.ListFeedItems(ctx, f.ID)
 	if err != nil {
 		return err
 	}

@@ -99,7 +99,7 @@ func TestFindingLifecycle(t *testing.T) {
 	if f, _ := st.Finding(ctx, Everything, fs[0].ID); f.FixedIn != "" {
 		t.Errorf("fixed version once the source names none: %q", f.FixedIn)
 	}
-	events, _ := st.FindingEvents(ctx, Everything, fs[0].ID)
+	events, _ := st.ListFindingEvents(ctx, Everything, fs[0].ID)
 	if len(events) < 3 || events[0].Username != "ana" {
 		t.Fatalf("events = %+v", events)
 	}
@@ -116,7 +116,7 @@ func TestFindingLifecycle(t *testing.T) {
 	if v, _ := st.Vulnerability(ctx, "GHSA-1"); !v.KEV || v.EPSS != 0.9 || v.CVSS != 7.5 {
 		t.Errorf("signals = %+v", v)
 	}
-	if cves, _ := st.VulnCVEs(ctx); len(cves["GHSA-1"]) != 1 || cves["GHSA-1"][0] != "CVE-1" {
+	if cves, _ := st.ListVulnCVEs(ctx); len(cves["GHSA-1"]) != 1 || cves["GHSA-1"][0] != "CVE-1" {
 		t.Errorf("VulnCVEs = %v", cves)
 	}
 }
@@ -151,7 +151,7 @@ func TestSetFindingStatuses(t *testing.T) {
 	if f, _ := st.Finding(ctx, Everything, b); f.Status != "resolved" || f.Comment != "à patcher" {
 		t.Errorf("b = %s %q", f.Status, f.Comment)
 	}
-	events, _ := st.FindingEvents(ctx, Everything, a)
+	events, _ := st.ListFindingEvents(ctx, Everything, a)
 	if len(events) != 2 || events[0].NewStatus != "exploitable" || events[1].OldStatus != "exploitable" ||
 		events[1].NewStatus != "not_affected" || events[1].Username != "ana" {
 		t.Errorf("history of a = %+v", events)
@@ -166,7 +166,7 @@ func TestSetFindingStatuses(t *testing.T) {
 	if f, _ := st.Finding(ctx, Everything, a); f.Status != "not_affected" || f.Comment != "ensuite" {
 		t.Errorf("a changed by a refused batch: %s %q", f.Status, f.Comment)
 	}
-	if events, _ := st.FindingEvents(ctx, Everything, a); len(events) != 2 {
+	if events, _ := st.ListFindingEvents(ctx, Everything, a); len(events) != 2 {
 		t.Errorf("history of a after a refused batch: %d events", len(events))
 	}
 }
@@ -187,14 +187,14 @@ func TestUsersSessionsTokens(t *testing.T) {
 	st.CreateSession(ctx, "h1", uid, "csrf", time.Now().Add(time.Hour))
 	st.CreateSession(ctx, "h2", uid, "csrf", time.Now().Add(time.Hour))
 	st.CreateSession(ctx, "old", uid, "csrf", time.Now().Add(-time.Hour))
-	if _, err := st.SessionByHash(ctx, "old"); !errors.Is(err, ErrNotFound) {
+	if _, err := st.Session(ctx, "old"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("expired session accepted: %v", err)
 	}
 	st.DeleteOtherSessions(ctx, uid, "h1")
-	if _, err := st.SessionByHash(ctx, "h2"); !errors.Is(err, ErrNotFound) {
+	if _, err := st.Session(ctx, "h2"); !errors.Is(err, ErrNotFound) {
 		t.Error("other session survived")
 	}
-	if s, err := st.SessionByHash(ctx, "h1"); err != nil || s.User.Username != "admin" {
+	if s, err := st.Session(ctx, "h1"); err != nil || s.User.Username != "admin" {
 		t.Errorf("current session: %+v %v", s, err)
 	}
 

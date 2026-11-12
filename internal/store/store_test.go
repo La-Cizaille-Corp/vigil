@@ -188,7 +188,7 @@ func TestRetiredComponentsKeepHistory(t *testing.T) {
 	if got.Status != "resolved" {
 		t.Errorf("open finding of a retired component: %s", got.Status)
 	}
-	if events, _ := st.FindingEvents(ctx, Everything, open); len(events) == 0 || events[len(events)-1].NewStatus != "resolved" {
+	if events, _ := st.ListFindingEvents(ctx, Everything, open); len(events) == 0 || events[len(events)-1].NewStatus != "resolved" {
 		t.Errorf("no history event: %+v", events)
 	}
 	if got, _ := st.Finding(ctx, Everything, decided); got.Status != "not_affected" || got.Comment != "vérifié" {
@@ -304,7 +304,7 @@ func TestDismissalRules(t *testing.T) {
 	if f.Justification != "code_not_present" || !strings.Contains(f.Comment, "wifi:") {
 		t.Errorf("set aside: %+v", f)
 	}
-	if events, _ := st.FindingEvents(ctx, Everything, wifi); len(events) == 0 || events[len(events)-1].NewStatus != "not_affected" {
+	if events, _ := st.ListFindingEvents(ctx, Everything, wifi); len(events) == 0 || events[len(events)-1].NewStatus != "not_affected" {
 		t.Errorf("history: %+v", events)
 	}
 
@@ -313,7 +313,7 @@ func TestDismissalRules(t *testing.T) {
 	if n, err := st.ApplyDismissalRules(ctx); err != nil || n != 1 || state(next) != "not_affected" {
 		t.Errorf("next one: %d, %v, %s", n, err, state(next))
 	}
-	rules, _ := st.DismissalRules(ctx, Everything, asset)
+	rules, _ := st.ListDismissalRules(ctx, Everything, asset)
 	if len(rules) != 1 || rules[0].Text != "wifi:" || rules[0].Findings != 3 {
 		t.Fatalf("rules: %+v", rules)
 	}
@@ -343,7 +343,7 @@ func TestDismissalRules(t *testing.T) {
 	if got := state(next); got != "exploitable" {
 		t.Errorf("a decision was undone: %s", got)
 	}
-	if rules, _ := st.DismissalRules(ctx, Everything, asset); len(rules) != 0 {
+	if rules, _ := st.ListDismissalRules(ctx, Everything, asset); len(rules) != 0 {
 		t.Errorf("rules left: %+v", rules)
 	}
 }

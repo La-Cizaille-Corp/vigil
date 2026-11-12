@@ -252,7 +252,7 @@ func TestVEXImportResults(t *testing.T) {
 		t.Errorf("unchanged decision: %s %q", f.Status, f.Comment)
 	}
 	f := finding(fw, "CVE-2024-21762")
-	events, _ := st.FindingEvents(ctx, store.Everything, f.ID)
+	events, _ := st.ListFindingEvents(ctx, store.Everything, f.ID)
 	if f.Status != "false_positive" || f.Comment != "Import VEX : finalement" || len(events) != 2 ||
 		events[0].NewStatus != "resolved" || events[1].NewStatus != "false_positive" || events[1].Username != "analyst" {
 		t.Errorf("two analyses in order: %s %q, history %+v", f.Status, f.Comment, events)
