@@ -172,7 +172,7 @@ func newCommand(name string, withServices bool) (*flag.FlagSet, *options) {
 	o := &options{fs: fs, db: fs.String("db", defaultDB(), "fichier SQLite"), fromEnv: map[string]bool{}}
 	if withServices {
 		o.baseURL = fs.String("base-url", "", "adresse publique de l'interface, pour les liens des alertes, des digests et des webhooks")
-		o.allowPrivate = fs.Bool("allow-private-urls", false, "autoriser flux et webhooks vers des adresses privées ou locales")
+		o.allowPrivate = fs.Bool("allow-private-urls", false, "autoriser flux, webhooks et sources vers des adresses privées ou locales")
 		// SECURITY: prefer VIGIL_NVD_API_KEY: a command-line value is visible to other local users.
 		o.nvdKey = fs.String("nvd-api-key", "", "clé d'API NVD facultative, qui relève la limite de requêtes (préférez la variable VIGIL_NVD_API_KEY)")
 		o.mailer = smtpFlags(fs)
@@ -266,13 +266,15 @@ func smtpFlags(fs *flag.FlagSet) func() (*notify.Mailer, error) {
 // services builds the background services on st, with the options of a
 // command made by newCommand(name, true).
 func (o *options) services(st *store.Store, log *slog.Logger) services {
-	// OSV, NVD, KEV, EPSS: fixed public hosts, reached in HTTPS only.
-	// SECURITY: the NVD key is dropped if a redirect changes host.
-	fixed := &http.Client{Timeout: 60 * time.Second, CheckRedirect: netsafe.CheckRedirect("apiKey")}
+	// SECURITY: every outgoing request goes through netsafe, guarded against
+	// SSRF: feeds and webhooks are user-supplied URLs, and a fixed source
+	// (OSV, NVD, KEV, EPSS, reached in HTTPS only) could redirect to an
+	// internal address (0.5.0 review, T13); -allow-private-urls opens both.
+	// The NVD key is dropped if a redirect changes host.
+	fixed := netsafe.NewClient(60*time.Second, *o.allowPrivate, "apiKey")
 	// OSV gets a copy, same transport and redirect policy, with its longer time limit.
 	osvHTTP := *fixed
 	osvHTTP.Timeout = osv.Timeout
-	// SECURITY: feeds and webhooks are user-supplied URLs, guarded against SSRF.
 	userURLs := netsafe.NewClient(60*time.Second, *o.allowPrivate)
 	ua := userAgent()
 	sv := services{

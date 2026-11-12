@@ -153,7 +153,7 @@ vigil serve -addr 0.0.0.0:8080 -behind-proxy -base-url https://vigil.example.org
 ```
 
 Vigil refuse d'écouter sur une interface non locale sans TLS. Les flux et webhooks ne peuvent
-pas viser d'adresses privées ou locales, sauf avec `-allow-private-urls`.
+pas viser d'adresses privées ou locales, ni les sources y rediriger, sauf avec `-allow-private-urls`.
 
 Rôles : `viewer` (lecture), `analyst` (inventaire, triage, synchronisation, digests, filtres de
 veille), `admin` (flux CTI, webhooks, jetons d'API et comptes en plus). Les administrateurs gèrent

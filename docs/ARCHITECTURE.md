@@ -1159,12 +1159,18 @@ requêtes semblent locales : la page est alors désactivée et la création pass
 explicite, le serveur refuse de démarrer sur une interface réseau. `-tls-cert` et `-tls-key` vont
 ensemble : l'une sans l'autre est refusée, au lieu d'être ignorée en servant en clair (revue 0.5.0, C8).
 
-**A24. Client HTTP anti-SSRF pour les URL saisies.** Flux et webhooks sont des URL fournies par
-les utilisateurs : contrôle à la connexion (après résolution DNS, contre le DNS rebinding) des
-adresses privées, locales et réservées ; redirections limitées et en HTTPS ; proxy de
-l'environnement ignoré (il masquerait la destination réelle). Les sources fixes (OSV, NVD…)
-utilisent un client ordinaire, avec la même règle de redirection (`netsafe.CheckRedirect` : 5 au
-plus, en HTTPS, la clé NVD retirée si l'hôte change).
+**A24. Client HTTP anti-SSRF pour toutes les requêtes sortantes.** Flux et webhooks sont des URL
+fournies par les utilisateurs : contrôle à la connexion (après résolution DNS, contre le DNS
+rebinding) des adresses privées, locales et réservées ; redirections limitées et en HTTPS. Le proxy
+de l'environnement, d'abord ignoré parce qu'il masquait la destination réelle, est honoré depuis A44 :
+la destination est vérifiée avant de lui être confiée. Les sources fixes (OSV, NVD, KEV, EPSS)
+passent par le même client (`netsafe.NewClient`) depuis la revue de la 0.5.0 (T13) : elles avaient un
+client ordinaire, qui suivait une redirection en HTTPS vers une adresse interne ; `-allow-private-urls`
+vaut pour elles aussi. Même règle de redirection pour tous (`netsafe.CheckRedirect` : 5 au plus, en
+HTTPS, la clé NVD retirée si l'hôte change). *Conséquence* : le délai propre aux en-têtes (30 s) est
+retiré, seule compte la limite de la requête (60 s, 5 min pour OSV) : une source calcule parfois
+longtemps une grosse page avant de répondre, et le client ordinaire des sources n'en avait pas.
+Sans `ForceAttemptHTTP2` (la connexion est composée par le contrôle), les sources passent en HTTP/1.1.
 
 **A25. API par jeton limité à un projet.** Les pipelines CI poussent leur SBOM via
 `PUT /api/v1/projects/{projet}/sbom`. Un jeton n'écrit qu'un seul projet (moindre privilège),

@@ -334,9 +334,9 @@ reste utilisable pour l'inventaire et le triage, mais ne synchronise plus rien.
 
 À partir de la 0.3, Vigil passe par le proxy défini dans `HTTPS_PROXY` (et `NO_PROXY` pour les
 exceptions) pour **toutes** ses requêtes sortantes, y compris les flux CTI et webhooks saisis par
-les utilisateurs. Pour ces derniers, la protection anti-SSRF résout elle-même le nom de
-destination et refuse les adresses privées avant de confier la requête au proxy (le proxy, lui,
-peut avoir une adresse privée). Vigil demande au proxy le nom de destination, pas son adresse : les
+les utilisateurs. Pour toutes, sources comprises depuis la 0.5.0, la protection anti-SSRF résout
+elle-même le nom de destination et refuse les adresses privées avant de confier la requête au proxy
+(le proxy, lui, peut avoir une adresse privée). Vigil demande au proxy le nom de destination, pas son adresse : les
 listes d'autorisation par domaine du proxy s'appliquent. Configurez aussi le proxy pour interdire
 les destinations internes. Seuls les proxys HTTP sans authentification ou en authentification Basic
 (`http://utilisateur:motdepasse@proxy:3128`) sont pris en charge ; pour NTLM ou Kerberos, passez
@@ -409,7 +409,7 @@ planifiée Windows, LaunchAgent macOS), sauvegarder, remplacer, relancer, vérif
 | Disque plein, ou mise à jour refusée à la copie de la base | Voir [la place à prévoir](OPERATIONS.md#place-à-prévoir). |
 | `proxyconnect tcp`, délais dépassés vers les sources | Proxy absent ou mal renseigné : `HTTPS_PROXY`, et autorisation des destinations du [tableau des flux](#flux-sortants). |
 | `x509: certificate signed by unknown authority` | Proxy qui inspecte TLS : voir [§ 6](#proxy-qui-inspecte-tls). |
-| `adresse de destination interdite (réseau privé ou local)` | Flux ou webhook sur le réseau interne : `-allow-private-urls` (et `NO_PROXY` pour cet hôte). |
+| `adresse de destination interdite (réseau privé ou local)` | Flux ou webhook sur le réseau interne, ou source (OSV, NVD…) que le DNS interne résout vers une adresse privée : `-allow-private-urls` (et `NO_PROXY` pour cet hôte). |
 | En HTTP local, la connexion revient sans cesse à la page de connexion (Safari) | En mode `-behind-proxy` (image Docker), le cookie de session est réservé à HTTPS ; Chrome, Edge et Firefox l'acceptent sur la machine locale, pas tous les navigateurs. Ouvrez <http://localhost:8080>, ou passez par le reverse proxy HTTPS. |
 | Code de double authentification toujours refusé | Horloge du serveur ou du téléphone décalée de plus de 30 s environ. Windows : `w32tm /resync` ; Linux : `timedatectl` (NTP actif). |
 | Vigil refuse de démarrer : base créée par une version plus récente | Binaire plus ancien que la base : installez la version la plus récente, ou restaurez la copie `.bak` prise avant la mise à jour. |

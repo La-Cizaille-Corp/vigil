@@ -43,7 +43,7 @@ var (
 	dbOption       = "fichier SQLite"
 	serviceOptions = map[string]string{
 		"base-url":           "adresse publique de l'interface, pour les liens des alertes, des digests et des webhooks",
-		"allow-private-urls": "autoriser flux et webhooks vers des adresses privées ou locales",
+		"allow-private-urls": "autoriser flux, webhooks et sources vers des adresses privées ou locales",
 		"nvd-api-key":        "clé d'API NVD facultative, qui relève la limite de requêtes (préférez la variable VIGIL_NVD_API_KEY)",
 		"smtp-addr":          "serveur SMTP hôte:port pour les notifications par e-mail (vide = désactivé)",
 	}
