@@ -19,6 +19,28 @@
   <dt>Publiée le</dt><dd>{{with $v.Published}}{{isoDate .}}{{else}}<span class="muted">inconnu</span>{{end}}</dd>
 </dl>
 
+{{- with .Data.Kept}}
+<div class="notice">Regroupée : cet avis décrit la même CVE que <a href="/findings/{{.ID}}">{{.VulnID}}</a>, qui la suit pour cet actif.
+  Il n'apparaît plus dans les listes ; son historique reste ci-dessous.</div>
+{{end}}
+{{- if .Data.Grouped}}
+<div class="notice">Avis groupé : chacune de ses CVE a son propre avis pour cet actif ({{.Data.CVEFindings}} vulnérabilité(s)),
+  qui la suit. Il n'apparaît plus dans les listes ; son historique reste ci-dessous.
+  {{if and (can .User.Role "analyst") .Data.Apply}}
+  <form method="post" action="/findings/bulk" class="inline">
+    {{template "csrf" .CSRF}}
+    <input type="hidden" name="next" value="/findings">
+    {{range .Data.Apply}}<input type="hidden" name="id" value="{{.}}">{{end}}
+    <input type="hidden" name="status" value="{{$f.Status}}">
+    <input type="hidden" name="justification" value="{{$f.Justification}}">
+    <input type="hidden" name="comment" value="{{.Data.ApplyComment}}">
+    <button type="submit">Appliquer « {{statusLabel $f.Status}} » à {{len .Data.Apply}} vulnérabilité(s) de cet avis</button>
+  </form>
+  <span class="muted small">Sa décision n'a pas été reportée sur ses CVE ; 500 au plus par envoi.</span>
+  {{end}}
+</div>
+{{end}}
+
 <h2>Résumé</h2>
 <p>{{$v.Summary}}</p>
 {{if $v.Details}}<details><summary>Détails</summary><pre class="wrap">{{$v.Details}}</pre></details>{{end}}
@@ -30,6 +52,18 @@
 {{range .Data.Mentions}}<li>{{if .Link}}<a href="{{.Link}}" rel="noopener noreferrer" target="_blank">{{.Title}}</a>{{else}}{{.Title}}{{end}}
   <div class="muted small">{{.FeedName}} · {{date .Published}}</div></li>{{end}}
 </ul>
+{{end}}
+
+{{- with .Data.Notices}}
+<h2>Avis groupés</h2>
+<p class="muted small">Avis de mise à jour qui citent aussi cette CVE ; ils ne font pas de ligne à part.</p>
+<ul>{{range .}}<li><a href="{{.Link}}" rel="noopener noreferrer" target="_blank">{{.ID}}</a>{{with .FixedIn}} — corrigée en {{.}}{{end}}
+  {{- if .FindingID}} · <a href="/findings/{{.FindingID}}">sa ligne</a>{{if not .DecidedAt.IsZero}} : « {{statusLabel .DecidedStatus}} » par {{.DecidedBy}} le {{date .DecidedAt}}, décision non reportée sur cette CVE{{end}}{{end}}</li>{{end}}</ul>
+{{end}}
+
+{{- with .Data.Folded}}
+<h2>Autres avis de cette CVE</h2>
+<ul>{{range .}}<li><a href="/findings/{{.ID}}">{{.VulnID}}</a> — {{statusLabel .Status}}</li>{{end}}</ul>
 {{end}}
 
 {{if $v.Refs}}
@@ -59,7 +93,7 @@
 {{if .Data.Events}}
 <ul>
 {{range .Data.Events}}
-<li>{{date .CreatedAt}} — {{or .Username "système"}} : {{statusLabel .OldStatus}} → {{statusLabel .NewStatus}}{{if .Comment}} — {{.Comment}}{{end}}</li>
+<li>{{date .CreatedAt}} — {{or .Username "système"}} : {{if ne .OldStatus .NewStatus}}{{statusLabel .OldStatus}} → {{statusLabel .NewStatus}}{{if .Comment}} — {{end}}{{end}}{{.Comment}}</li>
 {{end}}
 </ul>
 {{else}}<p class="muted">Aucun changement.</p>{{end}}

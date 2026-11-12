@@ -168,6 +168,12 @@ func checkUpgradedData(ctx context.Context, t *testing.T, st *Store) {
 	if triaged != 3 {
 		t.Errorf("%d triaged findings kept, want 3", triaged)
 	}
+	// Migration 019 folds nothing (A80): the next synchronisation does, with
+	// what the sources report. Every finding of a release is still listed.
+	var folded int
+	if err := st.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM findings WHERE folded_into <> 0`).Scan(&folded); err != nil || folded != 0 {
+		t.Errorf("%d findings folded by the upgrade (%v), want none", folded, err)
+	}
 	assets, err := st.ListAssets(ctx, Everything)
 	if err != nil || len(assets) < 4 {
 		t.Fatalf("assets: %d, %v", len(assets), err)

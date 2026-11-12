@@ -729,9 +729,56 @@ func (s *Server) renderFinding(w http.ResponseWriter, r *http.Request, status in
 		s.serverError(w, r, err)
 		return
 	}
-	s.render(w, r, status, "finding", page{Title: findingTitle(f), Error: formErr,
-		Data: map[string]any{"Finding": f, "Vuln": v, "Events": events, "Mentions": mentions, "Fixes": tracking.Fixes(v.Raw, asset),
-			"ByName": inventory.ByName(asset), "Latest": inventory.IsLatest(asset)}})
+	data := map[string]any{"Finding": f, "Vuln": v, "Events": events, "Mentions": mentions, "Fixes": tracking.Fixes(v.Raw, asset),
+		"ByName": inventory.ByName(asset), "Latest": inventory.IsLatest(asset)}
+	if err := s.foldedFindings(r, f, asset, data); err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	s.render(w, r, status, "finding", page{Title: findingTitle(f), Error: formErr, Data: data})
+}
+
+// foldedFindings adds to the page of a finding what one finding per CVE (A80)
+// links it to. A finding shown lists the other advisories of its CVE folded
+// into it, and the grouped advisories naming it, with the decision a user may
+// have taken on one. A folded finding names the finding kept, or, for a
+// grouped advisory, the findings of its CVEs, with a form applying its
+// decision to them by the batch triage.
+func (s *Server) foldedFindings(r *http.Request, f store.Finding, asset store.Asset, data map[string]any) error {
+	ctx, sc := r.Context(), readScope(r)
+	cves := tracking.CVEs(f.VulnID, f.Aliases)
+	switch {
+	case f.FoldedInto == 0:
+		folded, err := s.Store.ListFoldedInto(ctx, sc, f.ID)
+		if err != nil {
+			return err
+		}
+		notices, err := s.Store.ListNotices(ctx, sc, f.AssetID, cves)
+		if err != nil {
+			return err
+		}
+		data["Folded"], data["Notices"] = folded, tracking.GroupedNotices(notices, asset)
+	case f.FoldedInto > 0:
+		kept, err := s.Store.Finding(ctx, sc, f.FoldedInto)
+		if err != nil {
+			return err
+		}
+		data["Kept"] = kept
+	default:
+		rows, err := s.Store.ListFindings(ctx, sc, store.FindingFilter{AssetID: f.AssetID, CVEs: cves})
+		if err != nil {
+			return err
+		}
+		var apply []int64 // only a decision taken is applied
+		for _, row := range rows {
+			if f.Status != store.StatusInTriage && (row.Status != f.Status || row.Justification != f.Justification) && len(apply) < maxBulk {
+				apply = append(apply, row.ID)
+			}
+		}
+		data["Grouped"], data["CVEFindings"], data["Apply"] = true, len(rows), apply
+		data["ApplyComment"] = clip.Text("Décision de l'avis groupé "+f.VulnID+" : "+f.Comment, tracking.MaxComment)
+	}
+	return nil
 }
 
 func (s *Server) findingUpdate(w http.ResponseWriter, r *http.Request) {

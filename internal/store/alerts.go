@@ -64,7 +64,7 @@ func (s *Store) PendingAlerts(ctx context.Context, sc Scope) ([]Alert, error) {
 		a.Raised = alerted > AlertNone
 		return a, err
 	}, `SELECT `+findingColumns+`, f.alerted`+findingFrom+`
-		WHERE f.status IN `+openStatuses+` AND `+alertClassExpr+` > f.alerted AND `+cond+`
+		WHERE f.status IN `+openStatuses+` AND `+shownExpr+` AND `+alertClassExpr+` > f.alerted AND `+cond+`
 		ORDER BY alert_class DESC, v.cvss DESC, f.id`, append(sla.args(), args...)...)
 }
 

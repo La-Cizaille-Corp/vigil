@@ -71,11 +71,16 @@ func Fixes(raw string, a store.Asset) []Fix {
 // FixedIn returns the versions fixing a finding of asset a: those ending the
 // ranges that hold its version. It is "" when the source names none, as for an
 // asset kept at its latest release, where those ranges are the open ones.
-func FixedIn(raw string, a store.Asset) string {
+func FixedIn(raw string, a store.Asset) string { return fixedInAny(a, raw) }
+
+// fixedInAny is FixedIn over several advisories of the same CVE (A80).
+func fixedInAny(a store.Asset, raws ...string) string {
 	var out []string
-	for _, f := range Fixes(raw, a) {
-		if f.Yours && f.Fixed != "" && !slices.Contains(out, f.Fixed) {
-			out = append(out, f.Fixed)
+	for _, raw := range raws {
+		for _, f := range Fixes(raw, a) {
+			if f.Yours && f.Fixed != "" && !slices.Contains(out, f.Fixed) {
+				out = append(out, f.Fixed)
+			}
 		}
 	}
 	return strings.Join(out[:min(len(out), maxFixedIn)], ", ")

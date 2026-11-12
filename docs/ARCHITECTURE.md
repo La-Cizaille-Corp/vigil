@@ -69,7 +69,8 @@ modification, ou sur demande), par l'API après un import SBOM, ou par `vigil sy
    vers OSV ; ceux qui n'ont qu'un CPE, ou qu'un nom, vont vers la NVD.
 2. OSV : une requête `querybatch` pour tout l'inventaire, puis téléchargement des seuls avis
    nouveaux ou modifiés ; un paquet aux avis trop nombreux pour une réponse est relu en entier (A55).
-   Certains paquets sont lus en entier d'emblée et comparés ici (A51, A56). NVD : requêtes par CPE
+   Certains paquets sont lus en entier d'emblée et comparés ici (A51, A56) ; les avis qu'ils laissent hors
+   période sont relus s'ils sont probablement exploités (A31). NVD : requêtes par CPE
    limitées à la période de suivi, espacées selon la limite de débit, renvoyées après une panne
    passagère. Un actif qu'une source n'a pas pu vérifier est signalé et ne bloque pas les autres.
    Les avis d'un actif sont enregistrés ensemble, une fois ses sources lues (A57).
@@ -77,7 +78,8 @@ modification, ou sur demande), par l'API après un import SBOM, ou par `vigil sy
    catalogue KEV est lu une fois par synchronisation, chaque CVE demandée une fois à EPSS, et seuls
    les changements écrits, en une transaction. Une panne de ces sources est journalisée sans faire
    échouer la synchronisation.
-4. `findings` : création si nouveau et dans la période de suivi de l'actif, réouverture si résolu
+4. `findings` : une ligne par CVE (A80), les avis groupés et les seconds avis d'une CVE repliés ;
+   création si nouveau et dans la période de suivi de l'actif, réouverture si résolu
    automatiquement puis signalé à nouveau, résolution automatique si la source ne le signale plus
    (version mise à jour). Les écritures d'un actif forment une transaction : tout ou rien (A57).
 5. Alertes immédiates (A37) : les vulnérabilités ouvertes devenues urgentes sont envoyées aux
@@ -549,6 +551,18 @@ actifs existants gardent tout leur historique (pas de changement silencieux). *C
 un audit complet demande de vider la date ; l'état de la synchronisation indique combien de
 vulnérabilités ont été ignorées.
 
+*Garde étendue aux vulnérabilités probables (novembre 2026, avec A80).* Seule une entrée KEV passait la
+période, alors que le classement (A78) et les règles d'écart (A61) traitent de même « exploitée ou
+probable » (EPSS ≥ `store.LikelyEPSS`). Une CVE ancienne du noyau Ubuntu à 94 % d'EPSS, citée par la
+veille, n'était visible que par un avis groupé ; A80 la retirait. La condition de période (`inPeriod`)
+reprend désormais `exploitedExpr`, et un paquet lu en entier (A55, A56) relit à part ses avis d'une CVE
+laissés hors période : leurs CVE sont demandées à EPSS (une requête pour 100 CVE, environ 50 pour un noyau
+Ubuntu), et ceux qui sont probables sont téléchargés un à un (`/v1/vulns`) puis enregistrés. Une panne
+d'EPSS est journalisée et ne laisse passer que KEV, comme avant. Sur la base de l'audit, 13 CVE anciennes
+entrent ainsi, toutes urgentes : 9 pour le noyau Ubuntu (dont CVE-2026-43284, EPSS 94 %) et 4 pour le noyau
+Debian, dont CVE-2004-0230 et CVE-2008-4609 (TCP), que Debian dit toujours affecter le paquet. *Limite* : la NVD n'est interrogée que
+sur la période et sur KEV (`hasKev`) ; une CVE probable plus ancienne n'y est pas cherchée.
+
 **A32. État de la synchronisation visible, analyse d'un seul actif.** Sans JavaScript, une
 synchronisation en arrière-plan ne donnait aucun retour. Le bouton « Synchroniser l'inventaire »
 est présent sur le tableau de bord, l'inventaire et les vulnérabilités, et ramène à la page
@@ -609,6 +623,54 @@ exploitable » (la repasser à « À analyser » ne la renvoie pas). À la premi
 jour, celles déjà marquées Exploitables et pas encore notifiées comme prioritaires partent de même, en un
 message par canal. Les délais de traitement (A39) ne changent pas : seule une entrée KEV prend le délai
 critique.
+
+**A80. Une vulnérabilité trouvée par CVE ; les avis groupés deviennent des références.** Une source
+signale une même faille sous plusieurs avis : l'avis de la CVE (`UBUNTU-CVE-…`, `DEBIAN-CVE-…`, `GHSA-…`) et
+un avis de mise à jour qui la cite parmi des centaines (`USN-…`, `DSA-…`), ou deux bases pour la même faille
+(`GHSA-…` et `GO-…`, `GHSA-…` et `PYSEC-…`). Vigil faisait une ligne par avis : sur le noyau Ubuntu 22.04 de
+l'audit UX de la 0.4.1, 1 877 CVE apparaissaient deux fois, sous leur UBUNTU-CVE et sous l'un des 16 USN.
+11 des 27 urgentes étaient des USN, urgents parce qu'une de leurs CVE l'était (KEV et EPSS d'un avis sont
+le maximum de ses CVE). Un USN publié dans la période de suivi faisait aussi revenir 1 701 CVE plus
+anciennes, que la période écarte quand elles viennent seules (A31). Hors noyau, la base réaliste comptait
+des DSA sur openssl (11 CVE), des paires GHSA et GO sur `golang.org/x/net` (4 CVE) et des RHSA entre eux (69
+CVE, jusqu'à 14 lignes pour l'une). Décision : ce qui identifie une vulnérabilité trouvée est le couple
+(actif, CVE), lu dans les identifiants que les avis donnent eux-mêmes (identifiant, alias, avis d'origine),
+sans liste de préfixes ni exception par distribution :
+- un avis qui nomme une seule CVE la décrit ; un avis qui en nomme plusieurs est un avis groupé ;
+- un avis groupé qui cite lui-même des avis par CVE, dont l'un au moins est signalé pour l'actif, n'est pas
+  une ligne : la source décrit ses CVE une à une, et ce sont ces avis qui font foi. Il est montré, sur la
+  page de chacune de ses CVE, comme référence (identifiant, lien OSV, version corrigée qu'il donne pour
+  l'actif). Un RHSA ne cite que des CVE : il reste une ligne, comme avant ;
+- les avis qui décrivent seuls la même CVE font une ligne : celle qui existe reste, signalée ou non, tant
+  que l'un d'eux l'est ; à la première fusion, celle qu'une décision humaine a tranchée en dernier, puis
+  une ouverte, puis une notée, puis la plus ancienne. Sa version corrective réunit celles de ses avis ;
+- une CVE est dans la période de suivi quand tous ses avis le sont, ou qu'elle a déjà une ligne : sa date
+  compte, pas celle d'un avis plus tardif.
+Les lignes en trop ne sont pas supprimées mais repliées (`findings.folded_into`, migration 019) : elles
+quittent les listes, compteurs, alertes, digests, exports et règles d'écart (`shownExpr`), gardent leur
+statut et leur historique, et leur page reste ouverte aux liens déjà envoyés. Le repli est fait par la
+synchronisation, dans la transaction de l'actif (A57) : elle seule voit les avis signalés hors période
+(non stockés, A55), sans lesquels un USN ne pourrait être replié. Un avis groupé redevenu seul (ses CVE sans
+avis propre) est de nouveau montré. Reprise du triage : un avis groupé replié garde sa décision, qui
+n'est pas reportée sur ses CVE (une décision sur 1 902 CVE n'en est pas une sur chacune) ; la page de chaque
+CVE la cite, et celle de l'avis propose de l'appliquer à ses CVE par le triage par lot (A43). Deux avis
+d'une même CVE : la décision humaine la plus récente est gardée, l'autre est inscrite dans l'historique de
+la ligne gardée ; celle-ci prend la première détection la plus ancienne et la classe d'alerte la plus
+haute déjà notifiée, si bien qu'aucune alerte ne repart et qu'aucune ligne ne paraît nouvelle. *Écartés* :
+masquer les doublons à la lecture, sans colonne (la base ignore les avis hors période, et une décision
+portée par la ligne cachée disparaîtrait) ; une fiche par CVE avec des liens vers ses avis (réécriture de
+`vuln_id`, fiches `CVE-…` en collision avec celles de la NVD, sans résumé ni sévérité pour une CVE que seul
+un RHSA cite, et une migration non réversible) ; replier un avis groupé dès qu'une de ses CVE est décrite
+seule (sur Red Hat, les RHSA d'une CVE d'autres flux auraient fait disparaître 38 CVE sur 193, dont 6
+urgentes sur 7) ; exiger que toutes ses CVE le soient (trois USN restaient, avec 44 doublons, pour des CVE
+dont l'avis propre dit que la 22.04 n'est pas touchée). *Conséquences* : une copie de la base de l'audit,
+synchronisée, replie ses 15 USN et ne garde aucune CVE en double ; la base réaliste passe de 377 à 316
+lignes (openssl-rh de 127 à 76, ses 193 CVE et ses 7 urgentes toujours visibles) ; une CVE plus ancienne que la période
+que seul un avis groupé faisait voir n'est plus montrée, sauf exploitée ou probable (A31) ; un VEX importé
+qui cite un USN n'est plus rapproché (il l'est par la CVE) ; Red Hat garde ses RHSA multi-CVE en lignes,
+faute d'avis par CVE chez OSV, et ses doublons viennent surtout de ce que ses écosystèmes ne distinguent pas
+les versions de RHEL (A55). La migration ne replie rien ; la première synchronisation après la mise à jour
+le fait, au démarrage de `serve`.
 
 **A16. Score CVSS calculé localement (3.x).** OSV publie souvent un vecteur sans score. La
 formule officielle FIRST 3.0/3.1 tient en quelques dizaines de lignes, testées sur des vecteurs
