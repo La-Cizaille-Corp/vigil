@@ -257,7 +257,8 @@ func (c *Client) get(ctx context.Context, q url.Values) ([]CVE, int, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	return parse(r), r.TotalResults, nil
+	cves, err := parse(r)
+	return cves, r.TotalResults, err
 }
 
 // send waits its turn, then asks the NVD and decodes its answer into out.
@@ -324,12 +325,25 @@ type record struct {
 	} `json:"references"`
 }
 
-// parse keeps the records of a page that can be read and are not rejected.
-func parse(r response) []CVE {
+// parse keeps the records of a page that are not rejected. SECURITY: a page
+// without its list, or a record that cannot be read, is an error, like a 404
+// (see get): left out, its CVE would no longer be reported, and its findings
+// would be marked fixed. A field of the NVD that changes type would do it to
+// every record.
+func parse(r response) ([]CVE, error) {
+	if r.Vulnerabilities == nil {
+		return nil, errors.New("nvd: réponse illisible : liste « vulnerabilities » absente")
+	}
 	out := make([]CVE, 0, len(r.Vulnerabilities))
-	for _, v := range r.Vulnerabilities {
+	for i, v := range r.Vulnerabilities {
 		var rec record
-		if err := json.Unmarshal(v.CVE, &rec); err != nil || rec.ID == "" || rec.VulnStatus == "Rejected" {
+		if err := json.Unmarshal(v.CVE, &rec); err != nil {
+			return nil, fmt.Errorf("nvd: réponse illisible : enregistrement %d : %w", i+1, err)
+		}
+		if rec.ID == "" {
+			return nil, fmt.Errorf("nvd: réponse illisible : enregistrement %d sans identifiant", i+1)
+		}
+		if rec.VulnStatus == "Rejected" {
 			continue
 		}
 		c := CVE{CVSS: -1, ID: rec.ID, Published: rec.Published, Modified: rec.LastModified, Raw: v.CVE}
@@ -353,5 +367,5 @@ func parse(r response) []CVE {
 		}
 		out = append(out, c)
 	}
-	return out
+	return out, nil
 }

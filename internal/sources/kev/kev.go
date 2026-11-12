@@ -4,6 +4,7 @@ package kev
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -40,6 +41,12 @@ func (c *Client) Catalogue(ctx context.Context) (map[string]Entry, error) {
 	}
 	if err != nil {
 		return nil, fmt.Errorf("kev: %w", err)
+	}
+	// SECURITY: the catalogue lists more than a thousand CVEs and only grows;
+	// an empty one is an answer the client cannot read (a field renamed), and
+	// taken as it is, it would clear the KEV mark of every vulnerability.
+	if len(doc.Vulnerabilities) == 0 {
+		return nil, errors.New("kev: réponse illisible : catalogue vide")
 	}
 	out := make(map[string]Entry, len(doc.Vulnerabilities))
 	for _, e := range doc.Vulnerabilities {

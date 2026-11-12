@@ -135,7 +135,7 @@ func (k *kernelOSV) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		body = a.record(id)
 	case r.URL.Path == "/kev":
-		var entries []string
+		entries := []string{`{"cveID":"CVE-1999-0001"}`} // a real catalogue is never empty
 		for _, cve := range k.kev {
 			entries = append(entries, `{"cveID":"`+cve+`","dueDate":"2026-12-01"}`)
 		}

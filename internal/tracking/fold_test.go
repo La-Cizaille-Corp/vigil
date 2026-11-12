@@ -71,7 +71,7 @@ func ubuntuKernel(t *testing.T, epssScores *string) (*httptest.Server, *sync.Mut
 		case strings.HasPrefix(r.URL.Path, "/v1/vulns/"):
 			io.WriteString(w, advisories[strings.TrimPrefix(r.URL.Path, "/v1/vulns/")])
 		case r.URL.Path == "/kev":
-			io.WriteString(w, `{"vulnerabilities":[]}`)
+			io.WriteString(w, `{"vulnerabilities":[{"cveID":"CVE-1999-0001"}]}`) // never empty
 		case r.URL.Path == "/epss":
 			io.WriteString(w, *epssScores)
 		default:
@@ -225,7 +225,7 @@ func TestSameCVEFolded(t *testing.T) {
 		case strings.HasPrefix(r.URL.Path, "/v1/vulns/"):
 			io.WriteString(w, advisories[strings.TrimPrefix(r.URL.Path, "/v1/vulns/")])
 		case r.URL.Path == "/kev":
-			io.WriteString(w, `{"vulnerabilities":[]}`)
+			io.WriteString(w, `{"vulnerabilities":[{"cveID":"CVE-1999-0001"}]}`) // never empty
 		case r.URL.Path == "/epss":
 			io.WriteString(w, `{"data":[]}`)
 		default:

@@ -4,6 +4,7 @@ package epss
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -34,7 +35,7 @@ func (c *Client) Scores(ctx context.Context, cves []string) (map[string]float64,
 	for start := 0; start < len(cves); start += batchSize {
 		end := min(start+batchSize, len(cves))
 		var doc struct {
-			Data []struct {
+			Data *[]struct {
 				CVE  string `json:"cve"`
 				EPSS string `json:"epss"`
 			} `json:"data"`
@@ -47,7 +48,13 @@ func (c *Client) Scores(ctx context.Context, cves []string) (map[string]float64,
 		if err != nil {
 			return nil, fmt.Errorf("epss: %w", err)
 		}
-		for _, d := range doc.Data {
+		// SECURITY: an empty list is an answer (CVEs that FIRST does not score
+		// yet), but no list at all is a format the client cannot read: taken
+		// for no score, it would clear the EPSS score of every vulnerability.
+		if doc.Data == nil {
+			return nil, errors.New("epss: réponse illisible : liste « data » absente")
+		}
+		for _, d := range *doc.Data {
 			// A probability: anything else (NaN, out of range) is ignored
 			// rather than stored.
 			if p, err := strconv.ParseFloat(d.EPSS, 64); err == nil && p >= 0 && p <= 1 {

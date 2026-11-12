@@ -25,3 +25,21 @@ func TestScoresIgnoresInvalid(t *testing.T) {
 		t.Errorf("scores = %v", got)
 	}
 }
+
+// An answer without its list cannot be read: taken for no score, it would
+// clear the score of every vulnerability. An empty list is an answer, for CVEs
+// that FIRST does not score yet.
+func TestAnswerWithoutList(t *testing.T) {
+	doc := ""
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, doc) }))
+	defer srv.Close()
+	c := &Client{URL: srv.URL, HTTP: srv.Client()}
+	doc = `{"status":"OK","scores":[{"cve":"CVE-1","epss":"0.25"}]}`
+	if got, err := c.Scores(context.Background(), []string{"CVE-1"}); err == nil {
+		t.Errorf("list renamed: %v", got)
+	}
+	doc = `{"status":"OK","data":[]}`
+	if got, err := c.Scores(context.Background(), []string{"CVE-1"}); err != nil || len(got) != 0 {
+		t.Errorf("empty list: %v, %v", got, err)
+	}
+}
