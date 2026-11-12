@@ -110,6 +110,14 @@ func TestPasswordPolicyAndGenerator(t *testing.T) {
 
 // S14 (ASVS V2.1.7): a password among the most common ones is refused
 // whatever its case; a strong one is still accepted.
+// The help shown beside password fields says the length HashPassword asks.
+func TestPasswordHelpNamesThePolicy(t *testing.T) {
+	if want := fmt.Sprintf("%d caractères minimum, ", MinPasswordLength); !strings.HasPrefix(PasswordHelp, want) ||
+		!strings.Contains(PasswordHelp, "plus courants") {
+		t.Errorf("PasswordHelp = %q, want the length (%q) and the common passwords", PasswordHelp, want)
+	}
+}
+
 func TestCommonPasswordRefused(t *testing.T) {
 	for _, p := range []string{"qwerty123456", "QWERTY123456", "Qwerty123456", "1Qaz2Wsx3Edc"} {
 		if _, err := HashPassword(p); !errors.Is(err, errCommonPassword) {
