@@ -54,7 +54,7 @@ func TestMaskURL(t *testing.T) {
 		"https://hooks.slack.com/services/T0/B0/secret": "https://hooks.slack.com/…",
 		"https://feeds.example.org:8443/rss?key=secret": "https://feeds.example.org:8443/…",
 		"https://user:pw@example.org/x":                 "https://example.org/…",
-		"not a url":                                    "…",
+		"not a url\x7f":                                 "…",
 		"/relative/path":                                "…",
 	} {
 		if got := MaskURL(raw); got != want {
