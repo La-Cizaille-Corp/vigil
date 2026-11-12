@@ -39,20 +39,18 @@ const (
 	segmentGap  = 1.5 // surface gap between segments, in user units
 )
 
-// severityOrder is the order of severities in charts: most severe first.
-var severityOrder = []string{"CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"}
-
 func newDonut(bySeverity map[string]int) donutChart {
 	d := donutChart{}
-	for _, sev := range severityOrder {
-		d.Total += bySeverity[sev]
+	for _, sev := range tracking.Severities {
+		d.Total += bySeverity[sev.Value]
 	}
 	if d.Total == 0 {
 		return d
 	}
 	circumference := 2 * math.Pi * donutRadius
 	offset := 0.0
-	for _, sev := range severityOrder {
+	for _, s := range tracking.Severities {
+		sev := s.Value
 		n := bySeverity[sev]
 		if n == 0 {
 			continue

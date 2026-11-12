@@ -66,23 +66,6 @@ func TestGenerate(t *testing.T) {
 	}
 }
 
-func TestSortByPriority(t *testing.T) {
-	fs := []store.Finding{
-		{VulnID: "low", Severity: "LOW", EPSS: -1},
-		{VulnID: "critical", Severity: "CRITICAL", EPSS: 0.01},
-		{VulnID: "likely", Severity: "MEDIUM", EPSS: 0.5},
-		{VulnID: "kev", Severity: "LOW", KEV: true, EPSS: -1},
-	}
-	SortByPriority(fs)
-	var got []string
-	for _, f := range fs {
-		got = append(got, f.VulnID)
-	}
-	if strings.Join(got, ",") != "kev,likely,critical,low" {
-		t.Errorf("order = %v", got)
-	}
-}
-
 func TestByVendor(t *testing.T) {
 	const fortios = "cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*"
 	fs := []store.Finding{
@@ -93,7 +76,7 @@ func TestByVendor(t *testing.T) {
 		{VulnID: "log4j", AssetPURL: "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1", Severity: "LOW"},
 		{VulnID: "manual", CVSS: -1},
 	}
-	b := ByVendor(fs)
+	b := byVendor(fs)
 	var vendors []string
 	for _, g := range b.Groups {
 		vendors = append(vendors, g.Vendor)
@@ -106,7 +89,8 @@ func TestByVendor(t *testing.T) {
 	for _, f := range forti.Findings {
 		order = append(order, f.VulnID)
 	}
-	if strings.Join(order, ",") != "forti-scored,forti-kev,forti-high" {
+	// The ranking of tracking.ComparePriority: exploited first, then by band.
+	if strings.Join(order, ",") != "forti-kev,forti-scored,forti-high" {
 		t.Errorf("order = %v", order)
 	}
 	if fmt.Sprint(forti.Bands) != "[1 2 0 0 0]" || forti.KEV != 1 {
@@ -129,33 +113,9 @@ func TestListedBound(t *testing.T) {
 		fs[i] = store.Finding{VulnID: fmt.Sprint(i), AssetCPE: "cpe:2.3:o:microsoft:windows_11:*:*:*:*:*:*:*:*", Severity: "HIGH"}
 	}
 	fs[len(fs)-1].Severity = "CRITICAL"
-	g := ByVendor(fs).Groups[0]
+	g := byVendor(fs).Groups[0]
 	if len(g.Listed()) != maxListed || g.Unlisted() != 3 || g.Listed()[0].Severity != "CRITICAL" {
 		t.Errorf("listed %d, unlisted %d, first %s", len(g.Listed()), g.Unlisted(), g.Listed()[0].Severity)
-	}
-}
-
-func TestLevel(t *testing.T) {
-	cases := []struct {
-		f    store.Finding
-		want string
-	}{
-		{store.Finding{Status: "in_triage", KEV: true, Severity: "LOW", EPSS: -1, CVSS: -1}, LevelUrgent},
-		{store.Finding{Status: "exploitable", EPSS: 0.1, CVSS: -1}, LevelUrgent},
-		{store.Finding{Status: "in_triage", Severity: "CRITICAL", EPSS: 0.01, CVSS: -1}, LevelPlan},
-		{store.Finding{Status: "in_triage", Severity: "HIGH", EPSS: -1, CVSS: -1}, LevelPlan},
-		{store.Finding{Status: "in_triage", Severity: "MEDIUM", EPSS: -1, CVSS: 7.5}, LevelPlan},
-		{store.Finding{Status: "in_triage", EPSS: -1, CVSS: 8}, LevelPlan},
-		{store.Finding{Status: "in_triage", Severity: "MEDIUM", EPSS: -1, CVSS: 5}, LevelWatch},
-		{store.Finding{Status: "in_triage", EPSS: -1, CVSS: -1}, LevelWatch},
-		{store.Finding{Status: "not_affected", KEV: true, CVSS: 9.8}, LevelAside},
-		{store.Finding{Status: "false_positive", CVSS: 9.8}, LevelAside},
-		{store.Finding{Status: "resolved", KEV: true}, ""},
-	}
-	for _, c := range cases {
-		if got := Level(c.f); got != c.want {
-			t.Errorf("Level(%+v) = %q, want %q", c.f, got, c.want)
-		}
 	}
 }
 

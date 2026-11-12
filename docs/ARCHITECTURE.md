@@ -301,7 +301,9 @@ Quatre niveaux exclusifs les remplacent, calculés pour tout produit : Urgentes,
 chose. Le CVSS seul ne trie pas : sur le noyau Debian 6.12.60-1, 90 % des CVE notées sont à 7 ou plus, plus de la
 moitié ne sont pas notées, et les 4 exploitées ne sont pas à 9. *Conséquence* : le niveau À planifier reste
 gros sur un vieux noyau ; c'est la mise à jour qui le réduit, pas le classement. Les délais de traitement et
-le filtre « Hors délai » restent, dans les filtres.
+le filtre « Hors délai » restent, dans les filtres. Depuis A78, le niveau se lit sur la classe d'alerte
+calculée par la requête (`Finding.Class`), au lieu d'une copie de la règle en Go, et le statut Exploitable
+range une vulnérabilité parmi les Urgentes.
 
 **A61. Écarter par un texte, pas par une notion de composant.** Une version ne dit pas si un composant est
 présent : sur un serveur sans ces matériels, `drm`, `wifi` ou `bluetooth` pèsent au moins un quart des CVE du
@@ -525,7 +527,35 @@ vérifier. Rien de ce qui cite une adresse n'est repris d'une réponse : elle po
 
 **A15. Priorisation KEV > EPSS > sévérité, plutôt que CVSS seul.** Le CVSS mesure la gravité
 théorique, pas la probabilité d'exploitation. Exploitation avérée (KEV) d'abord, puis probabilité
-EPSS ≥ 10 %, puis sévérité. Le score CVSS reste affiché et filtrable.
+EPSS ≥ 10 %, puis sévérité. Le score CVSS reste affiché et filtrable. Le statut Exploitable compte
+comme une entrée KEV (A78).
+
+**A78. Un seul classement d'urgence ; le statut Exploitable au rang d'une entrée KEV.** L'audit de code
+de novembre 2026 relevait deux classements qui divergeaient : la liste et le tableau de bord triaient par la
+sévérité de l'avis (`digest.MoreUrgent`), le digest par la bande de sévérité avec repli sur le score CVSS
+(`SortBySeverity`), si bien qu'une vulnérabilité notée par son seul CVSS ne tombait pas au même rang dans les
+deux. Le seuil EPSS de 10 % était écrit six fois, l'ordre des sévérités quatre fois, et `digest.Level`
+recopiait en Go la classe d'alerte calculée en SQL ; `web` triait avec ces règles du digest. Un seul
+classement, `tracking.ComparePriority`, sert maintenant aux listes, au tableau de bord et au digest :
+exploitée (KEV) ou jugée exploitable, puis probable (EPSS ≥ 10 %), puis bande de sévérité (`tracking.Band` :
+la sévérité de l'avis, à défaut celle du score CVSS), puis score EPSS, score CVSS et détection la plus
+récente. Le statut « Exploitable – à traiter » est une décision de l'équipe : il place la vulnérabilité au
+rang d'une entrée KEV, dans l'ordre comme dans le niveau Urgentes, le filtre « Prioritaire », l'indicateur
+« À traiter en priorité » et la classe d'alerte. Le seuil n'est écrit qu'une fois, `store.LikelyEPSS`, dont
+sont construites les expressions SQL (`exploitedExpr`, `urgentExpr`, `alertClassExpr`) ; le niveau
+(`tracking.Level`) se lit sur la classe calculée par la requête (`Finding.Class`) ; l'ordre des sévérités
+est celui de `tracking.Severities`. *Écarté* : garder le tri par sévérité dans le digest (deux ordres pour les
+mêmes vulnérabilités) ; calculer la classe d'alerte en Go (lire toutes les vulnérabilités ouvertes à chaque
+synchronisation pour n'en notifier que quelques-unes) ; ranger le statut Exploitable entre KEV et EPSS.
+*Conséquences* : l'ordre affiché change ; dans le digest, une vulnérabilité exploitée passe devant une
+critique qui ne l'est pas ; dans la liste, une vulnérabilité notée par son seul CVSS se range à sa bande, que
+la colonne Priorité affiche au lieu de « Inconnue ». Alertes immédiates (A37, une fois par niveau) : passer une
+vulnérabilité ouverte à « Exploitable » la porte à la classe prioritaire ; si elle n'y avait pas déjà été
+notifiée, elle part à la fin de la synchronisation suivante, une seule fois, avec la raison « jugée
+exploitable » (la repasser à « À analyser » ne la renvoie pas). À la première synchronisation après la mise à
+jour, celles déjà marquées Exploitables et pas encore notifiées comme prioritaires partent de même, en un
+message par canal. Les délais de traitement (A39) ne changent pas : seule une entrée KEV prend le délai
+critique.
 
 **A16. Score CVSS calculé localement (3.x).** OSV publie souvent un vecteur sans score. La
 formule officielle FIRST 3.0/3.1 tient en quelques dizaines de lignes, testées sur des vecteurs
@@ -549,7 +579,7 @@ filtres pays / secteur : une réglementation concerne tous ceux qu'elle couvre.
 
 **A35. Tableau de bord : indicateurs d'action et graphiques SVG rendus par le serveur.** Les
 indicateurs retenus répondent à « que faire maintenant ? » plutôt qu'à « combien ? » : à traiter en
-priorité (KEV ou EPSS >= 10 %, cliquable vers la liste exacte), vulnérabilités ouvertes, exploitées
+priorité (KEV, EPSS >= 10 % ou statut Exploitable, A78 ; cliquable vers la liste exacte), vulnérabilités ouvertes, exploitées
 avec échéance CISA dépassée, en attente d'analyse depuis plus de 30 jours, délai moyen de traitement
 sur 90 jours (de la détection à la clôture : corrigée, non affectée ou faux positif) et couverture de
 détection (actifs vérifiés automatiquement). Graphiques : répartition par sévérité (anneau),
@@ -704,7 +734,7 @@ manques qui gênaient l'usage quotidien d'une petite équipe, sans viser la prof
 
 **A37. Alertes immédiates par niveau d'urgence, une fois par niveau.** OpenCVE et
 Dependency-Track préviennent dès qu'une vulnérabilité correspond ; Vigil n'avait que le digest.
-Chaque vulnérabilité ouverte a une classe : prioritaire (KEV ou EPSS ≥ 10 %), sévère (critique ou
+Chaque vulnérabilité ouverte a une classe : prioritaire (KEV, EPSS ≥ 10 % ou statut Exploitable, A78), sévère (critique ou
 haute), autre. À la fin de chaque synchronisation, celles dont la classe dépasse la classe déjà
 notifiée (`findings.alerted`) partent, en un message par canal, vers les canaux qui demandent ce
 niveau ; une vulnérabilité qui devient exploitée est donc signalée à nouveau. Écartés : une alerte

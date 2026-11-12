@@ -228,7 +228,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	digest.SortByPriority(recent)
+	tracking.SortByPriority(recent)
 	recentTotal := len(recent)
 	recent = recent[:min(len(recent), 10)]
 	assets, err := s.Store.ListAssets(ctx, readScope(r))

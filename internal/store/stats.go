@@ -12,7 +12,7 @@ import (
 type Stats struct {
 	Open           int
 	OpenBySeverity map[string]int // CRITICAL, HIGH, MEDIUM, LOW, UNKNOWN
-	Priority       int            // open and exploited (KEV) or likely to be (EPSS >= 10 %)
+	Priority       int            // open and urgent (AlertPriority): exploited (KEV), likely to be or judged exploitable
 	OpenKEV        int
 	Overdue        int // open and past the remediation deadline (see SLA)
 	OverdueKEV     int // of which exploited
@@ -83,7 +83,7 @@ func (s *Store) openStats(ctx context.Context, sc Scope, now time.Time, st *Stat
 	// #nosec G202 -- cond is a fixed expression of Scope.cond; the values are parameters.
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+severityExpr+`, COUNT(*),
-		       SUM(v.kev OR v.epss >= 0.1),
+		       SUM(`+urgentExpr+`),
 		       SUM(v.kev),
 		       SUM(COALESCE(`+dueExpr+` < ?, 0)),
 		       SUM(v.kev AND COALESCE(`+dueExpr+` < ?, 0)),
