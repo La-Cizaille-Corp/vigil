@@ -29,6 +29,10 @@ archives:
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - LICENSE
+      # Licence of the common-password list embedded in the binary
+      # (internal/auth, see docs/DEPENDENCIES.md), at the root of the archive.
+      - src: internal/auth/SECLISTS-LICENSE.txt
+        strip_parent: true
       - README.md
       - SECURITY.md
       - docs/*.md

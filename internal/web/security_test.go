@@ -194,6 +194,28 @@ func TestPasswordMaxBytes(t *testing.T) {
 	}
 }
 
+// S14 (ASVS V2.1.7): setup and the account page refuse one of the most common
+// passwords, whatever its case, with a message that says why.
+func TestCommonPasswordForms(t *testing.T) {
+	const why = "fait partie des plus courants"
+	st, fresh := newTestServer(t)
+	if code, body := newClient(t, fresh).postBody("/setup", url.Values{"username": {"root"},
+		"password": {"Qwerty123456"}}); code != http.StatusBadRequest || !strings.Contains(body, why) {
+		t.Errorf("setup with a common password: %d", code)
+	}
+	if n, _ := st.CountUsers(context.Background()); n != 0 {
+		t.Errorf("%d account created", n)
+	}
+
+	_, base := newServerWith(t, nil)
+	admin := loginAs(t, base, "admin", "a-strong-password")
+	if code, body := admin.postBody("/account/password", url.Values{"csrf": {admin.csrf()}, "current": {"a-strong-password"},
+		"new": {"QWERTYUIOPASDFGH"}, "confirm": {"QWERTYUIOPASDFGH"}}); code != http.StatusBadRequest || !strings.Contains(body, why) {
+		t.Errorf("password change to a common password: %d", code)
+	}
+	loginAs(t, base, "admin", "a-strong-password") // unchanged
+}
+
 var passwordRe = regexp.MustCompile(`<code>([A-Za-z0-9]{5}(?:-[A-Za-z0-9]{5}){3})</code>`)
 
 // Administrators manage accounts in the UI: creation with a one-time
