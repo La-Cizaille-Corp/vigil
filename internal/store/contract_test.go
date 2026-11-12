@@ -223,7 +223,7 @@ func TestSettingsDigestsWebhooks(t *testing.T) {
 		t.Errorf("setting = %q", v)
 	}
 
-	if last, _ := st.LastDigestTime(ctx); !last.IsZero() {
+	if last, _ := st.LastDigestTime(ctx, 0); !last.IsZero() {
 		t.Errorf("no digest yet but last = %v", last)
 	}
 	now := time.Now().UTC().Truncate(time.Second)
@@ -231,7 +231,7 @@ func TestSettingsDigestsWebhooks(t *testing.T) {
 	if d, err := st.Digest(ctx, Everything, id); err != nil || d.Markdown != "md" {
 		t.Fatalf("digest = %+v %v", d, err)
 	}
-	if last, _ := st.LastDigestTime(ctx); !last.Equal(now) {
+	if last, _ := st.LastDigestTime(ctx, 0); !last.Equal(now) {
 		t.Errorf("last digest = %v, want %v", last, now)
 	}
 

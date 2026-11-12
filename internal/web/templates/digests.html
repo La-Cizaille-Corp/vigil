@@ -1,15 +1,23 @@
 {{define "content"}}
-{{if can .User.Role "analyst"}}
+{{$groups := .Data.Groups}}
+{{if and (can .User.Role "analyst") (or (not .User.Restricted) $groups)}}
 <form method="post" action="/digests" class="inline">
   {{template "csrf" .CSRF}}
+  {{if $groups}}<label>Pour
+    <select name="group">{{if not .User.Restricted}}<option value="">tout l'inventaire</option>{{end}}
+      {{range $groups}}<option value="{{.ID}}">le groupe {{.Name}}</option>{{end}}
+    </select>
+  </label>{{end}}
   <button type="submit">Générer un digest</button>
 </form>
 {{end}}
-{{if .Data}}
+{{if .Data.Digests}}
 <ul>
-{{range .Data}}
-<li><a href="/digests/{{.ID}}">Digest du {{date .CreatedAt}}</a> <span class="muted">(depuis le {{date .Since}})</span></li>
+{{range .Data.Digests}}
+<li><a href="/digests/{{.ID}}">Digest du {{date .CreatedAt}}</a>{{with .GroupName}} — groupe {{.}}{{end}} <span class="muted">(depuis le {{date .Since}})</span></li>
 {{end}}
 </ul>
-{{else}}<p class="muted">Aucun digest généré.</p>{{end}}
+{{else}}<p class="muted">Aucun digest généré{{if .User.Restricted}} pour vos groupes{{end}}.</p>{{end}}
+{{if .User.Restricted}}<p class="muted small">Vous voyez les digests de vos groupes : ceux de tout l'inventaire sont réservés
+  aux comptes qui le voient.</p>{{end}}
 {{end}}

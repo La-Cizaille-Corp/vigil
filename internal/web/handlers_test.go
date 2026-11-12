@@ -114,8 +114,9 @@ func TestDigestNotSaidDoneWhenChannelsFail(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "web.db")
 	st, base := newServerIn(t, path, nil)
 	c := loginAs(t, base, "analyst", "a-strong-password")
+	token := c.csrf() // before: the pages listing groups count their channels
 	breakDB(t, path, `ALTER TABLE webhooks RENAME TO webhooks_lost`)
-	code, loc := c.postLocation("/digests", url.Values{"csrf": {c.csrf()}})
+	code, loc := c.postLocation("/digests", url.Values{"csrf": {token}})
 	if code != http.StatusInternalServerError || strings.Contains(loc, "digest-created") {
 		t.Errorf("channels unreadable: %d %q, want an error", code, loc)
 	}
@@ -379,7 +380,7 @@ func TestAuditDetailOfEachAction(t *testing.T) {
 	created := strconv.FormatInt(hooks[0].ID, 10)
 	want(st, "webhook_create", "id="+created+" target=https://hooks.slack.com/…")
 	post(admin, "/settings/webhooks/"+created, url.Values{"alerts": {""}})
-	want(st, "webhook_delivery", "id="+created+` digests=false alerts=""`)
+	want(st, "webhook_delivery", "id="+created+` digests=false alerts="" group=""`)
 	post(admin, "/settings/webhooks/"+created+"/toggle", url.Values{"enabled": {"0"}})
 	want(st, "webhook_toggle", "id="+created+" enabled=false")
 	post(admin, "/settings/webhooks/"+created+"/delete", url.Values{})

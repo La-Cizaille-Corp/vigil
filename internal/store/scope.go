@@ -87,27 +87,20 @@ func (sc Scope) cond(alias string) (string, []any) {
 		SELECT 1 FROM group_rules gr WHERE ` + where[0] + ` AND ` + ruleMatch("ga") + `))`, args
 }
 
-// groupCond returns the condition that keeps the group aliased alias inside
-// the scope: every group for Everything, those of a restricted account
-// otherwise.
-func (sc Scope) groupCond(alias string) (string, []any) {
+// groupCond returns the condition that keeps a row whose column (a constant
+// of the query) names a group inside the scope: every row for Everything,
+// those of its groups for a restricted account. On a group's id, it keeps the
+// groups of the scope; on the group of a digest (A68), the digests of the
+// scope, a digest of the whole inventory (NULL) being for Everything only.
+func (sc Scope) groupCond(column string) (string, []any) {
 	switch {
 	case sc.all:
 		return "1", nil
 	case len(sc.groups) == 0:
 		return "0", nil
 	}
-	where, args := inClause(nil, nil, alias+".id", sc.groups)
+	where, args := inClause(nil, nil, column, sc.groups)
 	return where[0], args
-}
-
-// digestCond keeps the digests of the scope. Every digest covers the whole
-// inventory so far: only Everything sees them.
-func (sc Scope) digestCond() string {
-	if sc.all {
-		return "1"
-	}
-	return "0"
 }
 
 // moves reports what a write moving an asset from the groups before to the

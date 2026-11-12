@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"slices"
 	"testing"
+	"time"
 )
 
 // inGroup is the rule of A68 written in Go, as a reference for the SQL of
@@ -358,5 +359,74 @@ func TestAccessOfAnAccount(t *testing.T) {
 	}
 	if sess, err := st.Session(ctx, "token"); err != nil || !sess.User.Access.All {
 		t.Errorf("session after a change of access: %+v, %v", sess.User.Access, err)
+	}
+}
+
+// A68, step 5: a digest covers the whole inventory or a group; a restricted
+// account reads those of its groups only, and each one starts where the
+// previous one of the same group ended. A channel may be limited to a group,
+// which cannot be deleted while it has one (D7); its digests go with it.
+func TestDigestsAndChannelsOfAGroup(t *testing.T) {
+	ctx := context.Background()
+	st := openTest(t)
+	a, _ := st.CreateGroup(ctx, "A")
+	b, _ := st.CreateGroup(ctx, "B")
+	at := func(h int) time.Time { return time.Date(2026, 11, 1, h, 0, 0, 0, time.UTC) }
+	digests := map[string]int64{}
+	for name, d := range map[string]Digest{"all": {CreatedAt: at(9)}, "a": {CreatedAt: at(10), Group: a}, "b": {CreatedAt: at(11), Group: b}} {
+		id, err := st.CreateDigest(ctx, d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		digests[name] = id
+	}
+	list, err := st.ListDigests(ctx, InGroups(a))
+	if err != nil || len(list) != 1 || list[0].ID != digests["a"] || list[0].GroupName != "A" {
+		t.Errorf("digests of A: %+v, %v", list, err)
+	}
+	if all, _ := st.ListDigests(ctx, Everything); len(all) != 3 {
+		t.Errorf("every digest: %d", len(all))
+	}
+	for _, name := range []string{"all", "b"} {
+		if _, err := st.Digest(ctx, InGroups(a), digests[name]); !errors.Is(err, ErrNotFound) {
+			t.Errorf("digest %s read from A: %v", name, err)
+		}
+	}
+	for group, want := range map[int64]time.Time{0: at(9), a: at(10), b: at(11), 999: {}} {
+		if last, err := st.LastDigestTime(ctx, group); err != nil || !last.Equal(want) {
+			t.Errorf("last digest of %d: %v, %v; want %v", group, last, err, want)
+		}
+	}
+
+	if _, err := st.CreateWebhook(ctx, Webhook{Name: "x", Kind: "generic", URL: "https://example.org", Group: 999}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("channel of an unknown group: %v", err)
+	}
+	hook, err := st.CreateWebhook(ctx, Webhook{Name: "équipe A", Kind: "generic", URL: "https://example.org", Group: a})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetWebhookDelivery(ctx, hook, true, "", 999); !errors.Is(err, ErrNotFound) {
+		t.Errorf("channel moved to an unknown group: %v", err)
+	}
+	if h, _ := st.Webhook(ctx, hook); h.Group != a || h.GroupName != "A" {
+		t.Errorf("channel: %+v", h)
+	}
+	if g, _ := st.Group(ctx, Everything, a); g.Channels != 1 {
+		t.Errorf("channels of A: %d", g.Channels)
+	}
+	if err := st.DeleteGroup(ctx, a); !errors.Is(err, ErrGroupInUse) {
+		t.Errorf("group with a channel deleted: %v", err)
+	}
+	if err := st.SetWebhookDelivery(ctx, hook, true, "", 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DeleteGroup(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Digest(ctx, Everything, digests["a"]); !errors.Is(err, ErrNotFound) {
+		t.Errorf("digest of a deleted group: %v", err)
+	}
+	if _, err := st.Digest(ctx, Everything, digests["b"]); err != nil {
+		t.Errorf("digest of another group: %v", err)
 	}
 }

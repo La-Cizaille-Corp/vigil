@@ -21,6 +21,7 @@ type Group struct {
 	Projects  []string // projects it takes in
 	Assets    int      // active assets it covers
 	Users     int      // accounts restricted to it, among others
+	Channels  int      // notification channels limited to it
 }
 
 // groupSelect reads a group with its counts (see scanGroup), on the table
@@ -28,13 +29,14 @@ type Group struct {
 var groupSelect = `SELECT g.id, g.name, g.created_at,
 	(SELECT COUNT(*) FROM assets ga WHERE ga.retired_at = '' AND EXISTS (
 		SELECT 1 FROM group_rules gr WHERE gr.group_id = g.id AND ` + ruleMatch("ga") + `)),
-	(SELECT COUNT(*) FROM user_groups ug WHERE ug.group_id = g.id)
+	(SELECT COUNT(*) FROM user_groups ug WHERE ug.group_id = g.id),
+	(SELECT COUNT(*) FROM webhooks w WHERE w.group_id = g.id)
 	FROM asset_groups g`
 
 func scanGroup(row scanner) (Group, error) {
 	var g Group
 	var created string
-	err := row.Scan(&g.ID, &g.Name, &created, &g.Assets, &g.Users)
+	err := row.Scan(&g.ID, &g.Name, &created, &g.Assets, &g.Users, &g.Channels)
 	g.CreatedAt = parseTime(created)
 	return g, err
 }
@@ -60,7 +62,7 @@ func (s *Store) Group(ctx context.Context, sc Scope, id int64) (Group, error) {
 
 // groups reads the groups of the scope, or the one bearing id if not 0.
 func (s *Store) groups(ctx context.Context, sc Scope, id int64) ([]Group, error) {
-	where, args := sc.groupCond("g")
+	where, args := sc.groupCond("g.id")
 	if id != 0 {
 		where += " AND g.id = ?"
 		args = append(args, id)
@@ -98,7 +100,7 @@ func (s *Store) groups(ctx context.Context, sc Scope, id int64) ([]Group, error)
 // name, without their rules and counts: what its page shows, as changing a
 // tag may change who sees it.
 func (s *Store) ListAssetGroups(ctx context.Context, sc Scope, assetID int64) ([]Group, error) {
-	cond, args := sc.groupCond("g")
+	cond, args := sc.groupCond("g.id")
 	// #nosec G202 -- cond is a fixed expression of Scope.groupCond; the values are parameters.
 	return collect(ctx, s.q(ctx), "asset groups", func(row scanner) (Group, error) {
 		var g Group
@@ -272,8 +274,22 @@ func (s *Store) SetGroupRules(ctx context.Context, id int64, tags, projects []st
 	}))
 }
 
-// DeleteGroup removes a group, its rules and its place in the access of the
-// accounts restricted to it, which then see less, never more.
+// ErrGroupInUse is returned when a group to delete still has channels: they
+// would then receive the alerts and the digest of the whole inventory.
+var ErrGroupInUse = errors.New("group with notification channels")
+
+// DeleteGroup removes a group, its rules, its digests and its place in the
+// access of the accounts restricted to it, which then see less, never more.
+// A group with channels is kept (ErrGroupInUse).
 func (s *Store) DeleteGroup(ctx context.Context, id int64) error {
-	return wrap("delete group", expectRow(s.q(ctx).ExecContext(ctx, `DELETE FROM asset_groups WHERE id = ?`, id)))
+	return wrap("delete group", s.inTx(ctx, func(tx *sql.Tx) error {
+		var channels int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM webhooks WHERE group_id = ?`, id).Scan(&channels); err != nil {
+			return err
+		}
+		if channels > 0 {
+			return ErrGroupInUse
+		}
+		return expectRow(tx.ExecContext(ctx, `DELETE FROM asset_groups WHERE id = ?`, id))
+	}))
 }

@@ -107,7 +107,9 @@ type message struct {
 	Event   map[string]any // payload of generic JSON webhooks
 }
 
-// SendDigest delivers a digest; failures are recorded per channel and joined.
+// SendDigest delivers a digest to the channels receiving digests of what it
+// covers: the whole inventory, or its group (A68). Failures are recorded per
+// channel and joined.
 func (n *Notifier) SendDigest(ctx context.Context, d store.Digest, link string) error {
 	// Cut once, below the chat limit, so that the note and the link survive.
 	tail := ""
@@ -124,8 +126,12 @@ func (n *Notifier) SendDigest(ctx context.Context, d store.Digest, link string) 
 	if day.IsZero() {
 		day = time.Now()
 	}
+	subject := "[Vigil] Digest de veille du " + fr.Date(day)
+	if d.GroupName != "" {
+		subject += " — " + d.GroupName
+	}
 	m := message{
-		Subject: "[Vigil] Digest de veille du " + fr.Date(day),
+		Subject: subject,
 		Text:    text,
 		Event: map[string]any{
 			"event":      "digest",
@@ -134,33 +140,55 @@ func (n *Notifier) SendDigest(ctx context.Context, d store.Digest, link string) 
 			"since":      d.Since,
 			"markdown":   d.Markdown,
 			"link":       link,
+			"group":      d.GroupName,
 		},
 	}
-	return n.deliver(ctx, m, func(h store.Webhook) bool { return h.Digests })
+	return n.deliver(ctx, m, func(h store.Webhook) bool { return h.Digests && h.Group == d.Group })
 }
 
 // SendAlerts notifies the open findings that became urgent since the last
 // call (see store.PendingAlerts), then marks them notified, delivered or not:
 // a failing channel shows its error in the settings, and the next digest
-// lists the findings anyway.
+// lists the findings anyway. A channel limited to a group receives the
+// alerts of that group only (A68); a finding is marked once for all, so that
+// a channel added later does not receive the alerts already sent.
 func (n *Notifier) SendAlerts(ctx context.Context) error {
 	alerts, err := n.Store.PendingAlerts(ctx, store.Everything)
 	if err != nil || len(alerts) == 0 {
 		return err
 	}
+	hooks, err := n.Store.ListWebhooks(ctx)
+	if err != nil {
+		return err
+	}
+	// The scopes the channels receive: the whole inventory, and each group
+	// that has an alert channel, with its own pending alerts.
+	scopes := map[int64][]store.Alert{0: alerts}
 	var errs []error
-	for level, class := range store.AlertLevels {
-		selected := alerts[:0:0]
-		for _, a := range alerts {
-			if a.Class >= class {
-				selected = append(selected, a)
-			}
-		}
-		if len(selected) == 0 {
+	for _, h := range hooks {
+		if _, done := scopes[h.Group]; done || !h.Enabled || h.Alerts == "" {
 			continue
 		}
-		m := n.alertMessage(selected)
-		errs = append(errs, n.deliver(ctx, m, func(h store.Webhook) bool { return h.Alerts == level }))
+		mine, err := n.Store.PendingAlerts(ctx, store.InGroups(h.Group))
+		if err != nil {
+			return err
+		}
+		scopes[h.Group] = mine
+	}
+	for group, pending := range scopes {
+		for level, class := range store.AlertLevels {
+			selected := pending[:0:0]
+			for _, a := range pending {
+				if a.Class >= class {
+					selected = append(selected, a)
+				}
+			}
+			if len(selected) == 0 {
+				continue
+			}
+			m := n.alertMessage(selected)
+			errs = append(errs, n.deliver(ctx, m, func(h store.Webhook) bool { return h.Alerts == level && h.Group == group }))
+		}
 	}
 	if err := n.Store.MarkAlerted(ctx, alerts); err != nil {
 		errs = append(errs, err)

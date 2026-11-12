@@ -399,12 +399,11 @@ func every(ctx context.Context, period time.Duration, now bool, fn func()) {
 	}
 }
 
+// generateAndSend makes the periodic digests, that of the whole inventory and
+// one per group with a channel (digest.Run), and sends each to its channels.
 func generateAndSend(ctx context.Context, st *store.Store, n *notify.Notifier, baseURL string) error {
-	d, err := digest.Generate(ctx, st)
-	if err != nil {
-		return err
-	}
-	return n.SendDigest(ctx, d, digestLink(baseURL, d.ID))
+	_, err := digest.Run(ctx, st, func(d store.Digest) error { return n.SendDigest(ctx, d, digestLink(baseURL, d.ID)) })
+	return err
 }
 
 // digestLink is the address of a digest in the interface, "" without -base-url.
@@ -463,15 +462,16 @@ func runDigest(ctx context.Context, log *slog.Logger, args []string) error {
 		return err
 	}
 	defer st.Close()
-	d, err := digest.Generate(ctx, st)
-	if err != nil {
-		return err
-	}
-	fmt.Print(d.Markdown)
-	if *noHooks {
-		return nil
-	}
-	return o.services(st, log).notifier.SendDigest(ctx, d, digestLink(*o.baseURL, d.ID))
+	notifier := o.services(st, log).notifier
+	// The digest of the whole inventory, then one per group with a channel.
+	_, err = digest.Run(ctx, st, func(d store.Digest) error {
+		fmt.Print(d.Markdown)
+		if *noHooks {
+			return nil
+		}
+		return notifier.SendDigest(ctx, d, digestLink(*o.baseURL, d.ID))
+	})
+	return err
 }
 
 func runImportSBOM(ctx context.Context, args []string) error {

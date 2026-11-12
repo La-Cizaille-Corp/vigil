@@ -150,7 +150,10 @@ version validée.
   `vigil user add` sans `-groups` donne accès à tout, comme avant. Le changement s'applique aussitôt
   aux sessions ouvertes. Un compte limité ne voit que les actifs de ses groupes, leurs vulnérabilités
   et ce qui en dépend (chiffres du tableau de bord, exports, actualités qui le concernent) ; l'état de
-  la synchronisation ne lui montre ni noms ni compteurs, et aucun digest pour l'instant. Un analyste
+  la synchronisation ne lui montre ni noms ni compteurs, et il ne lit que les digests de ses groupes.
+  Pour qu'une équipe reçoive ses alertes et son digest, limitez son canal à son groupe (Paramètres →
+  Notifications, « Périmètre ») : chaque digest périodique produit alors aussi celui du groupe, depuis
+  son précédent. Un groupe auquel un canal est limité ne se supprime pas. Un analyste
   limité n'ajoute, ne modifie, ne supprime et n'importe (CSV, SBOM) que des actifs qui restent dans ses
   groupes : le message de refus dit quelle étiquette ou quel projet corriger. Pour qu'il importe le
   SBOM d'un projet, ajoutez ce projet à un de ses groupes (page du groupe, ou « Ajouter ce projet au

@@ -31,7 +31,7 @@ func TestGenerate(t *testing.T) {
 	st.InsertCTIItem(ctx, feed, store.CTIItem{GUID: "3", Title: "<!channel> [Correctif](https://evil.example) hôpitaux", Link: "https://example.org/3",
 		Published: time.Now(), Countries: []string{"FR"}})
 
-	d, err := Generate(ctx, st)
+	d, err := Generate(ctx, st, store.Group{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestGenerate(t *testing.T) {
 		t.Error("summary not escaped in HTML digest")
 	}
 	// The next digest only covers what happened since this one.
-	next, err := Generate(ctx, st)
+	next, err := Generate(ctx, st, store.Group{})
 	if err != nil {
 		t.Fatal(err)
 	}

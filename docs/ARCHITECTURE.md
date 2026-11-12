@@ -662,7 +662,8 @@ défaut) et sont réappliquées aux actualités déjà collectées.
 **A19. Digest « depuis le précédent ».** Une fenêtre fixe (7 jours) ferait manquer ou répéter
 des éléments selon la fréquence de génération. Formats : Markdown (webhooks, export) et HTML
 (interface). Webhooks au format le plus simple commun à Slack et Mattermost (A59 pour Teams ; champ
-`text`), plus un JSON générique pour les intégrations.
+`text`), plus un JSON générique pour les intégrations. Depuis la 0.5.0, un groupe d'actifs qui a un
+canal de digests a son propre digest, « depuis le précédent » de ce groupe (A68).
 
 ### Sécurité
 
@@ -798,8 +799,17 @@ inexistant ; un identifiant d'un triage par lot ou d'un énoncé VEX hors périm
 inconnu. Ce que le compte voit le suit partout : listes, pages, compteurs et graphiques du tableau de
 bord, actualités « qui concernent l'inventaire », exports CSV et VEX, étiquettes, projets et groupes
 proposés. L'état de la synchronisation parcourt tout l'inventaire : un compte limité y voit si elle
-tourne et son avancement en pourcentage, sans nom ni compteur. Les digests couvrent tout l'inventaire :
-un compte limité n'en voit aucun. *Écritures* : un compte limité ne fait entrer un actif que dans ses
+tourne et son avancement en pourcentage, sans nom ni compteur. *Canaux et digests* (migration 018) : un
+canal de notification peut être limité à un groupe ; il en reçoit les seules alertes (les vulnérabilités
+urgentes de ce groupe, `PendingAlerts` dans sa portée) et le seul digest. Un digest couvre tout
+l'inventaire ou un groupe (`digests.group_id`) : les digests périodiques sont celui de tout l'inventaire
+et un par groupe ayant un canal de digests actif (`digest.Run`), chacun « depuis le précédent » de son
+groupe (A19) ; dans l'interface, on génère celui de tout l'inventaire ou d'un de ses groupes. Un compte
+limité lit les digests de ses groupes, jamais celui de tout l'inventaire ; un compte sans restriction
+les lit tous. La marque « déjà alertée » d'une vulnérabilité reste unique : un canal de groupe ajouté
+plus tard ne reçoit pas les alertes déjà envoyées, comme un canal ajouté aujourd'hui. Un groupe auquel
+un canal est limité ne se supprime pas (il recevrait sinon tout l'inventaire) ; ses digests partent
+avec lui. *Écritures* : un compte limité ne fait entrer un actif que dans ses
 groupes, ne l'en fait sortir que de ses groupes, et l'y laisse dans au moins un, sauf pour le
 supprimer ; formellement, avec G avant et G après les groupes de l'actif, (G avant Δ G après) ⊆ ses
 groupes et G après rencontre ses groupes. La même règle couvre la création (G avant vide), la
@@ -830,7 +840,8 @@ compte par compte, un seul projet par actif) ; des membres enregistrés par acti
 classement, et rien d'automatique sans règles) ; un filtre dans les handlers (un oubli suffit pour un
 accès par identifiant) ; un compte sans groupe qui verrait tout (retirer son dernier groupe lui
 ouvrirait la base) ; l'accès « tout » par défaut à la création dans l'interface. *Conséquences* :
-migration 017 ; les comptes existants reçoivent l'accès à tout et `vigil user add` sans `-groups` le
+migrations 017 et 018 ; les comptes existants reçoivent l'accès à tout, les canaux et digests
+existants couvrent tout l'inventaire comme avant, et `vigil user add` sans `-groups` le
 garde, pour ne pas casser les scripts ; en base, la valeur par défaut refuse ; un actif hors de tout
 groupe n'est vu que des comptes sans restriction ; changer une étiquette peut changer qui voit un
 actif, d'où ses groupes affichés sur sa page ; un actif partagé par deux groupes a un seul triage,
@@ -904,7 +915,8 @@ niveau ; une vulnérabilité qui devient exploitée est donc signalée à nouvea
 par vulnérabilité (avalanche au premier import d'un SBOM), un moteur de règles à la
 Dependency-Track (configuration lourde pour la cible). La migration marque les vulnérabilités
 existantes comme déjà notifiées : pas d'avalanche après la mise à jour. Une alerte en échec n'est
-pas renvoyée : l'erreur s'affiche sur le canal et le digest suivant liste la vulnérabilité.
+pas renvoyée : l'erreur s'affiche sur le canal et le digest suivant liste la vulnérabilité. Un canal
+limité à un groupe d'actifs ne reçoit que les alertes de ce groupe (A68).
 
 **A38. E-mail par SMTP direct, dans les mêmes canaux que les webhooks.** Toutes les solutions
 comparées notifient par e-mail ; c'est le canal universel des petites structures. `net/smtp` de la

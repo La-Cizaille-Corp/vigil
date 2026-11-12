@@ -100,7 +100,7 @@ func TestWebhookDeliveryAndAudit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetWebhookDelivery(ctx, id, false, "severe"); err != nil {
+	if err := st.SetWebhookDelivery(ctx, id, false, "severe", 0); err != nil {
 		t.Fatal(err)
 	}
 	hooks, _ := st.ListWebhooks(ctx)

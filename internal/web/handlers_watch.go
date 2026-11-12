@@ -246,6 +246,11 @@ func (s *Server) webhookCreate(w http.ResponseWriter, r *http.Request) {
 		Digests: r.PostFormValue("digests") == "1",
 		Alerts:  r.PostFormValue("alerts"),
 	}
+	group, ok := s.channelGroup(w, r)
+	if !ok {
+		return
+	}
+	h.Group = group.ID
 	if err := notify.ValidateWebhook(h); err != nil {
 		s.renderSettings(w, r, http.StatusBadRequest, err.Error())
 		return
@@ -261,8 +266,28 @@ func (s *Server) webhookCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// SECURITY: a webhook URL is a secret, only its host is audited.
-	s.audit(r, "webhook_create", "id", id, "target", notify.Target(h))
+	detail := []any{"id", id, "target", notify.Target(h)}
+	if group.ID != 0 {
+		detail = append(detail, "group", group.Name)
+	}
+	s.audit(r, "webhook_create", detail...)
 	redirect(w, r, "/settings", "hook-created")
+}
+
+// channelGroup reads the group a channel is limited to (A68): the zero Group
+// for the whole inventory. It answers 404 itself for a group that does not
+// exist, and reports whether the request goes on.
+func (s *Server) channelGroup(w http.ResponseWriter, r *http.Request) (store.Group, bool) {
+	id := groupParam(r.PostForm)
+	if id == 0 {
+		return store.Group{}, true
+	}
+	g, err := s.Store.Group(r.Context(), readScope(r), id)
+	if err != nil {
+		s.storeError(w, r, err)
+		return g, false
+	}
+	return g, true
 }
 
 func (s *Server) webhookToggle(w http.ResponseWriter, r *http.Request) {
@@ -309,7 +334,8 @@ func (s *Server) webhookTest(w http.ResponseWriter, r *http.Request) {
 	redirect(w, r, "/settings", msg)
 }
 
-// webhookDelivery chooses what a channel receives: digests, alerts or both.
+// webhookDelivery chooses what a channel receives: digests, alerts or both,
+// of the whole inventory or of a group.
 func (s *Server) webhookDelivery(w http.ResponseWriter, r *http.Request) {
 	alerts := r.PostFormValue("alerts")
 	if !choice.Has(notify.AlertOptions, alerts) {
@@ -317,8 +343,13 @@ func (s *Server) webhookDelivery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	digests := r.PostFormValue("digests") == "1"
-	s.change(w, r, change{action: "webhook_delivery", detail: []any{"digests", digests, "alerts", alerts}, to: "/settings",
-		msg: "hook-updated", apply: func(id int64) error { return s.Store.SetWebhookDelivery(r.Context(), id, digests, alerts) }})
+	group, ok := s.channelGroup(w, r)
+	if !ok {
+		return
+	}
+	s.change(w, r, change{action: "webhook_delivery", detail: []any{"digests", digests, "alerts", alerts, "group", group.Name},
+		to: "/settings", msg: "hook-updated",
+		apply: func(id int64) error { return s.Store.SetWebhookDelivery(r.Context(), id, digests, alerts, group.ID) }})
 }
 
 // slaSave sets the remediation deadlines by severity.

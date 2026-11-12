@@ -5,9 +5,11 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
+	"errors"
 	"fmt"
 	htmltemplate "html/template"
 	"maps"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -62,6 +64,7 @@ const defaultWindow = 7 * 24 * time.Hour
 
 // data is what the templates render.
 type data struct {
+	Group       string // the group covered, "" for the whole inventory
 	Since       time.Time
 	GeneratedAt time.Time
 	New         breakdown // first seen in the period
@@ -185,10 +188,16 @@ func (g *vendorGroup) add(f store.Finding) {
 	}
 }
 
-// Generate builds and stores a digest covering findings first seen since the
-// previous digest (or defaultWindow for the first one).
-func Generate(ctx context.Context, st *store.Store) (store.Digest, error) {
-	last, err := st.LastDigestTime(ctx)
+// Generate builds and stores the digest of a group, or of the whole inventory
+// for the zero Group (A68), covering findings first seen since its previous
+// digest (or defaultWindow for the first one). The news of the watch are the
+// same for every digest; the rest is that of the group.
+func Generate(ctx context.Context, st *store.Store, group store.Group) (store.Digest, error) {
+	sc := store.Everything
+	if group.ID != 0 {
+		sc = store.InGroups(group.ID)
+	}
+	last, err := st.LastDigestTime(ctx, group.ID)
 	if err != nil {
 		return store.Digest{}, err
 	}
@@ -198,33 +207,33 @@ func Generate(ctx context.Context, st *store.Store) (store.Digest, error) {
 		since = now.Add(-defaultWindow)
 	}
 
-	d := data{Since: since, GeneratedAt: now}
-	news, err := st.ListFindings(ctx, store.Everything, store.FindingFilter{Since: since, Now: now})
+	d := data{Since: since, GeneratedAt: now, Group: group.Name}
+	news, err := st.ListFindings(ctx, sc, store.FindingFilter{Since: since, Now: now})
 	if err != nil {
 		return store.Digest{}, err
 	}
 	d.New = byVendor(news)
 	var open []store.Finding
 	for _, status := range []string{store.StatusExploitable, store.StatusInTriage} {
-		fs, err := st.ListFindings(ctx, store.Everything, store.FindingFilter{Status: status, Now: now})
+		fs, err := st.ListFindings(ctx, sc, store.FindingFilter{Status: status, Now: now})
 		if err != nil {
 			return store.Digest{}, err
 		}
 		open = append(open, fs...)
 	}
 	d.Open = byVendor(open)
-	counts, err := st.CountFindingsByStatus(ctx, store.Everything)
+	counts, err := st.CountFindingsByStatus(ctx, sc)
 	if err != nil {
 		return store.Digest{}, err
 	}
 	for _, s := range tracking.Statuses {
 		d.Counts = append(d.Counts, statusCount{Status: s.Value, N: counts[s.Value]})
 	}
-	if d.Overdue, err = st.ListFindings(ctx, store.Everything, store.FindingFilter{Overdue: true, Now: now}); err != nil {
+	if d.Overdue, err = st.ListFindings(ctx, sc, store.FindingFilter{Overdue: true, Now: now}); err != nil {
 		return store.Digest{}, err
 	}
 	tracking.SortByPriority(d.Overdue)
-	if d.Concerning, err = st.ListCTIItems(ctx, store.Everything, store.CTIFilter{Concerning: true, Since: since, Limit: maxCTIItems}); err != nil {
+	if d.Concerning, err = st.ListCTIItems(ctx, sc, store.CTIFilter{Concerning: true, Since: since, Limit: maxCTIItems}); err != nil {
 		return store.Digest{}, err
 	}
 
@@ -233,7 +242,7 @@ func Generate(ctx context.Context, st *store.Store) (store.Digest, error) {
 		return store.Digest{}, err
 	}
 	filter.Since, filter.Limit = since, maxCTIItems
-	if d.CTI, err = st.ListCTIItems(ctx, store.Everything, filter); err != nil {
+	if d.CTI, err = st.ListCTIItems(ctx, sc, filter); err != nil {
 		return store.Digest{}, err
 	}
 	d.CTIScope = describeScope(filter)
@@ -243,7 +252,7 @@ func Generate(ctx context.Context, st *store.Store) (store.Digest, error) {
 		return store.Digest{}, err
 	}
 	regs.Since, regs.Limit = since, maxCTIItems
-	if d.Regulatory, err = st.ListCTIItems(ctx, store.Everything, regs); err != nil {
+	if d.Regulatory, err = st.ListCTIItems(ctx, sc, regs); err != nil {
 		return store.Digest{}, err
 	}
 	d.RegScope = "toutes les réglementations et normes"
@@ -258,11 +267,41 @@ func Generate(ctx context.Context, st *store.Store) (store.Digest, error) {
 	if err := htmlTmpl.Execute(&html, d); err != nil {
 		return store.Digest{}, err
 	}
-	dg := store.Digest{Since: since, CreatedAt: now, Markdown: md.String(), HTML: html.String()}
+	dg := store.Digest{Since: since, CreatedAt: now, Markdown: md.String(), HTML: html.String(), Group: group.ID, GroupName: group.Name}
 	if dg.ID, err = st.CreateDigest(ctx, dg); err != nil {
 		return store.Digest{}, err
 	}
 	return dg, nil
+}
+
+// Run generates the periodic digests and hands each one to send: the digest
+// of the whole inventory, then one for each group with an enabled channel
+// receiving digests (A68), each covering the period since its own previous
+// one. A failure to send does not stop the next digests; it is returned with
+// the others.
+func Run(ctx context.Context, st *store.Store, send func(store.Digest) error) ([]store.Digest, error) {
+	hooks, err := st.ListWebhooks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	targets := []store.Group{{}}
+	for _, h := range hooks {
+		if h.Enabled && h.Digests && h.Group != 0 &&
+			!slices.ContainsFunc(targets, func(g store.Group) bool { return g.ID == h.Group }) {
+			targets = append(targets, store.Group{ID: h.Group, Name: h.GroupName})
+		}
+	}
+	var made []store.Digest
+	var errs []error
+	for _, g := range targets {
+		d, err := Generate(ctx, st, g)
+		if err != nil {
+			return made, errors.Join(append(errs, err)...)
+		}
+		made = append(made, d)
+		errs = append(errs, send(d))
+	}
+	return made, errors.Join(errs...)
 }
 
 func labels(tags []choice.Option, values []string) string {

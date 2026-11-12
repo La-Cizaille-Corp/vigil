@@ -43,6 +43,16 @@ func mapUnique(err error) error {
 	return err
 }
 
+// mapForeignKey turns a reference to a row that does not exist, such as the
+// group of a channel, into ErrNotFound; any other error is returned as it is.
+func mapForeignKey(err error) error {
+	var e *sqlite.Error
+	if errors.As(err, &e) && e.Code() == sqlite3.SQLITE_CONSTRAINT_FOREIGNKEY {
+		return ErrNotFound
+	}
+	return err
+}
+
 // Store wraps the database handle.
 type Store struct {
 	db            *sql.DB

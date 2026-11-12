@@ -181,13 +181,20 @@ func (s *Server) groupRules(w http.ResponseWriter, r *http.Request) {
 		apply:  func(id int64) error { return s.Store.SetGroupRules(r.Context(), id, tags, projects) }})
 }
 
-// groupDelete removes a group; its assets stay in the inventory.
+// groupDelete removes a group and its digests; its assets stay in the
+// inventory. A group with channels is kept (D7).
 func (s *Server) groupDelete(w http.ResponseWriter, r *http.Request) {
 	g, ok := load(s, w, r, inScope(r, s.Store.Group))
 	if !ok {
 		return
 	}
-	if err := s.Store.DeleteGroup(r.Context(), g.ID); err != nil {
+	err := s.Store.DeleteGroup(r.Context(), g.ID)
+	if errors.Is(err, store.ErrGroupInUse) {
+		s.renderGroup(w, r, http.StatusConflict, "Des canaux de notification sont limités à ce groupe : rattachez-les à "+
+			"tout l'inventaire ou à un autre groupe, ou supprimez-les (Paramètres → Notifications), avant de le supprimer.")
+		return
+	}
+	if err != nil {
 		s.storeError(w, r, err)
 		return
 	}
