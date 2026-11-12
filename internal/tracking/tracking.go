@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/La-Cizaille-Corp/vigil/internal/choice"
 	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 	"github.com/La-Cizaille-Corp/vigil/internal/cvss"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
@@ -25,17 +26,17 @@ import (
 )
 
 // Statuses are the CycloneDX / VEX analysis states, labelled in French.
-var Statuses = []inventory.Option{
-	{Value: "in_triage", Label: "À analyser"},
-	{Value: "exploitable", Label: "Exploitable – à traiter"},
-	{Value: "resolved", Label: "Corrigé"},
-	{Value: "not_affected", Label: "Non affecté"},
-	{Value: "false_positive", Label: "Faux positif"},
+var Statuses = []choice.Option{
+	{Value: store.StatusInTriage, Label: "À analyser"},
+	{Value: store.StatusExploitable, Label: "Exploitable – à traiter"},
+	{Value: store.StatusResolved, Label: "Corrigé"},
+	{Value: store.StatusNotAffected, Label: "Non affecté"},
+	{Value: store.StatusFalsePositive, Label: "Faux positif"},
 }
 
 // Severities are the severity levels of vulnerabilities, labelled in French,
 // most severe first: the order of Band, of the digest tables and of the charts.
-var Severities = []inventory.Option{
+var Severities = []choice.Option{
 	{Value: "CRITICAL", Label: "Critique"}, {Value: "HIGH", Label: "Haute"},
 	{Value: "MEDIUM", Label: "Moyenne"}, {Value: "LOW", Label: "Basse"}, {Value: "UNKNOWN", Label: "Inconnue"},
 }
@@ -45,7 +46,7 @@ func SeverityLabel(v string) string {
 	if v == "" {
 		v = "UNKNOWN"
 	}
-	return inventory.Label(Severities, v)
+	return choice.Label(Severities, v)
 }
 
 // TemplateFuncs returns the template functions that name findings in French,
@@ -54,7 +55,7 @@ func TemplateFuncs() map[string]any {
 	return map[string]any{
 		"band":        Band,
 		"sevLabel":    SeverityLabel,
-		"statusLabel": func(v string) string { return inventory.Label(Statuses, v) },
+		"statusLabel": func(v string) string { return choice.Label(Statuses, v) },
 		"level":       Level,
 		"levelName":   levelName,
 		"reason":      Reason,
@@ -63,7 +64,7 @@ func TemplateFuncs() map[string]any {
 }
 
 // Justifications explain a "not_affected" status (CycloneDX vocabulary).
-var Justifications = []inventory.Option{
+var Justifications = []choice.Option{
 	{Value: "code_not_present", Label: "Code vulnérable absent"},
 	{Value: "code_not_reachable", Label: "Code vulnérable non atteignable"},
 	{Value: "requires_configuration", Label: "Nécessite une configuration absente"},
@@ -80,13 +81,13 @@ const MaxComment = 4000
 
 // ValidateStatus checks a status change submitted by a user.
 func ValidateStatus(status, justification, comment string) error {
-	if inventory.Label(Statuses, status) == status {
+	if !choice.Has(Statuses, status) {
 		return errors.New("statut invalide")
 	}
-	if justification != "" && inventory.Label(Justifications, justification) == justification {
+	if justification != "" && !choice.Has(Justifications, justification) {
 		return errors.New("justification invalide")
 	}
-	if status == "not_affected" && justification == "" {
+	if status == store.StatusNotAffected && justification == "" {
 		return errors.New("une justification est requise pour « Non affecté »")
 	}
 	if !clip.Fits(comment, MaxComment) {
@@ -587,7 +588,7 @@ const (
 // CVSS score outside 0..10 becomes absent, texts and lists are bounded. A
 // longer alias is not an identifier: it is dropped.
 func sanitize(v store.Vulnerability) store.Vulnerability {
-	if v.Severity == "UNKNOWN" || inventory.Label(Severities, v.Severity) == v.Severity {
+	if v.Severity == "UNKNOWN" || !choice.Has(Severities, v.Severity) {
 		v.Severity = ""
 	}
 	if !(v.CVSS >= 0 && v.CVSS <= 10) { // NaN included

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/La-Cizaille-Corp/vigil/internal/choice"
 	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/nvd"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/osv"
@@ -16,19 +17,19 @@ import (
 )
 
 // Kinds of asset, with their French labels for the UI.
-var Kinds = []Option{
-	{"package", "Paquet / dépendance"},
-	{"technology", "Technologie"},
-	{"product", "Produit"},
-	{"os", "Système d'exploitation"},
+var Kinds = []choice.Option{
+	{Value: "package", Label: "Paquet / dépendance"},
+	{Value: "technology", Label: "Technologie"},
+	{Value: "product", Label: "Produit"},
+	{Value: "os", Label: "Système d'exploitation"},
 }
 
 // Criticalities of an asset for the organisation.
-var Criticalities = []Option{
-	{"low", "Faible"},
-	{"medium", "Moyenne"},
-	{"high", "Haute"},
-	{"critical", "Critique"},
+var Criticalities = []choice.Option{
+	{Value: "low", Label: "Faible"},
+	{Value: "medium", Label: "Moyenne"},
+	{Value: "high", Label: "Haute"},
+	{Value: "critical", Label: "Critique"},
 }
 
 // Ecosystems supported by OSV.dev (subset, the most common ones).
@@ -43,7 +44,7 @@ var Ecosystems = []string{
 
 // CPEModes are the versions of a CPE-only asset tracked in the NVD. With
 // mode "" a CPE without version ("*") tracks every version.
-var CPEModes = []Option{
+var CPEModes = []choice.Option{
 	{Value: "", Label: "Version de l'actif (CPE ou champ Version)"},
 	{Value: "all", Label: "Toutes les versions du produit"},
 	{Value: "from", Label: "Versions à partir de…"},
@@ -72,12 +73,6 @@ func SinceTime(a store.Asset) time.Time {
 	// of "" is that zero.
 	t, _ := time.Parse(dateLayout, a.TrackSince)
 	return t
-}
-
-// Option is a value with a display label.
-type Option struct {
-	Value string
-	Label string
 }
 
 // Normalize trims fields and applies defaults.
@@ -156,13 +151,13 @@ func Validate(a store.Asset) error {
 	}
 	check(clip.Fits(a.Name, 200) && clip.Fits(a.Version, 100) && clip.Fits(a.Owner, 200) && clip.Fits(a.Project, MaxProjectLen) &&
 		clip.Fits(a.PURL, 500) && clip.Fits(a.CPE, 500) && clip.Fits(a.Notes, 4000), "un champ dépasse la longueur maximale")
-	check(isOption(Kinds, a.Kind), "type d'actif invalide")
-	check(isOption(Criticalities, a.Criticality), "criticité invalide")
+	check(choice.Has(Kinds, a.Kind), "type d'actif invalide")
+	check(choice.Has(Criticalities, a.Criticality), "criticité invalide")
 	check(a.Ecosystem == "" || contains(Ecosystems, a.Ecosystem), "écosystème non supporté")
 	check(a.PURL == "" || strings.HasPrefix(a.PURL, "pkg:"), "un purl doit commencer par « pkg: »")
 	_, cpe := nvd.SplitCPE(a.CPE)
 	check(a.CPE == "" || cpe, "CPE invalide : 13 champs attendus, par exemple cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*")
-	check(isOption(CPEModes, a.CPEMode), "mode de suivi NVD invalide")
+	check(choice.Has(CPEModes, a.CPEMode), "mode de suivi NVD invalide")
 	check(a.CPEMode != "from" || (a.CPEFrom != "" && clip.Fits(a.CPEFrom, 100) && !strings.ContainsAny(a.CPEFrom, ":*?")),
 		"indiquez la version de départ du suivi")
 	_, dateErr := time.Parse(dateLayout, a.TrackSince)
@@ -212,25 +207,6 @@ func WholeDistribution(a store.Asset) bool {
 // are many and named too generically (libc, a file name).
 func ByName(a store.Asset) bool {
 	return a.PURL == "" && a.CPE == "" && !Queryable(a) && a.Source != "sbom" && a.Name != ""
-}
-
-// Label returns the label of value in opts, or value itself.
-func Label(opts []Option, value string) string {
-	for _, o := range opts {
-		if o.Value == value {
-			return o.Label
-		}
-	}
-	return value
-}
-
-func isOption(opts []Option, v string) bool {
-	for _, o := range opts {
-		if o.Value == v {
-			return true
-		}
-	}
-	return false
 }
 
 func contains(list []string, v string) bool {

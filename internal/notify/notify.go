@@ -18,16 +18,16 @@ import (
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/chattext"
+	"github.com/La-Cizaille-Corp/vigil/internal/choice"
 	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 	"github.com/La-Cizaille-Corp/vigil/internal/fr"
-	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
 	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
 )
 
 // Kinds of channel.
-var Kinds = []inventory.Option{
+var Kinds = []choice.Option{
 	{Value: "slack", Label: "Slack"},
 	{Value: "mattermost", Label: "Mattermost"},
 	{Value: "teams", Label: "Microsoft Teams"},
@@ -37,7 +37,7 @@ var Kinds = []inventory.Option{
 
 // AlertOptions are the immediate alerts a channel can receive, named by the
 // levels of tracking.Levels they cover (A84).
-var AlertOptions = []inventory.Option{
+var AlertOptions = []choice.Option{
 	{Value: "", Label: "Aucune alerte immédiate"},
 	{Value: "priority", Label: "Urgentes seulement"},
 	{Value: "severe", Label: "Urgentes et À planifier"},
@@ -70,10 +70,10 @@ func ValidateWebhook(w store.Webhook) error {
 	if w.Name == "" || !clip.Fits(w.Name, maxNameLen) {
 		return errors.New("nom invalide")
 	}
-	if inventory.Label(Kinds, w.Kind) == w.Kind {
+	if !choice.Has(Kinds, w.Kind) {
 		return errors.New("type de canal invalide")
 	}
-	if inventory.Label(AlertOptions, w.Alerts) == w.Alerts && w.Alerts != "" {
+	if !choice.Has(AlertOptions, w.Alerts) {
 		return errors.New("niveau d'alerte invalide")
 	}
 	if w.Kind == "email" {
