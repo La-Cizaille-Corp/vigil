@@ -24,10 +24,11 @@ type groupFixture struct {
 	st             *store.Store
 	base           string
 	groupA, groupB int64
-	asset          map[string]int64 // a, b, p, o
-	finding        map[string]int64 // the finding of its own vulnerability, per asset
-	rule           map[string]int64 // the dismissal rule, per asset
-	digest         int64
+	asset          map[string]int64   // a, b, p, o
+	finding        map[string]int64   // the finding of its own vulnerability, per asset
+	rule           map[string]int64   // the dismissal rule, per asset
+	digest         int64              // of the whole inventory
+	digests        map[string]int64   // d (whole inventory), dA and dB (of groups A and B)
 	client         map[string]*client // per account
 }
 
@@ -51,13 +52,14 @@ var fixtureAccounts = map[string]fixtureAccount{
 }
 
 // sees is the policy of the fixture: whether an account sees an object, an
-// asset (a, b, p, o), its findings and rules, or the digest (d).
+// asset (a, b, p, o), its findings and rules, or a digest (d of the whole
+// inventory, dA and dB of the groups).
 func sees(account, object string) bool {
 	switch fixtureAccounts[account].groups {
 	case "all":
 		return true
 	case "A":
-		return object == "a" || object == "p"
+		return object == "a" || object == "p" || object == "dA"
 	}
 	return false
 }
@@ -67,7 +69,7 @@ func newGroupFixture(t *testing.T) *groupFixture {
 	ctx := context.Background()
 	st, base := newTestServer(t)
 	fx := &groupFixture{st: st, base: base, asset: map[string]int64{}, finding: map[string]int64{},
-		rule: map[string]int64{}, client: map[string]*client{}}
+		rule: map[string]int64{}, client: map[string]*client{}, digests: map[string]int64{}}
 	must := func(err error) {
 		t.Helper()
 		if err != nil {
@@ -122,9 +124,12 @@ func newGroupFixture(t *testing.T) *groupFixture {
 		must(err)
 		fx.rule[name] = rules[0].ID
 	}
-	d, err := digest.Generate(ctx, st)
-	must(err)
-	fx.digest = d.ID
+	for name, g := range map[string]store.Group{"d": {}, "dA": {ID: fx.groupA, Name: "Équipe A"}, "dB": {ID: fx.groupB, Name: "Groupe temoinb"}} {
+		d, err := digest.Generate(ctx, st, g)
+		must(err)
+		fx.digests[name] = d.ID
+	}
+	fx.digest = fx.digests["d"]
 	feed, err := st.CreateFeed(ctx, store.Feed{Name: "Avis", URL: "https://example.org/feed", Enabled: true})
 	must(err)
 	_, err = st.InsertCTIItem(ctx, feed, store.CTIItem{GUID: "42", Title: witnessNews + " " + witnessCVE,
@@ -209,7 +214,7 @@ func TestObjectRoutesFollowTheScope(t *testing.T) {
 		method, path, _ := strings.Cut(rt.pattern, " ")
 		objects := []string{"a", "b", "p", "o"}
 		if kind == "digest" {
-			objects = []string{"d"}
+			objects = []string{"d", "dA", "dB"}
 		}
 		for account, c := range fx.client {
 			token := c.csrf()
@@ -219,10 +224,10 @@ func TestObjectRoutesFollowTheScope(t *testing.T) {
 				case "finding":
 					id = fx.finding[obj]
 				case "digest":
-					id = fx.digest
+					id = fx.digests[obj]
 				}
 				target := strings.NewReplacer("{id}", strconv.FormatInt(id, 10), "{rule}", strconv.FormatInt(fx.rule[obj], 10)).Replace(path)
-				visible := sees(account, obj) // the digest (d): those who see everything
+				visible := sees(account, obj)
 				want := http.StatusOK
 				switch {
 				case !auth.RoleAtLeast(fixtureAccounts[account].role, rt.role):

@@ -1093,37 +1093,65 @@ func (s *Server) syncNow(w http.ResponseWriter, r *http.Request) {
 	redirect(w, r, back, "sync-started")
 }
 
+// digestList shows the digests the account may read (A68): every one for an
+// account that sees everything, those of its groups otherwise; it may
+// generate one for the whole inventory or for one of its groups.
 func (s *Server) digestList(w http.ResponseWriter, r *http.Request) {
+	s.renderDigests(w, r, http.StatusOK, "")
+}
+
+func (s *Server) renderDigests(w http.ResponseWriter, r *http.Request, status int, formErr string) {
 	list, err := s.Store.ListDigests(r.Context(), readScope(r))
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
-	s.render(w, r, http.StatusOK, "digests", page{Title: "Digests", Data: list})
+	groups, err := s.Store.ListGroups(r.Context(), readScope(r))
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	s.render(w, r, status, "digests", page{Title: "Digests", Error: formErr, Data: map[string]any{"Digests": list, "Groups": groups}})
 }
 
-// digestCreate generates a digest and sends it to the notification channels.
+// digestCreate generates the digest of the whole inventory or of a group of
+// the account, and sends it to the notification channels of what it covers.
 // They are read first: when they cannot be, nothing is generated, rather than
 // a digest said to be done and sent to no one.
 func (s *Server) digestCreate(w http.ResponseWriter, r *http.Request) {
+	var group store.Group
+	if id := groupParam(r.PostForm); id != 0 {
+		var err error
+		if group, err = s.Store.Group(r.Context(), readScope(r), id); err != nil {
+			s.storeError(w, r, err)
+			return
+		}
+	} else if sess, _ := sessionFrom(r.Context()); sess.User.Restricted() {
+		s.renderDigests(w, r, http.StatusBadRequest, "Choisissez un de vos groupes : le digest de tout l'inventaire est réservé aux comptes qui le voient.")
+		return
+	}
 	hooks, err := s.Store.ListWebhooks(r.Context())
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
-	d, err := digest.Generate(r.Context(), s.Store)
+	d, err := digest.Generate(r.Context(), s.Store, group)
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
 	msg := "digest-created"
-	if slices.ContainsFunc(hooks, func(h store.Webhook) bool { return h.Enabled }) {
+	if slices.ContainsFunc(hooks, func(h store.Webhook) bool { return h.Enabled && h.Group == group.ID }) {
 		msg = "digest-sent"
 		if err := s.Notifier.SendDigest(r.Context(), d, s.digestLink(d)); err != nil {
 			msg = "digest-webhook"
 		}
 	}
-	s.audit(r, "digest_create", "id", d.ID)
+	detail := []any{"id", d.ID}
+	if group.ID != 0 {
+		detail = append(detail, "group", group.Name)
+	}
+	s.audit(r, "digest_create", detail...)
 	redirect(w, r, digestPath(d.ID), msg)
 }
 
@@ -1135,7 +1163,11 @@ func (s *Server) digestShow(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.render(w, r, http.StatusOK, "digest", page{Title: "Digest du " + fr.DateTime(d.CreatedAt), Data: d})
+	title := "Digest du " + fr.DateTime(d.CreatedAt)
+	if d.GroupName != "" {
+		title += " — " + d.GroupName
+	}
+	s.render(w, r, http.StatusOK, "digest", page{Title: title, Data: d})
 }
 
 func (s *Server) digestMarkdown(w http.ResponseWriter, r *http.Request) {

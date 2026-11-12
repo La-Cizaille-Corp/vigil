@@ -5,7 +5,7 @@ vulnérabilités. Un compte peut être limité à des groupes (<a href="/setting
 que leurs actifs et ce qui en dépend. Un administrateur voit tout.</p>
 {{if .Data.Groups}}
 <table>
-<thead><tr><th>Groupe</th><th>Règles</th><th>Actifs</th><th>Comptes limités</th></tr></thead>
+<thead><tr><th>Groupe</th><th>Règles</th><th>Actifs</th><th>Comptes limités</th><th>Canaux</th></tr></thead>
 <tbody>
 {{range .Data.Groups}}
 <tr>
@@ -14,6 +14,7 @@ que leurs actifs et ce qui en dépend. Un administrateur voit tout.</p>
     {{if not (or .Tags .Projects)}}<span class="muted">aucune : le groupe ne contient aucun actif</span>{{end}}</td>
   <td><a href="/assets?group={{.ID}}">{{.Assets}}</a></td>
   <td>{{.Users}}</td>
+  <td>{{.Channels}}</td>
 </tr>
 {{end}}
 </tbody>

@@ -91,7 +91,7 @@ jour, fréquence réglable dans **Paramètres → Flux de veille**.
 |---|---|
 | `vigil serve` | Interface web, synchronisation des vulnérabilités (`-sync-interval 6h`), collecte des flux (fréquence dans Paramètres, 4 fois par jour par défaut) et digest automatiques (`-digest-interval 24h`) |
 | `vigil sync` | Synchronisation ponctuelle : OSV, KEV, EPSS, flux CTI |
-| `vigil digest` | Génère un digest, l'affiche en Markdown et l'envoie aux webhooks (`-no-webhooks` pour ne pas l'envoyer) |
+| `vigil digest` | Génère le digest de tout l'inventaire et celui de chaque groupe d'actifs qui a un canal, les affiche en Markdown et les envoie à leurs canaux (`-no-webhooks` pour ne pas les envoyer) |
 | `vigil import-sbom -project app sbom.json` | Importe ou met à jour les composants d'un projet |
 | `vigil user add -username bob -role analyst` | Crée un compte (mot de passe lu sans écho) ; `-groups "Équipe web"` le limite à des groupes d'actifs |
 | `vigil user list` / `disable` / `enable` / `set-role` / `set-access` / `reset-password` | Gère les comptes en ligne de commande (aussi dans Paramètres → Utilisateurs) |

@@ -262,7 +262,7 @@ func TestUrgencyEverywhere(t *testing.T) {
 	}
 
 	// The digest lists them in the same order.
-	d, err := digest.Generate(ctx, st)
+	d, err := digest.Generate(ctx, st, store.Group{})
 	if err != nil {
 		t.Fatal(err)
 	}

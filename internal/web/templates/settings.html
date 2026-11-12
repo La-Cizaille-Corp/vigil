@@ -127,6 +127,7 @@ la section correspondante du digest (sans sélection : toutes les réglementatio
   de chaque synchronisation pour les vulnérabilités ouvertes qui atteignent un niveau : Urgentes (exploitées, probables
   ou jugées exploitables), et, au choix, À planifier (critiques ou hautes). Une seule alerte par vulnérabilité, sauf si
   elle devient plus urgente. L'URL d'un webhook est secrète et n'est plus affichée après l'enregistrement.
+  Un canal limité à un groupe d'actifs ne reçoit que les alertes et le digest de ce groupe.
   {{if not .Data.Mail}}<br>E-mail : aucun serveur SMTP configuré (options <code>-smtp-addr</code> et <code>-smtp-from</code>).{{end}}</p>
 {{if .Data.Webhooks}}
 <table>
@@ -142,6 +143,9 @@ la section correspondante du digest (sans sélection : toutes les réglementatio
       {{template "csrf" $csrf}}
       <label class="check"><input type="checkbox" name="digests" value="1" {{if .Digests}}checked{{end}}> Digests</label>
       <select name="alerts" aria-label="Alertes immédiates de {{.Name}}">{{$cur := .Alerts}}{{range alertOptions}}<option value="{{.Value}}" {{if eq .Value $cur}}selected{{end}}>{{.Label}}</option>{{end}}</select>
+      {{- $group := .Group}}{{$name := .Name}}{{with $.Data.Groups}}
+      <select name="group" aria-label="Périmètre de {{$name}}"><option value="">tout l'inventaire</option>{{range .}}<option value="{{.ID}}" {{if eq .ID $group}}selected{{end}}>groupe {{.Name}}</option>{{end}}</select>
+      {{- end}}
       <button type="submit" class="link">Enregistrer</button>
     </form>
   </td>
@@ -180,6 +184,7 @@ la section correspondante du digest (sans sélection : toutes les réglementatio
     <label>URL du webhook (https), ou adresses e-mail séparées par des virgules
       <input name="url" required maxlength="2000" autocomplete="off"></label>
     <label>Alertes immédiates <select name="alerts">{{range alertOptions}}<option value="{{.Value}}" {{if eq .Value "priority"}}selected{{end}}>{{.Label}}</option>{{end}}</select></label>
+    {{with .Data.Groups}}<label>Périmètre <select name="group"><option value="">tout l'inventaire</option>{{range .}}<option value="{{.ID}}">groupe {{.Name}}</option>{{end}}</select></label>{{end}}
   </div>
   <label class="check"><input type="checkbox" name="digests" value="1" checked> Recevoir les digests</label>
   <button type="submit">Ajouter le canal</button>
