@@ -777,8 +777,9 @@ long est retiré et 2 000 au plus sont gardés, une date qui ne commence pas par
 l'avis, qui ne serait plus signalé. *Écarté* : stocker `UNKNOWN`, une deuxième forme de l'inconnu à côté de la sévérité vide,
 que le digest ne classerait plus d'après le score ; traduire aussi dans le digest, qui ne lit que des
 sévérités déjà traduites (aucune version publiée n'a stocké `MODERATE`). *Conséquence* : une fiche déjà
-en base est corrigée à sa prochaine écriture (chaque synchronisation pour la NVD, la prochaine
-modification de l'avis pour OSV).
+en base est corrigée à sa prochaine écriture : la prochaine modification de l'avis, pour OSV comme,
+depuis la revue de la 0.5.0, pour la NVD, dont chaque fiche était réécrite à chaque synchronisation, son
+enregistrement brut compris (`storeNVD` réutilise le contrôle `stale` d'OSV, par la date `lastModified`).
 
 *Ordre des sources de la sévérité (novembre 2026).* Plus de la moitié des CVE des noyaux restaient sans
 sévérité : 2 354 sur 4 481 pour Debian 13, 1 663 sur 3 151 pour Ubuntu 22.04, sur la période de suivi.

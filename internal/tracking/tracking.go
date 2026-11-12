@@ -561,6 +561,8 @@ func (s *Syncer) record(ctx context.Context, res *Result, o observation, seen ti
 }
 
 // storeNVD stores the CVEs kept for an asset and returns them as observed.
+// A CVE stored as it is, by its date of modification, is not written again,
+// as an advisory of OSV (stale): every synchronisation rewrote its record.
 func (s *Syncer) storeNVD(ctx context.Context, pending *advisories, a store.Asset, cves []nvd.CVE, keep func(nvd.CVE) bool) (observation, error) {
 	o := observation{asset: a}
 	for _, c := range cves {
@@ -568,6 +570,13 @@ func (s *Syncer) storeNVD(ctx context.Context, pending *advisories, a store.Asse
 			continue
 		}
 		o.reported = append(o.reported, c.ID)
+		stale, err := s.stale(ctx, osv.VulnRef{ID: c.ID, Modified: c.Modified})
+		if err != nil {
+			return o, err
+		}
+		if !stale {
+			continue
+		}
 		v, err := nvdVuln(c)
 		if err == nil {
 			err = pending.add(ctx, v)
