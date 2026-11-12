@@ -11,6 +11,7 @@ import (
 
 	"github.com/La-Cizaille-Corp/vigil/internal/choice"
 	"github.com/La-Cizaille-Corp/vigil/internal/fr"
+	"github.com/La-Cizaille-Corp/vigil/internal/sources/osv"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
 
@@ -308,14 +309,14 @@ func GroupedNotices(list []store.Notice, a store.Asset) []NoticeRef {
 }
 
 // likelyOlder are the advisories of one CVE an asset reports but that were
-// not stored for being older than its tracked period, by CVE: those likely to
-// be exploited are read again (see storeLikely).
-type likelyOlder map[string]string // advisory → its CVE
+// not stored for being older than its tracked period, with their CVE: those
+// likely to be exploited are read again (see storeLikely).
+type likelyOlder map[osv.VulnRef]string // advisory → its CVE
 
 // candidate notes an advisory left out of the tracked period.
-func (l likelyOlder) candidate(id string, d described) {
+func (l likelyOlder) candidate(ref osv.VulnRef, d described) {
 	if len(d.cves) == 1 {
-		l[id] = d.cves[0]
+		l[ref] = d.cves[0]
 	}
 }
 
@@ -338,19 +339,15 @@ func (s *Syncer) storeLikely(ctx context.Context, pending *advisories, older lik
 		s.Log.Warn("epss of older vulnerabilities failed", "err", err)
 		return nil
 	}
-	ids := make([]string, 0, len(older))
-	for id, cve := range older {
+	refs := make([]osv.VulnRef, 0, len(older))
+	for ref, cve := range older {
 		if scores[cve] >= store.LikelyEPSS {
-			ids = append(ids, id)
+			refs = append(refs, ref)
 		}
 	}
-	slices.Sort(ids)
-	for _, id := range ids {
-		v, err := s.OSV.Vuln(ctx, id)
-		if err != nil {
-			return err
-		}
-		if err := s.storeOSV(ctx, pending, v, true); err != nil {
+	slices.SortFunc(refs, func(x, y osv.VulnRef) int { return cmp.Compare(x.ID, y.ID) })
+	for _, ref := range refs { // read again unless stored as it is
+		if err := s.refreshVuln(ctx, pending, ref); err != nil {
 			return err
 		}
 	}

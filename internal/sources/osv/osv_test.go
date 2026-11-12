@@ -168,6 +168,73 @@ func TestQueryBatchMore(t *testing.T) {
 	}
 }
 
+// The short list of a query follows the pages of the batch answer, one query
+// at a time, with its token; a reply that never ends is cut.
+func TestRefs(t *testing.T) {
+	var asked []map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Queries []map[string]any `json:"queries"`
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		if r.URL.Path != "/v1/querybatch" || len(body.Queries) != 1 {
+			t.Errorf("asked %s %v", r.URL.Path, body)
+		}
+		asked = append(asked, body.Queries[0])
+		if body.Queries[0]["version"] == "endless" {
+			w.Write([]byte(`{"results":[{"next_page_token":"again"}]}`))
+			return
+		}
+		switch body.Queries[0]["page_token"] {
+		case nil:
+			w.Write([]byte(`{"results":[{"vulns":[{"id":"A","modified":"2026-01-01T00:00:00.123456Z"},{"id":"B"}],"next_page_token":"p2"}]}`))
+		case "p2":
+			w.Write([]byte(`{"results":[{"vulns":[{"id":"C"}],"next_page_token":"p3"}]}`))
+		default:
+			w.Write([]byte(`{"results":[{}]}`))
+		}
+	}))
+	defer srv.Close()
+	c := &Client{URL: srv.URL, HTTP: http.DefaultClient}
+	q := Query{Package: Package{Name: "linux", Ecosystem: "Ubuntu:22.04:LTS"}, Version: "5.15.0-100.110"}
+	refs, err := c.Refs(context.Background(), q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(refs) != 3 || refs[0] != (VulnRef{"A", "2026-01-01T00:00:00.123456Z"}) || refs[2].ID != "C" {
+		t.Errorf("refs = %+v", refs)
+	}
+	if len(asked) != 3 || asked[1]["version"] != "5.15.0-100.110" || asked[2]["page_token"] != "p3" {
+		t.Errorf("asked = %v", asked)
+	}
+	asked = nil
+	if _, err := c.Refs(context.Background(), Query{Version: "endless"}); err == nil || len(asked) != maxQueryPages {
+		t.Errorf("endless list: %d requests, %v", len(asked), err)
+	}
+}
+
+// OSV writes the date of modification of an advisory to the microsecond in a
+// batch answer, to the nanosecond in the advisory itself.
+func TestSameModified(t *testing.T) {
+	for _, c := range []struct {
+		a, b string
+		want bool
+	}{
+		{"2026-11-12T17:20:40.464641Z", "2026-11-12T17:20:40.464641664Z", true},
+		{"2026-11-12T17:20:40.464641664Z", "2026-11-12T17:20:40.464641664Z", true},
+		{"2025-08-12T21:56:17.174859Z", "2025-08-12T21:56:17.174859Z", true},
+		{"2026-01-01T00:00:00Z", "2026-01-01T01:00:00+01:00", true},
+		{"2026-11-12T17:20:40.464641Z", "2026-11-12T17:20:40.464642664Z", false},
+		{"2026-11-11T09:34:34.479017397Z", "2026-11-12T17:20:40.464641Z", false},
+		{"old", "2026-11-12T17:20:40.464641Z", false},
+		{"", "", true},
+	} {
+		if got := SameModified(c.a, c.b); got != c.want {
+			t.Errorf("SameModified(%q, %q) = %v", c.a, c.b, got)
+		}
+	}
+}
+
 func TestSourcePURL(t *testing.T) {
 	for in, want := range map[string]string{
 		"pkg:npm/lodash@4.17.15":                                                                          "pkg:npm/lodash@4.17.15",
@@ -185,8 +252,8 @@ func TestSourcePURL(t *testing.T) {
 		"pkg:rpm/redhat/kernel-core@5.14.0-362.el9?arch=x86_64":                                           "pkg:rpm/redhat/kernel@5.14.0-362.el9",
 		"pkg:rpm/redhat/openssl-libs@3.0.7-24.el9?upstream=openssl-3.0.7-24.el9.src.rpm":                  "pkg:rpm/redhat/openssl@3.0.7-24.el9",
 	} {
-		if got := SourcePURL(in); got != want {
-			t.Errorf("SourcePURL(%q) = %q, want %q", in, got, want)
+		if got := sourcePURL(in); got != want {
+			t.Errorf("sourcePURL(%q) = %q, want %q", in, got, want)
 		}
 	}
 }
