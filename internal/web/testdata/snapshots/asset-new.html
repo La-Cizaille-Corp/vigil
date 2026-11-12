@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ajouter des actifs · Vigil</title>
+
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<a class="skip" href="#contenu">Aller au contenu</a>
+<header>
+  <a class="brand" href="/"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="logo-shield" d="M12 2 4 5v6c0 5 3.4 9.3 8 11 4.6-1.7 8-6 8-11V5l-8-3Z"/><path class="logo-eye" d="M12 8.5c-2.6 0-4.7 1.6-5.5 3.5.8 1.9 2.9 3.5 5.5 3.5s4.7-1.6 5.5-3.5c-.8-1.9-2.9-3.5-5.5-3.5Zm0 5.5a2 2 0 1 1 0-4 2 2 0 0 1 0 4Z"/></svg>Vigil</a>
+  
+  <nav aria-label="Navigation principale">
+    <a href="/" >Tableau de bord</a>
+    <a href="/assets" aria-current="page">Inventaire</a>
+    <a href="/findings" >Vulnérabilités</a>
+    <a href="/cti" >Veille</a>
+    <a href="/digests" >Digests</a>
+    <a href="/settings" >Paramètres</a>
+  </nav>
+  <form method="post" action="/logout" class="inline">
+    <input type="hidden" name="csrf" value="CSRF">
+    <a class="account-link" href="/account" title="Mon compte" >analyst</a>
+    <span class="muted small">analyste</span>
+    <button type="submit" class="link">Déconnexion</button>
+  </form>
+  
+</header>
+<main id="contenu">
+  <h1>Ajouter des actifs</h1>
+  
+  
+  
+
+<p><a href="/assets">← Inventaire</a></p>
+<p>Que voulez-vous suivre ? Chaque choix mène à son formulaire, plus bas sur cette page.</p>
+<nav class="add-ways" aria-label="Façons d'ajouter des actifs">
+  <a href="#paquet"><strong>Un paquet ou une bibliothèque</strong>
+    <span>npm, PyPI, Maven, Go, paquet Debian ou Red Hat, noyau Linux…</span>
+    <span class="muted small">purl, ou écosystème et version : détection exacte (OSV)</span></a>
+  <a href="#produit"><strong>Un produit ou un équipement</strong>
+    <span>FortiOS, Exchange Server, un pare-feu, un éditeur entier…</span>
+    <span class="muted small">recherche de son CPE dans la NVD</span></a>
+  <a href="#sbom"><strong>Un SBOM</strong>
+    <span>Tous les composants d'une application</span>
+    <span class="muted small">CycloneDX ou SPDX (JSON), ou par l'API d'un pipeline</span></a>
+  <a href="#csv"><strong>Un tableau</strong>
+    <span>Votre inventaire existant</span>
+    <span class="muted small">CSV, à partir d'un modèle</span></a>
+</nav>
+
+<section id="paquet" aria-labelledby="t-paquet">
+<h2 id="t-paquet">Un paquet ou une bibliothèque</h2>
+
+
+<form method="post" action="/assets#paquet" class="card">
+  <input type="hidden" name="csrf" value="CSRF">
+  
+<fieldset class="plain">
+  <legend>1. Ce qu'il faut vérifier</legend>
+  <div class="grid">
+    <div><label>Nom <span class="muted">(obligatoire)</span> <input name="name" value="" required maxlength="200"
+      placeholder="lodash, nginx, Windows Server…" aria-describedby="h-name"></label>
+      <p class="hint" id="h-name">Pour une distribution, le paquet source : openssl, pas libssl3.</p></div>
+    <div><label>Version <input name="version" value="" maxlength="100" placeholder="4.17.21, ou latest" aria-describedby="h-version"></label>
+      <p class="hint" id="h-version">C'est elle qui est vérifiée ; <code>latest</code> : toujours la dernière.</p></div>
+    <div><label>Type
+      <select name="kind"><option value="package" selected>Paquet / dépendance</option><option value="technology" >Technologie</option><option value="product" >Produit</option><option value="os" >Système d&#39;exploitation</option></select>
+    </label></div>
+    <div><label>Écosystème
+      <select name="ecosystem" aria-describedby="h-ecosystem">
+        <option value="">—</option>
+        <option >npm</option><option >PyPI</option><option >Go</option><option >Maven</option><option >NuGet</option><option >crates.io</option><option >RubyGems</option><option >Packagist</option><option >Pub</option><option >Hex</option><option >Debian:11</option><option >Debian:12</option><option >Debian:13</option><option >Debian:14</option><option >Debian</option><option >Ubuntu:20.04:LTS</option><option >Ubuntu:22.04:LTS</option><option >Ubuntu:24.04:LTS</option><option >Ubuntu:26.04:LTS</option><option >Ubuntu</option><option >Alpine:v3.20</option><option >Alpine:v3.21</option><option >Alpine:v3.22</option><option >Alpine:v3.23</option><option >Alpine</option><option >Rocky Linux:8</option><option >Rocky Linux:9</option><option >Rocky Linux:10</option><option >Rocky Linux</option><option >AlmaLinux:8</option><option >AlmaLinux:9</option><option >AlmaLinux:10</option><option >AlmaLinux</option><option >Red Hat</option><option >Linux</option>
+      </select>
+    </label>
+      <p class="hint" id="h-ecosystem">Avec la version, l'actif est vérifié dans OSV.</p></div>
+    <div><label>purl <input name="purl" value="" maxlength="500" placeholder="pkg:npm/lodash@4.17.15" aria-describedby="h-purl"></label>
+      <p class="hint" id="h-purl">À la place de l'écosystème : type, nom et version du paquet.</p></div>
+    <div><label>CPE <input name="cpe" value="" maxlength="500" placeholder="cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*" aria-describedby="h-cpe"></label>
+      <p class="hint" id="h-cpe">Pour un produit sans purl, vérifié dans la NVD : <a href="/assets/new#produit">trouver son CPE</a>.</p></div>
+    <div><label>Versions suivies dans la NVD (CPE)
+      <select name="cpe_mode"><option value="" selected>Version de l&#39;actif (CPE ou champ Version)</option><option value="all" >Toutes les versions du produit</option><option value="from" >Versions à partir de…</option></select>
+    </label></div>
+    <div><label>À partir de la version <input name="cpe_from" value="" maxlength="100" placeholder="7.2.0" aria-describedby="h-cpe-from"></label>
+      <p class="hint" id="h-cpe-from">Avec « Versions à partir de… ».</p></div>
+  </div>
+  <details class="help">
+    <summary>Aide : comment Vigil trouve les vulnérabilités</summary>
+    <p class="muted small">Un purl, ou un écosystème avec une version : l'actif est vérifié dans OSV. Si le purl porte une autre
+      version que le champ Version, c'est le champ Version qui est vérifié. Pour une distribution, précisez sa version
+      (<code>Debian:12</code>) et nommez le paquet source (<code>openssl</code>, pas <code>libssl3</code>). Le noyau Linux est un
+      paquet comme un autre : <code>linux</code> dans <code>Debian:12</code>, <code>kernel</code> dans <code>AlmaLinux:9</code>,
+      ou l'écosystème <code>Linux</code> pour le noyau officiel, avec sa version.</p>
+    <p class="muted small">Un produit ou une technologie sans purl : un CPE, vérifié dans la NVD (« Trouver son CPE » sur la page
+      Ajouter des actifs). Mettez « * » à la place de la version pour suivre le produit entier, et aussi à la place du produit
+      pour suivre tout l'éditeur : <code>cpe:2.3:*:fortinet:*:*:*:*:*:*:*:*:*</code>.</p>
+    <p class="muted small">Sans purl, CPE ni version, Vigil cherche le nom de l'actif dans les descriptions des CVE de la NVD :
+      donnez-lui le nom employé par l'éditeur (« Ivanti Connect Secure », « FortiOS »). Moins précise, cette recherche donne
+      des résultats à vérifier.</p>
+    <p class="muted small">Version <code>latest</code> : l'actif est tenu à jour sur la dernière version publiée. Seules les
+      vulnérabilités sans version corrigée connue sont signalées, et elles sont marquées corrigées dès que le correctif sort.</p>
+  </details>
+</fieldset>
+<details class="group">
+  <summary>2. Organisation <span class="muted small">(criticité, responsable, projet, étiquettes, notes)</span></summary>
+  <div class="grid">
+    <label>Criticité
+      <select name="criticality"><option value="low" >Faible</option><option value="medium" selected>Moyenne</option><option value="high" >Haute</option><option value="critical" >Critique</option></select>
+    </label>
+    <label>Responsable <input name="owner" value="" maxlength="200"></label>
+    <label>Projet <input name="project" value="" maxlength="200"></label>
+    <label>Étiquettes, séparées par des virgules <input name="tags" value="" maxlength="900"
+      placeholder="prod, équipe web, site de Lyon…"></label>
+  </div>
+  
+  <label>Notes <textarea name="notes" maxlength="4000" rows="2"></textarea></label>
+</details>
+<details class="group">
+  <summary>3. Période de suivi <span class="muted small">(publiées depuis le 15/07/2026, plus les exploitées)</span></summary>
+  <label class="narrow">Vulnérabilités publiées depuis le <input type="date" name="track_since" value="2026-07-15"></label>
+  <p class="muted small">Par défaut, les 120 jours précédant l'ajout de l'actif, puis toutes les nouvelles vulnérabilités. Celles
+    publiées avant ne sont signalées que si elles sont activement exploitées (CISA KEV). Videz la date pour suivre tout
+    l'historique.</p>
+</details>
+
+  <button type="submit">Ajouter l'actif</button>
+</form>
+</section>
+
+<section id="produit" aria-labelledby="t-produit">
+<h2 id="t-produit">Un produit ou un équipement</h2>
+<form method="get" action="/assets/cpe" class="card inline-search">
+  <label>Éditeur, produit et éventuellement version : son CPE dans le dictionnaire de la NVD (un éditeur seul permet
+    de suivre tous ses produits)
+    <input type="search" name="q" maxlength="100" placeholder="fortios 7.2.4, fortinet, exchange server 2019, nginx…" required></label>
+  <button type="submit">Trouver son CPE</button>
+</form>
+<p class="muted small">Ni purl ni CPE ? <a href="#paquet">Décrivez-le par son nom seul</a>, sans version : Vigil cherche ce nom
+  dans les descriptions des CVE de la NVD. Moins précise, cette recherche donne des résultats à vérifier.</p>
+</section>
+
+<div class="add-imports">
+<section id="sbom" aria-labelledby="t-sbom">
+<h2 id="t-sbom">Un SBOM</h2>
+
+<form method="post" action="/assets/import#sbom" enctype="multipart/form-data" class="card">
+  <input type="hidden" name="csrf" value="CSRF">
+  <label>Fichier CycloneDX ou SPDX (JSON, 20 Mo au plus) <input type="file" name="sbom" accept=".json,application/json" required></label>
+  <label>Projet (par défaut : le nom indiqué dans le SBOM) <input name="project" maxlength="200"></label>
+  <p class="muted small">Un nouvel import du même projet remplace ses actifs : ceux qui ne changent pas gardent leur historique.
+    Les nouveaux sont suivis sur les 120 derniers jours, comme un ajout à la main. Un pipeline peut envoyer le SBOM
+    lui-même, avec un jeton d'API qu'un administrateur crée dans les paramètres.</p>
+  <button type="submit">Importer le SBOM</button>
+</form>
+</section>
+
+<section id="csv" aria-labelledby="t-csv">
+<h2 id="t-csv">Un tableau (CSV)</h2>
+
+<form method="post" action="/assets/import-csv#csv" enctype="multipart/form-data" class="card">
+  <input type="hidden" name="csrf" value="CSRF">
+  <label>Fichier CSV (2 Mo au plus), séparé par des virgules ou des points-virgules
+    <input type="file" name="csv" accept=".csv,text/csv" required></label>
+  <p class="muted small">La première ligne nomme les colonnes ; seule <code>name</code> (ou <code>nom</code>) est obligatoire.
+    Le plus simple : partir de l'<a href="/assets.csv">export de l'inventaire</a>, qui sert de modèle. Le fichier entier est
+    refusé à la moindre ligne invalide ; les lignes identiques à un actif existant sont ignorées.</p>
+  <details class="help">
+    <summary>Colonnes reconnues et valeurs admises</summary>
+    <dl class="columns small">
+      <dt><code>name</code> (<code>nom</code>)</dt><dd>obligatoire</dd>
+      <dt><code>version</code></dt><dd>la version vérifiée ; <code>latest</code> : toujours la dernière</dd>
+      <dt><code>kind</code> (<code>type</code>)</dt><dd>Paquet / dépendance (<code>package</code>), Technologie (<code>technology</code>), Produit (<code>product</code>), Système d&#39;exploitation (<code>os</code>) ;
+        « Paquet » suffit ; vide : paquet</dd>
+      <dt><code>criticality</code> (<code>criticité</code>)</dt><dd>Faible (<code>low</code>), Moyenne (<code>medium</code>), Haute (<code>high</code>), Critique (<code>critical</code>) ;
+        vide : moyenne</dd>
+      <dt><code>purl</code></dt><dd>type, nom et version du paquet : <code>pkg:npm/lodash@4.17.21</code></dd>
+      <dt><code>ecosystem</code> (<code>écosystème</code>)</dt><dd><code>npm</code>, <code>PyPI</code>, <code>Go</code>, <code>Maven</code>, <code>NuGet</code>, <code>crates.io</code>, <code>RubyGems</code>, <code>Packagist</code>, <code>Pub</code>, <code>Hex</code>, <code>Debian:11</code>, <code>Debian:12</code>, <code>Debian:13</code>, <code>Debian:14</code>, <code>Debian</code>, <code>Ubuntu:20.04:LTS</code>, <code>Ubuntu:22.04:LTS</code>, <code>Ubuntu:24.04:LTS</code>, <code>Ubuntu:26.04:LTS</code>, <code>Ubuntu</code>, <code>Alpine:v3.20</code>, <code>Alpine:v3.21</code>, <code>Alpine:v3.22</code>, <code>Alpine:v3.23</code>, <code>Alpine</code>, <code>Rocky Linux:8</code>, <code>Rocky Linux:9</code>, <code>Rocky Linux:10</code>, <code>Rocky Linux</code>, <code>AlmaLinux:8</code>, <code>AlmaLinux:9</code>, <code>AlmaLinux:10</code>, <code>AlmaLinux</code>, <code>Red Hat</code>, <code>Linux</code></dd>
+      <dt><code>cpe</code></dt><dd>CPE 2.3 en 13 champs</dd>
+      <dt><code>cpe_mode</code></dt><dd>vide (la version de l'actif), <code>all</code> (toutes les versions) ou <code>from</code>
+        (à partir de <code>cpe_from</code>)</dd>
+      <dt><code>cpe_from</code></dt><dd>la première version suivie, avec <code>from</code></dd>
+      <dt><code>track_since</code> (<code>suivi depuis</code>)</dt><dd>AAAA-MM-JJ ; vide : tout l'historique ; colonne absente :
+        les 120 derniers jours</dd>
+      <dt><code>tags</code> (<code>étiquettes</code>)</dt><dd>séparées par des virgules</dd>
+      <dt><code>owner</code> (<code>responsable</code>), <code>project</code> (<code>projet</code>), <code>notes</code></dt><dd>libres</dd>
+    </dl>
+  </details>
+  <button type="submit">Importer le tableau</button>
+</form>
+</section>
+</div>
+
+</main>
+</body>
+</html>

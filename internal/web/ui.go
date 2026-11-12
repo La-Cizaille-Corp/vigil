@@ -208,7 +208,8 @@ func (s *Server) runAssetSync(id int64) {
 }
 
 // sentences formats error messages for display: Go errors are lowercase
-// without final period, joined by newlines (errors.Join).
+// without final period, joined by newlines (errors.Join). A line that ends
+// with a colon introduces the next ones, and keeps it.
 func sentences(msg string) string {
 	lines := strings.Split(strings.TrimSpace(msg), "\n")
 	for i, l := range lines {
@@ -218,7 +219,7 @@ func sentences(msg string) string {
 		}
 		r, size := utf8.DecodeRuneInString(l)
 		l = string(unicode.ToUpper(r)) + l[size:]
-		if !strings.HasSuffix(l, ".") && !strings.HasSuffix(l, "?") && !strings.HasSuffix(l, "!") {
+		if !strings.HasSuffix(l, ".") && !strings.HasSuffix(l, "?") && !strings.HasSuffix(l, "!") && !strings.HasSuffix(l, ":") {
 			l += "."
 		}
 		lines[i] = l
@@ -233,6 +234,7 @@ type assetForm struct {
 	store.Asset
 	KnownTags                []store.TagCount
 	GroupTags, GroupProjects []string
+	Open                     bool // refused: every group of the form is unfolded (A88)
 }
 
 // newAssetForm prepares the form of a, with the tags the account may see as

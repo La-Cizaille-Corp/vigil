@@ -1,9 +1,11 @@
 {{define "content"}}
 <p>Aucun compte n'existe encore. Créez le compte administrateur.</p>
 <form method="post" action="/setup" class="card narrow">
-  <label>Nom d'utilisateur <input name="username" required maxlength="64" autocomplete="username"></label>
+  <label>Nom d'utilisateur <input name="username" value="{{.Data}}" required maxlength="64" autocomplete="username"></label>
   <label>Mot de passe ({{passwordHelp}})
     <input type="password" name="password" required minlength="12" maxlength="1024" autocomplete="new-password"></label>
+  <label>Confirmation <input type="password" name="confirm" required minlength="12" maxlength="1024" autocomplete="new-password"></label>
+  <p class="muted small">Seul un accès à la machine permettra de le réinitialiser (<code>vigil user reset-password</code>).</p>
   <button type="submit">Créer le compte</button>
 </form>
 {{end}}

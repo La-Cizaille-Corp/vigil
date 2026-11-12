@@ -61,7 +61,8 @@
 </table>
 <p class="muted small"><a href="/assets.csv{{with .Data.Project}}?project={{.}}{{end}}">Exporter {{if .Data.Project}}les actifs du projet{{else}}l'inventaire{{end}} (CSV)</a></p>
 {{else}}
-<p class="muted">{{if .Data.Query}}Aucun actif ne contient « {{.Data.Query}} ».{{else if .Data.RetiredView}}Aucun composant retiré.{{else}}Aucun actif pour le moment.{{end}}</p>
+<p class="muted">{{if .Data.Query}}Aucun actif ne contient « {{.Data.Query}} ». <a href="/assets">Réinitialiser les filtres</a>{{else if .Data.RetiredView}}Aucun composant retiré.{{else if or .Data.Project .Data.Tag .Data.Group}}Aucun actif ne
+  correspond à ces filtres. <a href="/assets">Réinitialiser les filtres</a>{{else}}Aucun actif pour le moment.{{end}}</p>
 {{end}}
 {{if and .Data.Retired (not .Data.RetiredView)}}
 <p class="muted small"><a href="/assets?retired=1">{{.Data.Retired}} composant(s) retiré(s) des SBOM</a>, historique conservé.</p>

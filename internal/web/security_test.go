@@ -58,7 +58,7 @@ func TestHostCheck(t *testing.T) {
 // local: the first-run setup must not be reachable through it.
 func TestSetupRefusesForwardedRequests(t *testing.T) {
 	st, base := newTestServer(t)
-	code := newClient(t, base).post("/setup", url.Values{"username": {"x"}, "password": {"a-strong-password"}},
+	code := newClient(t, base).post("/setup", url.Values{"username": {"x"}, "password": {"a-strong-password"}, "confirm": {"a-strong-password"}},
 		"X-Forwarded-For", "203.0.113.7")
 	if n, _ := st.CountUsers(context.Background()); code != http.StatusForbidden || n != 0 {
 		t.Fatalf("setup through a proxy: %d, %d users", code, n)
@@ -164,7 +164,7 @@ func TestLengthsCountCharacters(t *testing.T) {
 
 	_, fresh := newTestServer(t)
 	if code := newClient(t, fresh).post("/setup", url.Values{"username": {strings.Repeat("é", 40)},
-		"password": {"a-strong-password"}}); code != http.StatusSeeOther {
+		"password": {"a-strong-password"}, "confirm": {"a-strong-password"}}); code != http.StatusSeeOther {
 		t.Errorf("setup with a name of 40 accented characters: %d", code)
 	}
 }
@@ -175,7 +175,7 @@ func TestLengthsCountCharacters(t *testing.T) {
 func TestPasswordMaxBytes(t *testing.T) {
 	long := strings.Repeat("a", 1025)
 	st, fresh := newTestServer(t)
-	if code := newClient(t, fresh).post("/setup", url.Values{"username": {"root"}, "password": {long}}); code != http.StatusBadRequest {
+	if code := newClient(t, fresh).post("/setup", url.Values{"username": {"root"}, "password": {long}, "confirm": {long}}); code != http.StatusBadRequest {
 		t.Errorf("setup with a 1,025-byte password: %d", code)
 	}
 	if n, _ := st.CountUsers(context.Background()); n != 0 {
@@ -201,7 +201,7 @@ func TestCommonPasswordForms(t *testing.T) {
 	const why = "fait partie des plus courants"
 	st, fresh := newTestServer(t)
 	if code, body := newClient(t, fresh).postBody("/setup", url.Values{"username": {"root"},
-		"password": {"Qwerty123456"}}); code != http.StatusBadRequest || !strings.Contains(body, why) {
+		"password": {"Qwerty123456"}, "confirm": {"Qwerty123456"}}); code != http.StatusBadRequest || !strings.Contains(body, why) {
 		t.Errorf("setup with a common password: %d", code)
 	}
 	if n, _ := st.CountUsers(context.Background()); n != 0 {

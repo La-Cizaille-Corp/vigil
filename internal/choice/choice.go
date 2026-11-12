@@ -21,6 +21,16 @@ func Label(opts []Option, value string) string {
 	return value
 }
 
+// Labels returns the labels of opts, in their order: what a form or a file
+// accepts, named in the error that refuses another value.
+func Labels(opts []Option) []string {
+	out := make([]string, 0, len(opts))
+	for _, o := range opts {
+		out = append(out, o.Label)
+	}
+	return out
+}
+
 // Has reports whether value is one of opts.
 func Has(opts []Option, value string) bool { return Rank(opts, value) >= 0 }
 

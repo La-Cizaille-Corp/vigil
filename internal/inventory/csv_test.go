@@ -75,6 +75,37 @@ func TestCSVErrors(t *testing.T) {
 	}
 }
 
+// An import refused says what to write instead: the values accepted, one
+// error a line, each with its line number (audit UX 7.3, A88).
+func TestCSVErrorsSayWhatToWrite(t *testing.T) {
+	_, err := AssetsFromCSV([][]string{{"name", "kind", "criticality", "purl"},
+		{"lodash", "librairie", "énorme", "pkg:npm"}, {"", "Paquet"}}, time.Now())
+	if err == nil {
+		t.Fatal("accepted")
+	}
+	want := []string{
+		"ligne 2 (lodash) : type « librairie » inconnu : Paquet / dépendance, Technologie, Produit ou Système d'exploitation attendu",
+		"ligne 2 (lodash) : criticité « énorme » inconnue : Faible, Moyenne, Haute ou Critique attendue",
+		"ligne 2 (lodash) : purl incomplet : pkg:type/nom@version attendu, par exemple pkg:npm/lodash@4.17.21",
+		"ligne 3 : le nom est obligatoire",
+	}
+	if got := strings.Split(err.Error(), "\n"); !slices.Equal(got, want) {
+		t.Errorf("errors:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+
+	// The short words of the labels are accepted, as the codes are.
+	out, err := AssetsFromCSV([][]string{{"name", "kind"}, {"lodash", "Paquet"}, {"debian", "OS"}, {"x", "dépendance"}}, time.Now())
+	if err != nil || out[0].Kind != "package" || out[1].Kind != "os" || out[2].Kind != "package" {
+		t.Errorf("short labels: %+v, %v", out, err)
+	}
+
+	// A file that is not CSV says where, in French.
+	if _, err := ReadCSV(strings.NewReader("name;notes\nlodash;a \"b\" c\n")); err == nil ||
+		err.Error() != "fichier CSV illisible, ligne 2 : guillemet dans une cellule qui ne commence pas par un guillemet" {
+		t.Errorf("bare quote: %v", err)
+	}
+}
+
 func TestCSVCell(t *testing.T) {
 	for in, want := range map[string]string{
 		"lodash":               "lodash",

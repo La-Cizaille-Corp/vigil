@@ -1,18 +1,26 @@
 {{define "content"}}
 {{$s := .Data.Stats}}
-{{template "syncBar" .}}
+{{- /* An empty inventory: what to do first, alone, adding assets as the main button; no
+   indicator at zero nor empty chart, no synchronisation of nothing (audit UX 7.4, A88). */}}
 {{if not .Data.Assets}}
 <section class="card">
   <h2>Pour commencer</h2>
+  {{if can .User.Role "analyst"}}
   <ol>
-    <li><a href="/assets/new">Ajoutez vos actifs</a> : un produit (recherche de son CPE dans la NVD), un paquet
-      (purl), ou importez un SBOM ou un tableau CSV.</li>
+    <li><a href="/assets/new">Ajoutez vos actifs</a> : un paquet (purl ou écosystème et version), un produit (recherche
+      de son CPE dans la NVD), ou importez un SBOM ou un tableau CSV.</li>
     <li>Vigil cherche aussitôt leurs vulnérabilités, puis à chaque synchronisation.</li>
     <li><a href="/settings#canaux">Ajoutez un canal de notification</a> (e-mail, Slack, Teams…) pour recevoir les
       alertes et le digest, et <a href="/settings#veille">choisissez les pays et secteurs</a> de votre veille.</li>
   </ol>
+  <p><a class="button" href="/assets/new">Ajouter des actifs</a></p>
+  {{else}}
+  <p>Aucun actif n'est encore suivi{{if .User.Restricted}} dans vos groupes{{end}} : un analyste ou un administrateur
+    peut en ajouter. Leurs vulnérabilités s'afficheront ici.</p>
+  {{end}}
 </section>
-{{end}}
+{{else}}
+{{template "syncBar" .}}
 
 <section class="kpis" aria-label="Indicateurs clés">
   <a class="kpi kpi-hero" href="/findings?level=urgent">
@@ -131,4 +139,5 @@
 {{template "findingTable" (findingRows .Data.Recent)}}
 {{if gt .Data.RecentTotal (len .Data.Recent)}}<p><a href="/findings?since={{.Data.RecentDays}}&amp;sort=recent">Voir les {{.Data.RecentTotal}} vulnérabilités ouvertes de la semaine</a></p>
 {{else}}<p><a href="/findings?sort=recent">Voir toutes les vulnérabilités ouvertes, les plus récentes d'abord</a></p>{{end}}
+{{end}}
 {{end}}

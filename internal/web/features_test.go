@@ -167,7 +167,7 @@ func TestCSVExportsAndImport(t *testing.T) {
 		t.Errorf("120 KB CSV: %d %s", code, loc)
 	}
 	code, page := c.upload("/assets/import-csv", "csv", "x.csv", "nom;type\nx;librairie\n", url.Values{"csrf": {c.csrf()}})
-	if code != http.StatusBadRequest || !strings.Contains(page, "ligne 2") {
+	if code != http.StatusBadRequest || !strings.Contains(page, "Ligne 2 (x) : type « librairie » inconnu") {
 		t.Errorf("invalid CSV: %d", code)
 	}
 	if code, body := c.get("/assets.csv"); code != http.StatusOK || !strings.Contains(body, "Exchange;2019;product;high") {

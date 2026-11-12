@@ -209,7 +209,7 @@ func prefill(name, version, kind, cpe, mode string) string {
 	if mode != "" {
 		q.Set("cpe_mode", mode)
 	}
-	return "/assets/new?" + q.Encode() + "#ajouter"
+	return "/assets/new?" + q.Encode() + "#" + addPackage
 }
 
 // prefilledAssetForm is the new-asset form, prefilled from a CPE search. The
@@ -263,7 +263,7 @@ func (s *Server) assetCSV(w http.ResponseWriter, r *http.Request) {
 func (s *Server) assetCSVImport(w http.ResponseWriter, r *http.Request) {
 	file, _, err := r.FormFile("csv") // body bounded by limitBody
 	if err != nil {
-		s.renderNewAsset(w, r, http.StatusBadRequest, defaultAssetForm(), "Fichier CSV manquant ou trop volumineux (2 Mo max).")
+		s.renderNewAsset(w, r, http.StatusBadRequest, defaultAssetForm(), addCSV, "Fichier CSV manquant ou trop volumineux (2 Mo au plus).")
 		return
 	}
 	defer file.Close()
@@ -273,7 +273,7 @@ func (s *Server) assetCSVImport(w http.ResponseWriter, r *http.Request) {
 		assets, err = inventory.AssetsFromCSV(records, time.Now())
 	}
 	if err != nil {
-		s.renderNewAsset(w, r, http.StatusBadRequest, defaultAssetForm(), "Import CSV refusé, aucun actif ajouté : "+err.Error())
+		s.renderNewAsset(w, r, http.StatusBadRequest, defaultAssetForm(), addCSV, "Import CSV refusé, aucun actif ajouté :\n"+err.Error())
 		return
 	}
 	existing, err := s.Store.ListAssets(r.Context(), writeScope(r))
@@ -300,7 +300,7 @@ func (s *Server) assetCSVImport(w http.ResponseWriter, r *http.Request) {
 	if added > 0 {
 		_, err := s.Store.CreateAssets(r.Context(), writeScope(r), fresh)
 		if msg, refused := outsideGroups(err); refused {
-			s.renderNewAsset(w, r, http.StatusBadRequest, defaultAssetForm(), "Import CSV refusé, aucun actif ajouté : "+msg)
+			s.renderNewAsset(w, r, http.StatusBadRequest, defaultAssetForm(), addCSV, "Import CSV refusé, aucun actif ajouté : "+msg)
 			return
 		}
 		if err != nil {

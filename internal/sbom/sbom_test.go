@@ -87,6 +87,23 @@ func TestParseRejectsUnknown(t *testing.T) {
 	}
 }
 
+// A file that is not a valid SBOM says why in French, without the Go names of
+// encoding/json (audit UX 7.3, A88).
+func TestParseErrorsInFrench(t *testing.T) {
+	for doc, want := range map[string]string{
+		`{"bomFormat":"CycloneDX","components":"lodash"}`:      "ce n'est pas un SBOM CycloneDX valide : components doit être une liste, pas un texte",
+		`{"bomFormat":"CycloneDX","components":[{"name":12}]}`: "ce n'est pas un SBOM CycloneDX valide : components.0.name doit être un texte, pas un nombre",
+		`{"spdxVersion":"SPDX-2.3","packages":{}}`:             "ce n'est pas un SBOM SPDX valide : packages doit être une liste, pas un objet",
+		`{"bomFormat": "CycloneDX",`:                           "ce n'est pas un SBOM au format JSON : le fichier est incomplet",
+		`<?xml version="1.0"?><bom/>`:                          "ce n'est pas un SBOM au format JSON : JSON illisible à l'octet 1",
+	} {
+		_, err := Parse(strings.NewReader(doc))
+		if err == nil || err.Error() != want {
+			t.Errorf("%s:\n got %v\nwant %s", doc, err, want)
+		}
+	}
+}
+
 // An empty or unusable SBOM would remove every asset of the project, and
 // their triage history with them: it is refused.
 func TestParseRefusesEmpty(t *testing.T) {

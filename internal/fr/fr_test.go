@@ -70,3 +70,19 @@ func TestFuncs(t *testing.T) {
 		t.Error("Funcs shares its map")
 	}
 }
+
+func TestOr(t *testing.T) {
+	for _, c := range []struct {
+		in   []string
+		want string
+	}{
+		{nil, ""},
+		{[]string{"Faible"}, "Faible"},
+		{[]string{"Faible", "Haute"}, "Faible ou Haute"},
+		{[]string{"Faible", "Moyenne", "Haute"}, "Faible, Moyenne ou Haute"},
+	} {
+		if got := Or(c.in); got != c.want {
+			t.Errorf("Or(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
