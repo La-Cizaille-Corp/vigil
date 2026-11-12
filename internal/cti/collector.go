@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/La-Cizaille-Corp/vigil/internal/choice"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
 
@@ -183,9 +184,11 @@ func WatchedFilter(ctx context.Context, st *store.Store) (store.CTIFilter, error
 
 // SaveWatched stores the watched countries, sectors and regulations, ignoring
 // unknown values and duplicates: the stored filter is the default view of the
-// news page (see KnownOnly).
+// news page (see choice.KnownOnly).
 func SaveWatched(ctx context.Context, st *store.Store, countries, sectors, regulations []string) error {
-	keep := func(tags []Tag, values []string) string { return strings.Join(KnownOnly(tags, values), ",") }
+	keep := func(opts []choice.Option, values []string) string {
+		return strings.Join(choice.KnownOnly(opts, values), ",")
+	}
 	if err := st.SetSetting(ctx, SettingCountries, keep(Countries, countries)); err != nil {
 		return err
 	}

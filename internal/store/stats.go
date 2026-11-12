@@ -57,6 +57,11 @@ const severityExpr = `CASE WHEN v.severity IN ('CRITICAL', 'HIGH', 'MEDIUM', 'LO
 // closedStatuses are the statuses that end the follow-up of a finding.
 const closedStatuses = `('resolved', 'not_affected', 'false_positive')`
 
+// lastClosings is the latest closing of each finding, a table of finding_id
+// and closed_at to join.
+const lastClosings = `(SELECT finding_id, MAX(created_at) AS closed_at FROM finding_events
+	WHERE new_status IN ` + closedStatuses + ` GROUP BY finding_id)`
+
 // DashboardStats computes the dashboard indicators of the scope at time now.
 func (s *Store) DashboardStats(ctx context.Context, sc Scope, now time.Time) (Stats, error) {
 	st := Stats{OpenBySeverity: map[string]int{}, MeanDaysToFix: -1}
@@ -135,8 +140,7 @@ func (s *Store) closedStats(ctx context.Context, sc Scope, now time.Time, st *St
 		SELECT COUNT(*), AVG(julianday(c.closed_at) - julianday(f.first_seen))
 		FROM findings f JOIN assets a ON a.id = f.asset_id
 		JOIN first_sync fs ON fs.asset_id = f.asset_id
-		JOIN (SELECT finding_id, MAX(created_at) AS closed_at FROM finding_events
-		      WHERE new_status IN `+closedStatuses+` GROUP BY finding_id) c ON c.finding_id = f.id
+		JOIN `+lastClosings+` c ON c.finding_id = f.id
 		WHERE f.status IN `+closedStatuses+` AND c.closed_at >= ? AND f.first_seen > fs.at AND `+cond,
 		append([]any{formatTime(now.Add(-90 * 24 * time.Hour))}, args...)...).Scan(&st.Closed90, &mean)
 	if err != nil {
@@ -186,9 +190,7 @@ func (s *Store) weeklyStats(ctx context.Context, sc Scope, now time.Time, st *St
 	}
 	// The latest closing of each finding, then the scope: the start of the
 	// period comes first here too, as in the query above.
-	return count(`SELECT c.closed_at FROM (
-		    SELECT MAX(e.created_at) AS closed_at, e.finding_id FROM finding_events e
-		    WHERE e.new_status IN `+closedStatuses+` GROUP BY e.finding_id) c
+	return count(`SELECT c.closed_at FROM `+lastClosings+` c
 		JOIN findings f ON f.id = c.finding_id JOIN assets a ON a.id = f.asset_id
 		WHERE c.closed_at >= ? AND `+cond,
 		func(w *WeekCount) { w.Closed++ })
@@ -206,7 +208,7 @@ func (s *Store) topAssets(ctx context.Context, sc Scope, _ time.Time, st *Stats)
 		       SUM(v.severity = 'CRITICAL'), SUM(v.severity = 'HIGH'), SUM(v.severity = 'MEDIUM'),
 		       SUM(v.severity NOT IN ('CRITICAL', 'HIGH', 'MEDIUM'))
 		FROM findings f JOIN assets a ON a.id = f.asset_id JOIN vulnerabilities v ON v.id = f.vuln_id
-		WHERE f.status IN ('in_triage', 'exploitable') AND `+cond+`
+		WHERE f.status IN `+openStatuses+` AND `+cond+`
 		GROUP BY a.id
 		ORDER BY 4 DESC, 5 DESC, COUNT(*) DESC, a.name
 		LIMIT ?`, append(args, topAssets)...)
