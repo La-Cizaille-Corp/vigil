@@ -28,13 +28,13 @@ func (s *Server) vexExport(w http.ResponseWriter, r *http.Request) {
 func (s *Server) vexImport(w http.ResponseWriter, r *http.Request) {
 	file, _, err := r.FormFile("vex")
 	if err != nil {
-		s.renderFindings(w, r, http.StatusBadRequest, "Fichier VEX manquant ou trop volumineux.")
+		s.renderFindings(w, r, http.StatusBadRequest, "Fichier VEX manquant ou trop volumineux.", bulkForm{})
 		return
 	}
 	defer file.Close()
 	statements, err := vex.Parse(file)
 	if err != nil {
-		s.renderFindings(w, r, http.StatusBadRequest, err.Error())
+		s.renderFindings(w, r, http.StatusBadRequest, err.Error(), bulkForm{})
 		return
 	}
 	findings, err := s.Store.ListFindings(r.Context(), writeScope(r), store.FindingFilter{})

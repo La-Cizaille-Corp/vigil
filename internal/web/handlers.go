@@ -378,8 +378,9 @@ func (s *Server) assetEdit(w http.ResponseWriter, r *http.Request) {
 }
 
 // renderAsset shows an asset, then its vulnerabilities, those holding the text
-// searched in the query string if any, and its dismissal rules. The edit form
-// is folded; it opens on the values refused when there are some (form != a).
+// searched in the query string if any, a page of them at a time (A85), and
+// its dismissal rules. The edit form is folded; it opens on the values refused
+// when there are some (form != a).
 func (s *Server) renderAsset(w http.ResponseWriter, r *http.Request, status int, a, form store.Asset, formErr string) {
 	query := clip.Prefix(strings.TrimSpace(r.URL.Query().Get("q")), maxRuleText)
 	findings, err := s.Store.ListFindings(r.Context(), readScope(r), store.FindingFilter{AssetID: a.ID, Matching: query})
@@ -397,9 +398,10 @@ func (s *Server) renderAsset(w http.ResponseWriter, r *http.Request, status int,
 		s.serverError(w, r, err)
 		return
 	}
+	shown, pages := paginate(findings, r.URL.Query(), assetPath(a.ID))
 	s.render(w, r, status, "asset", page{Title: inventory.Describe(a), Error: formErr,
 		Data: map[string]any{"Asset": a, "Form": f, "Editing": !reflect.DeepEqual(form, a),
-			"Findings": findings, "Query": query, "Rules": rules}})
+			"Findings": shown, "Pager": pages, "Query": query, "Rules": rules}})
 }
 
 // A rule text is short, and long enough not to set aside everything by mistake.
@@ -516,7 +518,7 @@ func (s *Server) findingList(w http.ResponseWriter, r *http.Request) {
 	if fromPriority(w, r, "/findings") {
 		return
 	}
-	s.renderFindings(w, r, http.StatusOK, "")
+	s.renderFindings(w, r, http.StatusOK, "", bulkForm{})
 }
 
 // fromPriority sends a list asked with ?priority=1, the box of the urgent
@@ -540,21 +542,86 @@ func fromPriority(w http.ResponseWriter, r *http.Request, path string) bool {
 	return true
 }
 
+// findingList is a vulnerability list as a query string describes it, whole:
+// filtered, at its level and in its order. A page cuts it afterwards: its
+// counts, export and decisions on the whole list go by all of it (A85).
+type findingList struct {
+	Findings []store.Finding
+	Filter   store.FindingFilter
+	Levels   levelNav
+	Order    listOrder
+}
+
+// listedFindings reads the vulnerability list described by q: the list page,
+// its export, a decision on the whole list and the next vulnerability of a
+// list all read it here, so that they agree.
+func (s *Server) listedFindings(r *http.Request, q url.Values) (findingList, error) {
+	l := findingList{Filter: findingFilterFrom(q), Order: orderFrom(q, findingColumnList, defaultFindingOrder)}
+	findings, err := s.Store.ListFindings(r.Context(), readScope(r), l.Filter)
+	if err != nil {
+		return l, err
+	}
+	level := listLevel(q)
+	l.Levels = levelLinks(findings, q, level)
+	l.Findings = keepLevel(findings, level)
+	sortRows(l.Findings, findingColumnList, l.Order)
+	return l, nil
+}
+
+// listPath is v when it is a vulnerability list of this site, else the
+// default list: the return address of a form (next) or of a vulnerability
+// page (back). SECURITY: it comes from the browser, and is never an
+// external site nor another page.
+func listPath(v string) string {
+	if v == "/findings" || strings.HasPrefix(v, "/findings?") {
+		return v
+	}
+	return "/findings"
+}
+
+// listURL is the address of the vulnerability list described by q, its
+// message aside: where a form returns, and a vulnerability page leads back.
+func listURL(q url.Values) string {
+	kept := without(q, "msg")
+	if len(kept) == 0 {
+		return "/findings"
+	}
+	return "/findings?" + kept.Encode()
+}
+
+// Scopes of a bulk decision: the boxes ticked, or the whole list filtered.
+const (
+	bulkRows = "rows"
+	bulkList = "list"
+)
+
+// bulkConfirmAbove is the size of a list from which a decision on all of it
+// asks to be confirmed, with the number it changes (A85).
+const bulkConfirmAbove = 50
+
+// bulkForm is the bulk triage panel of a vulnerability list: what was chosen,
+// shown again when the decision is refused or waits for its confirmation
+// (A85), so that nothing has to be ticked or chosen twice.
+type bulkForm struct {
+	Open                           bool // the panel is unfolded
+	Scope                          string
+	Status, Justification, Comment string
+	Checked                        map[int64]bool
+	Err, Field                     string // why it was refused, and the field at fault ("scope" or that of a tracking.StatusError)
+	Confirm                        int    // the findings of the list a confirmation applies the decision to
+}
+
 // renderFindings shows the vulnerability list filtered by the query string,
-// with formErr when a form of the page (VEX import) was rejected.
-func (s *Server) renderFindings(w http.ResponseWriter, r *http.Request, status int, formErr string) {
+// one page of it, with formErr when the VEX import of the page was rejected,
+// and the bulk panel as b leaves it.
+func (s *Server) renderFindings(w http.ResponseWriter, r *http.Request, status int, formErr string, b bulkForm) {
 	q := r.URL.Query()
-	f := findingFilterFrom(q)
-	findings, err := s.Store.ListFindings(r.Context(), readScope(r), f)
+	l, err := s.listedFindings(r, q)
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
-	level := listLevel(q)
-	levels := levelLinks(findings, q, level)
-	findings = keepLevel(findings, level)
-	order := orderFrom(q, findingColumnList, defaultFindingOrder)
-	sortRows(findings, findingColumnList, order)
+	shown, pages := paginate(l.Findings, q, "/findings")
 	projects, err := s.Store.ListProjects(r.Context(), readScope(r))
 	if err != nil {
 		s.serverError(w, r, err)
@@ -565,32 +632,35 @@ func (s *Server) renderFindings(w http.ResponseWriter, r *http.Request, status i
 		s.serverError(w, r, err)
 		return
 	}
+	sess, _ := sessionFrom(r.Context())
+	analyst := auth.RoleAtLeast(sess.User.Role, auth.RoleAnalyst)
+	f, back := l.Filter, listURL(q)
 	s.render(w, r, status, "findings", page{Title: "Vulnérabilités", Error: formErr, Data: map[string]any{
-		"Findings": findings, "Filter": f, "Projects": projects, "Tags": tags,
-		"MinEPSSPercent": f.MinEPSS * 100, "Next": "/findings?" + without(q, "msg").Encode(),
-		"Sort": q.Get("sort"), "Dir": q.Get("dir"), "Head": sortHeaders(findingColumnList, "/findings", q, order),
-		"Levels": levels, "Level": q.Get("level"), "Since": sinceDays(q), "More": moreFilters(f),
-		// Re-encoded from the parsed query: a safe relative link with the same filters.
-		"CSVLink": template.URL("/findings.csv?" + q.Encode()), // #nosec G203 -- fixed path, encoded values
+		"Filter": f, "Projects": projects, "Tags": tags, "Pager": pages, "Bulk": b, "Confirm": bulkConfirmAbove,
+		"MinEPSSPercent": f.MinEPSS * 100, "Next": back,
+		"Table": findingRows{List: shown, Head: sortHeaders(findingColumnList, "/findings", q, l.Order), Sortable: true,
+			Select: analyst && len(shown) > 0, Checked: b.Checked, Back: back},
+		"Sort": q.Get("sort"), "Dir": q.Get("dir"),
+		"Levels": l.Levels, "Level": q.Get("level"), "Since": sinceDays(q), "More": moreFilters(f),
+		// Re-encoded from the parsed query: a safe relative link with the same filters, every page.
+		"CSVLink": template.URL("/findings.csv?" + without(q, "msg", "page").Encode()), // #nosec G203 -- fixed path, encoded values
 	}})
 }
 
-// findingCSV exports the filtered vulnerability list for spreadsheets.
+// findingCSV exports the filtered vulnerability list for spreadsheets: all of
+// it, whatever the page shown.
 func (s *Server) findingCSV(w http.ResponseWriter, r *http.Request) {
 	if fromPriority(w, r, "/findings.csv") {
 		return
 	}
-	q := r.URL.Query()
-	findings, err := s.Store.ListFindings(r.Context(), readScope(r), findingFilterFrom(q))
+	l, err := s.listedFindings(r, r.URL.Query())
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
-	findings = keepLevel(findings, listLevel(q)) // what the page shows
-	sortRows(findings, findingColumnList, orderFrom(q, findingColumnList, defaultFindingOrder))
 	base := strings.TrimRight(s.BaseURL, "/")
-	rows := make([][]string, 0, len(findings))
-	for _, fd := range findings {
+	rows := make([][]string, 0, len(l.Findings))
+	for _, fd := range l.Findings {
 		due, link := "", ""
 		if !fd.Due.IsZero() {
 			due = fd.Due.Format(time.DateOnly)
@@ -616,33 +686,79 @@ func yesNo(b bool) string {
 	return "non"
 }
 
-// maxBulk bounds the findings updated at once.
+// maxBulk bounds the findings ticked for one decision.
 const maxBulk = 500
 
-// findingBulk applies one triage decision to the selected findings.
+// findingBulk applies one triage decision to the findings ticked, or to the
+// whole list they come from (next): then, as the dismissal rules (A61), what
+// someone already decided does not change, and beyond bulkConfirmAbove the
+// decision asks to be confirmed with its number first. A refused decision
+// shows the list again with what was ticked and chosen (A85).
 func (s *Server) findingBulk(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Formulaire invalide.", http.StatusBadRequest)
 		return
 	}
-	next := r.PostFormValue("next")
-	// SECURITY: only a findings list URL, never an external redirect.
-	if !strings.HasPrefix(next, "/findings?") && next != "/findings" {
-		next = "/findings"
-	}
+	next := listPath(r.PostFormValue("next"))
 	status, justif, comment := triageFromForm(r)
-	ids := r.PostForm["id"]
-	if len(ids) == 0 || len(ids) > maxBulk {
-		s.renderFindingsAt(w, r, next, fmt.Sprintf("Cochez entre 1 et %d vulnérabilités.", maxBulk))
-		return
+	b := bulkForm{Open: true, Scope: r.PostFormValue("scope"), Status: status, Justification: r.PostFormValue("justification"),
+		Comment: comment, Checked: map[int64]bool{}}
+	if b.Scope != bulkList {
+		b.Scope = bulkRows
+	}
+	var ids []int64
+	for _, raw := range r.PostForm["id"] {
+		if id, err := strconv.ParseInt(raw, 10, 64); err == nil && !b.Checked[id] {
+			b.Checked[id] = true
+			ids = append(ids, id)
+		}
+	}
+	refuse := func(field, msg string) {
+		b.Field, b.Err = field, sentences(msg)
+		s.renderFindingsAt(w, r, next, http.StatusBadRequest, b)
 	}
 	if err := tracking.ValidateStatus(status, justif, comment); err != nil {
-		s.renderFindingsAt(w, r, next, err.Error())
+		field := "status"
+		var se *tracking.StatusError
+		if errors.As(err, &se) {
+			field = se.Field
+		}
+		refuse(field, err.Error())
 		return
 	}
 	var changes []store.StatusChange
-	for _, raw := range ids {
-		if id, err := strconv.ParseInt(raw, 10, 64); err == nil {
+	detail := []any{"status", status}
+	switch b.Scope {
+	case bulkList:
+		u, err := url.Parse(next)
+		if err != nil {
+			refuse("scope", "liste introuvable")
+			return
+		}
+		l, err := s.listedFindings(r, u.Query())
+		if err != nil {
+			s.serverError(w, r, err)
+			return
+		}
+		if len(l.Findings) == 0 {
+			refuse("scope", "cette liste est vide")
+			return
+		}
+		if len(l.Findings) > bulkConfirmAbove && r.PostFormValue("confirm") != strconv.Itoa(len(l.Findings)) {
+			b.Confirm = len(l.Findings)
+			s.renderFindingsAt(w, r, next, http.StatusOK, b)
+			return
+		}
+		for _, f := range l.Findings {
+			changes = append(changes, store.StatusChange{ID: f.ID, Status: status, Justification: justif, Comment: comment, KeepDecided: true})
+		}
+		detail = append(detail, "list", len(l.Findings))
+	default:
+		if len(ids) == 0 || len(ids) > maxBulk {
+			refuse("scope", fmt.Sprintf("cochez entre 1 et %d vulnérabilités, ou choisissez toute la liste filtrée", maxBulk))
+			return
+		}
+		for _, id := range ids {
 			changes = append(changes, store.StatusChange{ID: id, Status: status, Justification: justif, Comment: comment})
 		}
 	}
@@ -652,8 +768,12 @@ func (s *Server) findingBulk(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	s.audit(r, "finding_bulk", "count", done, "status", status)
-	redirect(w, r, next, "bulk-updated")
+	s.audit(r, "finding_bulk", append([]any{"count", done}, detail...)...)
+	msg := "bulk-updated"
+	if b.Scope == bulkList {
+		msg = "bulk-list-updated"
+	}
+	redirect(w, r, next, msg)
 }
 
 // triageFromForm reads a triage decision: a status, its justification, kept
@@ -666,12 +786,13 @@ func triageFromForm(r *http.Request) (status, justif, comment string) {
 	return status, justif, comment
 }
 
-// renderFindingsAt shows the list at next (its filters) with an error.
-func (s *Server) renderFindingsAt(w http.ResponseWriter, r *http.Request, next, formErr string) {
+// renderFindingsAt shows the list at next (its filters and page) with the
+// bulk panel as b leaves it.
+func (s *Server) renderFindingsAt(w http.ResponseWriter, r *http.Request, next string, status int, b bulkForm) {
 	if u, err := url.Parse(next); err == nil {
-		r.URL.RawQuery = u.RawQuery
+		r.URL.Path, r.URL.RawQuery = "/findings", u.RawQuery
 	}
-	s.renderFindings(w, r, http.StatusBadRequest, formErr)
+	s.renderFindings(w, r, status, "", b)
 }
 
 // findingFilterFrom reads the filter form. Unknown values and duplicates are
@@ -795,11 +916,51 @@ func (s *Server) renderFinding(w http.ResponseWriter, r *http.Request, status in
 		s.serverError(w, r, err)
 		return
 	}
+	back := listBack(r)
+	next, err := s.following(r, back, f.ID)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	if then, err := strconv.ParseInt(r.URL.Query().Get("then"), 10, 64); next == 0 && err == nil && then > 0 && then != f.ID {
+		next = then // the one that followed it before it left the list (findingUpdate)
+	}
 	s.render(w, r, status, "finding", page{Title: findingTitle(f), Error: formErr,
 		Data: map[string]any{"Finding": f, "Vuln": v, "Events": events, "Mentions": mentions, "Fixes": tracking.Fixes(v.Raw, asset),
-			"ByName": inventory.ByName(asset), "Latest": inventory.IsLatest(asset)}})
+			"ByName": inventory.ByName(asset), "Latest": inventory.IsLatest(asset), "Back": back, "Following": next}})
 }
 
+// listBack is the vulnerability list a vulnerability page was opened from
+// (?back=, then the field back of its form), "" for none (A85).
+func listBack(r *http.Request) string {
+	if v := r.FormValue("back"); v != "" {
+		return listPath(v)
+	}
+	return ""
+}
+
+// following is the vulnerability after id in the list back, in its order and
+// over all its pages: 0 when id is the last one, or not in it.
+func (s *Server) following(r *http.Request, back string, id int64) (int64, error) {
+	u, err := url.Parse(back)
+	if back == "" || err != nil {
+		return 0, nil
+	}
+	l, err := s.listedFindings(r, u.Query())
+	if err != nil {
+		return 0, err
+	}
+	for i, f := range l.Findings {
+		if f.ID == id && i+1 < len(l.Findings) {
+			return l.Findings[i+1].ID, nil
+		}
+	}
+	return 0, nil
+}
+
+// findingUpdate records a triage decision. Opened from a list, the page comes
+// back with that list and the vulnerability that followed this one in it,
+// read before the decision may take it out of the list (A85).
 func (s *Server) findingUpdate(w http.ResponseWriter, r *http.Request) {
 	f, ok := load(s, w, r, inScope(r, s.Store.Finding))
 	if !ok {
@@ -810,13 +971,26 @@ func (s *Server) findingUpdate(w http.ResponseWriter, r *http.Request) {
 		s.renderFinding(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
+	back := listBack(r)
+	next, err := s.following(r, back, f.ID)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
 	sess, _ := sessionFrom(r.Context())
 	if err := s.Store.SetFindingStatus(r.Context(), writeScope(r), f.ID, sess.User.ID, status, justif, comment); err != nil {
 		s.serverError(w, r, err)
 		return
 	}
 	s.audit(r, "finding_update", "id", f.ID, "status", status)
-	redirect(w, r, findingPath(f.ID), "status-updated")
+	to := findingPath(f.ID)
+	if back != "" {
+		to += "?back=" + url.QueryEscape(back)
+		if next > 0 {
+			to += "&then=" + strconv.FormatInt(next, 10)
+		}
+	}
+	redirect(w, r, to, "status-updated")
 }
 
 // --- sync and digests -----------------------------------------------------

@@ -102,8 +102,23 @@
   </div>
 </form>
 
-<p class="muted">5 vulnérabilité(s)
-  · <a href="/findings.csv?level=all">Exporter cette liste (CSV)</a></p>
+<div class="list-bar">
+  <p class="muted">5 vulnérabilité(s)</p>
+  <div class="list-actions">
+    <a href="/findings.csv?level=all">Exporter la liste (CSV)</a>
+    <a href="/findings/vex">Exporter les analyses en VEX</a>
+    <span class="muted small">(toutes, sans les autres filtres)</span>
+    <details class="vex-import">
+      <summary>Importer un VEX…</summary>
+      <form method="post" action="/findings/vex" enctype="multipart/form-data" class="card">
+        <input type="hidden" name="csrf" value="CSRF">
+        <label>VEX CycloneDX (JSON) : les analyses s'appliquent aux vulnérabilités correspondantes
+          (même purl ou CPE, même identifiant ou alias) <input type="file" name="vex" accept=".json,application/json" required></label>
+        <button type="submit">Importer le VEX</button>
+      </form>
+    </details>
+  </div>
+</div>
 
 
 <table class="cards sortable">
@@ -116,7 +131,7 @@
     <div class="small"><span class="sev sev-CRITICAL">Critique</span> · <span class="reason">exploitée (CISA KEV)</span></div></td>
   <td data-label="CVSS" class="num">9,8</td>
   <td data-label="EPSS" class="num">97,3 %</td>
-  <td data-label="Vulnérabilité"><a href="/findings/1">CVE-2025-0001</a></td>
+  <td data-label="Vulnérabilité"><a href="/findings/1?back=%2ffindings%3flevel%3dall">CVE-2025-0001</a></td>
   <td data-label="Actif"><a href="/assets/1">fortios 7.2.4</a></td>
   <td data-label="Corrigée en"></td>
   <td data-label="Statut">À analyser</td>
@@ -131,7 +146,7 @@
     <div class="small"><span class="sev sev-HIGH">Haute</span> · <span class="reason">EPSS 12,3 %</span></div></td>
   <td data-label="CVSS" class="num">7,5</td>
   <td data-label="EPSS" class="num">12,3 %</td>
-  <td data-label="Vulnérabilité"><a href="/findings/2">CVE-2025-0002</a></td>
+  <td data-label="Vulnérabilité"><a href="/findings/2?back=%2ffindings%3flevel%3dall">CVE-2025-0002</a></td>
   <td data-label="Actif"><a href="/assets/1">fortios 7.2.4</a></td>
   <td data-label="Corrigée en"></td>
   <td data-label="Statut">À analyser</td>
@@ -146,7 +161,7 @@
     <div class="small"><span class="sev sev-MEDIUM">Moyenne</span></div></td>
   <td data-label="CVSS" class="num">5,3</td>
   <td data-label="EPSS" class="num"><span class="muted">—</span></td>
-  <td data-label="Vulnérabilité"><a href="/findings/4">GHSA-29mw-wpgm-hmr9</a><br><small>CVE-2025-0004</small></td>
+  <td data-label="Vulnérabilité"><a href="/findings/4?back=%2ffindings%3flevel%3dall">GHSA-29mw-wpgm-hmr9</a><br><small>CVE-2025-0004</small></td>
   <td data-label="Actif"><a href="/assets/2">lodash 4.17.15</a></td>
   <td data-label="Corrigée en">4.17.21</td>
   <td data-label="Statut">À analyser</td>
@@ -161,7 +176,7 @@
     <div class="small"><span class="sev sev-LOW">Basse</span></div></td>
   <td data-label="CVSS" class="num"><span class="muted">—</span></td>
   <td data-label="EPSS" class="num"><span class="muted">—</span></td>
-  <td data-label="Vulnérabilité"><a href="/findings/5">CVE-2025-0005</a></td>
+  <td data-label="Vulnérabilité"><a href="/findings/5?back=%2ffindings%3flevel%3dall">CVE-2025-0005</a></td>
   <td data-label="Actif"><a href="/assets/2">lodash 4.17.15</a></td>
   <td data-label="Corrigée en"></td>
   <td data-label="Statut">À analyser</td>
@@ -176,7 +191,7 @@
     <div class="small"><span class="sev sev-UNKNOWN">Inconnue</span></div></td>
   <td data-label="CVSS" class="num">0,0</td>
   <td data-label="EPSS" class="num">0,0 %</td>
-  <td data-label="Vulnérabilité"><a href="/findings/3">CVE-2025-0003</a></td>
+  <td data-label="Vulnérabilité"><a href="/findings/3?back=%2ffindings%3flevel%3dall">CVE-2025-0003</a></td>
   <td data-label="Actif"><a href="/assets/1">fortios 7.2.4</a></td>
   <td data-label="Corrigée en"></td>
   <td data-label="Statut">À analyser</td>
@@ -191,35 +206,37 @@
 
 
 
+
 <details class="card bulk" id="traiter">
   <summary>Traiter la sélection…</summary>
 <form method="post" action="/findings/bulk" id="bulk">
   <input type="hidden" name="csrf" value="CSRF">
   <input type="hidden" name="next" value="/findings?level=all">
-  <p class="small">Cochez des lignes du tableau, puis appliquez-leur une même décision (enregistrée dans l'historique de chacune).</p>
+  
   <div class="grid">
     <label>Nouveau statut
       <select name="status"><option value="in_triage">À analyser</option><option value="exploitable">Exploitable – à traiter</option><option value="resolved">Corrigé</option><option value="not_affected">Non affecté</option><option value="false_positive">Faux positif</option></select>
+      
     </label>
     <label>Justification (si « Non affecté »)
       <select name="justification"><option value="">—</option><option value="code_not_present">Code vulnérable absent</option><option value="code_not_reachable">Code vulnérable non atteignable</option><option value="requires_configuration">Nécessite une configuration absente</option><option value="requires_dependency">Nécessite une dépendance absente</option><option value="requires_environment">Nécessite un environnement absent</option><option value="protected_by_compiler">Protégé par le compilateur</option><option value="protected_at_runtime">Protégé à l&#39;exécution</option><option value="protected_at_perimeter">Protégé en périphérie</option><option value="protected_by_mitigating_control">Protégé par une mesure compensatoire</option></select>
+      
     </label>
-    <label>Commentaire (vide : chaque vulnérabilité garde le sien) <input name="comment" maxlength="4000"></label>
+    <label>Commentaire (vide : chaque vulnérabilité garde le sien) <input name="comment" maxlength="4000" value="">
+      
+    </label>
   </div>
-  <button type="submit">Appliquer à la sélection</button>
+  <fieldset class="plain bulk-scope">
+    <legend>Appliquer à</legend>
+    <label class="check"><input type="radio" name="scope" value="rows" checked> les lignes cochées</label>
+    <label class="check"><input type="radio" name="scope" value="list"> toute la liste filtrée (5), toutes pages comprises</label>
+    
+  </fieldset>
+  <p class="small muted">La décision entre dans l'historique de chacune. Sur toute la liste, ce que quelqu'un a déjà décidé ne change pas,
+    et au-delà de 50 vulnérabilités une confirmation en donne le nombre.</p>
+  <button type="submit">Appliquer</button>
 </form>
 </details>
-
-
-<h2>Échange VEX (CycloneDX)</h2>
-<p><a href="/findings/vex">Exporter les analyses en VEX</a></p>
-
-<form method="post" action="/findings/vex" enctype="multipart/form-data" class="card">
-  <input type="hidden" name="csrf" value="CSRF">
-  <label>Importer un VEX CycloneDX (JSON) : les analyses s'appliquent aux vulnérabilités correspondantes
-    (même purl ou CPE, même identifiant ou alias) <input type="file" name="vex" accept=".json,application/json" required></label>
-  <button type="submit">Importer le VEX</button>
-</form>
 
 
 </main>

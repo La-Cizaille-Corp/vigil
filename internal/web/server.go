@@ -235,11 +235,10 @@ func (s *Server) parseTemplates() error {
 		"target":            notify.Target,
 		"alertOptions":      func() []choice.Option { return notify.AlertOptions },
 		"alertLabel":        func(v string) string { return choice.Label(notify.AlertOptions, v) },
-		"findingRows": func(list []store.Finding, selectable bool) map[string]any {
-			return map[string]any{"List": list, "Select": selectable, "Head": plainHeaders(findingColumnList)}
-		},
-		"sortedFindingRows": func(list []store.Finding, selectable bool, head []sortHeader) map[string]any {
-			return map[string]any{"List": list, "Select": selectable, "Head": head, "Sortable": true}
+		// A list that is not sorted by its reader (dashboard, asset page); the
+		// vulnerability list builds its own findingRows.
+		"findingRows": func(list []store.Finding) findingRows {
+			return findingRows{List: list, Head: plainHeaders(findingColumnList)}
 		},
 		"has": func(list []string, v string) bool {
 			for _, x := range list {
@@ -274,6 +273,16 @@ func (s *Server) parseTemplates() error {
 		s.pages[name] = t
 	}
 	return nil
+}
+
+// findingRows is the data of the findingTable template.
+type findingRows struct {
+	List     []store.Finding
+	Head     []sortHeader
+	Sortable bool
+	Select   bool           // checkboxes bound to the form id="bulk" of the page
+	Checked  map[int64]bool // boxes ticked, when a bulk decision is shown again
+	Back     string         // the list a row's page leads back to (?back=), "" for none
 }
 
 // page is the data passed to every template.
@@ -341,6 +350,7 @@ var flashes = map[string]string{ // #nosec G101 -- message keys, not credentials
 	"hook-deleted":      "Canal de notification supprimé.",
 	"csv-imported":      "Inventaire importé ; synchronisation lancée : « suivre l'avancement » ci-dessous.",
 	"bulk-updated":      "Statut appliqué aux vulnérabilités sélectionnées.",
+	"bulk-list-updated": "Statut appliqué à la liste ; ce que quelqu'un avait déjà décidé n'a pas changé.",
 	"sla-saved":         "Délais de traitement enregistrés ; les échéances sont recalculées.",
 	"sbom-imported":     "SBOM importé ; synchronisation lancée : « suivre l'avancement » ci-dessous.",
 	"password-changed":  "Mot de passe modifié ; vos autres sessions ont été fermées.",

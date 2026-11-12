@@ -79,19 +79,29 @@ var Justifications = []choice.Option{
 // MaxComment is the longest comment of a status change, in characters.
 const MaxComment = 4000
 
-// ValidateStatus checks a status change submitted by a user.
+// StatusError is a status change refused by ValidateStatus, with the field
+// at fault, as the triage forms name it: "status", "justification" or
+// "comment"; a form shows the message beside it (A85).
+type StatusError struct {
+	Field, Msg string
+}
+
+func (e *StatusError) Error() string { return e.Msg }
+
+// ValidateStatus checks a status change submitted by a user; the error is a
+// *StatusError.
 func ValidateStatus(status, justification, comment string) error {
 	if !choice.Has(Statuses, status) {
-		return errors.New("statut invalide")
+		return &StatusError{"status", "statut invalide"}
 	}
 	if justification != "" && !choice.Has(Justifications, justification) {
-		return errors.New("justification invalide")
+		return &StatusError{"justification", "justification invalide"}
 	}
 	if status == store.StatusNotAffected && justification == "" {
-		return errors.New("une justification est requise pour « Non affecté »")
+		return &StatusError{"justification", "une justification est requise pour « Non affecté »"}
 	}
 	if !clip.Fits(comment, MaxComment) {
-		return errors.New("commentaire trop long")
+		return &StatusError{"comment", "commentaire trop long"}
 	}
 	return nil
 }

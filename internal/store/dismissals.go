@@ -138,7 +138,7 @@ func (s *Store) ApplyDismissalRules(ctx context.Context) (int, error) {
 			JOIN findings f ON f.asset_id = r.asset_id
 			JOIN vulnerabilities v ON v.id = f.vuln_id
 			WHERE f.status = 'in_triage' AND NOT `+exploitedExpr+` AND `+ruleMatchExpr+`
-			  AND NOT EXISTS (SELECT 1 FROM finding_events e WHERE e.finding_id = f.id AND e.user_id IS NOT NULL)`)
+			  AND NOT `+decidedExpr)
 		if err != nil {
 			return err
 		}

@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/choice"
@@ -115,7 +116,7 @@ func sortHeaders[T any](cols []column[T], path string, q url.Values, o listOrder
 					h.Order = "descending"
 				}
 			}
-			link := without(q, "msg")
+			link := without(q, "msg", "page") // a new order starts at its first page
 			link.Set("sort", c.key)
 			link.Set("dir", "asc")
 			if desc {
@@ -252,7 +253,7 @@ func levelLinks(findings []store.Finding, q url.Values, current string) levelNav
 		counts[tracking.Level(f)]++
 	}
 	link := func(level string) string {
-		kept := without(q, "msg", "level")
+		kept := without(q, "msg", "level", "page")
 		if level != "" {
 			kept.Set("level", level)
 		}
@@ -291,4 +292,47 @@ func keepLevel(findings []store.Finding, level string) []store.Finding {
 		return findings
 	}
 	return slices.DeleteFunc(findings, func(f store.Finding) bool { return !keep(f) })
+}
+
+// pageSize is the number of rows of a page of a long list (A85).
+const pageSize = 100
+
+// pager tells which rows of a list a page shows, with the links to the
+// others: the data of the "pager" template.
+type pager struct {
+	First, Last, Total int // rows shown, counted from 1, out of Total
+	Page, Pages        int
+	Prev, Next         string // links to the pages around, "" at the ends
+}
+
+// paginate cuts rows, already filtered and sorted on the whole list (A54), to
+// the page asked by ?page= (from 1; a number out of range shows the nearest
+// page, anything else the first). The links lead to path with the other
+// parameters of q, the first page without ?page=.
+func paginate[T any](rows []T, q url.Values, path string) ([]T, pager) {
+	p := pager{Total: len(rows), Pages: max(1, (len(rows)+pageSize-1)/pageSize)}
+	p.Page, _ = strconv.Atoi(q.Get("page"))
+	p.Page = min(max(p.Page, 1), p.Pages)
+	link := func(page int) string {
+		kept := without(q, "msg", "page")
+		if page > 1 {
+			kept.Set("page", strconv.Itoa(page))
+		}
+		if len(kept) == 0 {
+			return path
+		}
+		return path + "?" + kept.Encode()
+	}
+	if p.Page > 1 {
+		p.Prev = link(p.Page - 1)
+	}
+	if p.Page < p.Pages {
+		p.Next = link(p.Page + 1)
+	}
+	start := (p.Page - 1) * pageSize
+	end := min(start+pageSize, len(rows))
+	if start < end {
+		p.First, p.Last = start+1, end
+	}
+	return rows[start:end], p
 }

@@ -3,6 +3,7 @@ package tracking_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -248,5 +249,17 @@ func TestValidateStatus(t *testing.T) {
 	}
 	if err := tracking.ValidateStatus("not_affected", "code_not_reachable", "ok"); err != nil {
 		t.Error(err)
+	}
+	// Each refusal names its field, for the form to show it beside it.
+	for _, c := range []struct{ status, justif, comment, field string }{
+		{"bogus", "", "", "status"},
+		{"not_affected", "", "", "justification"},
+		{"in_triage", "bogus", "", "justification"},
+		{"in_triage", "", strings.Repeat("é", tracking.MaxComment+1), "comment"},
+	} {
+		var se *tracking.StatusError
+		if err := tracking.ValidateStatus(c.status, c.justif, c.comment); !errors.As(err, &se) || se.Field != c.field {
+			t.Errorf("%+v: %v, want a refusal of %s", c, err, c.field)
+		}
 	}
 }
