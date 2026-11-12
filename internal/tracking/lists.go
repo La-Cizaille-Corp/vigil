@@ -47,9 +47,9 @@ const (
 	listMaxAge = 7 * 24 * time.Hour
 	// changedShare: beyond a tenth of the advisories to read again, the package
 	// is read in full. Below, one request each costs at most a tenth of the
-	// bytes of a full read; an Ubuntu advisory is read alone in 0.6 s, against
-	// 0.2 s in a full read, a Debian one in 0.2 s against 5 ms. A release of a
-	// kernel modifies nearly all the advisories of its distribution.
+	// bytes of a full read; an Ubuntu advisory is read alone in 0.65 s, against
+	// 0.2 to 0.4 s in a full read, a Debian one in 0.2 s against 6 ms. A release
+	// of a kernel modifies nearly all the advisories of its distribution.
 	changedShare = 10
 )
 

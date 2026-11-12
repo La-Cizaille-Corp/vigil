@@ -24,10 +24,14 @@ La base grossit avec le nombre de vulnérabilités suivies, surtout celles du no
 |---|---|---|
 | Quelques paquets et produits | quelques Mo | quelques secondes |
 | Noyau Debian 13 (4 467 vulnérabilités) | 16 Mo | moins d'une minute |
-| Noyaux Debian 13 et Ubuntu 22.04 (7 629 vulnérabilités) | 180 Mo | environ 17 minutes |
+| Noyaux Debian 13 et Ubuntu 22.04 (7 629 vulnérabilités) | 180 Mo | 25 à 55 minutes lus en entier, une à deux minutes sinon |
 
-Le noyau Ubuntu est le plus lourd : ses avis listent des centaines de paquets. Chaque synchronisation
-les relit, soit plusieurs Go téléchargés : allongez `-sync-interval` si votre bande passante est comptée.
+Le noyau Ubuntu est le plus lourd : ses avis listent des centaines de paquets, 4,5 Go pour une version.
+Un tel paquet n'est lu en entier qu'à sa première synchronisation, une fois par semaine, et quand plus
+d'un dixième de ses avis ont changé : Ubuntu les modifie presque tous à chaque publication d'un de ses
+noyaux, plusieurs fois par semaine. Les autres fois, seule la liste de ses avis est lue (600 Ko), et les avis modifiés un à
+un (registre A90 d'[ARCHITECTURE.md](ARCHITECTURE.md)). Comptez encore 2 à 3 Go par jour pour un noyau
+Ubuntu synchronisé toutes les 6 heures : allongez `-sync-interval` si votre bande passante est comptée.
 
 Comptez ensuite une copie par sauvegarde gardée (`-backup-keep`, 14 par défaut), plus trois copies
 `.bak` au plus lors des évolutions de schéma. **Avant une mise à jour, gardez libre au moins deux fois

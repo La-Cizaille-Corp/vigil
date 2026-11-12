@@ -68,7 +68,8 @@ modification, ou sur demande), par l'API après un import SBOM, ou par `vigil sy
 1. `tracking.Syncer` liste les actifs : ceux qui ont un purl (ou écosystème + nom + version) vont
    vers OSV ; ceux qui n'ont qu'un CPE, ou qu'un nom, vont vers la NVD.
 2. OSV : une requête `querybatch` pour tout l'inventaire, puis téléchargement des seuls avis
-   nouveaux ou modifiés ; un paquet aux avis trop nombreux pour une réponse est relu en entier (A55).
+   nouveaux ou modifiés ; un paquet aux avis trop nombreux pour une réponse est lu en entier la
+   première fois (A55), puis seulement pour ce qui a changé d'après sa liste légère (A90).
    Certains paquets sont lus en entier d'emblée et comparés ici (A51, A56) ; les avis qu'ils laissent hors
    période sont relus s'ils sont probablement exploités (A31). NVD : requêtes par CPE
    limitées à la période de suivi, espacées selon la limite de débit, renvoyées après une panne
@@ -289,7 +290,9 @@ ignoré : pour `linux` dans Debian (14 855 avis pour une version), la première 
 2023, toutes hors de la période de suivi ; `chromium` dépasse aussi la limite. Suivre le jeton puis
 télécharger chaque avis demanderait près de 15 000 requêtes : quand une réponse a une suite, l'actif est
 relu par `/v1/query`, qui rend les avis entiers, et seuls ceux publiés dans la période de suivi ou
-exploités (KEV) sont stockés. La date de modification ne permet pas de les écarter plus tôt : presque
+exploités (KEV) sont stockés. Depuis A90, cette lecture complète n'est refaite que si la liste légère
+de `querybatch`, suivie de page en page, a trop changé ; sinon seuls les avis nouveaux ou modifiés
+sont téléchargés. La date de modification ne permet pas de les écarter plus tôt : presque
 tous ont été modifiés dans les 120 derniers jours. Une page pouvant dépasser 64 Mo, elle est lue avis
 par avis. Ensuite, OSV ne rend rien pour un purl Debian qui porte le qualificatif `distro`, présent sur
 tous les paquets des SBOM, et il ne connaît que les paquets sources (`openssl`, pas `libssl3`) : les
@@ -377,9 +380,61 @@ leurs binaires et leurs versions. Chaque sauvegarde et chaque copie de mise à j
 Vigil ne relit de ces avis que les plages de versions, pour indiquer le correctif : le reste figure déjà dans
 ses colonnes, ou n'est jamais lu. Seuls l'identifiant, les paquets et leurs plages sont donc stockés
 (`osv.Vuln.Compact`). Une fiche déjà en base garde son ancienne forme jusqu'à sa prochaine modification
-chez OSV. Autre effet du volume : les tris et les sauvegardes peuvent écrire des fichiers temporaires, or le
+chez OSV. Pour ne pas relire un gros paquet inchangé, la liste d'A90 garde aussi, de chacun de ses avis
+signalés, gardé ou non, l'identifiant, les deux dates et les autres identifiants : 1,4 Mo pour ce noyau. Autre effet du volume : les tris et les sauvegardes peuvent écrire des fichiers temporaires, or le
 conteneur a un système de fichiers en lecture seule. Les données temporaires restent donc en mémoire
 (`temp_store`).
+
+**A90. Un gros paquet n'est relu que pour ce qui a changé.** Le noyau Ubuntu 22.04 de la base de l'audit
+faisait lire 4,5 Go à OSV à chaque synchronisation : 8 212 avis de 550 Ko en moyenne, 63 pages de
+`/v1/query`, de 25 à 55 minutes selon la charge d'OSV ; toutes les 6 heures, 18 Go par jour pour un seul
+actif (Debian 13 : 49 Mo).
+A55 relisait tout parce que suivre le jeton de `querybatch` puis télécharger chaque avis coûterait près de
+15 000 requêtes. Mais cette liste légère (identifiant et date de modification, mille par page) ne pèse que
+593 Ko pour ce noyau, en 9 pages et 40 secondes, et dit ce qui a changé. La synchronisation garde donc,
+pour chaque requête de ce genre (paquet, écosystème, version), ce qu'il lui faut de chaque avis signalé :
+identifiant, dates de modification et de publication, autres identifiants (alias, avis d'origine). C'est
+ce que demandent la période de suivi et sa garde KEV et EPSS (A31) et le repli d'une CVE (A80), y compris
+pour les avis que la base ne garde pas (A62) : table `osv_lists`, migration 020, 1,4 Mo pour ce noyau.
+À la synchronisation suivante, d'après la liste légère :
+- rien n'est téléchargé si elle n'a pas changé : avis signalés, période, garde KEV et EPSS et repli sont
+  calculés comme après une lecture complète, la liste tenant lieu des avis ;
+- les avis nouveaux ou modifiés sont lus un à un (`/v1/vulns`), ainsi que ceux que l'actif peut désormais
+  signaler sans les avoir en base (période reculée, CVE devenue exploitée) ; un avis ancien probablement
+  exploité (A31) n'est plus retéléchargé à chaque fois s'il est en base tel quel ;
+- le paquet est relu en entier, comme avant : sans liste (première synchronisation, autre version), si la
+  liste légère ne peut être lue, si plus d'un dixième des avis sont à relire, et une semaine après la
+  dernière lecture complète.
+Les actifs qui posent la même requête (deux serveurs au même noyau) partagent la liste : le second ne
+relit rien, au lieu de 4,5 Go chacun. La liste est enregistrée avec les avis de l'actif, dans la
+transaction de son dernier lot (A57), et n'est pas gardée si une source échoue : l'actif reste « non
+vérifié », comme avant. *Le dixième* : un avis Ubuntu se lit seul en 0,65 s, contre 0,2 à 0,4 s dans une
+lecture complète, un avis Debian en 0,2 s contre 6 ms ; en deçà, les lectures une à une coûtent au plus un
+dixième des octets d'une lecture complète, et 2 à 3 minutes au plus pour un noyau Debian (697 avis). *La semaine* : si OSV
+modifiait un avis sans changer sa date, ou si la liste dérivait, l'écart durerait une semaine au plus, pour
+une lecture complète par semaine au lieu de quatre par jour. *Correction* : OSV écrit la date de
+modification à la microseconde dans `querybatch` et à la nanoseconde dans un avis ; la comparaison
+littérale retéléchargeait à chaque synchronisation les avis inchangés d'un petit paquet dont la date a des
+nanosecondes (`osv.SameModified` compare désormais toutes ces dates). *Écartés* : une empreinte par actif,
+qui dirait seulement si la liste a changé, alors que KEV et EPSS changent sans que l'avis change et que le
+repli a besoin des avis non gardés ; la liste en mémoire, perdue à chaque redémarrage et inutile à
+`vigil sync` ; une liste par actif ; repartir du jeton de la réponse groupée du début de la
+synchronisation, qui a pu expirer quand vient le tour de l'actif, pour économiser une page de 70 Ko ; pour
+un avis modifié que la base ne garde pas, se fier à ses dates et alias d'avant (ils ne changent presque
+jamais, mais rien ne le garantit) ; l'archive de tout l'écosystème, sur un autre hôte et de plusieurs Go.
+*Conséquences*, mesurées sur une copie de la base de l'audit (noyaux Ubuntu 22.04 et Debian 13), deux
+synchronisations de suite : avant, 4,5 Go et 54 à 55 minutes pour le noyau Ubuntu (63 pages et 9 avis
+probables retéléchargés), 50 Mo et 42 à 54 secondes pour le noyau Debian, à chaque fois ; désormais, la
+première lit autant, la suivante 593 Ko en 40 secondes et 504 Ko en 28 secondes (la synchronisation
+entière : 80 secondes au lieu de 55 minutes), et trouve exactement les mêmes vulnérabilités, statuts,
+versions correctives, replis et avis en base que deux lectures complètes. 20 avis Ubuntu modifiés coûtent
+20 requêtes, 10 Mo et 13 secondes. Mais Ubuntu régénère les avis de tout son noyau à chaque publication
+d'un de ses noyaux : 8 095 des 8 215 avis de cette version ont changé de date le 12 novembre 2026, et
+l'historique du dépôt d'Ubuntu en compte 56 en 104 jours, dans 56 des 414 créneaux de 6 heures. La lecture
+complète reste donc due environ une synchronisation sur sept pour ce noyau, soit 2,5 Go par jour au lieu
+de 18 ; seule une source aux dates plus stables ferait mieux. La première synchronisation après la mise à
+jour lit tout, faute de liste. Les paquets lus en entier d'emblée (`latest`,
+écosystème `Linux`, A51 et A56) ne sont pas concernés : leur liste devrait garder les plages de chaque avis.
 
 **A63. Une seule version fait foi : le champ Version.** Un actif peut porter sa version à deux endroits : le
 champ Version et le purl. Le purl l'emportait : changer le champ Version laissait OSV interrogé sur l'ancienne
