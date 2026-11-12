@@ -21,7 +21,11 @@ import (
 // redirects in HTTPS only, OSV included, and the NVD key never leaves its host.
 func TestSourceRedirects(t *testing.T) {
 	ctx := context.Background()
-	sv := newServices(nil, slog.New(slog.NewTextHandler(io.Discard, nil)), false, nil, "")
+	_, opts := newCommand("sync", true)
+	if err := opts.parse(nil); err != nil {
+		t.Fatal(err)
+	}
+	sv := opts.services(nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	// One client for the sources, and a copy for OSV with its own time limit.
 	s := sv.syncer
 	if s.KEV.HTTP != s.NVD.HTTP || s.EPSS.HTTP != s.NVD.HTTP || s.OSV.HTTP == s.NVD.HTTP ||

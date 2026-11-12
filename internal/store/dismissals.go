@@ -30,9 +30,6 @@ const (
 		OR instr(lower(v.summary), lower(?)) > 0)`
 )
 
-// exploitedExpr tells whether the vulnerability v is exploited or likely to be.
-const exploitedExpr = `(v.kev = 1 OR v.epss >= 0.1)`
-
 func dismissalComment(text string) string { return "Écartée par la règle « " + text + " »" }
 
 // CreateDismissalRule adds a rule to an asset of the scope and applies it; a

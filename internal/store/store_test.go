@@ -48,6 +48,33 @@ func TestReplaceProjectAssets(t *testing.T) {
 	}
 }
 
+// Assets created together are all added, in order, or none: a write that
+// fails on the second one leaves the inventory as it was.
+func TestCreateAssetsAllOrNothing(t *testing.T) {
+	ctx := context.Background()
+	st := openTest(t)
+	asset := func(name string) Asset {
+		return Asset{Name: name, Kind: "package", Criticality: "low", Source: "manual", Tags: []string{"csv"}}
+	}
+	ids, err := st.CreateAssets(ctx, Everything, []Asset{asset("a"), asset("b")})
+	if err != nil || len(ids) != 2 || ids[0] >= ids[1] {
+		t.Fatalf("ids = %v, %v", ids, err)
+	}
+	if a, err := st.Asset(ctx, Everything, ids[1]); err != nil || a.Name != "b" || len(a.Tags) != 1 {
+		t.Errorf("second asset: %+v, %v", a, err)
+	}
+	if _, err := st.db.ExecContext(ctx, `CREATE TRIGGER failing_write BEFORE INSERT ON assets WHEN NEW.name = 'panne'
+		BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if ids, err := st.CreateAssets(ctx, Everything, []Asset{asset("c"), asset("panne"), asset("d")}); err == nil || ids != nil {
+		t.Errorf("failing write: %v, %v", ids, err)
+	}
+	if list, _ := st.ListAssets(ctx, Everything); len(list) != 2 {
+		t.Errorf("assets after a failed creation: %+v", list)
+	}
+}
+
 func TestCTIItemsFilter(t *testing.T) {
 	ctx := context.Background()
 	st := openTest(t)

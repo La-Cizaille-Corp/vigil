@@ -131,6 +131,28 @@ func TestValidate(t *testing.T) {
 	}
 }
 
+// Only a well-formed CPE 2.3 name is accepted, as nvd.SplitCPE reads it: the
+// prefix alone let through CPEs that the NVD refuses at every synchronisation.
+func TestValidateCPE(t *testing.T) {
+	asset := func(cpe string) store.Asset {
+		return store.Asset{Name: "x", Kind: "product", Criticality: "low", CPE: cpe}
+	}
+	for _, cpe := range []string{"", "cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*", "cpe:2.3:*:fortinet:*:*:*:*:*:*:*:*:*",
+		`cpe:2.3:a:lemonldap-ng:lemonldap\:\:ng:2.0.16:*:*:*:*:*:*:*`} {
+		if err := Validate(asset(cpe)); err != nil {
+			t.Errorf("%q refused: %v", cpe, err)
+		}
+	}
+	for _, cpe := range []string{"cpe:2.3:", "cpe:2.3:a:nginx:nginx", "cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*",
+		"cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*:*", "cpe:2.3:a:nginx::1.24.0:*:*:*:*:*:*:*",
+		"cpe:2.3:z:nginx:nginx:1.24.0:*:*:*:*:*:*:*", "cpe:2.3:a:nginx:nginx web:1.24.0:*:*:*:*:*:*:*",
+		`cpe:2.3:a:lemonldap-ng:lemonldap::ng:2.0.16:*:*:*:*:*:*:*`} {
+		if err := Validate(asset(cpe)); err == nil || !strings.Contains(err.Error(), "CPE invalide : 13 champs attendus") {
+			t.Errorf("%q: %v", cpe, err)
+		}
+	}
+}
+
 func TestVendorProduct(t *testing.T) {
 	for _, c := range []struct {
 		a               store.Asset
@@ -145,9 +167,11 @@ func TestVendorProduct(t *testing.T) {
 		{store.Asset{PURL: "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1"}, "org.apache.logging.log4j", "log4j-core", false},
 		{store.Asset{PURL: "pkg:npm/%40angular/core@17.0.0?x=1"}, "@angular", "core", false},
 		{store.Asset{PURL: "pkg:npm/lodash@4.17.15"}, "", "lodash", false},
+		// Not properly encoded: kept as written, rather than lost.
+		{store.Asset{PURL: "pkg:npm/%zz/core%@1"}, "%zz", "core%", false},
 		{store.Asset{Name: "sans identifiant"}, "", "", false},
 	} {
-		v, p := VendorProduct(c.a)
+		v, p := vendorProduct(c.a)
 		if v != c.vendor || p != c.product || WholeVendor(c.a) != c.whole {
 			t.Errorf("%+v: %q %q %v", c.a, v, p, WholeVendor(c.a))
 		}
@@ -163,7 +187,7 @@ func TestTags(t *testing.T) {
 	if Validate(a) == nil {
 		t.Error("tag too long accepted")
 	}
-	a.Tags = make([]string, MaxTags+1)
+	a.Tags = make([]string, maxTags+1)
 	for i := range a.Tags {
 		a.Tags[i] = fmt.Sprint("t", i)
 	}
@@ -179,6 +203,9 @@ func TestVendorName(t *testing.T) {
 	}{
 		{store.Asset{CPE: "cpe:2.3:a:palo_alto_networks:pan-os:*:*:*:*:*:*:*:*"}, "Palo Alto Networks"},
 		{store.Asset{CPE: `cpe:2.3:a:lemonldap-ng:lemonldap\:\:ng:*:*:*:*:*:*:*:*`}, "Lemonldap-ng"},
+		// A vendor whose name the CPE escapes reads without its backslashes.
+		{store.Asset{CPE: `cpe:2.3:a:at\&t:connect_mobile:*:*:*:*:*:*:*:*`}, "At&t"},
+		{store.Asset{CPE: `cpe:2.3:*:o\'reilly_media:*:*:*:*:*:*:*:*:*`}, "O'reilly Media"},
 		{store.Asset{PURL: "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1"}, "org.apache.logging.log4j"},
 		{store.Asset{PURL: "pkg:pypi/django@4.2"}, "Paquets PyPI"},
 		{store.Asset{PURL: "pkg:golang/stdlib@1.22.0"}, "Paquets golang"},

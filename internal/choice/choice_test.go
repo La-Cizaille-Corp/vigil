@@ -7,7 +7,6 @@ import (
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
 	"github.com/La-Cizaille-Corp/vigil/internal/choice"
 	"github.com/La-Cizaille-Corp/vigil/internal/cti"
-	"github.com/La-Cizaille-Corp/vigil/internal/digest"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
 	"github.com/La-Cizaille-Corp/vigil/internal/notify"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
@@ -55,7 +54,7 @@ func TestNoOptionListedTwice(t *testing.T) {
 		"tracking.Justifications": tracking.Justifications,
 		"notify.Kinds":            notify.Kinds,
 		"notify.AlertOptions":     notify.AlertOptions,
-		"digest.Levels":           digest.Levels,
+		"tracking.Levels":         tracking.Levels,
 		"cti.Countries":           cti.Countries,
 		"cti.Sectors":             cti.Sectors,
 		"cti.Regulations":         cti.Regulations,

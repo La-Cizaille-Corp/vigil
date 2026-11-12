@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
+	"github.com/La-Cizaille-Corp/vigil/internal/digest"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
 )
@@ -319,5 +320,56 @@ func TestDismissalFlow(t *testing.T) {
 	_, body = c.get("/findings?level=aside")
 	if got := findingOrder(body); len(got) != 0 {
 		t.Errorf("still set aside: %v", got)
+	}
+}
+
+// The list, the dashboard and the digest rank the edge cases of the ranking
+// alike (A78): judged exploitable with a KEV entry, a KEV entry without
+// severity, EPSS at the threshold, a CVSS score only.
+func TestPriorityOrderEverywhere(t *testing.T) {
+	st, base := newServerWith(t, nil)
+	ctx := context.Background()
+	assetID, _ := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "appliance", Kind: "product", Criticality: "high", Source: "manual"})
+	want := []string{"CVE-2026-0001", "CVE-2026-0002", "CVE-2026-0003", "CVE-2026-0004", "CVE-2026-0005", "CVE-2026-0006", "CVE-2026-0007"}
+	for _, v := range []struct {
+		id, severity string
+		cvss         float64
+		kev          bool
+		epss         float64
+	}{
+		{"CVE-2026-0007", "HIGH", 8.8, false, -1},
+		{"CVE-2026-0006", "", 9.8, false, -1},           // rated critical by its score
+		{"CVE-2026-0005", "CRITICAL", 9, false, 0.0999}, // just below the threshold
+		{"CVE-2026-0004", "MEDIUM", 5, false, 0.1},      // at the threshold
+		{"CVE-2026-0003", "", -1, true, -1},             // KEV without severity
+		{"CVE-2026-0002", "LOW", 3, true, -1},           // KEV
+		{"CVE-2026-0001", "LOW", 3.1, false, -1},        // judged exploitable, below
+	} {
+		st.UpsertVulnerability(ctx, store.Vulnerability{ID: v.id, Severity: v.severity, CVSS: v.cvss})
+		st.SetExploitSignals(ctx, store.ExploitSignal{ID: v.id, KEV: v.kev, EPSS: v.epss})
+		st.ObserveFinding(ctx, assetID, v.id, "", time.Now())
+	}
+	list, _ := st.ListFindings(ctx, store.Everything, store.FindingFilter{Search: "CVE-2026-0001"})
+	if err := st.SetFindingStatus(ctx, store.Everything, list[0].ID, 0, "exploitable", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	c := loginAs(t, base, "analyst", "a-strong-password")
+	for _, path := range []string{"/findings", "/"} {
+		if _, body := c.get(path); !slices.Equal(findingOrder(body), want) {
+			t.Errorf("%s: %v\nwant %v", path, findingOrder(body), want)
+		}
+	}
+	d, err := digest.Generate(ctx, st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var listed []string
+	for _, id := range findingOrder(d.HTML) {
+		if !slices.Contains(listed, id) {
+			listed = append(listed, id)
+		}
+	}
+	if !slices.Equal(listed, want) {
+		t.Errorf("digest: %v\nwant %v", listed, want)
 	}
 }

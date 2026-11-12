@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"math"
 	"net/http"
 	"net/url"
 	"strings"
@@ -20,6 +19,7 @@ import (
 	"github.com/La-Cizaille-Corp/vigil/internal/chattext"
 	"github.com/La-Cizaille-Corp/vigil/internal/choice"
 	"github.com/La-Cizaille-Corp/vigil/internal/clip"
+	"github.com/La-Cizaille-Corp/vigil/internal/fr"
 	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
@@ -34,11 +34,12 @@ var Kinds = []choice.Option{
 	{Value: "email", Label: "E-mail"},
 }
 
-// AlertOptions are the immediate alerts a channel can receive.
+// AlertOptions are the immediate alerts a channel can receive: the levels of
+// tracking.Levels they cover.
 var AlertOptions = []choice.Option{
 	{Value: "", Label: "Aucune alerte immédiate"},
-	{Value: "priority", Label: "Exploitées ou probables (KEV, EPSS ≥ 10 %)"},
-	{Value: "severe", Label: "Exploitées, probables, critiques et élevées"},
+	{Value: "priority", Label: "Urgentes (exploitées, probables ou jugées exploitables)"},
+	{Value: "severe", Label: "Urgentes et à planifier (critiques ou hautes)"},
 }
 
 const (
@@ -124,7 +125,7 @@ func (n *Notifier) SendDigest(ctx context.Context, d store.Digest, link string) 
 		day = time.Now()
 	}
 	m := message{
-		Subject: "[Vigil] Digest de veille du " + day.Format("02/01/2006"),
+		Subject: "[Vigil] Digest de veille du " + fr.Date(day),
 		Text:    text,
 		Event: map[string]any{
 			"event":      "digest",
@@ -223,8 +224,10 @@ func alertReason(a store.Alert) string {
 	switch {
 	case a.KEV:
 		parts = append(parts, "exploitée (CISA KEV)")
-	case a.EPSS >= 0.1:
-		parts = append(parts, fmt.Sprintf("EPSS %d %%", int(math.Round(a.EPSS*100))))
+	case a.Status == store.StatusExploitable:
+		parts = append(parts, "jugée exploitable")
+	case a.EPSS >= store.LikelyEPSS:
+		parts = append(parts, "EPSS "+fr.Percent(a.EPSS))
 	}
 	if a.Raised {
 		parts = append(parts, "devenue plus urgente")

@@ -39,7 +39,7 @@
       </fieldset>
       <fieldset><legend>Exploitation</legend>
         <label class="check"><input type="checkbox" name="kev" value="1" {{if $f.KEV}}checked{{end}}> Exploitée (CISA KEV)</label>
-        <label class="check"><input type="checkbox" name="priority" value="1" {{if $f.Priority}}checked{{end}}> Prioritaire (KEV ou EPSS ≥ 10 %)</label>
+        <label class="check"><input type="checkbox" name="priority" value="1" {{if $f.Priority}}checked{{end}}> Prioritaire (KEV, EPSS ≥ 10 % ou jugée exploitable)</label>
         <label class="check"><input type="checkbox" name="overdue" value="1" {{if $f.Overdue}}checked{{end}}> Hors délai de traitement</label>
       </fieldset>
     </div>
@@ -59,7 +59,7 @@
 <details class="card bulk" id="traiter">
   <summary>Traiter la sélection…</summary>
 <form method="post" action="/findings/bulk" id="bulk">
-  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  {{template "csrf" .CSRF}}
   <input type="hidden" name="next" value="{{.Data.Next}}">
   <p class="small">Cochez des lignes du tableau, puis appliquez-leur une même décision (enregistrée dans l'historique de chacune).</p>
   <div class="grid">
@@ -80,7 +80,7 @@
 <p><a href="/findings/vex{{if $f.Project}}?project={{$f.Project}}{{end}}">Exporter les analyses en VEX{{if $f.Project}} (projet {{$f.Project}}){{end}}</a></p>
 {{if can .User.Role "analyst"}}
 <form method="post" action="/findings/vex" enctype="multipart/form-data" class="card">
-  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  {{template "csrf" .CSRF}}
   <label>Importer un VEX CycloneDX (JSON) : les analyses s'appliquent aux vulnérabilités correspondantes
     (même purl ou CPE, même identifiant ou alias) <input type="file" name="vex" accept=".json,application/json" required></label>
   <button type="submit">Importer le VEX</button>

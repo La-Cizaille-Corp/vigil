@@ -5,8 +5,6 @@ package netsafe
 import (
 	"context"
 	"errors"
-	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/netip"
@@ -16,8 +14,8 @@ import (
 	"time"
 )
 
-// ErrForbiddenAddress is returned when a URL resolves to a blocked address.
-var ErrForbiddenAddress = errors.New("adresse de destination interdite (réseau privé ou local)")
+// errForbiddenAddress is returned when a URL resolves to a blocked address.
+var errForbiddenAddress = errors.New("adresse de destination interdite (réseau privé ou local)")
 
 // MaxURLLen bounds a stored URL, in bytes.
 const MaxURLLen = 2000
@@ -85,8 +83,8 @@ func NewClient(timeout time.Duration, allowPrivate bool) *http.Client {
 				return err
 			}
 			ip := net.ParseIP(host)
-			if ip == nil || !Public(ip) {
-				return ErrForbiddenAddress
+			if ip == nil || !public(ip) {
+				return errForbiddenAddress
 			}
 			return nil
 		}}
@@ -101,7 +99,7 @@ func NewClient(timeout time.Duration, allowPrivate bool) *http.Client {
 			// SECURITY: the proxy is dialed without the guard: a URL naming
 			// the proxy itself (direct when NO_PROXY covers it) is refused.
 			if proxyAddr != "" && canonicalAddr(req.URL) == proxyAddr {
-				return nil, ErrForbiddenAddress
+				return nil, errForbiddenAddress
 			}
 			p, err := proxyFromEnv(req)
 			if err != nil || p == nil {
@@ -134,10 +132,10 @@ func NewClient(timeout time.Duration, allowPrivate bool) *http.Client {
 func CheckRedirect(drop ...string) func(*http.Request, []*http.Request) error {
 	return func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 5 {
-			return errors.New("trop de redirections")
+			return &RedirectError{"trop de redirections"}
 		}
 		if req.URL.Scheme != "https" {
-			return errors.New("redirection vers une URL non https refusée")
+			return &RedirectError{"redirection vers une URL non https refusée"}
 		}
 		if req.URL.Host != via[0].URL.Host {
 			for _, h := range drop {
@@ -147,6 +145,12 @@ func CheckRedirect(drop ...string) func(*http.Request, []*http.Request) error {
 		return nil
 	}
 }
+
+// RedirectError is a redirect refused by CheckRedirect. It is not a failure of
+// the network: sent again, the request would be refused the same way.
+type RedirectError struct{ reason string }
+
+func (e *RedirectError) Error() string { return e.reason }
 
 // proxyAddress returns the host:port of the proxy used for https URLs, as
 // the transport dials it, or "" without a proxy.
@@ -173,8 +177,8 @@ func canonicalAddr(u *url.URL) string {
 // checkHost refuses a host name that resolves to a non-public address.
 func checkHost(ctx context.Context, host string) error {
 	if ip := net.ParseIP(host); ip != nil {
-		if !Public(ip) {
-			return ErrForbiddenAddress
+		if !public(ip) {
+			return errForbiddenAddress
 		}
 		return nil
 	}
@@ -183,8 +187,8 @@ func checkHost(ctx context.Context, host string) error {
 		return err
 	}
 	for _, a := range addrs {
-		if !Public(a.IP) {
-			return ErrForbiddenAddress
+		if !public(a.IP) {
+			return errForbiddenAddress
 		}
 	}
 	return nil
@@ -213,8 +217,8 @@ var nonPublic = []netip.Prefix{
 	netip.MustParsePrefix("2001:20::/28"),   // ORCHIDv2 (RFC 7343)
 }
 
-// Public reports whether ip is a globally routable address.
-func Public(ip net.IP) bool {
+// public reports whether ip is a globally routable address.
+func public(ip net.IP) bool {
 	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
 		ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() ||
 		ip.IsInterfaceLocalMulticast() {
@@ -242,49 +246,4 @@ func WithoutURL(err error) error {
 		return ue.Err
 	}
 	return err
-}
-
-// ReadLimited reads at most max bytes of r and fails if there is more.
-func ReadLimited(r io.Reader, max int64) ([]byte, error) {
-	b, err := io.ReadAll(LimitReader(r, max))
-	if err != nil {
-		return nil, err
-	}
-	return b, nil
-}
-
-// TooLargeError is the failure of a reading that goes past its bound.
-type TooLargeError struct{ Max int64 }
-
-func (e *TooLargeError) Error() string {
-	return fmt.Sprintf("réponse supérieure à %d octets", e.Max)
-}
-
-// LimitReader returns a reader of the first max bytes of r, which fails with a
-// *TooLargeError if r holds more. io.LimitReader would end there as if the data
-// were whole: a document cut at the bound must not pass for a complete one, nor
-// fail as a malformed one.
-func LimitReader(r io.Reader, max int64) io.Reader {
-	return &limitedReader{r: r, max: max, left: max}
-}
-
-type limitedReader struct {
-	r         io.Reader
-	max, left int64 // left < 0 once r went past max
-}
-
-func (l *limitedReader) Read(p []byte) (int, error) {
-	if l.left < 0 {
-		return 0, &TooLargeError{Max: l.max}
-	}
-	if int64(len(p)) > l.left+1 {
-		p = p[:l.left+1] // one byte more tells whether r goes past max
-	}
-	n, err := l.r.Read(p)
-	if int64(n) > l.left {
-		n, l.left = int(l.left), -1
-		return n, &TooLargeError{Max: l.max}
-	}
-	l.left -= int64(n)
-	return n, err
 }

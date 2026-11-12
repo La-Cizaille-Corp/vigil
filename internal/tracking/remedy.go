@@ -154,9 +154,9 @@ func nvdFixes(raw, version string, several bool, keep func(nvd.Match) bool) []Fi
 
 // release names the release of a match: "22.7 r2.3", "2.4.62".
 func release(m nvd.Match) string {
-	name := strings.ReplaceAll(m.Version, `\`, "")
+	name := nvd.Unescape(m.Version)
 	if m.Update != "*" && m.Update != "-" && m.Update != "" {
-		name += " " + strings.ReplaceAll(m.Update, `\`, "")
+		name += " " + nvd.Unescape(m.Update)
 	}
 	return name
 }

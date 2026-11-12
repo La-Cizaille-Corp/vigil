@@ -51,6 +51,9 @@ type Finding struct {
 	FirstSeen     time.Time
 	Due           time.Time // remediation deadline (see SLA), zero without one
 	Late          bool      // open and past its deadline
+	// Class is the alert class (AlertNone, AlertSevere, AlertPriority): the
+	// alerts and the levels of tracking.Level go by it.
+	Class int
 }
 
 // Triage statuses of a finding: the CycloneDX / VEX analysis states
@@ -86,7 +89,8 @@ type FindingFilter struct {
 	AssetID int64
 	Since   time.Time // first_seen >= Since
 	KEV     bool      // only known exploited vulnerabilities
-	// Priority keeps vulnerabilities exploited (KEV) or likely to be (EPSS >= 10 %).
+	// Priority keeps the urgent findings (AlertPriority): exploited (KEV),
+	// likely to be (EPSS >= LikelyEPSS) or judged exploitable.
 	Priority bool
 	Project  string
 	Tag      string // the asset carries this tag
@@ -325,7 +329,7 @@ func (s *Store) ListFindings(ctx context.Context, sc Scope, f FindingFilter) ([]
 		where = append(where, "v.kev = 1")
 	}
 	if f.Priority {
-		where = append(where, "(v.kev = 1 OR v.epss >= 0.1)")
+		where = append(where, urgentExpr)
 	}
 	if !f.Since.IsZero() {
 		where = append(where, "f.first_seen >= ?")
@@ -384,15 +388,17 @@ func (s *Store) Finding(ctx context.Context, sc Scope, id int64) (Finding, error
 
 // findingColumns and findingFrom select findings with their asset and
 // vulnerability; the deadline column takes the SLA arguments first.
-const (
+var (
 	findingColumns = `f.id, f.asset_id, a.name, a.version, a.purl, a.cpe, a.project, f.vuln_id, v.aliases, v.summary, v.severity,
-	       v.cvss, v.kev, v.epss, f.status, f.justification, f.comment, f.fixed_in, f.first_seen, ` + dueExpr
-	findingFrom = `
+	       v.cvss, v.kev, v.epss, f.status, f.justification, f.comment, f.fixed_in, f.first_seen, ` + dueExpr + `,
+	       ` + alertClassExpr + ` AS alert_class`
+	findingSelect = "SELECT " + findingColumns + findingFrom
+)
+
+const findingFrom = `
 	FROM findings f
 	JOIN assets a ON a.id = f.asset_id
 	JOIN vulnerabilities v ON v.id = f.vuln_id`
-	findingSelect = "SELECT " + findingColumns + findingFrom
-)
 
 // scanFinding reads the columns of findingSelect, then extra ones if given; a
 // finding is late when its deadline is before today (see day).
@@ -403,7 +409,7 @@ func scanFinding(row scanner, today string, extra ...any) (Finding, error) {
 	dest := append([]any{&fd.ID, &fd.AssetID, &fd.AssetName, &fd.AssetVersion,
 		&fd.AssetPURL, &fd.AssetCPE, &fd.AssetProject, &fd.VulnID, &aliases,
 		&fd.Summary, &fd.Severity, &fd.CVSS, &fd.KEV, &fd.EPSS, &fd.Status, &fd.Justification, &fd.Comment, &fd.FixedIn, &first,
-		&due}, extra...)
+		&due, &fd.Class}, extra...)
 	if err := row.Scan(dest...); err != nil {
 		return fd, err
 	}

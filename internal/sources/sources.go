@@ -21,6 +21,7 @@ import (
 	"unicode"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/clip"
+	"github.com/La-Cizaille-Corp/vigil/internal/limit"
 	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
 )
 
@@ -71,8 +72,9 @@ func (e *netError) Unwrap() error { return e.err }
 
 // Temporary reports whether a request that failed with err (from Open or Do)
 // may succeed if sent again: the network failed, or the source answered 429
-// (too many requests) or 5xx. A refusal, an answer too large or unreadable
-// would fail the same way.
+// (too many requests) or 5xx. A refusal, a redirect refused by
+// netsafe.CheckRedirect, an answer too large or unreadable would fail the
+// same way.
 func Temporary(err error) bool {
 	var status *StatusError
 	if errors.As(err, &status) {
@@ -82,14 +84,33 @@ func Temporary(err error) bool {
 	return errors.As(err, &network)
 }
 
+// cutReader makes a failure of reading a body a *netError, so that Temporary
+// tells it from a malformed answer: the connection was cut or closed (an
+// HTTP/2 GOAWAY, a body shorter than announced), or the time limit came while
+// reading. The end of the body and a body past its bound are left as they are.
+type cutReader struct{ r io.Reader }
+
+func (c cutReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	var tooLarge *limit.TooLargeError
+	if err != nil && err != io.EOF && !errors.As(err, &tooLarge) {
+		err = &netError{err}
+	}
+	return n, err
+}
+
 // Open sends req with c and returns the body of the answer, which the caller
 // closes. SECURITY: never an unbounded read from the network: past max bytes,
-// reading the body fails with a *netsafe.TooLargeError instead of ending as if
-// the answer were whole. An answer other than 200 OK is a *StatusError.
+// reading the body fails with a *limit.TooLargeError instead of ending as if
+// the answer were whole. An answer other than 200 OK is a *StatusError. A
+// reading cut short fails with an error that Temporary accepts.
 func Open(c *http.Client, req *http.Request, max int64) (io.ReadCloser, error) {
 	// #nosec G704 -- req is made by NewRequest for the fixed address of a
 	// source; it is not an incoming request, whose URL a user would choose.
 	resp, err := c.Do(req)
+	if errors.As(err, new(*netsafe.RedirectError)) {
+		return nil, err // refused by the policy of the client, not by the network
+	}
 	if err != nil {
 		return nil, &netError{err}
 	}
@@ -100,7 +121,7 @@ func Open(c *http.Client, req *http.Request, max int64) (io.ReadCloser, error) {
 	return struct {
 		io.Reader
 		io.Closer
-	}{netsafe.LimitReader(resp.Body, max), resp.Body}, nil
+	}{cutReader{limit.Reader(resp.Body, max)}, resp.Body}, nil
 }
 
 // Do sends req with c and decodes the JSON answer into out, read whole and at
@@ -113,12 +134,8 @@ func Do(c *http.Client, req *http.Request, max int64, out any) error {
 	}
 	defer body.Close()
 	data, err := io.ReadAll(body)
-	var tooLarge *netsafe.TooLargeError
-	switch {
-	case errors.As(err, &tooLarge):
-		return err
-	case err != nil:
-		return &netError{err} // connection cut, or time limit reached while reading
+	if err != nil {
+		return err // too large, or cut short (a *netError, see cutReader)
 	}
 	if err := json.Unmarshal(data, out); err != nil {
 		return fmt.Errorf("réponse illisible : %w", err)

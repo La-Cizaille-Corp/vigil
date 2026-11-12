@@ -9,7 +9,7 @@
 <div class="toolbar">
   {{if and (can .User.Role "analyst") $a.Retired.IsZero}}
   <form method="post" action="/assets/{{$a.ID}}/scan" class="inline">
-    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    {{template "csrf" .CSRF}}
     <button type="submit">Analyser cet actif</button>
   </form>
   {{end}}
@@ -34,14 +34,14 @@
 <details class="card edit"{{if .Data.Editing}} open{{end}}>
   <summary>Modifier l'actif</summary>
   <form method="post" action="/assets/{{$a.ID}}">
-    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    {{template "csrf" .CSRF}}
     {{template "assetFields" .Data.Form}}
     <button type="submit">Enregistrer</button>
   </form>
   <details class="confirm">
     <summary>Supprimer l'actif…</summary>
     <form method="post" action="/assets/{{$a.ID}}/delete" class="inline">
-      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      {{template "csrf" .CSRF}}
       <span>L'actif, ses vulnérabilités et leur historique de suivi seront supprimés.</span>
       <button type="submit" class="danger">Confirmer la suppression</button>
     </form>
@@ -63,7 +63,7 @@
 <div class="notice">{{$a.OlderVulns}} vulnérabilité(s) connue(s) pour cette version ont été publiées avant le {{isoDate $a.TrackSince}}
   et ne sont pas signalées ici (sauf exploitées).{{if can .User.Role "analyst"}}
   <form method="post" action="/assets/{{$a.ID}}/full-history" class="inline">
-    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    {{template "csrf" .CSRF}}
     <button type="submit" class="link">Suivre tout l'historique</button>
   </form>{{end}}</div>
 {{end}}
@@ -78,7 +78,7 @@
   Si ce composant n'est pas présent, vous pouvez les écarter : elles passent en « Non affecté – code vulnérable absent », les prochaines aussi.
   Les vulnérabilités exploitées ou probables restent visibles, et ce que quelqu'un a déjà décidé ne change pas.
   <form method="post" action="/assets/{{$a.ID}}/dismissals" class="inline">
-    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    {{template "csrf" .CSRF}}
     <input type="hidden" name="text" value="{{.Data.Query}}">
     <button type="submit">Écarter tout ce qui correspond sur cet actif</button>
   </form>
@@ -89,7 +89,7 @@
 <ul class="rules">
   {{range .}}<li><code>{{.Text}}</code> <span class="muted small">{{.Findings}} écartée(s)</span>
     {{if can $.User.Role "analyst"}}<form method="post" action="/assets/{{$a.ID}}/dismissals/{{.ID}}/delete" class="inline">
-      <input type="hidden" name="csrf" value="{{$.CSRF}}">
+      {{template "csrf" $.CSRF}}
       <button type="submit" class="link">Supprimer la règle</button>
     </form>{{end}}</li>
   {{end}}

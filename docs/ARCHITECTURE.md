@@ -43,11 +43,13 @@ internal/sources/nvd   Client NVD API 2.0 (produits identifiés par CPE)
 internal/sources/kev   Catalogue CISA Known Exploited Vulnerabilities
 internal/sources/epss  Scores FIRST EPSS
 internal/cvss          Calcul du score CVSS 3.x depuis un vecteur
-internal/tracking      Synchronisation inventaire ↔ sources, enrichissement, statuts VEX
+internal/tracking      Synchronisation inventaire ↔ sources, enrichissement, statuts VEX, classement d'urgence
 internal/cti           Flux RSS/Atom, étiquetage pays / secteur / réglementation
 internal/digest        Génération du digest (Markdown + HTML)
+internal/fr            Dates et nombres à la française (pages, digest, alertes, CSV)
 internal/notify        Digests et alertes vers les webhooks et par e-mail (SMTP)
 internal/netsafe       Client HTTP anti-SSRF pour les URL fournies par les utilisateurs
+internal/limit         Lecture bornée des réponses réseau et des fichiers déposés
 internal/auth          argon2id, mots de passe courants refusés, jetons, TOTP, limitation des tentatives, rôles
 internal/web           Handlers HTTP, middleware de sécurité, templates, API CI
 deploy/                Docker Compose + Caddy, unité systemd, exemple d'environnement
@@ -120,7 +122,7 @@ libellé français ; les messages d'erreur Go restent en minuscules (convention 
 forme de phrase à l'affichage. Leur langue suit leur lecteur : français pour une erreur faite pour
 l'écran ou la ligne de commande (saisie, fichier importé, URL refusée, collecte déjà en cours),
 anglais pour une erreur interne et pour le journal du service, messages comme clés, que lisent aussi
-des outils. La raison technique d'un échec de source reste celle de la source (`status 503`,
+des outils. La raison technique d'un échec de source reste celle de la source (`HTTP 503`,
 `HTTP 404 (Invalid apiKey.)`). L'audit de code de novembre 2026 en relevait deux exceptions ; dix-sept
 messages du journal étaient en fait en français, tous passés en anglais.
 
@@ -135,6 +137,29 @@ messages du journal étaient en fait en français, tous passés en anglais.
 - un lecteur voit les valeurs en lecture seule, pas les liens vers des actions refusées ;
 - chaque compte peut changer son mot de passe (mot de passe actuel exigé, tentatives limitées,
   autres sessions fermées).
+
+**A79. Dates et nombres à la française, écrits par un seul paquet.** L'audit de code de novembre 2026
+relevait trois formateurs de décimales et deux conventions (le point pour le CVSS et l'EPSS à l'écran et dans
+le digest, la virgule pour les jours, les graphiques et le CSV), une alerte qui arrondissait l'EPSS à l'entier,
+un CVSS de 0 masqué par le digest mais affiché par l'interface, le format de date répété dans une dizaine
+d'endroits, et les fonctions de template (date, statut, sévérité, EPSS) recopiées entre `web` et `digest`. Le
+paquet `fr` écrit la convention et l'applique : un jour `09/02/2026` (`Date`, sans changer de fuseau : une
+échéance est un jour, pas un instant), sans l'année sur l'axe d'un graphique (`DayMonth`), un moment
+`09/02/2026 14:05` en heure locale (`DateTime`) ; la virgule décimale partout, à l'écran, dans le digest, les
+alertes et le CSV, sans séparateur de milliers (`Decimal`) ; un score (CVSS, EPSS en pourcentage) à une
+décimale, 0 compris, vide s'il est inconnu (`Score`) ; un pourcentage avec une espace avant le signe, `12,3 %`
+(`Percent`) ; des jours `< 1 j`, `3,5 j`, `12 j` (`Days`). Les pages et le digest partagent leurs fonctions
+de template, sous les mêmes noms : `fr.Funcs` (`date`, `day`, `cvss`, `epss`, `days`, `join`) et
+`tracking.TemplateFuncs`, les mots des vulnérabilités (`band`, `sevLabel`, `statusLabel`) ; `fr` n'importe
+rien de Vigil, tout paquet peut s'en servir. Restent au point ce que lit une machine : la valeur d'un champ `type="number"`
+(format HTML), les coordonnées SVG, le JSON des webhooks ; les dates ISO des exports CSV et des noms de
+fichier ne changent pas. Le champ caché du jeton CSRF est un seul modèle, appelé par chaque formulaire :
+`{{template "csrf" .CSRF}}`. Les étiquettes proposées sous le champ d'un actif sont lues par le handler ; une
+erreur de lecture donne une erreur 500 au lieu d'une page sans suggestions. *Écarté* : le point pour les
+scores (l'usage des bases de vulnérabilités, mais deux conventions sur une même page) ; une espace insécable
+avant `%` (le reste de l'interface écrit une espace simple). *Conséquences* : CVSS et EPSS s'affichent `9,8`
+et `12,3 %` à l'écran et dans le digest ; un CVSS de 0 s'affiche `0,0`, dans le digest aussi ; l'alerte donne
+l'EPSS à une décimale (`EPSS 12,3 %` au lieu de `EPSS 12 %`) ; le CSV ne change pas, il avait déjà la virgule.
 
 ### Données
 
@@ -194,7 +219,12 @@ qui garde les deux-points échappés des noms du dictionnaire (`lemonldap\:\:ng`
 les 13 champs d'un CPE 2.3 : requêtes NVD, recherche dans le dictionnaire, versions corrigées et
 éditeur ou produit de l'inventaire l'appellent ; `inventory` l'importe comme il importe déjà `osv`
 pour les purl. Écarté : un découpage par « : » à chaque endroit, qui refusait ces CPE au suivi et
-les coupait en deux dans la recherche.
+les coupait en deux dans la recherche. `SplitCPE` vérifie aussi la forme : champs non vides, partie
+`a`, `o`, `h` ou `*`, ni espace ni caractère de contrôle, pas de barre oblique finale. Un actif
+n'accepte que ces CPE (`inventory.Validate` ne vérifiait que le préfixe `cpe:2.3:`, et la NVD
+refusait les autres à chaque synchronisation) ; le CPE mal formé d'un composant de SBOM est retiré,
+le composant gardé par son purl. Un nom d'éditeur ou de produit s'affiche sans ses échappements
+(`nvd.Unescape` : `lemonldap::ng`, `At&t`), la valeur stockée et envoyée à la NVD les gardant.
 
 **A12. Un actif avec purl et CPE n'est interrogé que par son purl.** Interroger les deux
 doublerait les alertes (GHSA et CVE pour la même faille) et le CPE est moins précis. Il n'y a pas
@@ -324,7 +354,9 @@ Quatre niveaux exclusifs les remplacent, calculés pour tout produit : Urgentes,
 chose. Le CVSS seul ne trie pas : sur le noyau Debian 6.12.60-1, 90 % des CVE notées sont à 7 ou plus, plus de la
 moitié ne sont pas notées, et les 4 exploitées ne sont pas à 9. *Conséquence* : le niveau À planifier reste
 gros sur un vieux noyau ; c'est la mise à jour qui le réduit, pas le classement. Les délais de traitement et
-le filtre « Hors délai » restent, dans les filtres.
+le filtre « Hors délai » restent, dans les filtres. Depuis A78, le niveau se lit sur la classe d'alerte
+calculée par la requête (`Finding.Class`), au lieu d'une copie de la règle en Go, et le statut Exploitable
+range une vulnérabilité parmi les Urgentes.
 
 **A61. Écarter par un texte, pas par une notion de composant.** Une version ne dit pas si un composant est
 présent : sur un serveur sans ces matériels, `drm`, `wifi` ou `bluetooth` pèsent au moins un quart des CVE du
@@ -398,6 +430,24 @@ sévérités déjà traduites (aucune version publiée n'a stocké `MODERATE`). 
 en base est corrigée à sa prochaine écriture (chaque synchronisation pour la NVD, la prochaine
 modification de l'avis pour OSV).
 
+*Ordre des sources de la sévérité (novembre 2026).* Plus de la moitié des CVE des noyaux restaient sans
+sévérité : 2 354 sur 4 481 pour Debian 13, 1 663 sur 3 151 pour Ubuntu 22.04, sur la période de suivi.
+La cause est en amont : sur les 6 248 CVE de kernel.org publiées de juin à novembre, la NVD en a 4 729
+au statut « Received », jamais analysées, et kernel.org ne note pas les siennes. Prendre la sévérité de
+la NVD a été mesuré et écarté : elle en aurait noté 2 sur 4 000, pour 4 000 appels (une CVE par appel,
+7 h sans clé), et pour les CVE notées elle dit déjà ce que Vigil stocke (OSV recopie son vecteur). Ubuntu,
+en revanche, donne sa priorité à chaque CVE (type de sévérité OSV `Ubuntu`, de `negligible` à
+`critical`), présente dans les avis déjà lus : `SeverityLabel` la prend après l'échelle de la base et le
+score CVSS, jamais avant. Elle n'est d'accord avec la sévérité du score que pour 409 des 1 488 avis
+Ubuntu notés et plus basse pour 1 073 ; en premier, elle aurait fait passer un millier de lignes
+d'« À planifier » à « À surveiller ». En repli, les CVE sans sévérité du noyau Ubuntu passent de
+52,8 % à une sur 3 151 ; la page d'une vulnérabilité dit d'une sévérité sans score CVSS qu'elle est
+l'évaluation de la source. *Conséquences* : la colonne mêle deux échelles pour Ubuntu, le score quand il
+existe, la priorité sinon ; Debian ne publie ni score ni priorité pour ces CVE, qui restent « Inconnue »
+(52,5 %) ; à la première synchronisation après la mise à jour, les CVE devenues hautes ou critiques
+(125 pour un noyau Ubuntu 22.04) partent en une alerte « sévères » (A37). Le calcul du CVSS 4.0 (A16)
+reste différé : les 538 avis Ubuntu qui n'ont qu'un vecteur 4.0 ont tous une priorité.
+
 **A75. Une seule façon d'interroger une source.** Les clients d'OSV, de la NVD, de KEV et d'EPSS
 refaisaient chacun la requête, l'en-tête `User-Agent`, le contrôle du statut, la lecture bornée et le
 décodage, avec trois formes de message (`status 503`, `HTTP 503`, `nvd : HTTP 404`), deux boucles de
@@ -407,10 +457,11 @@ d'OSV recopiait 512 octets de la réponse dans le message affiché. Le paquet `s
 `NewRequest` (agent, corps JSON), `Open` et `Do` (statut, lecture bornée, décodage), `StatusError`,
 `Temporary`, `Retry` et `Sleep`. Tout statut autre que 200 est une erreur, affichée `HTTP 404 (raison)` :
 la raison est l'en-tête `message` de la NVD ou le champ `message` d'une réponse JSON (OSV), sur une ligne
-de 200 caractères au plus. Une lecture qui dépasse sa borne échoue (`netsafe.LimitReader`, sur lequel
-repose désormais `ReadLimited`), en flux aussi pour les pages de `/v1/query`. Une requête est renvoyée
+de 200 caractères au plus. Une lecture qui dépasse sa borne échoue (`limit.Reader`, voir A74), en flux
+aussi pour les pages de `/v1/query`. Une requête est renvoyée
 après une panne du réseau, à l'aller comme pendant la lecture, un 429 ou un 5xx, et le 403 de la limite
-de débit de la NVD ; pas après un autre refus, ni après une réponse trop grosse ou illisible, qui
+de débit de la NVD ; pas après un autre refus, une redirection refusée par `netsafe.CheckRedirect`
+(`netsafe.RedirectError` : vers une URL non https, ou plus de 5), une réponse trop grosse ou illisible, qui
 échoueraient de même. Les plafonds de lecture ne changent pas. Les clients ont la même forme : `URL` (vide : l'API publique), `HTTP` (donné par
 `main`), `UserAgent` ; `kev.Client.Catalogue` et `epss.Client.Scores` remplacent les fonctions libres, et
 le `Syncer` porte ces deux clients au lieu d'un client HTTP et de deux URL. OSV reçoit de `main` une copie
@@ -422,6 +473,50 @@ dont les erreurs taisent l'adresse et dont la réponse n'est pas du JSON : ils g
 *Conséquences* : des messages d'erreur affichés changent (`HTTP 503` pour toutes les sources, `réponse
 illisible`, plus de `temporarily unavailable`) ; une lecture d'OSV coupée en route est désormais renvoyée,
 comme pour la NVD, et une réponse trop grosse de la NVD ne l'est plus.
+
+*Correction (novembre 2026) : ce qui est renvoyé exactement.* « Pendant la lecture » ne valait que pour
+les réponses lues d'un bloc (`Do`), tenues dans `Retry`. Une page de `/v1/query`, lue avis par avis
+après `Open`, n'était reprise qu'en cas d'échec à l'ouverture : une coupure au milieu de la page perdait
+l'actif, sous un message trompeur. Lors d'un essai réel, le noyau Ubuntu 22.04 (8 212 avis, 63 pages,
+4,5 Go, 25 minutes de lecture) a été perdu ainsi après 21 minutes, sur un `GOAWAY` HTTP/2 d'OSV
+(`server_shutting_down`), affiché « réponse illisible ». Désormais :
+- `Open` rend une erreur de lecture du corps comme une panne du réseau (`Temporary`), sauf la fin du
+  corps et le dépassement de la borne : connexion coupée ou fermée, corps plus court qu'annoncé, délai
+  atteint pendant la lecture. Un corps terminé proprement mais incomplet reste une réponse illisible ;
+- une réponse lue d'un bloc (`Do`) est demandée à nouveau, comme avant ;
+- une page de `/v1/query` coupée est demandée à nouveau, avec le même jeton, et relue depuis son
+  début ; ses avis déjà rendus sont sautés, d'après leur identifiant. Les nouvelles tentatives sont
+  aussi nombreuses que pour une requête, avec les mêmes attentes (5 puis 15 secondes, aucune pour un
+  serveur de test). Une page relue ne compte pas dans la borne des 200 pages ;
+- passé ces essais, l'erreur dit « lecture interrompue », et plus « réponse illisible », réservé
+  aux réponses mal formées, trop grosses ou à un délimiteur inattendu, qui ne sont pas renvoyées.
+
+*Écarté* : relire toute la requête depuis la première page, soit 25 minutes pour ce noyau ; garder une
+page en mémoire pour la relire, alors qu'elle peut dépasser 64 Mo (A55).
+
+**A74. Une seule lecture bornée, hors de `netsafe`, et une seule écriture CSV.** L'audit de code de
+novembre 2026 (R6) relevait que le BOM UTF-8 se retirait de trois façons (SBOM, VEX, CSV), que la
+lecture d'un fichier CSV déposé vivait dans `web` avec sa propre borne, et que `netsafe.ReadLimited`,
+prévu pour les réponses HTTP, servait aussi aux fichiers déposés : le paquet anti-SSRF portait une
+lecture qui n'a rien à voir avec les adresses, et le contrôle de capacités (capslock) lui prêtait les
+capacités « fichiers » de tout lecteur appelé derrière l'interface `io.Reader`.
+Le paquet neutre `limit` porte la lecture bornée : `Reader` et `Read` pour les réponses du réseau
+(sources, flux CTI), qui échouent en `*TooLargeError` au-delà de la borne, et `File` pour un fichier
+envoyé par un utilisateur (SBOM, VEX, CSV) : borne, BOM retiré, et un message pour l'écran qui parle
+d'un fichier (« fichier supérieur à 20 Mo », au lieu de « réponse supérieure à 20971520 octets » pour
+un SBOM). `netsafe` ne garde que les règles d'URL et le client anti-SSRF. La lecture d'un CSV rejoint
+`inventory`, à côté de la correspondance lignes ↔ actifs (`ReadCSV` : borne, BOM, séparateur deviné).
+L'écriture reste dans `web`, en une seule fonction pour l'inventaire comme pour les vulnérabilités
+(`writeCSV` : BOM, point-virgule, chaque cellule neutralisée par `inventory.CSVCell`), avec une seule
+gestion d'erreur, journalisée une fois à la fin. *Écarté* : laisser la lecture dans `netsafe` ou la
+mettre dans `sources`, que `sbom`, `vex` et `inventory` importeraient sans rien interroger ;
+neutraliser les cellules dans chaque fonction qui construit des lignes, où un nouvel export pourrait
+l'oublier ; écrire le CSV dans `inventory`, qui recevrait la réponse HTTP derrière un `io.Writer` et
+que capslock dirait alors capable d'écrire sur le réseau ; un paquet CSV à part, pour un seul
+utilisateur. *Conséquences* : le message d'un SBOM trop gros change ; `inventory.CSVRow` rend les
+valeurs telles quelles, et seule l'écriture les neutralise ; les exports restent identiques octet
+pour octet (test) ; capslock voit `limit` capable de lire fichiers et réseau (son lecteur ne sait pas
+ce qu'il lit), et `netsafe` ne l'est plus de lire des fichiers.
 
 **A13. Statuts CycloneDX / VEX.** Des statuts maison auraient été plus « parlants » mais non
 interopérables. Les états VEX (`in_triage`, `exploitable`, `resolved`, `not_affected` +
@@ -485,7 +580,35 @@ vérifier. Rien de ce qui cite une adresse n'est repris d'une réponse : elle po
 
 **A15. Priorisation KEV > EPSS > sévérité, plutôt que CVSS seul.** Le CVSS mesure la gravité
 théorique, pas la probabilité d'exploitation. Exploitation avérée (KEV) d'abord, puis probabilité
-EPSS ≥ 10 %, puis sévérité. Le score CVSS reste affiché et filtrable.
+EPSS ≥ 10 %, puis sévérité. Le score CVSS reste affiché et filtrable. Le statut Exploitable compte
+comme une entrée KEV (A78).
+
+**A78. Un seul classement d'urgence ; le statut Exploitable au rang d'une entrée KEV.** L'audit de code
+de novembre 2026 relevait deux classements qui divergeaient : la liste et le tableau de bord triaient par la
+sévérité de l'avis (`digest.MoreUrgent`), le digest par la bande de sévérité avec repli sur le score CVSS
+(`SortBySeverity`), si bien qu'une vulnérabilité notée par son seul CVSS ne tombait pas au même rang dans les
+deux. Le seuil EPSS de 10 % était écrit six fois, l'ordre des sévérités quatre fois, et `digest.Level`
+recopiait en Go la classe d'alerte calculée en SQL ; `web` triait avec ces règles du digest. Un seul
+classement, `tracking.ComparePriority`, sert maintenant aux listes, au tableau de bord et au digest :
+exploitée (KEV) ou jugée exploitable, puis probable (EPSS ≥ 10 %), puis bande de sévérité (`tracking.Band` :
+la sévérité de l'avis, à défaut celle du score CVSS), puis score EPSS, score CVSS et détection la plus
+récente. Le statut « Exploitable – à traiter » est une décision de l'équipe : il place la vulnérabilité au
+rang d'une entrée KEV, dans l'ordre comme dans le niveau Urgentes, le filtre « Prioritaire », l'indicateur
+« À traiter en priorité » et la classe d'alerte. Le seuil n'est écrit qu'une fois, `store.LikelyEPSS`, dont
+sont construites les expressions SQL (`exploitedExpr`, `urgentExpr`, `alertClassExpr`) ; le niveau
+(`tracking.Level`) se lit sur la classe calculée par la requête (`Finding.Class`) ; l'ordre des sévérités
+est celui de `tracking.Severities`. *Écarté* : garder le tri par sévérité dans le digest (deux ordres pour les
+mêmes vulnérabilités) ; calculer la classe d'alerte en Go (lire toutes les vulnérabilités ouvertes à chaque
+synchronisation pour n'en notifier que quelques-unes) ; ranger le statut Exploitable entre KEV et EPSS.
+*Conséquences* : l'ordre affiché change ; dans le digest, une vulnérabilité exploitée passe devant une
+critique qui ne l'est pas ; dans la liste, une vulnérabilité notée par son seul CVSS se range à sa bande, que
+la colonne Priorité affiche au lieu de « Inconnue ». Alertes immédiates (A37, une fois par niveau) : passer une
+vulnérabilité ouverte à « Exploitable » la porte à la classe prioritaire ; si elle n'y avait pas déjà été
+notifiée, elle part à la fin de la synchronisation suivante, une seule fois, avec la raison « jugée
+exploitable » (la repasser à « À analyser » ne la renvoie pas). À la première synchronisation après la mise à
+jour, celles déjà marquées Exploitables et pas encore notifiées comme prioritaires partent de même, en un
+message par canal. Les délais de traitement (A39) ne changent pas : seule une entrée KEV prend le délai
+critique.
 
 **A16. Score CVSS calculé localement (3.x).** OSV publie souvent un vecteur sans score. La
 formule officielle FIRST 3.0/3.1 tient en quelques dizaines de lignes, testées sur des vecteurs
@@ -509,7 +632,7 @@ filtres pays / secteur : une réglementation concerne tous ceux qu'elle couvre.
 
 **A35. Tableau de bord : indicateurs d'action et graphiques SVG rendus par le serveur.** Les
 indicateurs retenus répondent à « que faire maintenant ? » plutôt qu'à « combien ? » : à traiter en
-priorité (KEV ou EPSS >= 10 %, cliquable vers la liste exacte), vulnérabilités ouvertes, exploitées
+priorité (KEV, EPSS >= 10 % ou statut Exploitable, A78 ; cliquable vers la liste exacte), vulnérabilités ouvertes, exploitées
 avec échéance CISA dépassée, en attente d'analyse depuis plus de 30 jours, délai moyen de traitement
 sur 90 jours (de la détection à la clôture : corrigée, non affectée ou faux positif) et couverture de
 détection (actifs vérifiés automatiquement). Graphiques : répartition par sévérité (anneau),
@@ -519,6 +642,17 @@ serveur calcule la géométrie et produit du SVG ; couleurs par classes CSS (th�
 info-bulle native (`<title>`) sur chaque marque, tableau des données sous chaque graphique, aucun
 attribut `style`. Palettes vérifiées avec un validateur (daltonisme, contraste) : la sévérité est
 une rampe ordinale d'une seule teinte (rouge), l'activité un couple bleu / vert d'eau.
+*Délai moyen (novembre 2026)* : il ne compte plus que les vulnérabilités détectées après la première
+synchronisation de leur actif. Celles de la première synchronisation datent d'avant l'arrivée de l'actif
+dans Vigil : leur délai mesure le rattrapage d'un arriéré, pas la réaction à une vulnérabilité nouvelle, et
+faussait la moyenne. Une synchronisation date de son début toutes les vulnérabilités qu'elle crée, et rien
+d'autre n'en crée : celles de la première synchronisation sont donc celles qui portent la plus ancienne
+date de détection de l'actif, sans colonne ni migration. *Écarté* : enregistrer la date de la première
+synchronisation sur l'actif (exact, mais une migration pour une seule statistique) ; une fenêtre après la
+création de l'actif (une première synchronisation peut attendre l'intervalle, ou échouer). *Conséquence* :
+pour un actif sans vulnérabilité à sa première synchronisation, la première qui en trouve est aussi laissée
+hors de la moyenne ; celle-ci y perd quelques valeurs, sans jamais compter un arriéré. L'activité
+hebdomadaire compte toujours toutes les vulnérabilités traitées.
 
 **A34. Plusieurs pays, secteurs et réglementations par flux, modifiables.** Un flux européen ou
 un site de normalisation couvre souvent plusieurs pays ou textes : un sélecteur unique obligeait
@@ -564,7 +698,7 @@ provisoires y passent aussi, sans effet : aucune entrée n'a leur forme (vérifi
 
 *Conséquences* : un mot de passe déjà en place reste valable jusqu'à son prochain changement ; une
 variante d'un mot de passe courant (un chiffre ajouté) passe ; la licence MIT de SecLists accompagne
-chaque archive de release.
+chaque archive de release et l'image Docker (`/usr/share/doc/vigil/`, avec celle de Vigil).
 
 **A21. TOTP implémenté en interne.** RFC 6238 en une trentaine de lignes (vecteurs de la RFC en
 test) plutôt qu'une bibliothèque. Anti-rejeu atomique en base, essais limités, désactivation
@@ -678,8 +812,8 @@ Le paquet feuille `choice` (`Option`, `Label`, `Has`, `Rank`, `KnownOnly`) sert 
 il n'importe rien de Vigil, pour que `tracking`, `notify`, `digest`, `cti`, `inventory`, `auth` et
 `web` l'utilisent sans dépendre d'`inventory`. L'appartenance se lit par `Has`, jamais par le
 libellé ; un test vérifie qu'aucune liste n'offre deux fois la même valeur. Les statuts sont des
-constantes de `store` (`StatusInTriage`…), « ouverte » est `Finding.Open`, que les templates
-appellent, et `openStatuses` en SQL ; la dernière clôture d'une vulnérabilité (`lastClosings`),
+constantes de `store` (`StatusInTriage`…), y compris dans le classement (`tracking.Level`) et les
+alertes, « ouverte » est `Finding.Open`, que les templates appellent, et `openStatuses` en SQL ; la dernière clôture d'une vulnérabilité (`lastClosings`),
 la résolution automatique avec son événement (`autoResolve`) et le changement de statut avec son
 historique (`setStatus`) ne sont plus écrits qu'une fois. Les rôles forment une liste ordonnée,
 `auth.Roles`, du plus au moins privilégié comme le menu les montre, dont dérivent `RoleAtLeast`,
@@ -697,7 +831,7 @@ manques qui gênaient l'usage quotidien d'une petite équipe, sans viser la prof
 
 **A37. Alertes immédiates par niveau d'urgence, une fois par niveau.** OpenCVE et
 Dependency-Track préviennent dès qu'une vulnérabilité correspond ; Vigil n'avait que le digest.
-Chaque vulnérabilité ouverte a une classe : prioritaire (KEV ou EPSS ≥ 10 %), sévère (critique ou
+Chaque vulnérabilité ouverte a une classe : prioritaire (KEV, EPSS ≥ 10 % ou statut Exploitable, A78), sévère (critique ou
 haute), autre. À la fin de chaque synchronisation, celles dont la classe dépasse la classe déjà
 notifiée (`findings.alerted`) partent, en un message par canal, vers les canaux qui demandent ce
 niveau ; une vulnérabilité qui devient exploitée est donc signalée à nouveau. Écartés : une alerte
@@ -743,7 +877,9 @@ vulnérabilités ouvertes (identifiant ou alias). Écartés : rapprochement par 
 dans un tableur. Export des vulnérabilités (avec les filtres affichés) et de l'inventaire ; import
 de l'inventaire en virgules ou points-virgules (Excel en français), en-têtes et libellés français
 acceptés. Import tout ou rien : la moindre ligne invalide refuse le fichier, avec les numéros de
-ligne. Les exports utilisent le point-virgule et la virgule décimale, comme Excel en français.
+ligne, et les actifs sont écrits en une transaction (`Store.CreateAssets`) : une panne au milieu de
+l'écriture n'en ajoute aucun, comme le dit la page (audit de novembre 2026, R12 ; ils étaient créés un
+par un). Les exports utilisent le point-virgule et la virgule décimale, comme Excel en français.
 *Sécurité* : toute cellule commençant par `=`, `+`, `-`, `@` est préfixée d'une apostrophe
 (injection de formules à l'ouverture dans un tableur), de même qu'un tel caractère placé dans une
 valeur après une virgule, un point-virgule, une tabulation ou un saut de ligne, éventuellement
@@ -787,7 +923,7 @@ sont mises en minuscules pour qu'une même étiquette ne se dédouble pas (« Pr
 Stockage comme les étiquettes de la veille (`,prod,web,`, migration 010). Filtres de l'inventaire et
 des vulnérabilités, export et import CSV. Écarté : une table d'étiquettes avec administration
 (complexité sans besoin avéré). Une étiquette compte 40 caractères au plus (`inventory.MaxTagLen`),
-20 par actif (`MaxTags`). Les deux filtres lisent l'étiquette demandée comme elle est stockée
+20 par actif (`maxTags`). Les deux filtres lisent l'étiquette demandée comme elle est stockée
 (`tagParam`, par `inventory.NormalizeTags`) et ignorent une étiquette plus longue que cette borne,
 qu'aucun actif ne peut porter : le filtre des vulnérabilités en acceptait 100 caractères, celui de
 l'inventaire la prenait telle que tapée (« Prod » n'y trouvait rien).
@@ -917,12 +1053,22 @@ anciennes restent en texte libre.
 **A27. Configuration par options et variables d'environnement, sans fichier de configuration.**
 Un format de fichier à part (YAML…) serait une dépendance et une source d'erreurs de plus. Chaque
 option `-nom` peut venir de `VIGIL_NOM` ; la ligne de commande l'emporte. Convient au binaire,
-à systemd (`EnvironmentFile`) et à Docker (`env_file`).
+à systemd (`EnvironmentFile`) et à Docker (`env_file`). Les options partagées sont déclarées une
+seule fois, avec un seul texte d'aide (`newCommand`, audit de novembre 2026, X7) : `-db` pour toutes
+les commandes, et pour `serve`, `sync` et `digest` `-base-url`, `-allow-private-urls`,
+`-nvd-api-key` et les options SMTP, vérifiées avant l'ouverture de la base. La clé NVD passe par le
+même mécanisme (`-nvd-api-key`, ou de préférence `VIGIL_NVD_API_KEY`, invisible des autres
+utilisateurs de la machine) au lieu d'une lecture à part de la variable, et `VIGIL_DB` n'est lu
+qu'à cet endroit. *Écarté* : une bibliothèque d'options (cobra…), une dépendance pour une dizaine
+de commandes. *Conséquence* : `vigil digest` accepte `-base-url` (ou `VIGIL_BASE_URL`) et met alors
+le lien du digest dans ses messages, comme le digest programmé de `serve`.
 
 **A28. Binaire d'abord, Docker en option.** Le binaire Go suffit (systemd fourni). L'image
 existe pour les équipes dont l'exploitation passe par des conteneurs : distroless, non-root,
 lecture seule hors `/data`. Le Compose d'exemple ajoute Caddy pour le HTTPS automatique, puisque
-l'image n'écoute pas en clair sur le réseau sans proxy.
+l'image n'écoute pas en clair sur le réseau sans proxy. Elle porte les licences des archives de
+release (celle de Vigil et celle de la liste SecLists embarquée, dans `/usr/share/doc/vigil/`) :
+un test les rapproche de `.goreleaser.yaml`, et la CI les relit dans l'image construite.
 
 **A29. Releases vérifiables.** GoReleaser : builds reproductibles (`-trimpath`, horodatage du
 commit), six plateformes, checksums, SBOM par archive, attestation de provenance signée ; release

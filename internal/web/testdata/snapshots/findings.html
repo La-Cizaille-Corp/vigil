@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vulnérabilités · Vigil</title>
+
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<a class="skip" href="#contenu">Aller au contenu</a>
+<header>
+  <a class="brand" href="/"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="logo-shield" d="M12 2 4 5v6c0 5 3.4 9.3 8 11 4.6-1.7 8-6 8-11V5l-8-3Z"/><path class="logo-eye" d="M12 8.5c-2.6 0-4.7 1.6-5.5 3.5.8 1.9 2.9 3.5 5.5 3.5s4.7-1.6 5.5-3.5c-.8-1.9-2.9-3.5-5.5-3.5Zm0 5.5a2 2 0 1 1 0-4 2 2 0 0 1 0 4Z"/></svg>Vigil</a>
+  
+  <nav aria-label="Navigation principale">
+    <a href="/" >Tableau de bord</a>
+    <a href="/assets" >Inventaire</a>
+    <a href="/findings" aria-current="page">Vulnérabilités</a>
+    <a href="/cti" >Veille</a>
+    <a href="/digests" >Digests</a>
+    <a href="/settings" >Paramètres</a>
+  </nav>
+  <form method="post" action="/logout" class="inline">
+    <input type="hidden" name="csrf" value="CSRF">
+    <a class="account-link" href="/account" title="Mon compte" >analyst</a>
+    <span class="muted small">analyste</span>
+    <button type="submit" class="link">Déconnexion</button>
+  </form>
+  
+</header>
+<main id="contenu">
+  <h1>Vulnérabilités</h1>
+  
+  
+  
+
+
+
+<div class="toolbar">
+  
+  <form method="post" action="/sync" class="inline">
+    <input type="hidden" name="csrf" value="CSRF">
+    <input type="hidden" name="next" value="/findings">
+    <button type="submit" >Synchroniser l'inventaire</button>
+  </form>
+  
+  <span class="muted small">Aucune synchronisation depuis le démarrage du serveur.</span>
+</div>
+
+
+<nav class="filters" aria-label="Niveaux">
+  <a href="/findings?level=open" >Ouvertes <small>5</small></a>
+  <a href="/findings?level=urgent" >Urgentes <small>2</small></a>
+  <a href="/findings?level=plan" >À planifier <small>0</small></a>
+  <a href="/findings?level=watch" >À surveiller <small>3</small></a>
+  <a href="/findings?level=aside" >Écartées <small>0</small></a>
+  <a href="/findings?level=fixed" >Corrigées <small>0</small></a>
+  <a href="/findings?level=all" class="active" aria-current="true">Toutes <small>5</small></a>
+  
+</nav>
+<form method="get" action="/findings" class="card filters-form">
+  <input type="hidden" name="level" value="all">
+  
+  
+  <label>Recherche <input type="search" name="q" value="" maxlength="200" placeholder="CVE-2021-44228, log4j, injection…"></label>
+  <details class="more-filters">
+    <summary>Plus de filtres</summary>
+    <div class="grid">
+      <label>Projet
+        <select name="project"><option value="">Tous</option>
+          
+        </select>
+      </label>
+      <label>Étiquette d'actif
+        <select name="tag"><option value="">Toutes</option>
+          
+        </select>
+      </label>
+      <label>CVSS minimum <input type="number" name="cvss" min="0" max="10" step="0.1" value="" placeholder="ex. 7"></label>
+      <label>EPSS minimum (%) <input type="number" name="epss" min="0" max="100" step="0.1" value="" placeholder="ex. 10"></label>
+    </div>
+    <div class="grid">
+      <fieldset><legend>Statut</legend>
+        <label class="check"><input type="checkbox" name="status" value="in_triage" > À analyser</label><label class="check"><input type="checkbox" name="status" value="exploitable" > Exploitable – à traiter</label><label class="check"><input type="checkbox" name="status" value="resolved" > Corrigé</label><label class="check"><input type="checkbox" name="status" value="not_affected" > Non affecté</label><label class="check"><input type="checkbox" name="status" value="false_positive" > Faux positif</label>
+      </fieldset>
+      <fieldset><legend>Sévérité</legend>
+        <label class="check"><input type="checkbox" name="severity" value="CRITICAL" > Critique</label><label class="check"><input type="checkbox" name="severity" value="HIGH" > Haute</label><label class="check"><input type="checkbox" name="severity" value="MEDIUM" > Moyenne</label><label class="check"><input type="checkbox" name="severity" value="LOW" > Basse</label><label class="check"><input type="checkbox" name="severity" value="UNKNOWN" > Inconnue</label>
+      </fieldset>
+      <fieldset><legend>Type d'actif</legend>
+        <label class="check"><input type="checkbox" name="kind" value="package" > Paquet / dépendance</label><label class="check"><input type="checkbox" name="kind" value="technology" > Technologie</label><label class="check"><input type="checkbox" name="kind" value="product" > Produit</label><label class="check"><input type="checkbox" name="kind" value="os" > Système d&#39;exploitation</label>
+      </fieldset>
+      <fieldset><legend>Exploitation</legend>
+        <label class="check"><input type="checkbox" name="kev" value="1" > Exploitée (CISA KEV)</label>
+        <label class="check"><input type="checkbox" name="priority" value="1" > Prioritaire (KEV, EPSS ≥ 10 % ou jugée exploitable)</label>
+        <label class="check"><input type="checkbox" name="overdue" value="1" > Hors délai de traitement</label>
+      </fieldset>
+    </div>
+  </details>
+  <div class="toolbar form-actions">
+    <button type="submit">Filtrer</button>
+    <a href="/findings">Réinitialiser</a>
+  </div>
+</form>
+
+<p class="muted">5 vulnérabilité(s)
+  · <a href="/findings.csv?level=all">Exporter cette liste (CSV)</a></p>
+
+
+<table class="cards sortable">
+<thead><tr><th class="select"><span class="sr-only">Sélection</span></th><th aria-sort="descending"><a class="sort" href="/findings?dir=asc&amp;level=all&amp;sort=priority">Priorité</a></th><th><a class="sort" href="/findings?dir=desc&amp;level=all&amp;sort=cvss">CVSS</a></th><th><a class="sort" href="/findings?dir=desc&amp;level=all&amp;sort=epss">EPSS</a></th><th><a class="sort" href="/findings?dir=asc&amp;level=all&amp;sort=vuln">Vulnérabilité</a></th><th><a class="sort" href="/findings?dir=asc&amp;level=all&amp;sort=asset">Actif</a></th><th><a class="sort" href="/findings?dir=asc&amp;level=all&amp;sort=fixed">Corrigée en</a></th><th><a class="sort" href="/findings?dir=asc&amp;level=all&amp;sort=status">Statut</a></th><th><a class="sort" href="/findings?dir=desc&amp;level=all&amp;sort=recent">Détectée le</a></th><th><a class="sort" href="/findings?dir=asc&amp;level=all&amp;sort=due">Échéance</a></th><th class="no-sort">Résumé</th></tr></thead>
+<tbody>
+
+<tr>
+  <td class="select" data-label="Sélection"><input type="checkbox" name="id" value="1" form="bulk" aria-label="Sélectionner CVE-2025-0001 sur fortios"></td>
+  <td data-label="Priorité"><span class="kev">Exploitée</span><br><span class="sev sev-CRITICAL">Critique</span></td>
+  <td data-label="CVSS">9,8</td>
+  <td data-label="EPSS">97,3 %</td>
+  <td data-label="Vulnérabilité"><a href="/findings/1">CVE-2025-0001</a></td>
+  <td data-label="Actif"><a href="/assets/1">fortios 7.2.4</a></td>
+  <td data-label="Corrigée en"></td>
+  <td data-label="Statut">À analyser</td>
+  <td data-label="Détectée le">04/03/2025 10:20</td>
+  <td data-label="Échéance"><span class="late">Hors délai</span><br><small>19/03/2025</small></td>
+  <td data-label="Résumé" class="text">Contournement de l&#39;authentification.</td>
+</tr>
+
+<tr>
+  <td class="select" data-label="Sélection"><input type="checkbox" name="id" value="2" form="bulk" aria-label="Sélectionner CVE-2025-0002 sur fortios"></td>
+  <td data-label="Priorité"><span class="sev sev-HIGH">Haute</span></td>
+  <td data-label="CVSS">7,5</td>
+  <td data-label="EPSS">12,3 %</td>
+  <td data-label="Vulnérabilité"><a href="/findings/2">CVE-2025-0002</a></td>
+  <td data-label="Actif"><a href="/assets/1">fortios 7.2.4</a></td>
+  <td data-label="Corrigée en"></td>
+  <td data-label="Statut">À analyser</td>
+  <td data-label="Détectée le">04/03/2025 11:20</td>
+  <td data-label="Échéance"><span class="late">Hors délai</span><br><small>03/04/2025</small></td>
+  <td data-label="Résumé" class="text">Déni de service.</td>
+</tr>
+
+<tr>
+  <td class="select" data-label="Sélection"><input type="checkbox" name="id" value="4" form="bulk" aria-label="Sélectionner GHSA-29mw-wpgm-hmr9 sur lodash"></td>
+  <td data-label="Priorité"><span class="sev sev-MEDIUM">Moyenne</span></td>
+  <td data-label="CVSS">5,3</td>
+  <td data-label="EPSS"><span class="muted">—</span></td>
+  <td data-label="Vulnérabilité"><a href="/findings/4">GHSA-29mw-wpgm-hmr9</a><br><small>CVE-2025-0004</small></td>
+  <td data-label="Actif"><a href="/assets/2">lodash 4.17.15</a></td>
+  <td data-label="Corrigée en">4.17.21</td>
+  <td data-label="Statut">À analyser</td>
+  <td data-label="Détectée le">04/03/2025 13:20</td>
+  <td data-label="Échéance"><span class="late">Hors délai</span><br><small>02/06/2025</small></td>
+  <td data-label="Résumé" class="text">Pollution de prototype.</td>
+</tr>
+
+<tr>
+  <td class="select" data-label="Sélection"><input type="checkbox" name="id" value="5" form="bulk" aria-label="Sélectionner CVE-2025-0005 sur lodash"></td>
+  <td data-label="Priorité"><span class="sev sev-LOW">Basse</span></td>
+  <td data-label="CVSS"><span class="muted">—</span></td>
+  <td data-label="EPSS"><span class="muted">—</span></td>
+  <td data-label="Vulnérabilité"><a href="/findings/5">CVE-2025-0005</a></td>
+  <td data-label="Actif"><a href="/assets/2">lodash 4.17.15</a></td>
+  <td data-label="Corrigée en"></td>
+  <td data-label="Statut">À analyser</td>
+  <td data-label="Détectée le">04/03/2025 14:20</td>
+  <td data-label="Échéance"><span class="late">Hors délai</span><br><small>31/08/2025</small></td>
+  <td data-label="Résumé" class="text">Sans score.</td>
+</tr>
+
+<tr>
+  <td class="select" data-label="Sélection"><input type="checkbox" name="id" value="3" form="bulk" aria-label="Sélectionner CVE-2025-0003 sur fortios"></td>
+  <td data-label="Priorité"><span class="sev sev-UNKNOWN">Inconnue</span></td>
+  <td data-label="CVSS">0,0</td>
+  <td data-label="EPSS">0,0 %</td>
+  <td data-label="Vulnérabilité"><a href="/findings/3">CVE-2025-0003</a></td>
+  <td data-label="Actif"><a href="/assets/1">fortios 7.2.4</a></td>
+  <td data-label="Corrigée en"></td>
+  <td data-label="Statut">À analyser</td>
+  <td data-label="Détectée le">04/03/2025 12:20</td>
+  <td data-label="Échéance"><span class="late">Hors délai</span><br><small>02/06/2025</small></td>
+  <td data-label="Résumé" class="text">Score nul.</td>
+</tr>
+
+</tbody>
+</table>
+
+
+
+
+<details class="card bulk" id="traiter">
+  <summary>Traiter la sélection…</summary>
+<form method="post" action="/findings/bulk" id="bulk">
+  <input type="hidden" name="csrf" value="CSRF">
+  <input type="hidden" name="next" value="/findings?level=all">
+  <p class="small">Cochez des lignes du tableau, puis appliquez-leur une même décision (enregistrée dans l'historique de chacune).</p>
+  <div class="grid">
+    <label>Nouveau statut
+      <select name="status"><option value="in_triage">À analyser</option><option value="exploitable">Exploitable – à traiter</option><option value="resolved">Corrigé</option><option value="not_affected">Non affecté</option><option value="false_positive">Faux positif</option></select>
+    </label>
+    <label>Justification (si « Non affecté »)
+      <select name="justification"><option value="">—</option><option value="code_not_present">Code vulnérable absent</option><option value="code_not_reachable">Code vulnérable non atteignable</option><option value="requires_configuration">Nécessite une configuration absente</option><option value="requires_dependency">Nécessite une dépendance absente</option><option value="requires_environment">Nécessite un environnement absent</option><option value="protected_by_compiler">Protégé par le compilateur</option><option value="protected_at_runtime">Protégé à l&#39;exécution</option><option value="protected_at_perimeter">Protégé en périphérie</option><option value="protected_by_mitigating_control">Protégé par une mesure compensatoire</option></select>
+    </label>
+    <label>Commentaire (vide : chaque vulnérabilité garde le sien) <input name="comment" maxlength="4000"></label>
+  </div>
+  <button type="submit">Appliquer à la sélection</button>
+</form>
+</details>
+
+
+<h2>Échange VEX (CycloneDX)</h2>
+<p><a href="/findings/vex">Exporter les analyses en VEX</a></p>
+
+<form method="post" action="/findings/vex" enctype="multipart/form-data" class="card">
+  <input type="hidden" name="csrf" value="CSRF">
+  <label>Importer un VEX CycloneDX (JSON) : les analyses s'appliquent aux vulnérabilités correspondantes
+    (même purl ou CPE, même identifiant ou alias) <input type="file" name="vex" accept=".json,application/json" required></label>
+  <button type="submit">Importer le VEX</button>
+</form>
+
+
+</main>
+</body>
+</html>

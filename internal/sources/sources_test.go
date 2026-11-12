@@ -103,8 +103,11 @@ func TestOSV(t *testing.T) {
 
 // The scale of a database is translated (GitHub's MODERATE, Red Hat's
 // Important); a value outside it is rated by the CVSS score, like a missing one.
+// Without a score, the priority of the distribution rates it: an Ubuntu record
+// of a kernel CVE the NVD has not analysed carries only that one.
 func TestOSVSeverityFallbacks(t *testing.T) {
 	const vector = `"severity":[{"type":"CVSS_V3","score":"CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"}]` // 5.5
+	const v40 = `{"type":"CVSS_V4","score":"CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:L/VI:N/VA:H/SC:N/SI:N/SA:N"}`
 	for doc, want := range map[string]string{
 		`{"database_specific":{"severity":"MODERATE"}}`: "MEDIUM",
 		`{` + vector + `}`: "MEDIUM",
@@ -112,6 +115,13 @@ func TestOSVSeverityFallbacks(t *testing.T) {
 		`{"database_specific":{"severity":"Important"},` + vector + `}`:    "HIGH",
 		`{"database_specific":{"severity":"<b>pwned</b>"},` + vector + `}`: "MEDIUM",
 		`{"database_specific":{"severity":"<b>pwned</b>"}}`:                "",
+		`{"severity":[{"type":"Ubuntu","score":"medium"}]}`:                "MEDIUM",
+		`{"severity":[{"type":"Ubuntu","score":"negligible"}]}`:            "LOW",
+		`{"severity":[` + v40 + `,{"type":"Ubuntu","score":"high"}]}`:      "HIGH", // CVSS 4.0 is not computed
+		`{"severity":[{"type":"Ubuntu","score":"untriaged"}]}`:             "",
+		`{"severity":[` + v40 + `]}`:                                       "",
+		// The score comes before the priority.
+		`{"severity":[{"type":"Ubuntu","score":"critical"},{"type":"CVSS_V3","score":"CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"}]}`: "MEDIUM",
 	} {
 		var v osv.Vuln
 		if err := json.Unmarshal([]byte(doc), &v); err != nil {

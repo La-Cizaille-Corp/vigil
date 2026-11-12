@@ -2,7 +2,6 @@
 package sbom
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,7 +11,8 @@ import (
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
-	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
+	"github.com/La-Cizaille-Corp/vigil/internal/limit"
+	"github.com/La-Cizaille-Corp/vigil/internal/sources/nvd"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
 
@@ -30,14 +30,12 @@ type Document struct {
 	Skipped int // components without a purl
 }
 
-// Parse reads a CycloneDX or SPDX JSON SBOM from r.
+// Parse reads a CycloneDX or SPDX JSON SBOM from r, at most MaxSize bytes.
 func Parse(r io.Reader) (Document, error) {
-	data, err := netsafe.ReadLimited(r, MaxSize)
+	data, err := limit.File(r, MaxSize)
 	if err != nil {
 		return Document{}, err
 	}
-	// Tools on Windows often prepend a UTF-8 byte order mark.
-	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
 	var probe struct {
 		BOMFormat   string `json:"bomFormat"`
 		SPDXVersion string `json:"spdxVersion"`
@@ -157,7 +155,9 @@ func (d *Document) add(name, version, purl, cpe string, isOS bool) {
 	a := store.Asset{Name: name, Kind: kind, Version: version, PURL: purl, CPE: cpe, Source: "sbom",
 		TrackSince: inventory.DefaultSince(time.Now())}
 	inventory.Normalize(&a)
-	if !strings.HasPrefix(a.CPE, "cpe:2.3:") {
+	// A component is kept by its purl: a CPE that is not a CPE 2.3 name is
+	// dropped, rather than the component with it (see inventory.Validate).
+	if _, ok := nvd.SplitCPE(a.CPE); !ok {
 		a.CPE = ""
 	}
 	if inventory.Validate(a) != nil {

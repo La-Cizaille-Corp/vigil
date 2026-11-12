@@ -69,6 +69,8 @@ func DefaultSince(t time.Time) string { return t.Add(-DefaultWindow).Format(date
 
 // SinceTime is the start of the tracked period of a, zero for the whole history.
 func SinceTime(a store.Asset) time.Time {
+	// Validate lets only "" (the whole history) or a date through: the error
+	// of "" is that zero.
 	t, _ := time.Parse(dateLayout, a.TrackSince)
 	return t
 }
@@ -107,7 +109,7 @@ func FollowPURL(a *store.Asset, old store.Asset) {
 // Tag limits: enough for team, environment, site, application... MaxTagLen
 // is in characters, wherever a tag is read: asset, CSV import, list filters.
 const (
-	MaxTags   = 20
+	maxTags   = 20
 	MaxTagLen = 40
 )
 
@@ -142,7 +144,7 @@ func Validate(a store.Asset) error {
 		}
 	}
 	check(a.Name != "", "le nom est obligatoire")
-	check(len(a.Tags) <= MaxTags, fmt.Sprintf("%d étiquettes au plus", MaxTags))
+	check(len(a.Tags) <= maxTags, fmt.Sprintf("%d étiquettes au plus", maxTags))
 	for _, t := range a.Tags {
 		check(clip.Fits(t, MaxTagLen) && !strings.ContainsAny(t, ",;\x00"),
 			fmt.Sprintf("étiquette « %s » : %d caractères au plus, sans virgule", t, MaxTagLen))
@@ -153,7 +155,8 @@ func Validate(a store.Asset) error {
 	check(choice.Has(Criticalities, a.Criticality), "criticité invalide")
 	check(a.Ecosystem == "" || contains(Ecosystems, a.Ecosystem), "écosystème non supporté")
 	check(a.PURL == "" || strings.HasPrefix(a.PURL, "pkg:"), "un purl doit commencer par « pkg: »")
-	check(a.CPE == "" || strings.HasPrefix(a.CPE, "cpe:2.3:"), "un CPE doit commencer par « cpe:2.3: »")
+	_, cpe := nvd.SplitCPE(a.CPE)
+	check(a.CPE == "" || cpe, "CPE invalide : 13 champs attendus, par exemple cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*")
 	check(choice.Has(CPEModes, a.CPEMode), "mode de suivi NVD invalide")
 	check(a.CPEMode != "from" || (a.CPEFrom != "" && clip.Fits(a.CPEFrom, 100) && !strings.ContainsAny(a.CPEFrom, ":*?")),
 		"indiquez la version de départ du suivi")
@@ -223,10 +226,11 @@ func Describe(a store.Asset) string {
 	return fmt.Sprintf("%s %s", a.Name, a.Version)
 }
 
-// VendorProduct returns the vendor and the product an asset designates: the
-// fields of its CPE, where product "" means every product of the vendor; or
-// the namespace and name of its purl (pkg:maven/org.apache.logging.log4j/log4j-core).
-func VendorProduct(a store.Asset) (vendor, product string) {
+// vendorProduct returns the vendor and the product an asset designates: the
+// fields of its CPE, escapes kept, where product "" means every product of
+// the vendor; or the namespace and name of its purl, decoded
+// (pkg:maven/org.apache.logging.log4j/log4j-core).
+func vendorProduct(a store.Asset) (vendor, product string) {
 	if f, ok := nvd.SplitCPE(a.CPE); ok {
 		vendor, product = f[3], f[4]
 		if product == "*" {
@@ -240,11 +244,19 @@ func VendorProduct(a store.Asset) (vendor, product string) {
 		rest, _, _ = strings.Cut(rest, "@")
 		parts := strings.Split(rest, "/")
 		if len(parts) >= 2 {
-			vendor, _ = url.PathUnescape(strings.Join(parts[1:len(parts)-1], "/"))
-			product, _ = url.PathUnescape(parts[len(parts)-1])
+			vendor, product = pathUnescape(strings.Join(parts[1:len(parts)-1], "/")), pathUnescape(parts[len(parts)-1])
 		}
 	}
 	return vendor, product
+}
+
+// pathUnescape decodes a part of a purl, or keeps it as written when it is
+// not properly encoded (%zz): an empty name would file the asset nowhere.
+func pathUnescape(s string) string {
+	if decoded, err := url.PathUnescape(s); err == nil {
+		return decoded
+	}
+	return s
 }
 
 // VendorName is the vendor an asset is filed under in reports: the CPE
@@ -252,7 +264,7 @@ func VendorProduct(a store.Asset) (vendor, product string) {
 // (org.apache.logging.log4j), or the packages of an ecosystem when the purl
 // has no namespace (Paquets npm). It is "" for an asset with neither.
 func VendorName(a store.Asset) string {
-	vendor, _ := VendorProduct(a)
+	vendor, _ := vendorProduct(a)
 	switch {
 	case vendor == "*":
 	case vendor != "" && a.CPE != "":
@@ -272,9 +284,10 @@ func VendorName(a store.Asset) string {
 	return "Paquets " + kind
 }
 
-// VendorTitle turns a CPE vendor field into a display name: fortinet → Fortinet.
+// VendorTitle turns a CPE vendor field into a display name, without its
+// escapes: fortinet → Fortinet, at\&t → At&t.
 func VendorTitle(vendor string) string {
-	words := strings.Fields(strings.ReplaceAll(vendor, "_", " "))
+	words := strings.Fields(strings.ReplaceAll(nvd.Unescape(vendor), "_", " "))
 	for i, w := range words {
 		r := []rune(w)
 		words[i] = strings.ToUpper(string(r[:1])) + string(r[1:])

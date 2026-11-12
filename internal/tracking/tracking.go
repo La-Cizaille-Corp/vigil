@@ -34,7 +34,8 @@ var Statuses = []choice.Option{
 	{Value: store.StatusFalsePositive, Label: "Faux positif"},
 }
 
-// Severities are the severity levels of vulnerabilities, labelled in French.
+// Severities are the severity levels of vulnerabilities, labelled in French,
+// most severe first: the order of Band, of the digest tables and of the charts.
 var Severities = []choice.Option{
 	{Value: "CRITICAL", Label: "Critique"}, {Value: "HIGH", Label: "Haute"},
 	{Value: "MEDIUM", Label: "Moyenne"}, {Value: "LOW", Label: "Basse"}, {Value: "UNKNOWN", Label: "Inconnue"},
@@ -46,6 +47,16 @@ func SeverityLabel(v string) string {
 		v = "UNKNOWN"
 	}
 	return choice.Label(Severities, v)
+}
+
+// TemplateFuncs returns the template functions that name findings in French,
+// shared by the web pages and the digest with fr.Funcs (A79).
+func TemplateFuncs() map[string]any {
+	return map[string]any{
+		"band":        Band,
+		"sevLabel":    SeverityLabel,
+		"statusLabel": func(v string) string { return choice.Label(Statuses, v) },
+	}
 }
 
 // Justifications explain a "not_affected" status (CycloneDX vocabulary).

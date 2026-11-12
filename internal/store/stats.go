@@ -12,13 +12,13 @@ import (
 type Stats struct {
 	Open           int
 	OpenBySeverity map[string]int // CRITICAL, HIGH, MEDIUM, LOW, UNKNOWN
-	Priority       int            // open and exploited (KEV) or likely to be (EPSS >= 10 %)
+	Priority       int            // open and urgent (AlertPriority): exploited (KEV), likely to be or judged exploitable
 	OpenKEV        int
 	Overdue        int // open and past the remediation deadline (see SLA)
 	OverdueKEV     int // of which exploited
 	ToTriage       int
 	StaleTriage    int     // to triage for more than staleAfter
-	Closed90       int     // findings closed (fixed or dismissed) in the last 90 days
+	Closed90       int     // closed (fixed or dismissed) in the last 90 days, found after the first sync of their asset
 	MeanDaysToFix  float64 // mean days from detection to closing, over Closed90; -1 without data
 	Weeks          []WeekCount
 	TopAssets      []AssetLoad
@@ -96,7 +96,7 @@ func (s *Store) openStats(ctx context.Context, sc Scope, now time.Time, st *Stat
 		return r, err
 	}, `
 		SELECT `+severityExpr+`, COUNT(*),
-		       SUM(v.kev OR v.epss >= 0.1),
+		       SUM(`+urgentExpr+`),
 		       SUM(v.kev),
 		       SUM(COALESCE(`+dueExpr+` < ?, 0)),
 		       SUM(v.kev AND COALESCE(`+dueExpr+` < ?, 0)),
@@ -122,15 +122,26 @@ func (s *Store) openStats(ctx context.Context, sc Scope, now time.Time, st *Stat
 }
 
 // closedStats measures the time to close findings, from their detection to
-// their last closing event, over the last 90 days.
+// their last closing event, over the last 90 days, apart from the findings of
+// the first sync of their asset: these predate its arrival in Vigil, and
+// their delay says nothing of the reaction to a new vulnerability.
+//
+// They are the findings detected at the earliest time of the asset: a run
+// stamps every finding it creates with its start time (tracking.Syncer), and
+// nothing else creates findings, so no column has to record the first sync.
+// An asset that had no vulnerability at its first sync also has the findings
+// of its next detecting run left out: the mean loses them, but never counts
+// one of a first sync.
 func (s *Store) closedStats(ctx context.Context, sc Scope, now time.Time, st *Stats) error {
 	var mean sql.NullFloat64
 	cond, args := sc.cond("a")
 	err := s.q(ctx).QueryRowContext(ctx, `
+		WITH first_sync AS (SELECT asset_id, MIN(first_seen) AS at FROM findings GROUP BY asset_id)
 		SELECT COUNT(*), AVG(julianday(c.closed_at) - julianday(f.first_seen))
 		FROM findings f JOIN assets a ON a.id = f.asset_id
+		JOIN first_sync fs ON fs.asset_id = f.asset_id
 		JOIN `+lastClosings+` c ON c.finding_id = f.id
-		WHERE f.status IN `+closedStatuses+` AND c.closed_at >= ? AND `+cond,
+		WHERE f.status IN `+closedStatuses+` AND c.closed_at >= ? AND f.first_seen > fs.at AND `+cond,
 		append([]any{formatTime(now.Add(-90 * 24 * time.Hour))}, args...)...).Scan(&st.Closed90, &mean)
 	if err != nil {
 		return fmt.Errorf("closed findings: %w", err)

@@ -18,7 +18,7 @@
   <a class="kpi kpi-hero" href="/findings?priority=1">
     <span class="kpi-label">À traiter en priorité</span>
     <span class="kpi-value">{{$s.Priority}}</span>
-    <span class="kpi-note">dont {{$s.OpenKEV}} exploitée(s) (CISA KEV), les autres probables (EPSS ≥ 10 %)</span>
+    <span class="kpi-note">dont {{$s.OpenKEV}} exploitée(s) (CISA KEV), les autres probables (EPSS ≥ 10 %) ou jugées exploitables</span>
   </a>
   <a class="kpi" href="/findings">
     <span class="kpi-label">Vulnérabilités ouvertes</span>
@@ -38,7 +38,7 @@
   <div class="kpi">
     <span class="kpi-label">Délai moyen de traitement</span>
     <span class="kpi-value">{{if ge $s.MeanDaysToFix 0.0}}{{days $s.MeanDaysToFix}}{{else}}—{{end}}</span>
-    <span class="kpi-note">{{$s.Closed90}} vulnérabilité(s) traitée(s) en 90 jours</span>
+    <span class="kpi-note">{{$s.Closed90}} vulnérabilité(s) traitée(s) en 90 jours, hors celles trouvées à la première analyse de leur actif</span>
   </div>
   <a class="kpi" href="/assets">
     <span class="kpi-label">Couverture de détection</span>
@@ -81,7 +81,7 @@
       <summary>Voir les données</summary>
       <table>
         <thead><tr><th>Semaine du</th><th>Nouvelles</th><th>Traitées</th></tr></thead>
-        <tbody>{{range .Weeks}}<tr><td>{{.Start.Format "02/01/2006"}}</td><td class="num">{{.New}}</td><td class="num">{{.Closed}}</td></tr>{{end}}</tbody>
+        <tbody>{{range .Weeks}}<tr><td>{{day .Start}}</td><td class="num">{{.New}}</td><td class="num">{{.Closed}}</td></tr>{{end}}</tbody>
       </table>
     </details>
     {{end}}{{end}}

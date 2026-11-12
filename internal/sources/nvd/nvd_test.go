@@ -150,7 +150,7 @@ func TestForCPEEscapedColons(t *testing.T) {
 		got[1].Get("virtualMatchString") != product || got[2].Get("virtualMatchString") != product || got[2].Get("versionStart") != "2.0" {
 		t.Errorf("unexpected requests: %v", got)
 	}
-	if w := WithVersion(product, "2.0.16"); w != got[0].Get("cpeName") {
+	if w := withVersion(product, "2.0.16"); w != got[0].Get("cpeName") {
 		t.Errorf("with version: %s", w)
 	}
 }

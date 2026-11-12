@@ -43,6 +43,34 @@ func TestParseWithByteOrderMark(t *testing.T) {
 	}
 }
 
+// A component keeps its CPE when it is a CPE 2.3 name; another one is
+// dropped, the component kept by its purl.
+func TestComponentCPE(t *testing.T) {
+	doc, err := Parse(strings.NewReader(`{"bomFormat": "CycloneDX", "components": [
+	  {"type": "library", "name": "nginx", "version": "1.24.0", "purl": "pkg:generic/nginx@1.24.0",
+	   "cpe": "cpe:2.3:a:f5:nginx:1.24.0:*:*:*:*:*:*:*"},
+	  {"type": "library", "name": "openssl", "version": "3.0.1", "purl": "pkg:generic/openssl@3.0.1",
+	   "cpe": "cpe:2.3:a:openssl:openssl:3.0.1"},
+	  {"type": "library", "name": "zlib", "version": "1.3", "purl": "pkg:generic/zlib@1.3", "cpe": "cpe:/a:zlib:zlib:1.3"}
+	]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Assets) != 3 || doc.Skipped != 0 || doc.Assets[0].CPE != "cpe:2.3:a:f5:nginx:1.24.0:*:*:*:*:*:*:*" ||
+		doc.Assets[1].CPE != "" || doc.Assets[2].CPE != "" {
+		t.Errorf("components: %d kept, %d skipped: %+v", len(doc.Assets), doc.Skipped, doc.Assets)
+	}
+}
+
+// A file past MaxSize is refused with a message that says so: it spoke of a
+// network answer of 20971520 bytes, for a file sent by the user.
+func TestParseTooLarge(t *testing.T) {
+	big := strings.NewReader(cyclonedx + strings.Repeat(" ", MaxSize))
+	if _, err := Parse(big); err == nil || err.Error() != "fichier supérieur à 20 Mo" {
+		t.Errorf("SBOM past %d bytes: %v", MaxSize, err)
+	}
+}
+
 func TestParseSPDX(t *testing.T) {
 	doc, err := Parse(strings.NewReader(spdx))
 	if err != nil {

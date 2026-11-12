@@ -11,7 +11,7 @@ Généré le {{date .GeneratedAt}} — période depuis le {{date .Since}}.
 | Sévérité | Vulnérabilité | Actif | Statut | Résumé |
 |---|---|---|---|---|
 {{- range .Findings}}
-| {{if .KEV}}**EXPLOITÉE (KEV)** {{end}}{{sev (band .)}}{{with score .CVSS}} · CVSS {{.}}{{end}}{{with epss .EPSS}} · EPSS {{.}}{{end}} | {{cell .VulnID}}{{if .Aliases}} ({{cell (join .Aliases ", ")}}){{end}} | {{cell .AssetName}} {{cell .AssetVersion}} | {{status .Status}} | {{cell .Summary}} |
+| {{if .KEV}}**EXPLOITÉE (KEV)** {{end}}{{sevLabel (band .)}}{{with cvss .CVSS}} · CVSS {{.}}{{end}}{{with epss .EPSS}} · EPSS {{.}}{{end}} | {{cell .VulnID}}{{if .Aliases}} ({{cell (join .Aliases ", ")}}){{end}} | {{cell .AssetName}} {{cell .AssetVersion}} | {{statusLabel .Status}} | {{cell .Summary}} |
 {{- end}}
 {{end}}
 {{- else}}
@@ -20,7 +20,7 @@ Aucune nouvelle vulnérabilité sur la période.
 {{if .Overdue}}## Hors délai de traitement ({{len .Overdue}})
 
 {{range .Overdue}}
-- **{{sev (band .)}}**{{if .KEV}} **EXPLOITÉE (KEV)**{{end}} {{md .VulnID}} — {{md .AssetName}} {{md .AssetVersion}} — échéance {{.Due.Format "02/01/2006"}}
+- **{{sevLabel (band .)}}**{{if .KEV}} **EXPLOITÉE (KEV)**{{end}} {{md .VulnID}} — {{md .AssetName}} {{md .AssetVersion}} — échéance {{day .Due}}
 {{- end}}
 
 {{end}}{{if .Concerning}}## Actualités citant vos vulnérabilités ({{len .Concerning}})
@@ -35,10 +35,10 @@ Aucune nouvelle vulnérabilité sur la période.
 {{range .Open.Groups}}
 ### {{md .Vendor}} ({{len .Findings}}) — {{.Summary}}
 {{range .Listed}}
-- {{if .KEV}}**EXPLOITÉE (KEV)** {{end}}**{{sev (band .)}}**{{with score .CVSS}} (CVSS {{.}}){{end}}{{with epss .EPSS}} (EPSS {{.}}){{end}} {{md .VulnID}} — {{md .AssetName}} {{md .AssetVersion}} — {{status .Status}}
+- {{if .KEV}}**EXPLOITÉE (KEV)** {{end}}**{{sevLabel (band .)}}**{{with cvss .CVSS}} (CVSS {{.}}){{end}}{{with epss .EPSS}} (EPSS {{.}}){{end}} {{md .VulnID}} — {{md .AssetName}} {{md .AssetVersion}} — {{statusLabel .Status}}
 {{- end}}
 {{- with .Unlisted}}
-- … et {{.}} autres, moins sévères, à consulter dans Vigil
+- … et {{.}} autres, moins urgentes, à consulter dans Vigil
 {{- end}}
 {{end}}
 {{- else}}
@@ -46,7 +46,7 @@ Aucune vulnérabilité ouverte.
 {{end}}
 ## Synthèse par statut
 {{range .Counts}}
-- {{status .Status}} : {{.N}}
+- {{statusLabel .Status}} : {{.N}}
 {{- end}}
 
 ## Veille menaces ({{len .CTI}}) — {{.CTIScope}}

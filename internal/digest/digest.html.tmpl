@@ -12,10 +12,10 @@
 <tbody>
 {{range .Findings}}
 <tr>
-<td>{{if .KEV}}<span class="kev">Exploitée</span><br>{{end}}<span class="sev sev-{{band .}}">{{sev (band .)}}</span>{{with score .CVSS}} <small>CVSS {{.}}</small>{{end}}{{with epss .EPSS}}<br><small>EPSS {{.}}</small>{{end}}</td>
+<td>{{if .KEV}}<span class="kev">Exploitée</span><br>{{end}}<span class="sev sev-{{band .}}">{{sevLabel (band .)}}</span>{{with cvss .CVSS}} <small>CVSS {{.}}</small>{{end}}{{with epss .EPSS}}<br><small>EPSS {{.}}</small>{{end}}</td>
 <td><a href="/findings/{{.ID}}">{{.VulnID}}</a>{{if .Aliases}}<br><small>{{join .Aliases ", "}}</small>{{end}}</td>
 <td><a href="/assets/{{.AssetID}}">{{.AssetName}} {{.AssetVersion}}</a></td>
-<td>{{status .Status}}</td>
+<td>{{statusLabel .Status}}</td>
 <td class="text">{{.Summary}}</td>
 </tr>
 {{end}}
@@ -30,7 +30,7 @@
 <h2>Hors délai de traitement ({{len .Overdue}})</h2>
 <ul>
 {{range .Overdue}}
-<li><span class="sev sev-{{band .}}">{{sev (band .)}}</span>{{if .KEV}} <span class="kev">Exploitée</span>{{end}} <a href="/findings/{{.ID}}">{{.VulnID}}</a> — {{.AssetName}} {{.AssetVersion}} — échéance {{.Due.Format "02/01/2006"}}</li>
+<li><span class="sev sev-{{band .}}">{{sevLabel (band .)}}</span>{{if .KEV}} <span class="kev">Exploitée</span>{{end}} <a href="/findings/{{.ID}}">{{.VulnID}}</a> — {{.AssetName}} {{.AssetVersion}} — échéance {{day .Due}}</li>
 {{end}}
 </ul>
 {{end}}
@@ -53,9 +53,9 @@
 <p class="muted">{{.Summary}}</p>
 <ul>
 {{range .Listed}}
-<li>{{if .KEV}}<span class="kev">Exploitée</span> {{end}}<span class="sev sev-{{band .}}">{{sev (band .)}}</span>{{with score .CVSS}} <small>CVSS {{.}}</small>{{end}}{{with epss .EPSS}} <small>EPSS {{.}}</small>{{end}} <a href="/findings/{{.ID}}">{{.VulnID}}</a> — {{.AssetName}} {{.AssetVersion}} — {{status .Status}}</li>
+<li>{{if .KEV}}<span class="kev">Exploitée</span> {{end}}<span class="sev sev-{{band .}}">{{sevLabel (band .)}}</span>{{with cvss .CVSS}} <small>CVSS {{.}}</small>{{end}}{{with epss .EPSS}} <small>EPSS {{.}}</small>{{end}} <a href="/findings/{{.ID}}">{{.VulnID}}</a> — {{.AssetName}} {{.AssetVersion}} — {{statusLabel .Status}}</li>
 {{end}}
-{{with .Unlisted}}<li class="muted">… et {{.}} autres, moins sévères, à consulter dans la liste des vulnérabilités</li>{{end}}
+{{with .Unlisted}}<li class="muted">… et {{.}} autres, moins urgentes, à consulter dans la liste des vulnérabilités</li>{{end}}
 </ul>
 {{end}}
 {{else}}
@@ -64,7 +64,7 @@
 
 <h2>Synthèse par statut</h2>
 <ul>
-{{range .Counts}}<li>{{status .Status}} : {{.N}}</li>{{end}}
+{{range .Counts}}<li>{{statusLabel .Status}} : {{.N}}</li>{{end}}
 </ul>
 
 <h2>Veille menaces ({{len .CTI}})</h2>

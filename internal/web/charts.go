@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/La-Cizaille-Corp/vigil/internal/fr"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
 )
@@ -39,20 +40,18 @@ const (
 	segmentGap  = 1.5 // surface gap between segments, in user units
 )
 
-// severityOrder is the order of severities in charts: most severe first.
-var severityOrder = []string{"CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"}
-
 func newDonut(bySeverity map[string]int) donutChart {
 	d := donutChart{}
-	for _, sev := range severityOrder {
-		d.Total += bySeverity[sev]
+	for _, sev := range tracking.Severities {
+		d.Total += bySeverity[sev.Value]
 	}
 	if d.Total == 0 {
 		return d
 	}
 	circumference := 2 * math.Pi * donutRadius
 	offset := 0.0
-	for _, sev := range severityOrder {
+	for _, s := range tracking.Severities {
+		sev := s.Value
 		n := bySeverity[sev]
 		if n == 0 {
 			continue
@@ -121,7 +120,7 @@ func newWeeklyChart(weeks []store.WeekCount) barChart {
 	band := (right - left) / float64(len(weeks))
 	for i, w := range weeks {
 		center := left + band*(float64(i)+0.5)
-		week := "Semaine du " + w.Start.Format("02/01")
+		week := "Semaine du " + fr.DayMonth(w.Start)
 		if w.New > 0 {
 			c.Bars = append(c.Bars, bar{Class: "viz-new", Title: fmt.Sprintf("%s : %d nouvelle(s)", week, w.New),
 				Path: columnPath(center-barWidth-1, y(w.New), barWidth, bottom-y(w.New))})
@@ -131,7 +130,7 @@ func newWeeklyChart(weeks []store.WeekCount) barChart {
 				Path: columnPath(center+1, y(w.Closed), barWidth, bottom-y(w.Closed))})
 		}
 		if i%2 == len(weeks)%2 || i == len(weeks)-1 {
-			c.Labels = append(c.Labels, tick{X: round2(center), Y: bottom + 18, Label: w.Start.Format("02/01")})
+			c.Labels = append(c.Labels, tick{X: round2(center), Y: bottom + 18, Label: fr.DayMonth(w.Start)})
 		}
 	}
 	return c
@@ -237,7 +236,7 @@ func compact(v int) string {
 	case v >= 10_000:
 		return strconv.Itoa(v/1000) + " k"
 	case v >= 1000:
-		return strings.Replace(strconv.FormatFloat(float64(v)/1000, 'f', 1, 64), ".", ",", 1) + " k"
+		return fr.Decimal(float64(v)/1000, 1) + " k"
 	}
 	return strconv.Itoa(v)
 }

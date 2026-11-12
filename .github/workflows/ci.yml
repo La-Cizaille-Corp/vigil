@@ -45,6 +45,15 @@ jobs:
       - run: go test ./...
         if: runner.os != 'Linux'
       - run: go build -trimpath ./cmd/vigil
+      # The binary built runs on each system: it creates a database, saves it
+      # and checks the copy, as an operator does before a restore.
+      - name: command line
+        shell: bash
+        run: |
+          ./vigil version
+          ./vigil user list -db "$RUNNER_TEMP/ci.db"
+          ./vigil backup -db "$RUNNER_TEMP/ci.db" -o "$RUNNER_TEMP/ci-backup.db"
+          ./vigil check -db "$RUNNER_TEMP/ci-backup.db"
 
   static-analysis:
     runs-on: ubuntu-latest
@@ -135,6 +144,16 @@ jobs:
           upload-artifact: false
       - name: docker build
         run: docker build -t vigil:ci . && docker run --rm vigil:ci version
+      # The image carries the licences of the release archives (no shell in a
+      # distroless image: the files are copied out of a stopped container).
+      - name: licences in the image
+        run: |
+          id=$(docker create vigil:ci)
+          docker cp "$id:/usr/share/doc/vigil/LICENSE" "$RUNNER_TEMP/"
+          docker cp "$id:/usr/share/doc/vigil/SECLISTS-LICENSE.txt" "$RUNNER_TEMP/"
+          docker rm "$id"
+          cmp LICENSE "$RUNNER_TEMP/LICENSE"
+          cmp internal/auth/SECLISTS-LICENSE.txt "$RUNNER_TEMP/SECLISTS-LICENSE.txt"
       - name: compose file
         run: cp deploy/.env.example deploy/.env && docker compose -f deploy/docker-compose.yml config --quiet
       - name: image scan (Trivy)

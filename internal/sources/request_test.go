@@ -6,10 +6,12 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/La-Cizaille-Corp/vigil/internal/limit"
 	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources"
 )
@@ -67,7 +69,7 @@ func TestDo(t *testing.T) {
 		t.Errorf("request without a body: %v, %v, %q", err, got.Header, sent)
 	}
 
-	var tooLarge *netsafe.TooLargeError
+	var tooLarge *limit.TooLargeError
 	for _, c := range []struct {
 		path      string
 		max       int64
@@ -92,7 +94,7 @@ func TestDo(t *testing.T) {
 			t.Errorf("%s: status %+v, want %d", c.path, status, c.code)
 		}
 		if c.max == 9 && !errors.As(err, &tooLarge) {
-			t.Errorf("%s: %T, want a *netsafe.TooLargeError", c.path, err)
+			t.Errorf("%s: %T, want a *limit.TooLargeError", c.path, err)
 		}
 	}
 
@@ -120,9 +122,75 @@ func TestOpenBound(t *testing.T) {
 	}
 	defer body.Close()
 	var out map[string]string
-	var tooLarge *netsafe.TooLargeError
+	var tooLarge *limit.TooLargeError
 	if err := json.NewDecoder(body).Decode(&out); !errors.As(err, &tooLarge) || tooLarge.Max != 50 {
 		t.Errorf("stream past its bound: %v", err)
+	}
+}
+
+// A body cut by the network while read as a stream is a temporary failure:
+// asked again, the answer may come whole. A body that ends early but cleanly
+// is a malformed answer, which would come back the same.
+func TestOpenCut(t *testing.T) {
+	srv := serve(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/short" {
+			io.WriteString(w, `{"id":`)
+			return
+		}
+		w.Header().Set("Content-Length", "1000") // more than is sent: the connection is lost
+		io.WriteString(w, `{"id":`)
+		w.(http.Flusher).Flush()
+		if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
+			conn.Close()
+		}
+	})
+	for path, temporary := range map[string]bool{"/cut": true, "/short": false} {
+		req, _ := sources.NewRequest(context.Background(), http.MethodGet, srv.URL+path, "vigil-test", nil)
+		body, err := sources.Open(srv.Client(), req, 1<<20)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out map[string]string
+		err = json.NewDecoder(body).Decode(&out)
+		body.Close()
+		if err == nil || sources.Temporary(err) != temporary {
+			t.Errorf("%s: %v (temporary %v), want temporary %v", path, err, sources.Temporary(err), temporary)
+		}
+	}
+}
+
+// A redirect refused by netsafe.CheckRedirect, to plain HTTP or one too many,
+// is not a failure of the network: it is not sent again, for it would be
+// refused the same way.
+func TestRefusedRedirectIsDefinite(t *testing.T) {
+	ctx := context.Background()
+	plain := serve(t, func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, `{"id":"A"}`) })
+	var srv *httptest.Server
+	srv = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/insecure":
+			http.Redirect(w, r, plain.URL, http.StatusFound)
+		case "/loop":
+			http.Redirect(w, r, srv.URL+"/loop", http.StatusFound)
+		}
+	}))
+	defer srv.Close()
+	client := srv.Client()
+	client.CheckRedirect = netsafe.CheckRedirect()
+	for path, want := range map[string]string{"/insecure": "redirection vers une URL non https refusée", "/loop": "trop de redirections"} {
+		calls := 0
+		err := sources.Retry(ctx, []time.Duration{0, 0}, func() (bool, error) {
+			calls++
+			req, err := sources.NewRequest(ctx, http.MethodGet, srv.URL+path, "vigil-test", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = sources.Do(client, req, 100, new(map[string]string))
+			return sources.Temporary(err), err
+		})
+		if err == nil || !strings.Contains(err.Error(), want) || sources.Temporary(err) || calls != 1 {
+			t.Errorf("%s: %d calls, %v (temporary %v), want one call and %q", path, calls, err, sources.Temporary(err), want)
+		}
 	}
 }
 

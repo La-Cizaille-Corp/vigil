@@ -1,17 +1,50 @@
 package inventory
 
 import (
+	"bytes"
+	"encoding/csv"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/choice"
+	"github.com/La-Cizaille-Corp/vigil/internal/limit"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
 
-// The CSV file itself is read and written by the web package; this file only
-// maps rows to assets, so that the inventory package keeps no I/O.
+// The CSV files of Vigil are those of spreadsheet software: this file reads
+// them (ReadCSV), neutralises the cells that the exports of the web package
+// write (CSVCell), and maps rows to assets and back.
+
+// MaxCSVBytes bounds a CSV file read by ReadCSV.
+const MaxCSVBytes = 2 << 20
+
+// ReadCSV reads a CSV file as written by spreadsheet software: at most
+// MaxCSVBytes, optional UTF-8 BOM, comma, semicolon (Excel in French) or tab
+// separated.
+func ReadCSV(r io.Reader) ([][]string, error) {
+	data, err := limit.File(r, MaxCSVBytes)
+	if err != nil {
+		return nil, err
+	}
+	header, _, _ := bytes.Cut(data, []byte("\n"))
+	cr := csv.NewReader(bytes.NewReader(data))
+	commas := bytes.Count(header, []byte(","))
+	switch {
+	case bytes.Count(header, []byte(";")) > commas:
+		cr.Comma = ';'
+	case bytes.Count(header, []byte("\t")) > commas:
+		cr.Comma = '\t'
+	}
+	cr.FieldsPerRecord = -1 // short rows are allowed, missing cells are empty
+	records, err := cr.ReadAll()
+	if err != nil {
+		return nil, fmt.Errorf("fichier CSV illisible : %w", err)
+	}
+	return records, nil
+}
 
 // CSVColumns are the columns of an inventory export, in order. An import
 // needs a header row with at least "name"; French headers are accepted too.
@@ -25,18 +58,14 @@ var csvAliases = map[string]string{
 	"suivi depuis": "track_since", "étiquettes": "tags", "etiquettes": "tags",
 }
 
-// MaxCSVRows bounds an import.
-const MaxCSVRows = 5000
+// maxCSVRows bounds an import.
+const maxCSVRows = 5000
 
-// CSVRow is the export row of an asset, in the order of CSVColumns, with
-// every cell neutralised against formula injection (see CSVCell).
+// CSVRow is the export row of an asset, in the order of CSVColumns; the export
+// neutralises its cells against formula injection.
 func CSVRow(a store.Asset) []string {
-	row := []string{a.Name, a.Version, a.Kind, a.Criticality, a.Owner, a.Project,
+	return []string{a.Name, a.Version, a.Kind, a.Criticality, a.Owner, a.Project,
 		a.PURL, a.Ecosystem, a.CPE, a.CPEMode, a.CPEFrom, a.TrackSince, a.Notes, strings.Join(a.Tags, ", ")}
-	for i := range row {
-		row[i] = CSVCell(row[i])
-	}
-	return row
 }
 
 // formulaTriggers start a formula in spreadsheet software.
@@ -126,8 +155,8 @@ func AssetsFromCSV(records [][]string, now time.Time) ([]store.Asset, error) {
 		return nil, errors.New("la première ligne doit nommer les colonnes, dont « name » (ou « nom »)")
 	}
 	_, hasSince := index["track_since"]
-	if len(records)-1 > MaxCSVRows {
-		return nil, fmt.Errorf("%d lignes au plus", MaxCSVRows)
+	if len(records)-1 > maxCSVRows {
+		return nil, fmt.Errorf("%d lignes au plus", maxCSVRows)
 	}
 
 	var assets []store.Asset

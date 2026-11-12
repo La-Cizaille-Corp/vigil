@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
+	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
 
@@ -155,7 +156,7 @@ func limitBody(next http.Handler) http.Handler {
 		case r.URL.Path == "/assets/import" || r.URL.Path == "/findings/vex" || strings.HasPrefix(r.URL.Path, "/api/v1/"):
 			limit = maxUploadBytes
 		case r.URL.Path == "/assets/import-csv":
-			limit = maxCSVBytes + 64<<10 // file plus multipart overhead
+			limit = inventory.MaxCSVBytes + 64<<10 // file plus multipart overhead
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, limit)
 		next.ServeHTTP(w, r)
