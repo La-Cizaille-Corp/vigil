@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -423,7 +424,7 @@ func nonNil(s []string) []string {
 }
 
 // inClause adds "column IN (?, ?...)" for a non-empty list.
-func inClause(where []string, args []any, column string, values []string) ([]string, []any) {
+func inClause[T any](where []string, args []any, column string, values []T) ([]string, []any) {
 	if len(values) == 0 {
 		return where, args
 	}
@@ -432,6 +433,21 @@ func inClause(where []string, args []any, column string, values []string) ([]str
 		args = append(args, v)
 	}
 	return append(where, column+" IN ("+marks+")"), args
+}
+
+// nameTaken returns ErrExists when the names read by query hold name at the
+// case of its letters: « Alice » and « alice », « Équipe » and « équipe »
+// would be confused. They are compared in Go (strings.EqualFold), as SQLite's
+// NOCASE only folds ASCII letters.
+func nameTaken(ctx context.Context, q querier, name, query string, args ...any) error {
+	names, err := collect(ctx, q, "names", value[string], query, args...)
+	if err != nil {
+		return err
+	}
+	if slices.ContainsFunc(names, func(n string) bool { return strings.EqualFold(n, name) }) {
+		return ErrExists
+	}
+	return nil
 }
 
 // likeEscaper protects LIKE wildcards in user search terms.

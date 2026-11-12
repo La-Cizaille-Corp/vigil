@@ -1,5 +1,5 @@
 {{define "content"}}
-{{$st := syncFor .User.Role}}
+{{$st := syncFor .User}}
 <div class="card">
   <p>{{template "syncText" $st}}</p>
   {{if $st.Running}}<p class="muted small">Cette page se met à jour toute seule toutes les 5 secondes.</p>{{end}}

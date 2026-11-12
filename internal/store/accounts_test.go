@@ -14,8 +14,8 @@ import (
 func TestAccountLifecycle(t *testing.T) {
 	ctx := context.Background()
 	st := openTest(t)
-	admin, _ := st.CreateUser(ctx, "admin", "hash", "admin")
-	alice, _ := st.CreateUser(ctx, "alice", "hash", "analyst")
+	admin, _ := st.CreateUser(ctx, "admin", "hash", "admin", Access{All: true})
+	alice, _ := st.CreateUser(ctx, "alice", "hash", "analyst", Access{All: true})
 	st.CreateSession(ctx, "alice-session", alice, "csrf", time.Now().Add(time.Hour))
 	st.Audit(ctx, alice, "asset_create", "x")
 
@@ -91,15 +91,15 @@ func TestCreateFirstAdmin(t *testing.T) {
 func TestUserNamesIgnoreCase(t *testing.T) {
 	ctx := context.Background()
 	st := openTest(t)
-	if _, err := st.CreateUser(ctx, "Élise", "hash", "viewer"); err != nil {
+	if _, err := st.CreateUser(ctx, "Élise", "hash", "viewer", Access{All: true}); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"Élise", "élise", "ÉLISE"} {
-		if _, err := st.CreateUser(ctx, name, "hash", "viewer"); !errors.Is(err, ErrExists) {
+		if _, err := st.CreateUser(ctx, name, "hash", "viewer", Access{All: true}); !errors.Is(err, ErrExists) {
 			t.Errorf("%s: %v, want ErrExists", name, err)
 		}
 	}
-	if _, err := st.CreateUser(ctx, "Elise", "hash", "viewer"); err != nil {
+	if _, err := st.CreateUser(ctx, "Elise", "hash", "viewer", Access{All: true}); err != nil {
 		t.Errorf("a name without the accent is another name: %v", err)
 	}
 
@@ -107,7 +107,7 @@ func TestUserNamesIgnoreCase(t *testing.T) {
 	var created atomic.Int32
 	for _, name := range []string{"bob", "Bob", "BOB", "bOb"} {
 		wg.Go(func() {
-			if _, err := st.CreateUser(ctx, name, "hash", "viewer"); err == nil {
+			if _, err := st.CreateUser(ctx, name, "hash", "viewer", Access{All: true}); err == nil {
 				created.Add(1)
 			}
 		})
@@ -146,9 +146,9 @@ func TestPurgeAudit(t *testing.T) {
 func TestResetAllTOTP(t *testing.T) {
 	ctx := context.Background()
 	st := openTest(t)
-	alice, _ := st.CreateUser(ctx, "alice", "hash", "admin")
-	bob, _ := st.CreateUser(ctx, "bob", "hash", "analyst")
-	carol, _ := st.CreateUser(ctx, "carol", "hash", "viewer")
+	alice, _ := st.CreateUser(ctx, "alice", "hash", "admin", Access{All: true})
+	bob, _ := st.CreateUser(ctx, "bob", "hash", "analyst", Access{All: true})
+	carol, _ := st.CreateUser(ctx, "carol", "hash", "viewer", Access{All: true})
 	st.SetTOTPPending(ctx, alice, "SECRETA")
 	st.EnableTOTP(ctx, alice, 1)
 	st.SetTOTPPending(ctx, bob, "SECRETB") // enrolling

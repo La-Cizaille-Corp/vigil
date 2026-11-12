@@ -80,7 +80,12 @@ func (s *Server) renderAccount(w http.ResponseWriter, r *http.Request, status in
 		s.serverError(w, r, err)
 		return
 	}
-	data := map[string]any{"Enabled": secret != "", "Pending": pending}
+	groups, err := s.Store.ListGroups(r.Context(), readScope(r)) // shown for a restricted account
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	data := map[string]any{"Enabled": secret != "", "Pending": pending, "Groups": groups}
 	if pending != "" {
 		data["URI"] = auth.TOTPURI("Vigil", sess.User.Username, pending)
 	}

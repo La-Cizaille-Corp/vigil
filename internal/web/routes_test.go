@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
+	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
 
 // Every route but the static files goes through the route table: one
@@ -127,6 +128,13 @@ var wantPolicy = map[string]string{
 	"POST /settings/users":                 auth.RoleAdmin,
 	"POST /settings/users/totp-policy":     auth.RoleAdmin,
 	"POST /settings/users/{id}/role":       auth.RoleAdmin,
+	"POST /settings/users/{id}/access":     auth.RoleAdmin,
+	"GET /settings/groups":                 auth.RoleAdmin,
+	"POST /settings/groups":                auth.RoleAdmin,
+	"GET /settings/groups/{id}":            auth.RoleAdmin,
+	"POST /settings/groups/{id}":           auth.RoleAdmin,
+	"POST /settings/groups/{id}/rules":     auth.RoleAdmin,
+	"POST /settings/groups/{id}/delete":    auth.RoleAdmin,
 	"POST /settings/users/{id}/disable":    auth.RoleAdmin,
 	"POST /settings/users/{id}/enable":     auth.RoleAdmin,
 	"POST /settings/users/{id}/password":   auth.RoleAdmin,
@@ -167,7 +175,7 @@ func TestRouteMatrix(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := st.CreateUser(context.Background(), role, hash, role); err != nil {
+		if _, err := st.CreateUser(context.Background(), role, hash, role, store.Access{All: true}); err != nil {
 			t.Fatal(err)
 		}
 		users[role] = loginAs(t, base, role, role+"-password")

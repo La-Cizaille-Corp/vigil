@@ -1,0 +1,35 @@
+{{define "content"}}
+<p><a href="/settings">← Paramètres</a></p>
+<p class="muted">Un groupe réunit les actifs qui portent une de ses étiquettes ou appartiennent à un de ses projets, et leurs
+vulnérabilités. Un compte peut être limité à des groupes (<a href="/settings/users">Utilisateurs</a>) : il ne voit alors
+que leurs actifs et ce qui en dépend. Un administrateur voit tout.</p>
+{{if .Data.Groups}}
+<table>
+<thead><tr><th>Groupe</th><th>Règles</th><th>Actifs</th><th>Comptes limités</th></tr></thead>
+<tbody>
+{{range .Data.Groups}}
+<tr>
+  <td><a href="/settings/groups/{{.ID}}">{{.Name}}</a></td>
+  <td>{{range .Tags}}<span class="tag">{{.}}</span>{{end}}{{range .Projects}}<span class="tag tag-sector">projet {{.}}</span>{{end}}
+    {{if not (or .Tags .Projects)}}<span class="muted">aucune : le groupe ne contient aucun actif</span>{{end}}</td>
+  <td><a href="/assets?group={{.ID}}">{{.Assets}}</a></td>
+  <td>{{.Users}}</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+{{else}}
+<p class="muted">Aucun groupe pour le moment.</p>
+{{end}}
+<p class="muted small">{{.Data.Ungrouped}} actif(s) hors de tout groupe : seuls les comptes sans restriction les voient.</p>
+
+<h2>Créer un groupe</h2>
+<form method="post" action="/settings/groups" class="card narrow">
+  {{template "csrf" .CSRF}}
+  <label>Nom <input name="name" required maxlength="100" placeholder="Équipe web, site de Lyon, client Acme…"></label>
+  <button type="submit">Créer le groupe</button>
+</form>
+<p class="small muted">Ses étiquettes et ses projets se choisissent ensuite sur sa page. Des étiquettes dédiées au
+périmètre (<code>equipe-web</code>, <code>client-acme</code>) gardent les groupes nets ; une étiquette commune comme
+<code>prod</code> donne un groupe transversal.</p>
+{{end}}

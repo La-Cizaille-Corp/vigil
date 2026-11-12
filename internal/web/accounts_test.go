@@ -71,7 +71,7 @@ func TestCloseOtherSessions(t *testing.T) {
 func TestUserCreateIgnoresCase(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	admin := loginAs(t, base, "admin", "a-strong-password")
-	code, body := admin.postBody("/settings/users", url.Values{"csrf": {admin.csrf()}, "username": {"Analyst"}, "role": {"viewer"}})
+	code, body := admin.postBody("/settings/users", url.Values{"csrf": {admin.csrf()}, "username": {"Analyst"}, "role": {"viewer"}, "access": {"all"}})
 	if code != http.StatusBadRequest || !strings.Contains(body, "majuscules et minuscules") {
 		t.Errorf("case variant of an existing name: %d", code)
 	}
@@ -87,7 +87,7 @@ func TestFailedLoginKeepsOnlyAccountNames(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	ctx := context.Background()
 	hash, _ := auth.HashPassword("a-strong-password")
-	gone, _ := st.CreateUser(ctx, "gone", hash, auth.RoleViewer)
+	gone, _ := st.CreateUser(ctx, "gone", hash, auth.RoleViewer, store.Access{All: true})
 	if err := st.SetDisabled(ctx, gone, true); err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestTokenSuspendedWithItsCreator(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	ctx := context.Background()
 	hash, _ := auth.HashPassword("a-strong-password")
-	alice, _ := st.CreateUser(ctx, "alice", hash, auth.RoleAdmin)
+	alice, _ := st.CreateUser(ctx, "alice", hash, auth.RoleAdmin, store.Access{All: true})
 	const secret, orphan = "vgl_alice-token", "vgl_orphan-token"
 	if _, err := st.CreateAPIToken(ctx, store.APIToken{Name: "ci-alice", Project: "app"}, auth.HashToken(secret), alice); err != nil {
 		t.Fatal(err)

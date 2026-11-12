@@ -132,7 +132,7 @@ func TestAuthenticationAndAuthorization(t *testing.T) {
 
 	// A viewer can read but not write.
 	hash, _ := auth.HashPassword("viewer-password")
-	st.CreateUser(context.Background(), "viewer", hash, auth.RoleViewer)
+	st.CreateUser(context.Background(), "viewer", hash, auth.RoleViewer, store.Access{All: true})
 	viewer := newClient(t, base)
 	if code := viewer.post("/login", url.Values{"username": {"viewer"}, "password": {"wrong-password"}}); code != http.StatusUnauthorized {
 		t.Fatalf("wrong password: %d", code)
@@ -168,7 +168,7 @@ func TestSecurityHeaders(t *testing.T) {
 func TestLoginRateLimit(t *testing.T) {
 	st, base := newTestServer(t)
 	hash, _ := auth.HashPassword("a-strong-password")
-	st.CreateUser(context.Background(), "admin", hash, auth.RoleAdmin)
+	st.CreateUser(context.Background(), "admin", hash, auth.RoleAdmin, store.Access{All: true})
 	c := newClient(t, base)
 	for i := 0; i < 5; i++ {
 		c.post("/login", url.Values{"username": {"admin"}, "password": {"wrong"}})
@@ -221,7 +221,7 @@ func TestTOTPLogin(t *testing.T) {
 	st, base := newTestServer(t)
 	ctx := context.Background()
 	hash, _ := auth.HashPassword("a-strong-password")
-	id, _ := st.CreateUser(ctx, "alice", hash, auth.RoleViewer)
+	id, _ := st.CreateUser(ctx, "alice", hash, auth.RoleViewer, store.Access{All: true})
 	secret, _ := auth.NewTOTPSecret()
 	st.SetTOTPPending(ctx, id, secret)
 	st.EnableTOTP(ctx, id, 0)

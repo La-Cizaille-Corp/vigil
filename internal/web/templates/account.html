@@ -1,4 +1,10 @@
 {{define "content"}}
+<h2>Votre accès</h2>
+{{if not .User.Restricted}}<p>Tout l'inventaire{{if eq .User.Role "admin"}}, comme tout administrateur{{end}}.</p>
+{{else if .Data.Groups}}<p>Les actifs de vos groupes et leurs vulnérabilités :
+  {{range $i, $g := .Data.Groups}}{{if $i}}, {{end}}<strong>{{$g.Name}}</strong>{{end}}.</p>
+{{else}}<p>Aucun groupe : vous ne voyez aucun actif. Demandez à un administrateur de vous en attribuer.</p>{{end}}
+
 <h2>Double authentification (TOTP)</h2>
 {{if .Data.Enabled}}
 <p>La double authentification est <strong>activée</strong> : un code de votre application est demandé à chaque connexion.</p>

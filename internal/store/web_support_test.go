@@ -99,7 +99,7 @@ func TestCreateUserRaceIsExists(t *testing.T) {
 		BEGIN INSERT INTO users (username, password_hash, role, created_at) VALUES ('bob', 'x', 'viewer', ''); END`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateUser(ctx, "bob", "hash", "viewer"); !errors.Is(err, ErrExists) {
+	if _, err := st.CreateUser(ctx, "bob", "hash", "viewer", Access{All: true}); !errors.Is(err, ErrExists) {
 		t.Errorf("name inserted meanwhile: %v, want ErrExists", err)
 	}
 }

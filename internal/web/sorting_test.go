@@ -339,7 +339,7 @@ func TestDismissalFlow(t *testing.T) {
 	}
 
 	hash, _ := auth.HashPassword("a-strong-password")
-	st.CreateUser(ctx, "lecteur", hash, auth.RoleViewer)
+	st.CreateUser(ctx, "lecteur", hash, auth.RoleViewer, store.Access{All: true})
 	viewer := loginAs(t, base, "lecteur", "a-strong-password")
 	if code := viewer.post(page+"/dismissals", url.Values{"csrf": {viewer.csrf()}, "text": {"ipv4:"}}); code != 403 {
 		t.Errorf("a reader created a rule: %d", code)

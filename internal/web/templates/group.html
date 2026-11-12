@@ -1,0 +1,43 @@
+{{define "content"}}
+{{$g := .Data.Group}}{{$csrf := .CSRF}}
+<p><a href="/settings/groups">← Groupes</a></p>
+<p>Ce groupe couvre <a href="/assets?group={{$g.ID}}">{{$g.Assets}} actif(s)</a> ; {{$g.Users}} compte(s) y ont accès
+sans voir le reste de l'inventaire.</p>
+
+<h2>Règles</h2>
+<p class="muted">Un actif fait partie du groupe s'il porte une des étiquettes cochées ou appartient à un des projets cochés.
+Les valeurs sont exactes : l'étiquette « web » ne prend pas « webapp ». Les composants d'un SBOM entrent dans le groupe
+de leur projet dès leur import.</p>
+<form method="post" action="/settings/groups/{{$g.ID}}/rules" class="card">
+  {{template "csrf" $csrf}}
+  <div class="grid">
+    <fieldset><legend>Étiquettes</legend>
+      {{range .Data.Tags}}<label class="check"><input type="checkbox" name="tag" value="{{.Value}}" {{if .Checked}}checked{{end}}> {{.Value}} <span class="muted small">({{.N}})</span></label>{{end}}
+      <label>Autre étiquette, pas encore utilisée <input name="new_tag" maxlength="40"></label>
+    </fieldset>
+    <fieldset><legend>Projets</legend>
+      {{range .Data.Projects}}<label class="check"><input type="checkbox" name="project" value="{{.Value}}" {{if .Checked}}checked{{end}}> {{.Value}} <span class="muted small">({{.N}})</span></label>{{end}}
+      <label>Autre projet, pas encore importé <input name="new_project" maxlength="200"></label>
+    </fieldset>
+  </div>
+  <button type="submit">Enregistrer les règles</button>
+</form>
+
+<h2>Renommer</h2>
+<form method="post" action="/settings/groups/{{$g.ID}}" class="card narrow">
+  {{template "csrf" $csrf}}
+  <label>Nom <input name="name" value="{{$g.Name}}" required maxlength="100"></label>
+  <button type="submit">Renommer</button>
+</form>
+
+<h2>Supprimer</h2>
+<p class="small muted">Les actifs restent dans l'inventaire. Les comptes limités à ce groupe ne voient plus ses actifs ;
+sans autre groupe, ils ne voient plus rien.</p>
+<details class="confirm">
+  <summary>Supprimer le groupe…</summary>
+  <form method="post" action="/settings/groups/{{$g.ID}}/delete" class="inline">
+    {{template "csrf" $csrf}}
+    <button type="submit" class="danger">Supprimer « {{$g.Name}} »</button>
+  </form>
+</details>
+{{end}}

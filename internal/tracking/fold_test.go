@@ -106,7 +106,7 @@ func TestGroupedAdvisoryFolded(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A finding of the grouped advisory, made by an earlier version and triaged.
-	user, err := st.CreateUser(ctx, "alice", "hash", "analyst")
+	user, err := st.CreateUser(ctx, "alice", "hash", "analyst", store.Access{All: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,8 +228,8 @@ func TestSameCVEFolded(t *testing.T) {
 		st.ObserveFinding(ctx, id, vuln, "", time.Now())
 	}
 	// Both advisories had a finding before 0.5.0, decided differently.
-	alice, _ := st.CreateUser(ctx, "alice", "hash", "analyst")
-	bob, _ := st.CreateUser(ctx, "bob", "hash", "analyst")
+	alice, _ := st.CreateUser(ctx, "alice", "hash", "analyst", store.Access{All: true})
+	bob, _ := st.CreateUser(ctx, "bob", "hash", "analyst", store.Access{All: true})
 	early := time.Date(2026, 9, 3, 0, 0, 0, 0, time.UTC)
 	for i, vuln := range []string{"GHSA-aaaa", "GO-2026-1"} {
 		st.UpsertVulnerability(ctx, store.Vulnerability{ID: vuln, Aliases: []string{"CVE-2026-5"}, Modified: "old", EPSS: -1, CVSS: -1})
