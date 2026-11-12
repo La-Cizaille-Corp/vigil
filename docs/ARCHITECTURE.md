@@ -663,7 +663,12 @@ code au regard de l'OWASP ASVS, puis de chaque écran. Décisions :
   stocké (OSV : intervalles ; NVD : bornes des CPE), la branche de la version de l'actif en tête ;
   page de suivi de la synchronisation qui se recharge seule, sans JavaScript (balise *refresh*) ;
   listes en cartes sur téléphone ; ajout d'actifs sur sa propre page ; mots de passe et jetons
-  affichés une fois après redirection (pas de nouvel envoi du formulaire au rechargement).
+  affichés une fois après redirection (pas de nouvel envoi du formulaire au rechargement). Chaque
+  sorte de valeur (jeton d'API, mot de passe provisoire) attend dans sa propre case de la session,
+  que seule sa page lit (`keepOnce` / `takeOnce` avec une sorte) : passer par une autre page, ou
+  voir un formulaire refusé, ne la fait plus disparaître sans l'afficher. Écarté : une seule case
+  par session, où `/settings` prenait le mot de passe créé juste avant, et la page des
+  utilisateurs le jeton.
 
 **A50. Pas de chiffrement applicatif des secrets au repos.** Les secrets que Vigil vérifie sont
 stockés comme empreintes (mots de passe en argon2id, jetons de session et d'API en SHA-256). Ceux
