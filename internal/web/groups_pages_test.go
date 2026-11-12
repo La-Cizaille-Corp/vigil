@@ -137,7 +137,7 @@ func TestFiguresOfARestrictedAccount(t *testing.T) {
 	open, byStatus, bySeverity := 0, map[string]int{}, map[string]int{}
 	for _, f := range mine {
 		byStatus[f.Status]++
-		if f.Status == "in_triage" || f.Status == "exploitable" {
+		if f.Open() {
 			open++
 			bySeverity[f.Severity]++
 		}
@@ -175,7 +175,7 @@ func TestTriageStaysInTheScope(t *testing.T) {
 	ctx := context.Background()
 	before := fx.state(t, "b")
 	c := fx.client["ana-a"]
-	code := c.post("/findings/bulk", url.Values{"csrf": {c.csrf()}, "status": {"false_positive"}, "comment": {"lot"},
+	code := c.post("/findings/bulk", url.Values{"csrf": {c.csrf()}, "status": {store.StatusFalsePositive}, "comment": {"lot"},
 		"next": {"/findings"}, "id": {strconv.FormatInt(fx.finding["b"], 10), strconv.FormatInt(fx.finding["a"], 10)}})
 	if code != http.StatusSeeOther {
 		t.Fatalf("bulk: %d", code)
@@ -183,7 +183,7 @@ func TestTriageStaysInTheScope(t *testing.T) {
 	if fx.state(t, "b") != before {
 		t.Error("the bulk triage of A changed a finding of B")
 	}
-	if f, _ := fx.st.Finding(ctx, store.Everything, fx.finding["a"]); f.Status != "false_positive" {
+	if f, _ := fx.st.Finding(ctx, store.Everything, fx.finding["a"]); f.Status != store.StatusFalsePositive {
 		t.Errorf("finding of A: %s", f.Status)
 	}
 	entries, _ := fx.st.ListAudit(ctx, 1)

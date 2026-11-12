@@ -843,8 +843,9 @@ le nom simple pour la clé primaire (`User`, `Session`), `XByY` pour une autre c
 `User` pour la table des comptes (`Account` a disparu). `UserByName` garde son sens, comptes actifs
 seulement, pour la connexion ; la recherche qui inclut les comptes désactivés prend un nom nouveau,
 `AnyUserByName`, pour qu'un appel écrit dans une autre branche ne change pas de sens en silence à
-la fusion. Toute méthode rejoint la transaction de `Store.InTx` que porte son contexte (A57). Échéances : « hors délai » et le filtre des vulnérabilités en retard se jugent à la même
-heure, `FindingFilter.Now`, que le tableau de bord et le digest passent avec celle de leurs
+la fusion. Toute méthode rejoint la transaction de `Store.InTx` que porte son contexte (A57).
+Échéances : « hors délai » et le filtre des vulnérabilités en retard se jugent à la même heure,
+`FindingFilter.Now`, que le tableau de bord et le digest passent avec celle de leurs
 chiffres (l'heure courante sinon), au lieu de trois horloges (`time.Now()` à la lecture,
 `date('now')` dans le filtre, celle de l'appelant au tableau de bord). Rangement : helpers
 génériques dans `store.go`, réglages dans `settings.go`. Écartés : sqlx ou un ORM (une dépendance de
@@ -852,6 +853,26 @@ plus, A26, pour une boucle de vingt lignes) ; une horloge portée par le `Store`
 deuxième horloge à côté de celle de l'appelant ; donner à `UserByName` le sens « tous les comptes »,
 piège de fusion décrit plus haut. *Conséquences* : une liste nouvelle tient en un appel et une
 fonction de lecture ; une erreur du journal nomme l'opération du stockage qui a échoué.
+
+**A72. Options, statuts et rôles : une définition chacun.** L'audit de la 0.4.2 (R3, R4, D2)
+trouvait deux types d'option identiques (`inventory.Option`, `cti.Tag`), neuf tests d'appartenance
+écrits `Label(options, v) != v` (justes tant qu'aucun libellé n'égale sa valeur, faux pour une
+option `{"Linux", "Linux"}`), « vulnérabilité ouverte » définie en Go dans `web`, recopiée dans un
+template et en SQL, et les rôles listés trois fois (`auth`, `web`, une comparaison à `"admin"`).
+Le paquet feuille `choice` (`Option`, `Label`, `Has`, `Rank`, `KnownOnly`) sert toutes les listes :
+il n'importe rien de Vigil, pour que `tracking`, `notify`, `digest`, `cti`, `inventory`, `auth` et
+`web` l'utilisent sans dépendre d'`inventory`. L'appartenance se lit par `Has`, jamais par le
+libellé ; un test vérifie qu'aucune liste n'offre deux fois la même valeur. Les statuts sont des
+constantes de `store` (`StatusInTriage`…), y compris dans le classement (`tracking.Level`) et les
+alertes, « ouverte » est `Finding.Open`, que les templates appellent, et `openStatuses` en SQL ; la dernière clôture d'une vulnérabilité (`lastClosings`),
+la résolution automatique avec son événement (`autoResolve`) et le changement de statut avec son
+historique (`setStatus`) ne sont plus écrits qu'une fois. Les rôles forment une liste ordonnée,
+`auth.Roles`, du plus au moins privilégié comme le menu les montre, dont dérivent `RoleAtLeast`,
+`ValidRole` et ce menu. Écartés : garder les mots-clés de la veille dans `choice` (ils ne servent
+qu'à `cti`, qui les garde dans ses tables et publie des `choice.Option`) ; mettre les statuts
+dans `tracking`, que `store` ne peut pas importer. *Conséquences* : une liste, un statut ou un
+rôle nouveau s'ajoute à un seul endroit ; les libellés des statuts restent dans
+`tracking.Statuses`.
 
 ### Notifications, délais et échanges (0.3)
 

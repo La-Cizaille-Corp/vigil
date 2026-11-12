@@ -112,7 +112,7 @@ func newGroupFixture(t *testing.T) *groupFixture {
 		if name == "b" {
 			comment = "temoinb-commentaire"
 		}
-		must(st.SetFindingStatus(ctx, store.Everything, fx.finding[name], 0, "exploitable", "", comment))
+		must(st.SetFindingStatus(ctx, store.Everything, fx.finding[name], 0, store.StatusExploitable, "", comment))
 		text := "regle " + name
 		if name == "b" {
 			text = "temoinb-regle"
@@ -233,7 +233,7 @@ func TestObjectRoutesFollowTheScope(t *testing.T) {
 					continue // allowed: not run, so that the fixture stays as it is
 				}
 				form := url.Values{"csrf": {token}, "name": {"renamed"}, "kind": {"package"}, "criticality": {"low"},
-					"status": {"false_positive"}, "comment": {"refusé"}, "text": {"nouvelle règle"}}
+					"status": {store.StatusFalsePositive}, "comment": {"refusé"}, "text": {"nouvelle règle"}}
 				code, _ := c.send(method, target, form)
 				if code != want {
 					t.Errorf("%s %s as %s on %s: %d, want %d", method, target, account, obj, code, want)

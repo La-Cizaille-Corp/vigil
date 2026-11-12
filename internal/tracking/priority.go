@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/La-Cizaille-Corp/vigil/internal/choice"
 	"github.com/La-Cizaille-Corp/vigil/internal/cvss"
-	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
 
@@ -28,7 +28,7 @@ func Band(f store.Finding) string {
 // severityRank orders the values of Severities, most severe highest: 0 for
 // UNKNOWN and for anything else.
 func severityRank(s string) int {
-	i := slices.IndexFunc(Severities, func(o inventory.Option) bool { return o.Value == s })
+	i := choice.Rank(Severities, s)
 	if i < 0 {
 		return 0
 	}
@@ -45,7 +45,7 @@ const (
 )
 
 // Levels are the levels of a finding, labelled in French, most urgent first.
-var Levels = []inventory.Option{
+var Levels = []choice.Option{
 	{Value: LevelUrgent, Label: "Urgentes"},
 	{Value: LevelPlan, Label: "À planifier"},
 	{Value: LevelWatch, Label: "À surveiller"},
@@ -57,9 +57,9 @@ var Levels = []inventory.Option{
 // is "" for a fixed one, which has no level left.
 func Level(f store.Finding) string {
 	switch f.Status {
-	case "resolved":
+	case store.StatusResolved:
 		return ""
-	case "not_affected", "false_positive":
+	case store.StatusNotAffected, store.StatusFalsePositive:
 		return LevelAside
 	}
 	switch f.Class {
@@ -75,7 +75,7 @@ func Level(f store.Finding) string {
 // KEV) or judged exploitable by a user, then likely to be exploited.
 func urgency(f store.Finding) int {
 	switch {
-	case f.KEV || f.Status == "exploitable":
+	case f.KEV || f.Status == store.StatusExploitable:
 		return 2
 	case f.EPSS >= store.LikelyEPSS:
 		return 1

@@ -17,14 +17,25 @@ import (
 	"unicode/utf8"
 
 	"golang.org/x/crypto/argon2"
+
+	"github.com/La-Cizaille-Corp/vigil/internal/choice"
 )
 
-// Roles, from least to most privileged.
+// Role values, as stored with each account.
 const (
 	RoleViewer  = "viewer"
 	RoleAnalyst = "analyst"
 	RoleAdmin   = "admin"
 )
+
+// Roles are the roles with their French labels, from the most to the least
+// privileged, as menus offer them. RoleAtLeast and ValidRole read this list:
+// a role is added here, and only here.
+var Roles = []choice.Option{
+	{Value: RoleAdmin, Label: "administrateur"},
+	{Value: RoleAnalyst, Label: "analyste"},
+	{Value: RoleViewer, Label: "lecteur"},
+}
 
 // MinPasswordLength follows OWASP ASVS guidance for passwords without MFA.
 const MinPasswordLength = 12
@@ -41,16 +52,15 @@ const MaxPasswordBytes = 1024
 // MaxUsernameLength is the longest username, in characters.
 const MaxUsernameLength = 64
 
-// RoleAtLeast reports whether role grants the privileges of required.
+// RoleAtLeast reports whether role grants the privileges of required; an
+// unknown role grants nothing, and an unknown required one is never granted.
 func RoleAtLeast(role, required string) bool {
-	rank := map[string]int{RoleViewer: 1, RoleAnalyst: 2, RoleAdmin: 3}
-	return rank[role] >= rank[required] && rank[required] > 0
+	have, need := choice.Rank(Roles, role), choice.Rank(Roles, required)
+	return have >= 0 && need >= 0 && have <= need
 }
 
 // ValidRole reports whether role is known.
-func ValidRole(role string) bool {
-	return role == RoleViewer || role == RoleAnalyst || role == RoleAdmin
-}
+func ValidRole(role string) bool { return choice.Has(Roles, role) }
 
 // Argon2id parameters (OWASP Password Storage Cheat Sheet: m=64 MiB, t=3, p=2 is above the minimum).
 const (
