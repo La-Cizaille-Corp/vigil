@@ -69,9 +69,16 @@ go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
 ## Release
 
-Pousser un tag `vX.Y.Z` sur `main` déclenche `release.yml` : binaires (GoReleaser), SBOM par
-archive, checksums, attestations de provenance, image multi-architecture sur ghcr.io. La release
-est créée en brouillon et publiée à la main après relecture.
+Pousser un tag `vX.Y.Z` sur `main` déclenche `release.yml`, en trois temps :
+
+1. **les tests**, dans un job sans jeton d'écriture ni d'OIDC et sans cache ; un tag posé sur un
+   commit hors de `main` y est refusé, et rien n'est construit ;
+2. **les binaires** (GoReleaser), le SBOM de chaque archive, les checksums et leurs attestations de
+   provenance, dans une release créée **en brouillon**, publiée à la main après relecture ;
+3. **l'image** multi-architecture sur ghcr.io (étiquettes `X.Y.Z` et `X.Y`) et son attestation,
+   une fois les deux premiers réussis. Une image n'a pas de brouillon : **elle est publique dès la
+   fin du workflow**, avant la relecture de la release. Une release écartée à la relecture laisse
+   donc une image à retirer de ghcr.io, et l'étiquette `X.Y` à ramener sur la version précédente.
 
 ### Revue des versions X.Y.0
 

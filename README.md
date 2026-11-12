@@ -50,7 +50,8 @@ depuis les [releases](https://github.com/La-Cizaille-Corp/vigil/releases), puis 
 
 ```bash
 sha256sum --ignore-missing -c checksums.txt
-gh attestation verify vigil_*_linux_amd64.tar.gz --repo La-Cizaille-Corp/vigil
+gh attestation verify vigil_*_linux_amd64.tar.gz --repo La-Cizaille-Corp/vigil \
+  --signer-workflow La-Cizaille-Corp/vigil/.github/workflows/release.yml
 ```
 
 Chaque archive est accompagnée de son SBOM CycloneDX et d'une attestation de provenance signée.

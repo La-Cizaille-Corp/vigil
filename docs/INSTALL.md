@@ -46,8 +46,9 @@ $line = Select-String -Path checksums.txt -Pattern ("\s" + [regex]::Escape($zip)
 if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne ($line.Line -split "\s+")[0]) { throw "Empreinte invalide : n'utilisez pas ce fichier." }
 ```
 
-Facultatif, avec [GitHub CLI](https://cli.github.com) : `gh attestation verify $zip --repo La-Cizaille-Corp/vigil`
-prouve que l'archive a été construite par le workflow de release du dépôt.
+Facultatif, avec [GitHub CLI](https://cli.github.com) : `gh attestation verify $zip --repo La-Cizaille-Corp/vigil
+--signer-workflow La-Cizaille-Corp/vigil/.github/workflows/release.yml` prouve que l'archive a été construite
+par le workflow de release du dépôt, et non par un autre de ses workflows.
 
 Le binaire n'est pas signé par Authenticode : SmartScreen peut afficher « Windows a protégé votre
 ordinateur ». Une fois l'empreinte vérifiée, retirez la marque « téléchargé depuis Internet »

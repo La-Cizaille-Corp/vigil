@@ -1607,14 +1607,27 @@ la double authentification de tous les comptes à un `vigil user reset-totp` lan
 
 **A28. Binaire d'abord, Docker en option.** Le binaire Go suffit (systemd fourni). L'image
 existe pour les équipes dont l'exploitation passe par des conteneurs : distroless, non-root,
-lecture seule hors `/data`. Le Compose d'exemple ajoute Caddy pour le HTTPS automatique, puisque
-l'image n'écoute pas en clair sur le réseau sans proxy. Elle porte les licences des archives de
+lecture seule hors `/data`. Le Compose d'exemple ajoute Caddy pour le HTTPS automatique : l'image
+écoute en clair sur `0.0.0.0:8080` avec `-behind-proxy` (sa commande par défaut), et compte donc sur un
+reverse proxy devant elle ; son port ne se publie que sur `127.0.0.1` (`docker run -p
+127.0.0.1:8080:8080`) ou reste interne au Compose (`expose`). Elle porte les licences des archives de
 release (celle de Vigil et celle de la liste SecLists embarquée, dans `/usr/share/doc/vigil/`) :
 un test les rapproche de `.goreleaser.yaml`, et la CI les relit dans l'image construite.
 
 **A29. Releases vérifiables.** GoReleaser : builds reproductibles (`-trimpath`, horodatage du
 commit), six plateformes, checksums, SBOM par archive, attestation de provenance signée ; release
-créée en brouillon et publiée après relecture.
+créée en brouillon et publiée après relecture. *Amendé (revue 0.5.0, C2, C3)* : ce qui est publié, et
+quand. Les tests tournent d'abord, dans un job à part qui n'a ni jeton d'écriture ni jeton OIDC (ils
+tournaient dans le job qui signe la provenance : un code exécuté par les tests, dépendances comprises,
+pouvait signer en son nom), et qui refuse un tag posé hors de `main`. Puis les binaires et la release en
+brouillon ; puis l'image, qui n'attendait ni les tests ni les binaires. Elle est publique dès la fin du
+workflow, étiquettes `X.Y.Z` et `X.Y` : une image n'a pas de brouillon, et le Compose suit l'étiquette
+`X.Y`. Aucun cache n'est restauré (`setup-go`, `cache: false`) : la release se construit sans rien de ce
+qu'ont écrit d'autres exécutions. `vigil version` dit la même version dans l'image et dans les binaires
+(`0.5.0`, sans le « v » du tag). La vérification d'une archive nomme le workflow qui l'a signée
+(`gh attestation verify … --signer-workflow La-Cizaille-Corp/vigil/.github/workflows/release.yml`). Les
+règles du dépôt (contrôles exigés pour fusionner dans `main`, tags `v*` réservés aux administrateurs)
+sont des réglages GitHub, hors du code.
 
 **A36. Mettre à jour sans jamais perdre de données.** Les données vivent hors du binaire (fichier
 SQLite ou volume Docker) ; une mise à jour remplace le binaire et applique les migrations au
