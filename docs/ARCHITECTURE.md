@@ -844,7 +844,15 @@ anciennes restent en texte libre.
 **A27. Configuration par options et variables d'environnement, sans fichier de configuration.**
 Un format de fichier à part (YAML…) serait une dépendance et une source d'erreurs de plus. Chaque
 option `-nom` peut venir de `VIGIL_NOM` ; la ligne de commande l'emporte. Convient au binaire,
-à systemd (`EnvironmentFile`) et à Docker (`env_file`).
+à systemd (`EnvironmentFile`) et à Docker (`env_file`). Les options partagées sont déclarées une
+seule fois, avec un seul texte d'aide (`newCommand`, audit de novembre 2026, X7) : `-db` pour toutes
+les commandes, et pour `serve`, `sync` et `digest` `-base-url`, `-allow-private-urls`,
+`-nvd-api-key` et les options SMTP, vérifiées avant l'ouverture de la base. La clé NVD passe par le
+même mécanisme (`-nvd-api-key`, ou de préférence `VIGIL_NVD_API_KEY`, invisible des autres
+utilisateurs de la machine) au lieu d'une lecture à part de la variable, et `VIGIL_DB` n'est lu
+qu'à cet endroit. *Écarté* : une bibliothèque d'options (cobra…), une dépendance pour une dizaine
+de commandes. *Conséquence* : `vigil digest` accepte `-base-url` (ou `VIGIL_BASE_URL`) et met alors
+le lien du digest dans ses messages, comme le digest programmé de `serve`.
 
 **A28. Binaire d'abord, Docker en option.** Le binaire Go suffit (systemd fourni). L'image
 existe pour les équipes dont l'exploitation passe par des conteneurs : distroless, non-root,

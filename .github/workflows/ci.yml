@@ -45,6 +45,15 @@ jobs:
       - run: go test ./...
         if: runner.os != 'Linux'
       - run: go build -trimpath ./cmd/vigil
+      # The binary built runs on each system: it creates a database, saves it
+      # and checks the copy, as an operator does before a restore.
+      - name: command line
+        shell: bash
+        run: |
+          ./vigil version
+          ./vigil user list -db "$RUNNER_TEMP/ci.db"
+          ./vigil backup -db "$RUNNER_TEMP/ci.db" -o "$RUNNER_TEMP/ci-backup.db"
+          ./vigil check -db "$RUNNER_TEMP/ci-backup.db"
 
   static-analysis:
     runs-on: ubuntu-latest
