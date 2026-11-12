@@ -124,7 +124,9 @@ version validée.
   notification (webhook ou e-mail) ; le journal trace aussi les alertes en échec.
 - Paramètres → Journal d'audit (administrateurs) : connexions, comptes, inventaire, triage par lot,
   réglages. Un échec de connexion garde l'adresse, et le nom saisi seulement s'il est celui d'un
-  compte (un mot de passe tapé dans le champ du nom n'y figure pas). Chaque entrée est aussi écrite dans le journal du service (`msg=audit`) : envoyé à un
+  compte (un mot de passe tapé dans le champ du nom n'y figure pas). Le détail est une suite de
+  paires `clé=valeur` (`id=12 status=resolved`, une valeur avec espace entre guillemets :
+  `name="CERT FR"`) ; les entrées écrites avant cette forme gardent leur texte d'origine. Chaque entrée est aussi écrite dans le journal du service (`msg=audit`) : envoyé à un
   serveur de journaux (journald distant, syslog, SIEM), il garde une trace hors de la base, que
   l'altération ou la perte de la base n'efface pas.
 

@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"html/template"
 	"io"
 	"net/http"
 	"net/url"
@@ -214,6 +215,29 @@ func TestCommonPasswordForms(t *testing.T) {
 		t.Errorf("password change to a common password: %d", code)
 	}
 	loginAs(t, base, "admin", "a-strong-password") // unchanged
+}
+
+// Each page where a password is chosen says the whole rule, the common
+// passwords as well as the length: setup, « Mon compte », and the temporary
+// password given in Settings → Users.
+func TestPasswordHelpOnEachPage(t *testing.T) {
+	help := template.HTMLEscapeString(auth.PasswordHelp)
+	_, fresh := newTestServer(t)
+	if _, body := newClient(t, fresh).get("/setup"); !strings.Contains(body, "Mot de passe ("+help+")") {
+		t.Errorf("setup page: no %q", auth.PasswordHelp)
+	}
+
+	_, base := newServerWith(t, nil)
+	admin := loginAs(t, base, "admin", "a-strong-password")
+	if _, body := admin.get("/account"); !strings.Contains(body, "Nouveau mot de passe ("+help+")") {
+		t.Errorf("account page: no %q", auth.PasswordHelp)
+	}
+	if code := admin.post("/settings/users", url.Values{"csrf": {admin.csrf()}, "username": {"bob"}, "role": {"analyst"}}); code != http.StatusSeeOther {
+		t.Fatalf("create user: %d", code)
+	}
+	if _, body := admin.get("/settings/users"); !passwordRe.MatchString(body) || !strings.Contains(body, "("+help+")") {
+		t.Errorf("temporary password: no %q beside it", auth.PasswordHelp)
+	}
 }
 
 var passwordRe = regexp.MustCompile(`<code>([A-Za-z0-9]{5}(?:-[A-Za-z0-9]{5}){3})</code>`)

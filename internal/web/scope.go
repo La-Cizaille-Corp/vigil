@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
@@ -33,6 +34,12 @@ func requestScope(r *http.Request) store.Scope {
 		return readScope(r)
 	}
 	return writeScope(r)
+}
+
+// inScope binds a lookup of the inventory by id to the scope of the request
+// (requestScope), for load.
+func inScope[T any](r *http.Request, get func(context.Context, store.Scope, int64) (T, error)) func(context.Context, int64) (T, error) {
+	return func(ctx context.Context, id int64) (T, error) { return get(ctx, requestScope(r), id) }
 }
 
 // tokenScope is what an API token may change. The handler limits it to the

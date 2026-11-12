@@ -17,7 +17,8 @@ import (
 
 	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 
-	_ "modernc.org/sqlite" // pure Go driver, no CGO
+	"modernc.org/sqlite" // pure Go driver, no CGO
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 //go:embed migrations/*.sql
@@ -29,6 +30,17 @@ var ErrNotFound = errors.New("not found")
 // ErrExists is returned when a new row would duplicate an existing one, such
 // as a user name differing from another only by case.
 var ErrExists = errors.New("already exists")
+
+// mapUnique turns a violated uniqueness constraint (UNIQUE or PRIMARY KEY)
+// into ErrExists, so that the caller can tell a duplicate from a failure;
+// any other error is returned as it is.
+func mapUnique(err error) error {
+	var e *sqlite.Error
+	if errors.As(err, &e) && (e.Code() == sqlite3.SQLITE_CONSTRAINT_UNIQUE || e.Code() == sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY) {
+		return ErrExists
+	}
+	return err
+}
 
 // Store wraps the database handle.
 type Store struct {
