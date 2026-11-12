@@ -201,14 +201,42 @@ func TestUrgencyEverywhere(t *testing.T) {
 		}
 	}
 
-	// The "priority" filter of the list and of the dashboard card.
-	priority, err := st.ListFindings(ctx, store.Everything, store.FindingFilter{Priority: true, Statuses: []string{"in_triage", "exploitable"}})
-	if err != nil {
-		t.Fatal(err)
+	// Why each has its level, by the rule of the ranking: in a list row or an
+	// alert, beside the band, and on its page (A84).
+	explain := tracking.TemplateFuncs()["explain"].(func(store.Finding) string)
+	notLikely := "elle n'est ni exploitée, ni probable, ni critique ou haute"
+	why := map[string][2]string{
+		"CVE-2026-0001": {"jugée exploitable", "l'équipe l'a jugée exploitable"},
+		"CVE-2026-0002": {"exploitée (CISA KEV)", "elle est exploitée activement (CISA KEV)"},
+		"CVE-2026-0003": {"exploitée (CISA KEV)", "elle est exploitée activement (CISA KEV)"},
+		"CVE-2026-0004": {"EPSS 10,0\u00a0%", "la probabilité d'exploitation EPSS est de 10,0\u00a0% (seuil 10,0\u00a0%)"},
+		"CVE-2026-0005": {"", "sa sévérité est critique"},
+		"CVE-2026-0006": {"", "sa sévérité est critique"}, // rated by its score: the band says it
+		"CVE-2026-0007": {"", "sa sévérité est haute"},
+		"CVE-2026-0008": {"CVSS 7,5", "son score CVSS est de 7,5 (seuil 7)"},
+		"CVE-2026-0009": {"", notLikely},
+		"CVE-2026-0010": {"", notLikely},
+		"CVE-2026-0011": {"", notLikely},
+		// Set aside or fixed: the exploitation stays a fact, the level is the decision.
+		"CVE-2026-0097": {"exploitée (CISA KEV)", "elle est marquée « Faux positif »"},
+		"CVE-2026-0098": {"exploitée (CISA KEV)", "elle est marquée « Non affecté »"},
+		"CVE-2026-0099": {"exploitée (CISA KEV)", ""},
 	}
-	tracking.SortByPriority(priority)
-	if got := vulnIDs(priority); !slices.Equal(got, urgent) {
-		t.Errorf("priority filter: %v, want %v", got, urgent)
+	for _, f := range all {
+		if got := [2]string{tracking.Reason(f), explain(f)}; got != why[f.VulnID] {
+			t.Errorf("%s: reason %q, explanation %q\nwant %q", f.VulnID, got[0], got[1], why[f.VulnID])
+		}
+	}
+
+	// The level Urgentes of the list and the card of the dashboard.
+	var urgentOpen []store.Finding
+	for _, f := range open {
+		if tracking.Level(f) == tracking.LevelUrgent {
+			urgentOpen = append(urgentOpen, f)
+		}
+	}
+	if got := vulnIDs(urgentOpen); !slices.Equal(got, urgent) {
+		t.Errorf("level Urgentes: %v, want %v", got, urgent)
 	}
 	stats, err := st.DashboardStats(ctx, store.Everything, time.Now())
 	if err != nil {

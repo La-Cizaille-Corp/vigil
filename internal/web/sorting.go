@@ -18,6 +18,7 @@ type column[T any] struct {
 	compare    func(a, b T) int // ascending
 	empty      func(T) bool     // rows without a value stay last, in both directions
 	desc       bool             // sorted in descending order first: scores, dates
+	num        bool             // a number, aligned to the right (class num)
 }
 
 // sortHeader is the title of a column in a template.
@@ -25,6 +26,19 @@ type sortHeader struct {
 	Label string
 	Href  string // sorts by this column, or the other way if it already does; "" when it cannot
 	Order string // aria-sort value when the list is sorted by this column
+	Class string // "no-sort" without Href, "num" over numbers
+}
+
+// headerClass is the class of the title of c, a link that sorts or not.
+func headerClass[T any](c column[T], sorts bool) string {
+	var classes []string
+	if !sorts {
+		classes = append(classes, "no-sort")
+	}
+	if c.num {
+		classes = append(classes, "num")
+	}
+	return strings.Join(classes, " ")
 }
 
 // listOrder is the order of a list: key "" leaves it as it is.
@@ -90,7 +104,7 @@ func sortRows[T any](rows []T, cols []column[T], o listOrder) {
 func sortHeaders[T any](cols []column[T], path string, q url.Values, o listOrder) []sortHeader {
 	out := make([]sortHeader, 0, len(cols))
 	for _, c := range cols {
-		h := sortHeader{Label: c.label}
+		h := sortHeader{Label: c.label, Class: headerClass(c, c.compare != nil)}
 		if c.compare != nil {
 			desc := c.desc
 			if c.key == o.key {
@@ -118,7 +132,7 @@ func sortHeaders[T any](cols []column[T], path string, q url.Values, o listOrder
 func plainHeaders[T any](cols []column[T]) []sortHeader {
 	out := make([]sortHeader, 0, len(cols))
 	for _, c := range cols {
-		out = append(out, sortHeader{Label: c.label})
+		out = append(out, sortHeader{Label: c.label, Class: headerClass(c, false)})
 	}
 	return out
 }
@@ -169,9 +183,9 @@ func isOpen(f store.Finding) bool { return f.Status == "in_triage" || f.Status =
 // findingTable template. The default order is the priority, most urgent first.
 var findingColumnList = []column[store.Finding]{
 	{key: "priority", label: "Priorité", desc: true, compare: tracking.ComparePriority},
-	{key: "cvss", label: "CVSS", desc: true, empty: func(f store.Finding) bool { return f.CVSS < 0 },
+	{key: "cvss", label: "CVSS", desc: true, num: true, empty: func(f store.Finding) bool { return f.CVSS < 0 },
 		compare: func(a, b store.Finding) int { return cmp.Compare(a.CVSS, b.CVSS) }},
-	{key: "epss", label: "EPSS", desc: true, empty: func(f store.Finding) bool { return f.EPSS < 0 },
+	{key: "epss", label: "EPSS", desc: true, num: true, empty: func(f store.Finding) bool { return f.EPSS < 0 },
 		compare: func(a, b store.Finding) int { return cmp.Compare(a.EPSS, b.EPSS) }},
 	{key: "vuln", label: "Vulnérabilité", // CVE-2024-999 before CVE-2024-1000
 		compare: func(a, b store.Finding) int { return versions.Compare(a.VulnID, b.VulnID) }},
@@ -222,9 +236,19 @@ func listLevel(q url.Values) string {
 	return levelOpen
 }
 
+// levelNav are the links to the levels of a vulnerability list (A84): the open
+// ones by default, then their three levels; apart, those set aside and the
+// fixed ones; and, quietly, all of them. Ouvertes counts the sum of the three
+// open levels, and the three groups sum up to all.
+type levelNav struct {
+	Open   []levelLink
+	Closed []levelLink
+	All    levelLink
+}
+
 // levelLinks returns the links to the levels of a list showing current; they
 // keep its filters and its order.
-func levelLinks(findings []store.Finding, q url.Values, current string) []levelLink {
+func levelLinks(findings []store.Finding, q url.Values, current string) levelNav {
 	counts := map[string]int{}
 	for _, f := range findings {
 		switch {
@@ -248,11 +272,16 @@ func levelLinks(findings []store.Finding, q url.Values, current string) []levelL
 	tab := func(level, label string, n int) levelLink {
 		return levelLink{Label: label, Href: link(level), N: n, Active: level == current}
 	}
-	out := []levelLink{tab(levelOpen, "Ouvertes", counts[levelOpen])}
+	nav := levelNav{Open: []levelLink{tab(levelOpen, "Ouvertes", counts[levelOpen])}, All: tab(levelAll, "Toutes", len(findings))}
 	for _, l := range tracking.Levels {
-		out = append(out, tab(l.Value, l.Label, counts[l.Value]))
+		if l.Value == tracking.LevelAside {
+			nav.Closed = append(nav.Closed, tab(l.Value, l.Label, counts[l.Value]))
+			continue
+		}
+		nav.Open = append(nav.Open, tab(l.Value, l.Label, counts[l.Value]))
 	}
-	return append(out, tab(levelFixed, "Corrigées", counts[levelFixed]), tab(levelAll, "Toutes", len(findings)))
+	nav.Closed = append(nav.Closed, tab(levelFixed, "Corrigées", counts[levelFixed]))
+	return nav
 }
 
 func isLevel(v string) bool {

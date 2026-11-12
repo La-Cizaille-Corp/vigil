@@ -66,8 +66,8 @@ func TestDashboardPage(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("dashboard: %d", code)
 	}
-	for _, want := range []string{`class="donut"`, "À traiter en priorité", "Activité des 12 dernières semaines",
-		"fortios", "<title>Critique : 1 (100 %)</title>", "priority=1"} {
+	for _, want := range []string{`class="donut"`, `<span class="kpi-label">Urgentes</span>`, "Activité des 12 dernières semaines",
+		"fortios", "<title>Critique : 1 (100 %)</title>", "level=urgent"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard misses %q", want)
 		}

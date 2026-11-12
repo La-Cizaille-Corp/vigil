@@ -38,16 +38,16 @@ func TestNumbers(t *testing.T) {
 		{Score(10), "10,0"},
 		{Score(0), "0,0"}, // a score of 0 is a score
 		{Score(-1), ""},   // unknown
-		{Percent(0.123), "12,3 %"},
-		{Percent(0.9731), "97,3 %"},
-		{Percent(0), "0,0 %"},
-		{Percent(0.00049), "0,0 %"},
-		{Percent(1), "100,0 %"},
+		{Percent(0.123), "12,3\u00a0%"},
+		{Percent(0.9731), "97,3\u00a0%"},
+		{Percent(0), "0,0\u00a0%"},
+		{Percent(0.00049), "0,0\u00a0%"},
+		{Percent(1), "100,0\u00a0%"},
 		{Percent(-1), ""},
-		{Days(0.4), "< 1 j"},
-		{Days(3.46), "3,5 j"},
-		{Days(9.94), "9,9 j"},
-		{Days(12.4), "12 j"},
+		{Days(0.4), "<\u00a01\u00a0j"},
+		{Days(3.46), "3,5\u00a0j"},
+		{Days(9.94), "9,9\u00a0j"},
+		{Days(12.4), "12\u00a0j"},
 	} {
 		if c.got != c.want {
 			t.Errorf("got %q, want %q", c.got, c.want)

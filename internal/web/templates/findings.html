@@ -1,10 +1,13 @@
 {{define "content"}}
 {{$f := .Data.Filter}}
 {{template "syncBar" .}}
-{{$more := or $f.Statuses $f.Severities $f.Kinds $f.KEV $f.Priority $f.Overdue $f.MinCVSS $f.MinEPSS $f.Project $f.Tag}}
+{{$more := .Data.More}}
+{{- /* The open findings and their levels, then, apart, those closed; all of them in a quiet link (A84). */}}
 <nav class="filters" aria-label="Niveaux">
-  {{range .Data.Levels}}<a href="{{.Href}}" {{if .Active}}class="active" aria-current="true"{{end}}>{{.Label}} <small>{{.N}}</small></a>
-  {{end}}
+  {{range .Data.Levels.Open}}{{template "levelLink" .}}
+  {{end}}<span class="sep" aria-hidden="true"></span>
+  {{range .Data.Levels.Closed}}{{template "levelLink" .}}
+  {{end}}{{with .Data.Levels.All}}<a class="quiet{{if .Active}} active{{end}}" href="{{.Href}}"{{if .Active}} aria-current="true"{{end}}>{{.Label}} ({{.N}})</a>{{end}}
 </nav>
 <form method="get" action="/findings" class="card filters-form">
   {{with .Data.Level}}<input type="hidden" name="level" value="{{.}}">{{end}}
@@ -12,7 +15,7 @@
   {{with .Data.Dir}}<input type="hidden" name="dir" value="{{.}}">{{end}}
   <label>Recherche <input type="search" name="q" value="{{$f.Search}}" maxlength="200" placeholder="CVE-2021-44228, log4j, injection…"></label>
   <details class="more-filters"{{if $more}} open{{end}}>
-    <summary>Plus de filtres{{if $more}} (actifs){{end}}</summary>
+    <summary>Plus de filtres{{with $more}} ({{.}} appliqué{{if gt . 1}}s{{end}}){{end}}</summary>
     <div class="grid">
       <label>Projet
         <select name="project"><option value="">Tous</option>
@@ -26,6 +29,7 @@
       </label>
       <label>CVSS minimum <input type="number" name="cvss" min="0" max="10" step="0.1" value="{{if $f.MinCVSS}}{{$f.MinCVSS}}{{end}}" placeholder="ex. 7"></label>
       <label>EPSS minimum (%) <input type="number" name="epss" min="0" max="100" step="0.1" value="{{if $f.MinEPSS}}{{.Data.MinEPSSPercent}}{{end}}" placeholder="ex. 10"></label>
+      <label>Détectées ces derniers jours <input type="number" name="since" min="1" max="3650" step="1" value="{{with .Data.Since}}{{.}}{{end}}" placeholder="ex. 7"></label>
     </div>
     <div class="grid">
       <fieldset><legend>Statut</legend>
@@ -39,7 +43,6 @@
       </fieldset>
       <fieldset><legend>Exploitation</legend>
         <label class="check"><input type="checkbox" name="kev" value="1" {{if $f.KEV}}checked{{end}}> Exploitée (CISA KEV)</label>
-        <label class="check"><input type="checkbox" name="priority" value="1" {{if $f.Priority}}checked{{end}}> Prioritaire (KEV, EPSS ≥ 10 % ou jugée exploitable)</label>
         <label class="check"><input type="checkbox" name="overdue" value="1" {{if $f.Overdue}}checked{{end}}> Hors délai de traitement</label>
       </fieldset>
     </div>

@@ -55,6 +55,10 @@ func TemplateFuncs() map[string]any {
 		"band":        Band,
 		"sevLabel":    SeverityLabel,
 		"statusLabel": func(v string) string { return inventory.Label(Statuses, v) },
+		"level":       Level,
+		"levelName":   levelName,
+		"reason":      Reason,
+		"explain":     explain,
 	}
 }
 

@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"net/http"
 	"net/url"
 	"regexp"
 	"slices"
@@ -129,7 +130,7 @@ func TestSortFindings(t *testing.T) {
 
 	// The titles keep the filters; the export follows the order.
 	_, body = c.get("/findings?severity=HIGH&sort=cvss")
-	if !strings.Contains(body, `<th aria-sort="descending"><a class="sort" href="/findings?dir=asc&amp;severity=HIGH&amp;sort=cvss">CVSS</a></th>`) {
+	if !strings.Contains(body, `<th aria-sort="descending" class="num"><a class="sort" href="/findings?dir=asc&amp;severity=HIGH&amp;sort=cvss">CVSS</a></th>`) {
 		t.Errorf("title of the sorted column:\n%s", body)
 	}
 	if !strings.Contains(body, `name="sort" value="cvss"`) {
@@ -229,7 +230,7 @@ func TestFindingLevels(t *testing.T) {
 		"&level=fixed":     {"CVE-2024-0007"},
 		"&level=all":       {"CVE-2024-0001", "CVE-2024-0002", "CVE-2024-0003", "CVE-2024-0004", "CVE-2024-0005", "CVE-2024-0006", "CVE-2024-0007"},
 		"&status=resolved": {"CVE-2024-0007"}, // a status asked for is shown
-		"&priority=1":      {"CVE-2024-0004"}, // the dashboard card and the alerts
+		"&level=urgent":    {"CVE-2024-0004"}, // the dashboard card and the alerts
 	} {
 		_, body := c.get("/findings?sort=vuln" + query)
 		if got := findingOrder(body); !slices.Equal(got, want) {
@@ -247,15 +248,52 @@ func TestFindingLevels(t *testing.T) {
 		`<a href="/findings?level=plan&amp;q=CVE-2024&amp;sort=vuln" class="active" aria-current="true">À planifier <small>2</small></a>`,
 		`À surveiller <small>2</small>`, `Écartées <small>1</small>`,
 		`<a href="/findings?level=fixed&amp;q=CVE-2024&amp;sort=vuln" >Corrigées <small>1</small></a>`,
-		`<a href="/findings?level=all&amp;q=CVE-2024&amp;sort=vuln" >Toutes <small>7</small></a>`,
+		`<a class="quiet" href="/findings?level=all&amp;q=CVE-2024&amp;sort=vuln">Toutes (7)</a>`,
 		`name="level" value="plan"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page misses %s", want)
 		}
 	}
+	// The open levels, then those closed, then all: the counts add up.
+	if open, closed := strings.Index(body, ">À surveiller <"), strings.Index(body, ">Écartées <"); open < 0 || closed < open ||
+		!strings.Contains(body[open:closed], `<span class="sep" aria-hidden="true"></span>`) {
+		t.Error("the closed levels are not set apart from the open ones")
+	}
+	counts := map[string]int{}
+	for _, m := range regexp.MustCompile(`>([^<>]+) <small>(\d+)</small></a>`).FindAllStringSubmatch(body, -1) {
+		counts[m[1]], _ = strconv.Atoi(m[2])
+	}
+	if open := counts["Urgentes"] + counts["À planifier"] + counts["À surveiller"]; open != counts["Ouvertes"] ||
+		open+counts["Écartées"]+counts["Corrigées"] != 7 {
+		t.Errorf("the counts do not add up: %v", counts)
+	}
 	if code, csv := c.get("/findings.csv?level=urgent"); code != 200 || strings.Count(csv, "\n") != 2 || !strings.Contains(csv, "CVE-2024-0004") {
 		t.Errorf("CSV of a level: %d\n%s", code, csv)
+	}
+}
+
+// The links sent before 0.5.0 (alerts, bookmarks) ask for ?priority=1, the box
+// that the level Urgentes replaced: they lead to that level, with their other
+// filters (A84).
+func TestPriorityLinksLeadToUrgent(t *testing.T) {
+	st, base := newServerWith(t, nil)
+	seedFindings(t, st)
+	c := loginAs(t, base, "analyst", "a-strong-password")
+	for path, want := range map[string]string{
+		"/findings?priority=1":                     "/findings?level=urgent",
+		"/findings?priority=1&q=fortios&sort=cvss": "/findings?level=urgent&q=fortios&sort=cvss",
+		"/findings?level=plan&priority=1":          "/findings?level=urgent",
+		"/findings?priority=0&q=fortios":           "/findings?q=fortios",
+		"/findings?priority=":                      "/findings",
+		"/findings.csv?priority=1":                 "/findings.csv?level=urgent",
+	} {
+		if code, loc := c.send(http.MethodGet, path, nil); code != http.StatusMovedPermanently || loc != want {
+			t.Errorf("%s: %d %s, want %s", path, code, loc, want)
+		}
+	}
+	if _, body := c.get("/findings"); strings.Contains(body, `name="priority"`) || strings.Contains(body, "Prioritaire") {
+		t.Error("the box Prioritaire is still offered beside the levels")
 	}
 }
 

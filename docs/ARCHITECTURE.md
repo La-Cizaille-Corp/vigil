@@ -157,7 +157,8 @@ fichier ne changent pas. Le champ caché du jeton CSRF est un seul modèle, appe
 `{{template "csrf" .CSRF}}`. Les étiquettes proposées sous le champ d'un actif sont lues par le handler ; une
 erreur de lecture donne une erreur 500 au lieu d'une page sans suggestions. *Écarté* : le point pour les
 scores (l'usage des bases de vulnérabilités, mais deux conventions sur une même page) ; une espace insécable
-avant `%` (le reste de l'interface écrit une espace simple). *Conséquences* : CVSS et EPSS s'affichent `9,8`
+avant `%` (le reste de l'interface écrit une espace simple ; repris par A84 : `Percent` et `Days` l'écrivent,
+car « % » passait seul à la ligne dans une colonne étroite ou une phrase sur téléphone). *Conséquences* : CVSS et EPSS s'affichent `9,8`
 et `12,3 %` à l'écran et dans le digest ; un CVSS de 0 s'affiche `0,0`, dans le digest aussi ; l'alerte donne
 l'EPSS à une décimale (`EPSS 12,3 %` au lieu de `EPSS 12 %`) ; le CSV ne change pas, il avait déjà la virgule.
 
@@ -414,6 +415,48 @@ reste borné en octets (`auth.MaxPasswordBytes`), car la borne porte sur ce que 
 compris les corrigées, et les nombres des niveaux ne faisaient pas son total. Elle s'ouvre désormais sur les
 ouvertes, la somme des trois premiers niveaux ; les corrigées ont leur onglet, « Toutes » réunit tout. Un filtre
 de statut garde la liste entière, pour qu'un statut demandé (« Corrigé ») soit montré. L'export suit la page.
+Depuis A84, les écartées et les corrigées forment un groupe à part, et « Toutes » n'est plus qu'un lien discret.
+
+**A84. Un seul vocabulaire, celui des niveaux, et la raison de chacun.** L'audit d'ergonomie de la 0.4.1
+(lot 2) relevait quatre noms pour un même concept (« À traiter en priorité », « Urgentes », « Prioritaire »,
+« Exploitées ou probables ») et deux URL (`priority=1`, `level=urgent`), une colonne Priorité qui affichait la
+sévérité (« Moyenne » dans les Urgentes), une page de vulnérabilité qui ne disait jamais son niveau ni pourquoi,
+des tableaux du tableau de bord qui mêlaient les corrigées, et un lien « de la semaine » qui ouvrait toute la liste.
+- *Un mot, une URL* : « Urgentes » et `level=urgent` partout : carte du tableau de bord, titre et liens des
+  alertes (« 3 vulnérabilités urgentes et 2 à planifier », un lien par niveau annoncé), réglages des canaux
+  (« Urgentes seulement », « Urgentes et À planifier », « Aucune alerte immédiate »). La case « Prioritaire »
+  quitte les filtres, et `FindingFilter.Priority` le stockage : le niveau la remplace. Les liens déjà envoyés
+  (`/findings?priority=1` des alertes, favoris) sont redirigés pour de bon (301) vers `level=urgent`, leurs
+  autres filtres gardés ; l'export CSV de même.
+- *La raison vient de la règle du classement* : chaque ligne commence par la pastille de son niveau, puis la
+  bande de sévérité et ce qui rend la vulnérabilité urgente (« exploitée (CISA KEV) », « jugée exploitable »,
+  « EPSS 12,3 % ») ou, à planifier par son seul score, « CVSS 7,5 ». La page d'une vulnérabilité s'ouvre sur
+  « Niveau : Urgente, car la probabilité d'exploitation EPSS est de 74,8 % (seuil 10,0 %) ». Ces textes
+  (`tracking.Reason`, et `explain` pour la page) lisent la règle là où elle est : `urgency`, la première clé de
+  `ComparePriority`, et le niveau (`Level`, la classe d'alerte). L'alerte emploie `Reason`, qui remplace sa
+  copie de la règle. Le seuil CVSS de la classe « sévère » est écrit une fois, `store.SevereCVSS`, comme
+  `LikelyEPSS`. Une vulnérabilité écartée ou corrigée garde « exploitée (CISA KEV) » comme fait, à la place de
+  l'ancienne mention « Exploitée ».
+- *Pastilles* : Ouvertes (défaut, la somme des trois niveaux ouverts) · Urgentes · À planifier · À surveiller,
+  puis, séparées, Écartées · Corrigées ; « Toutes » devient un lien discret. Les trois groupes font le total.
+- *Tableau de bord* : les nouvelles vulnérabilités sont les ouvertes, comme la liste où elles mènent ; le lien
+  « Voir les N vulnérabilités ouvertes de la semaine » porte un vrai filtre de période, `since=7` (en jours, de
+  1 à 3 650, un champ des filtres), au lieu de la liste entière triée par date. L'anneau mène aux ouvertes d'une
+  sévérité sans filtre de statut, donc avec la pastille « Ouvertes ».
+- *Mots* : « Plus de filtres (2 appliqués) » au lieu de « (actifs) », qui se lisait « filtres d'actifs » ;
+  « Activé » / « Désactivé » pour un compte. CVSS et EPSS sont alignés à droite et ne se coupent pas (classe
+  `num`, `white-space: nowrap`), la raison d'une ligne non plus. Dans une phrase (« … est de 74,8 % » sur la
+  page d'une vulnérabilité, à 375 px), « % » passait encore seul à la ligne : `fr.Percent` et `fr.Days`
+  écrivent une espace insécable avant leur unité, ce qu'A79 avait écarté.
+
+*Écarté* : garder `priority=1` comme synonyme silencieux de `level=urgent` (deux URL pour une liste, et le
+formulaire de filtres l'aurait perdu) ; écrire le seuil dans la raison d'une ligne (« EPSS ≥ 10 % », comme la
+maquette) : la valeur sert telle quelle à l'alerte, qui n'a pas de colonne EPSS, et le seuil est sur la page de
+la vulnérabilité ; garder la case « Prioritaire » à côté du niveau. *Conséquences* : les alertes changent de
+titre et de lien (une alerte d'un canal « Urgentes et À planifier » donne un lien par niveau) ; leur JSON garde
+ses champs, et `reason` dit « CVSS 7,5 » pour une vulnérabilité à planifier par son score. Les pourcentages et
+les jours portent une espace insécable (U+00A0) à l'écran, dans le digest et les alertes ; les nombres écrits en
+dur dans les gabarits (« 88 % » de couverture) gardent une espace simple.
 
 **A69. Ce que les sources envoient est vérifié avant d'être stocké.** OSV et la NVD sont des hôtes fixes
 en HTTPS, mais leurs champs étaient stockés tels quels : une sévérité hors de la liste (`IMPORTANT` de
@@ -594,7 +637,7 @@ exploitée (KEV) ou jugée exploitable, puis probable (EPSS ≥ 10 %), puis band
 la sévérité de l'avis, à défaut celle du score CVSS), puis score EPSS, score CVSS et détection la plus
 récente. Le statut « Exploitable – à traiter » est une décision de l'équipe : il place la vulnérabilité au
 rang d'une entrée KEV, dans l'ordre comme dans le niveau Urgentes, le filtre « Prioritaire », l'indicateur
-« À traiter en priorité » et la classe d'alerte. Le seuil n'est écrit qu'une fois, `store.LikelyEPSS`, dont
+« À traiter en priorité » (tous deux remplacés par le niveau Urgentes, A84) et la classe d'alerte. Le seuil n'est écrit qu'une fois, `store.LikelyEPSS`, dont
 sont construites les expressions SQL (`exploitedExpr`, `urgentExpr`, `alertClassExpr`) ; le niveau
 (`tracking.Level`) se lit sur la classe calculée par la requête (`Finding.Class`) ; l'ordre des sévérités
 est celui de `tracking.Severities`. *Écarté* : garder le tri par sévérité dans le digest (deux ordres pour les
@@ -631,8 +674,8 @@ officielles par défaut (Commission européenne, CNIL, EDPB, EBA). Les flux ISO 
 filtres pays / secteur : une réglementation concerne tous ceux qu'elle couvre.
 
 **A35. Tableau de bord : indicateurs d'action et graphiques SVG rendus par le serveur.** Les
-indicateurs retenus répondent à « que faire maintenant ? » plutôt qu'à « combien ? » : à traiter en
-priorité (KEV, EPSS >= 10 % ou statut Exploitable, A78 ; cliquable vers la liste exacte), vulnérabilités ouvertes, exploitées
+indicateurs retenus répondent à « que faire maintenant ? » plutôt qu'à « combien ? » : urgentes
+(KEV, EPSS >= 10 % ou statut Exploitable, A78 ; cliquable vers le niveau, A84), vulnérabilités ouvertes, exploitées
 avec échéance CISA dépassée, en attente d'analyse depuis plus de 30 jours, délai moyen de traitement
 sur 90 jours (de la détection à la clôture : corrigée, non affectée ou faux positif) et couverture de
 détection (actifs vérifiés automatiquement). Graphiques : répartition par sévérité (anneau),
@@ -817,7 +860,9 @@ niveau ; une vulnérabilité qui devient exploitée est donc signalée à nouvea
 par vulnérabilité (avalanche au premier import d'un SBOM), un moteur de règles à la
 Dependency-Track (configuration lourde pour la cible). La migration marque les vulnérabilités
 existantes comme déjà notifiées : pas d'avalanche après la mise à jour. Une alerte en échec n'est
-pas renvoyée : l'erreur s'affiche sur le canal et le digest suivant liste la vulnérabilité.
+pas renvoyée : l'erreur s'affiche sur le canal et le digest suivant liste la vulnérabilité. Les classes
+sont les niveaux de la liste (A60) : un canal choisit « Urgentes seulement » ou « Urgentes et À planifier »,
+et l'alerte se titre et renvoie aux listes par ces niveaux (A84).
 
 **A38. E-mail par SMTP direct, dans les mêmes canaux que les webhooks.** Toutes les solutions
 comparées notifient par e-mail ; c'est le canal universel des petites structures. `net/smtp` de la

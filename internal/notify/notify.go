@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,12 +35,12 @@ var Kinds = []inventory.Option{
 	{Value: "email", Label: "E-mail"},
 }
 
-// AlertOptions are the immediate alerts a channel can receive: the levels of
-// tracking.Levels they cover.
+// AlertOptions are the immediate alerts a channel can receive, named by the
+// levels of tracking.Levels they cover (A84).
 var AlertOptions = []inventory.Option{
 	{Value: "", Label: "Aucune alerte immédiate"},
-	{Value: "priority", Label: "Urgentes (exploitées, probables ou jugées exploitables)"},
-	{Value: "severe", Label: "Urgentes et à planifier (critiques ou hautes)"},
+	{Value: "priority", Label: "Urgentes seulement"},
+	{Value: "severe", Label: "Urgentes et À planifier"},
 }
 
 const (
@@ -170,10 +171,11 @@ func (n *Notifier) SendAlerts(ctx context.Context) error {
 
 func (n *Notifier) alertMessage(alerts []store.Alert) message {
 	base := strings.TrimRight(n.BaseURL, "/")
-	title := fmt.Sprintf("%d vulnérabilité à traiter en priorité", len(alerts))
-	if len(alerts) > 1 {
-		title = fmt.Sprintf("%d vulnérabilités à traiter en priorité", len(alerts))
+	byLevel := map[string]int{}
+	for _, a := range alerts {
+		byLevel[tracking.Level(a.Finding)]++
 	}
+	title := alertTitle(byLevel[tracking.LevelUrgent], byLevel[tracking.LevelPlan])
 	var b strings.Builder
 	fmt.Fprintf(&b, "**Vigil — %s**\n\n", title)
 	var items []map[string]any
@@ -206,7 +208,13 @@ func (n *Notifier) alertMessage(alerts []store.Alert) message {
 		fmt.Fprintf(&b, "- … et %d autre(s)\n", len(alerts)-maxAlertLines)
 	}
 	if base != "" {
-		fmt.Fprintf(&b, "\nÀ traiter : %s/findings?priority=1\n", base)
+		// The lists of the levels the alert announces (A60).
+		b.WriteString("\n")
+		for _, l := range tracking.Levels[:2] {
+			if byLevel[l.Value] > 0 {
+				fmt.Fprintf(&b, "%s : %s/findings?level=%s\n", l.Label, base, l.Value)
+			}
+		}
 	}
 	return message{
 		Subject: "[Vigil] " + title,
@@ -215,19 +223,37 @@ func (n *Notifier) alertMessage(alerts []store.Alert) message {
 	}
 }
 
-// alertReason says why a finding is urgent, in French.
+// alertTitle counts the findings of an alert by level, with the words of
+// the levels: "3 vulnérabilités urgentes et 5 à planifier".
+func alertTitle(urgent, plan int) string {
+	noun := func(n int) string {
+		if n > 1 {
+			return strconv.Itoa(n) + " vulnérabilités"
+		}
+		return strconv.Itoa(n) + " vulnérabilité"
+	}
+	switch {
+	case plan == 0 && urgent > 1:
+		return noun(urgent) + " urgentes"
+	case plan == 0:
+		return noun(urgent) + " urgente"
+	case urgent == 0:
+		return noun(plan) + " à planifier"
+	case urgent > 1:
+		return noun(urgent) + " urgentes et " + strconv.Itoa(plan) + " à planifier"
+	}
+	return noun(urgent) + " urgente et " + strconv.Itoa(plan) + " à planifier"
+}
+
+// alertReason says why a finding is urgent or to plan, in French, with the
+// words of its row in the lists (tracking.Reason).
 func alertReason(a store.Alert) string {
 	var parts []string
 	if a.Severity != "" {
 		parts = append(parts, strings.ToLower(tracking.SeverityLabel(a.Severity)))
 	}
-	switch {
-	case a.KEV:
-		parts = append(parts, "exploitée (CISA KEV)")
-	case a.Status == "exploitable":
-		parts = append(parts, "jugée exploitable")
-	case a.EPSS >= store.LikelyEPSS:
-		parts = append(parts, "EPSS "+fr.Percent(a.EPSS))
+	if r := tracking.Reason(a.Finding); r != "" {
+		parts = append(parts, r)
 	}
 	if a.Raised {
 		parts = append(parts, "devenue plus urgente")

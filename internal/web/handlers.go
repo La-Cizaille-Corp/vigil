@@ -224,11 +224,13 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	recent, err := s.Store.ListFindings(ctx, readScope(r), store.FindingFilter{Since: now.Add(-7 * 24 * time.Hour), Now: now})
+	recent, err := s.Store.ListFindings(ctx, readScope(r), store.FindingFilter{Since: daysAgo(now, recentDays), Now: now})
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
+	// The open ones, as the list it links to (A84).
+	recent = keepLevel(recent, levelOpen)
 	tracking.SortByPriority(recent)
 	recentTotal := len(recent)
 	recent = recent[:min(len(recent), 10)]
@@ -257,7 +259,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	s.render(w, r, http.StatusOK, "dashboard", page{Title: "Tableau de bord", Refresh: s.syncStatus().Running, Data: map[string]any{
 		"Stats": stats, "Counts": counts, "Severe": stats.OpenBySeverity["CRITICAL"] + stats.OpenBySeverity["HIGH"], "Recent": recent, "RecentTotal": recentTotal,
-		"Assets": len(assets), "Tracked": tracked, "ByName": byName, "Coverage": coverage,
+		"RecentDays": recentDays, "Assets": len(assets), "Tracked": tracked, "ByName": byName, "Coverage": coverage,
 		"Donut": newDonut(stats.OpenBySeverity), "Weekly": newWeeklyChart(stats.Weeks),
 		"TopAssets": newAssetChart(stats.TopAssets), "SLA": sla,
 	}})
@@ -510,7 +512,31 @@ func (s *Server) assetDelete(w http.ResponseWriter, r *http.Request) {
 // --- findings -------------------------------------------------------------
 
 func (s *Server) findingList(w http.ResponseWriter, r *http.Request) {
+	if fromPriority(w, r, "/findings") {
+		return
+	}
 	s.renderFindings(w, r, http.StatusOK, "")
+}
+
+// fromPriority sends a list asked with ?priority=1, the box of the urgent
+// findings until 0.4 (links of the alerts already sent, bookmarks), to the
+// level that replaced it, ?level=urgent (A84), at path, and reports whether
+// it did.
+func fromPriority(w http.ResponseWriter, r *http.Request, path string) bool {
+	q := r.URL.Query()
+	if !q.Has("priority") {
+		return false
+	}
+	if q.Get("priority") == "1" {
+		q.Set("level", tracking.LevelUrgent)
+	}
+	q.Del("priority")
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	// SECURITY: a fixed path of this site; only the query string, encoded, comes from the request.
+	http.Redirect(w, r, path, http.StatusMovedPermanently) // #nosec G710 -- fixed local path, encoded query
+	return true
 }
 
 // renderFindings shows the vulnerability list filtered by the query string,
@@ -542,7 +568,7 @@ func (s *Server) renderFindings(w http.ResponseWriter, r *http.Request, status i
 		"Findings": findings, "Filter": f, "Projects": projects, "Tags": tags,
 		"MinEPSSPercent": f.MinEPSS * 100, "Next": "/findings?" + without(q, "msg").Encode(),
 		"Sort": q.Get("sort"), "Dir": q.Get("dir"), "Head": sortHeaders(findingColumnList, "/findings", q, order),
-		"Levels": levels, "Level": q.Get("level"),
+		"Levels": levels, "Level": q.Get("level"), "Since": sinceDays(q), "More": moreFilters(f),
 		// Re-encoded from the parsed query: a safe relative link with the same filters.
 		"CSVLink": template.URL("/findings.csv?" + q.Encode()), // #nosec G203 -- fixed path, encoded values
 	}})
@@ -550,6 +576,9 @@ func (s *Server) renderFindings(w http.ResponseWriter, r *http.Request, status i
 
 // findingCSV exports the filtered vulnerability list for spreadsheets.
 func (s *Server) findingCSV(w http.ResponseWriter, r *http.Request) {
+	if fromPriority(w, r, "/findings.csv") {
+		return
+	}
 	q := r.URL.Query()
 	findings, err := s.Store.ListFindings(r.Context(), readScope(r), findingFilterFrom(q))
 	if err != nil {
@@ -668,7 +697,6 @@ func findingFilterFrom(q url.Values) store.FindingFilter {
 		Severities: keep(q["severity"], severities),
 		Kinds:      keep(q["kind"], inventory.Kinds),
 		KEV:        q.Get("kev") == "1",
-		Priority:   q.Get("priority") == "1",
 		Overdue:    q.Get("overdue") == "1",
 		MinCVSS:    number("cvss", 10),
 		MinEPSS:    number("epss", 100) / 100, // entered as a percentage
@@ -676,8 +704,46 @@ func findingFilterFrom(q url.Values) store.FindingFilter {
 		Tag:        tagParam(q),
 		Search:     strings.TrimSpace(q.Get("q")),
 	}
+	if days := sinceDays(q); days > 0 {
+		f.Since = daysAgo(time.Now(), days)
+	}
 	f.Search = clip.Prefix(f.Search, 200)
 	return f
+}
+
+// recentDays is the period of the dashboard's new vulnerabilities, which
+// links to the list detected over as many days (?since=).
+const recentDays = 7
+
+// maxSinceDays bounds the period of a list, in days: ten years.
+const maxSinceDays = 3650
+
+// sinceDays reads the period of a list (?since=7: detected in the last 7
+// days), 0 for none or a value out of 1..maxSinceDays.
+func sinceDays(q url.Values) int {
+	days, err := strconv.Atoi(q.Get("since"))
+	if err != nil || days < 1 || days > maxSinceDays {
+		return 0
+	}
+	return days
+}
+
+// daysAgo is the time days before now.
+func daysAgo(now time.Time, days int) time.Time {
+	return now.Add(-time.Duration(days) * 24 * time.Hour)
+}
+
+// moreFilters counts the filters set in the folded part of the filter form,
+// for its title (« Plus de filtres (2 appliqués) »).
+func moreFilters(f store.FindingFilter) int {
+	n := 0
+	for _, set := range []bool{len(f.Statuses) > 0, len(f.Severities) > 0, len(f.Kinds) > 0, f.KEV, f.Overdue,
+		f.MinCVSS > 0, f.MinEPSS > 0, f.Project != "", f.Tag != "", !f.Since.IsZero()} {
+		if set {
+			n++
+		}
+	}
+	return n
 }
 
 // without is a copy of the query q without keys: a link that keeps the

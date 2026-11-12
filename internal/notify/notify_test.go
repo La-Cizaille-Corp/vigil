@@ -140,13 +140,53 @@ func TestAlertReason(t *testing.T) {
 	}{
 		{store.Alert{Finding: store.Finding{Severity: "HIGH", KEV: true, EPSS: 0.5}}, "haute, exploitée (CISA KEV)"},
 		{store.Alert{Finding: store.Finding{Severity: "LOW", Status: "exploitable", EPSS: -1}, Raised: true}, "basse, jugée exploitable, devenue plus urgente"},
-		{store.Alert{Finding: store.Finding{EPSS: 0.1234}}, "EPSS 12,3 %"},
+		{store.Alert{Finding: store.Finding{EPSS: 0.1234}}, "EPSS 12,3\u00a0%"},
 		{store.Alert{Finding: store.Finding{Severity: "CRITICAL", EPSS: 0.05}}, "critique"},
 		{store.Alert{Finding: store.Finding{EPSS: -1}}, "gravité inconnue"},
+		// To plan by its score alone: the score says why, as in the lists.
+		{store.Alert{Finding: store.Finding{Severity: "MEDIUM", CVSS: 7.5, EPSS: -1, Class: store.AlertSevere}}, "moyenne, CVSS 7,5"},
 	} {
 		if got := alertReason(c.a); got != c.want {
 			t.Errorf("alertReason(%+v) = %q, want %q", c.a.Finding, got, c.want)
 		}
+	}
+}
+
+// An alert is titled and linked by the levels it announces (A84), no longer
+// « à traiter en priorité » and ?priority=1.
+func TestAlertTitleAndLinks(t *testing.T) {
+	n := &Notifier{BaseURL: "https://vigil.example/"}
+	urgent := store.Alert{Finding: store.Finding{ID: 1, VulnID: "CVE-2026-1", KEV: true, EPSS: -1, Class: store.AlertPriority}}
+	plan := store.Alert{Finding: store.Finding{ID: 2, VulnID: "CVE-2026-2", Severity: "HIGH", EPSS: -1, Class: store.AlertSevere}}
+	urgentLink := "Urgentes : https://vigil.example/findings?level=urgent\n"
+	planLink := "À planifier : https://vigil.example/findings?level=plan\n"
+	for _, c := range []struct {
+		alerts        []store.Alert
+		subject       string
+		links, absent []string
+	}{
+		{[]store.Alert{urgent}, "[Vigil] 1 vulnérabilité urgente", []string{urgentLink}, []string{"level=plan", "priority"}},
+		{[]store.Alert{urgent, urgent, plan}, "[Vigil] 2 vulnérabilités urgentes et 1 à planifier",
+			[]string{urgentLink, planLink}, []string{"priority"}},
+		{[]store.Alert{plan, plan}, "[Vigil] 2 vulnérabilités à planifier", []string{planLink}, []string{"level=urgent"}},
+	} {
+		m := n.alertMessage(c.alerts)
+		if m.Subject != c.subject {
+			t.Errorf("subject %q, want %q", m.Subject, c.subject)
+		}
+		for _, l := range c.links {
+			if !strings.Contains(m.Text, l) {
+				t.Errorf("%s: no link %q in\n%s", c.subject, l, m.Text)
+			}
+		}
+		for _, a := range c.absent {
+			if strings.Contains(m.Text, a) {
+				t.Errorf("%s: %q in\n%s", c.subject, a, m.Text)
+			}
+		}
+	}
+	if got := alertTitle(1, 1); got != "1 vulnérabilité urgente et 1 à planifier" {
+		t.Errorf("alertTitle(1, 1) = %q", got)
 	}
 }
 

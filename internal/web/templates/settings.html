@@ -123,8 +123,9 @@ la section correspondante du digest (sans sélection : toutes les réglementatio
 
 <h2 id="canaux">Canaux de notification</h2>
 <p class="muted">Chaque canal reçoit les digests et, s'il le souhaite, des <strong>alertes immédiates</strong> envoyées à la fin
-  de chaque synchronisation pour les vulnérabilités ouvertes qui deviennent urgentes (une seule alerte par vulnérabilité,
-  sauf si elle devient plus urgente). L'URL d'un webhook est secrète et n'est plus affichée après l'enregistrement.
+  de chaque synchronisation pour les vulnérabilités ouvertes qui atteignent un niveau : Urgentes (exploitées, probables
+  ou jugées exploitables), et, au choix, À planifier (critiques ou hautes). Une seule alerte par vulnérabilité, sauf si
+  elle devient plus urgente. L'URL d'un webhook est secrète et n'est plus affichée après l'enregistrement.
   {{if not .Data.Mail}}<br>E-mail : aucun serveur SMTP configuré (options <code>-smtp-addr</code> et <code>-smtp-from</code>).{{end}}</p>
 {{if .Data.Webhooks}}
 <table>

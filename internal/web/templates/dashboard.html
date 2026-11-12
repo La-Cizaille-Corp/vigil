@@ -15,10 +15,10 @@
 {{end}}
 
 <section class="kpis" aria-label="Indicateurs clés">
-  <a class="kpi kpi-hero" href="/findings?priority=1">
-    <span class="kpi-label">À traiter en priorité</span>
+  <a class="kpi kpi-hero" href="/findings?level=urgent">
+    <span class="kpi-label">Urgentes</span>
     <span class="kpi-value">{{$s.Priority}}</span>
-    <span class="kpi-note">dont {{$s.OpenKEV}} exploitée(s) (CISA KEV), les autres probables (EPSS ≥ 10 %) ou jugées exploitables</span>
+    <span class="kpi-note">à traiter d'abord : dont {{$s.OpenKEV}} exploitée(s) (CISA KEV), les autres probables (EPSS ≥ 10 %) ou jugées exploitables</span>
   </a>
   <a class="kpi" href="/findings">
     <span class="kpi-label">Vulnérabilités ouvertes</span>
@@ -127,8 +127,8 @@
   </article>
 </section>
 
-<h2>Nouvelles vulnérabilités (7 derniers jours)</h2>
+<h2>Nouvelles vulnérabilités ouvertes (7 derniers jours)</h2>
 {{template "findingTable" (findingRows .Data.Recent false)}}
-{{if gt .Data.RecentTotal (len .Data.Recent)}}<p><a href="/findings?sort=recent">Voir les {{.Data.RecentTotal}} vulnérabilités de la semaine</a></p>
-{{else}}<p><a href="/findings?sort=recent">Voir toutes les vulnérabilités</a></p>{{end}}
+{{if gt .Data.RecentTotal (len .Data.Recent)}}<p><a href="/findings?since={{.Data.RecentDays}}&amp;sort=recent">Voir les {{.Data.RecentTotal}} vulnérabilités ouvertes de la semaine</a></p>
+{{else}}<p><a href="/findings?sort=recent">Voir toutes les vulnérabilités ouvertes, les plus récentes d'abord</a></p>{{end}}
 {{end}}

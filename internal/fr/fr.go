@@ -7,8 +7,9 @@
 //   - a decimal comma, no thousands separator: 9,8 (Decimal);
 //   - a score, CVSS or EPSS, with one decimal, 0 included: 0,0 (Score); a
 //     negative score is unknown and written "", the caller shows its dash;
-//   - a percentage with a space before its sign: 12,3 % (Percent);
-//   - a number of days: < 1 j, 3,5 j, 12 j (Days).
+//   - a percentage with a no-break space before its sign, which never
+//     goes alone to the next line: 12,3 % (Percent);
+//   - a number of days, its unit kept the same way: < 1 j, 3,5 j, 12 j (Days).
 //
 // The values of form fields stay as HTML reads them, with a point
 // (input type="number"), and so do machine formats: ISO dates of the CSV
@@ -24,6 +25,9 @@ import (
 	"strings"
 	"time"
 )
+
+// nbsp is the no-break space between a number and its unit (A84).
+const nbsp = "\u00a0"
 
 // Date writes the day of t as it is, without changing its time zone: a
 // deadline or a publication date is a day, not a moment.
@@ -54,18 +58,18 @@ func Percent(p float64) string {
 	if p < 0 {
 		return ""
 	}
-	return Decimal(p*100, 1) + " %"
+	return Decimal(p*100, 1) + nbsp + "%"
 }
 
 // Days writes a number of days: "< 1 j", one decimal below 10, none above.
 func Days(d float64) string {
 	switch {
 	case d < 1:
-		return "< 1 j"
+		return "<" + nbsp + "1" + nbsp + "j"
 	case d < 10:
-		return Decimal(d, 1) + " j"
+		return Decimal(d, 1) + nbsp + "j"
 	}
-	return Decimal(d, 0) + " j"
+	return Decimal(d, 0) + nbsp + "j"
 }
 
 // Funcs returns the template functions that write dates and numbers, shared

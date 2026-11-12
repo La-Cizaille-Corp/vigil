@@ -71,11 +71,8 @@ type FindingFilter struct {
 	AssetID int64
 	Since   time.Time // first_seen >= Since
 	KEV     bool      // only known exploited vulnerabilities
-	// Priority keeps the urgent findings (AlertPriority): exploited (KEV),
-	// likely to be (EPSS >= LikelyEPSS) or judged exploitable.
-	Priority bool
-	Project  string
-	Tag      string // the asset carries this tag
+	Project string
+	Tag     string // the asset carries this tag
 
 	Statuses   []string // any of these statuses
 	Severities []string // any of these ratings; "UNKNOWN" matches findings without one
@@ -303,9 +300,6 @@ func (s *Store) ListFindings(ctx context.Context, sc Scope, f FindingFilter) ([]
 	}
 	if f.KEV {
 		where = append(where, "v.kev = 1")
-	}
-	if f.Priority {
-		where = append(where, urgentExpr)
 	}
 	if !f.Since.IsZero() {
 		where = append(where, "f.first_seen >= ?")
