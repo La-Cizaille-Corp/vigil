@@ -1,0 +1,25 @@
+{{define "content"}}
+{{$w := .Data}}
+<p class="muted">Pays et secteurs suivis : ils filtrent la page « Veille » et la section menaces du digest.
+Sans sélection, tout est inclus. Les réglementations suivies alimentent la vue « Veille réglementaire » et
+la section correspondante du digest (sans sélection : toutes les réglementations et normes).</p>
+<section id="filtres">
+{{template "formError" (errorAt . "filtres")}}
+{{if and (can .User.Role "analyst") (not .User.Restricted)}}
+<form method="post" action="/settings/watch#filtres" class="card">
+  {{template "csrf" .CSRF}}
+  {{template "tagFields" (dict3 $w.Countries $w.Sectors $w.Regulations)}}
+  <button type="submit">Enregistrer les filtres</button>
+</form>
+{{else}}
+<p class="card">
+  {{range $w.Countries}}<span class="tag">{{countryLabel .}}</span>{{end}}
+  {{range $w.Sectors}}<span class="tag tag-sector">{{sectorLabel .}}</span>{{end}}
+  {{range $w.Regulations}}<span class="tag tag-regulation">{{regulationLabel .}}</span>{{end}}
+  {{if not (or $w.Countries $w.Sectors $w.Regulations)}}<span class="muted">Aucun filtre : tout est inclus.</span>{{end}}
+</p>
+{{if .User.Restricted}}<p class="muted small">Les filtres de veille sont communs à tous les comptes : seul un compte qui voit
+  tout l'inventaire peut les changer.</p>{{end}}
+{{end}}
+</section>
+{{end}}

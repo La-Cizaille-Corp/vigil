@@ -6,8 +6,8 @@
   {{end}}
 </nav>
 {{if .Data.Concerning}}<p class="muted small">Actualités qui citent une vulnérabilité ouverte de votre inventaire (identifiant CVE dans le titre ou le résumé).</p>{{end}}
-{{if .Data.Watched}}<p class="muted small">Filtre de veille enregistré appliqué{{if $analyst}} (<a href="/settings">modifier</a>){{end}}.</p>{{end}}
-{{if .Data.Regulatory}}<p class="muted small">Actualités liées {{if $f.Regulations}}aux réglementations suivies{{else}}à une réglementation ou une norme{{end}}{{if $analyst}} (<a href="/settings">modifier</a>){{end}}.</p>{{end}}
+{{if .Data.Watched}}<p class="muted small">Filtre de veille enregistré appliqué{{if $analyst}} (<a href="/settings/watch">modifier</a>){{end}}.</p>{{end}}
+{{if .Data.Regulatory}}<p class="muted small">Actualités liées {{if $f.Regulations}}aux réglementations suivies{{else}}à une réglementation ou une norme{{end}}{{if $analyst}} (<a href="/settings/watch">modifier</a>){{end}}.</p>{{end}}
 
 <details class="card" {{if and .Data.All (or $f.Countries $f.Sectors $f.Regulations)}}open{{end}}>
   <summary>Filtrer par pays, secteur ou réglementation</summary>

@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Délais de traitement · Vigil</title>
+
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<a class="skip" href="#contenu">Aller au contenu</a>
+<header>
+  <a class="brand" href="/"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="logo-shield" d="M12 2 4 5v6c0 5 3.4 9.3 8 11 4.6-1.7 8-6 8-11V5l-8-3Z"/><path class="logo-eye" d="M12 8.5c-2.6 0-4.7 1.6-5.5 3.5.8 1.9 2.9 3.5 5.5 3.5s4.7-1.6 5.5-3.5c-.8-1.9-2.9-3.5-5.5-3.5Zm0 5.5a2 2 0 1 1 0-4 2 2 0 0 1 0 4Z"/></svg>Vigil</a>
+  
+  <nav aria-label="Navigation principale">
+    <a href="/" >Tableau de bord</a>
+    <a href="/assets" >Inventaire</a>
+    <a href="/findings" >Vulnérabilités</a>
+    <a href="/cti" >Veille</a>
+    <a href="/digests" >Digests</a>
+    <a href="/settings" aria-current="page">Paramètres</a>
+  </nav>
+  <form method="post" action="/logout" class="inline">
+    <input type="hidden" name="csrf" value="CSRF">
+    <a class="account-link" href="/account" title="Mon compte" >admin</a>
+    <span class="muted small">administrateur</span>
+    <button type="submit" class="link">Déconnexion</button>
+  </form>
+  
+</header>
+<main id="contenu">
+  <h1>Délais de traitement</h1>
+  
+  
+  <div class="settings">
+  <nav class="settings-nav" aria-label="Sections des paramètres">
+  <p class="settings-group">Alertes</p>
+  <ul><li><a href="/settings/webhooks">Notifications</a></li><li><a href="/settings/sla" aria-current="page">Délais de traitement</a></li></ul>
+  <p class="settings-group">Veille</p>
+  <ul><li><a href="/settings/watch">Filtres de veille</a></li><li><a href="/settings/feeds">Flux</a></li></ul>
+  <p class="settings-group">Accès</p>
+  <ul><li><a href="/settings/users">Utilisateurs</a></li><li><a href="/settings/groups">Groupes</a></li><li><a href="/settings/tokens">Jetons d&#39;API</a></li><li><a href="/settings/audit">Journal d&#39;audit</a></li></ul>
+  
+</nav>
+  <div class="settings-page">
+
+<p class="muted">Échéance d'une vulnérabilité ouverte, en jours depuis sa détection, selon sa sévérité. Une vulnérabilité
+  exploitée (CISA KEV) reçoit le délai « critique » ; une sévérité inconnue, le délai « moyenne ». 0 = pas d'échéance.
+  Les valeurs par défaut suivent la directive CISA BOD 19-02 (15 jours pour les critiques, 30 pour les hautes).</p>
+
+<section id="delais">
+
+<form method="post" action="/settings/sla#delais" class="card">
+  <input type="hidden" name="csrf" value="CSRF">
+  <div class="grid">
+    <label>Critique (jours) <input type="number" name="critical" min="0" max="1000" value="15" required></label>
+    <label>Haute (jours) <input type="number" name="high" min="0" max="1000" value="30" required></label>
+    <label>Moyenne (jours) <input type="number" name="medium" min="0" max="1000" value="90" required></label>
+    <label>Basse (jours) <input type="number" name="low" min="0" max="1000" value="180" required></label>
+  </div>
+  <button type="submit">Enregistrer les délais</button>
+</form>
+</section>
+</div>
+  </div>
+</main>
+</body>
+</html>

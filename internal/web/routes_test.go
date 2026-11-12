@@ -109,7 +109,12 @@ var wantPolicy = map[string]string{
 	"POST /findings/{id}": auth.RoleAnalyst,
 
 	"GET /settings":                        auth.RoleViewer,
+	"GET /settings/watch":                  auth.RoleViewer,
 	"POST /settings/watch":                 auth.RoleAnalyst,
+	"GET /settings/feeds":                  auth.RoleViewer,
+	"GET /settings/webhooks":               auth.RoleAdmin,
+	"GET /settings/sla":                    auth.RoleAdmin,
+	"GET /settings/tokens":                 auth.RoleAdmin,
 	"POST /settings/news":                  auth.RoleAdmin,
 	"POST /settings/sla":                   auth.RoleAdmin,
 	"POST /settings/feeds":                 auth.RoleAdmin,

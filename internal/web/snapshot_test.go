@@ -101,6 +101,7 @@ func TestRenderSnapshots(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := loginAs(t, base, "analyst", "a-strong-password")
+	admin := loginAs(t, base, "admin", "a-strong-password")
 	digestPath := "/digests/" + strconv.FormatInt(d.ID, 10)
 	for name, path := range map[string]string{
 		"dashboard.html":     "/",
@@ -113,8 +114,17 @@ func TestRenderSnapshots(t *testing.T) {
 		"asset-new.html":     "/assets/new",
 		"digest.html":        digestPath,
 		"digest-markdown.md": digestPath + "/markdown",
+		// The settings as an administrator sees them, their whole menu with them (A89).
+		"settings-webhooks.html": "/settings/webhooks",
+		"settings-sla.html":      "/settings/sla",
+		"settings-feeds.html":    "/settings/feeds",
+		"settings-tokens.html":   "/settings/tokens",
 	} {
-		code, body := c.get(path)
+		client := c
+		if strings.HasPrefix(name, "settings-") {
+			client = admin
+		}
+		code, body := client.get(path)
 		if code != 200 {
 			t.Fatalf("%s: %d", path, code)
 		}

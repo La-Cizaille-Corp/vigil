@@ -1,0 +1,81 @@
+{{define "content"}}
+{{$csrf := .CSRF}}{{$form := .Data.Form}}
+<p class="muted">Chaque canal reçoit les digests et, s'il le souhaite, des <strong>alertes immédiates</strong> envoyées à la fin
+  de chaque synchronisation pour les vulnérabilités ouvertes qui atteignent un niveau : Urgentes (exploitées, probables
+  ou jugées exploitables), et, au choix, À planifier (critiques ou hautes). Une seule alerte par vulnérabilité, sauf si
+  elle devient plus urgente. L'URL d'un webhook est secrète et n'est plus affichée après l'enregistrement.
+  Un canal limité à un groupe d'actifs ne reçoit que les alertes et le digest de ce groupe.</p>
+{{if .Data.Webhooks}}
+<table class="cards" role="table">
+<thead role="rowgroup"><tr role="row"><th role="columnheader">Nom</th><th role="columnheader">Type</th><th role="columnheader">Destination</th><th role="columnheader">Reçoit</th><th role="columnheader">État du dernier envoi</th><th role="columnheader"><span class="sr-only">Actions</span></th></tr></thead>
+<tbody role="rowgroup">
+{{range .Data.Webhooks}}
+<tr role="row">
+  <td class="title" role="cell">{{.Name}}{{if not .Enabled}} <span class="muted">(désactivé)</span>{{end}}</td>
+  <td role="cell" data-label="Type">{{webhookKindLabel .Kind}}</td>
+  <td role="cell" data-label="Destination"><code class="small">{{target .}}</code></td>
+  <td role="cell" data-label="Reçoit">
+    <form method="post" action="/settings/webhooks/{{.ID}}" class="delivery">
+      {{template "csrf" $csrf}}
+      <label class="check"><input type="checkbox" name="digests" value="1" {{if .Digests}}checked{{end}}> Digests</label>
+      <select name="alerts" aria-label="Alertes immédiates de {{.Name}}">{{$cur := .Alerts}}{{range alertOptions}}<option value="{{.Value}}" {{if eq .Value $cur}}selected{{end}}>{{.Label}}</option>{{end}}</select>
+      {{- $group := .Group}}{{$name := .Name}}{{with $.Data.Groups}}
+      <select name="group" aria-label="Périmètre de {{$name}}"><option value="">tout l'inventaire</option>{{range .}}<option value="{{.ID}}" {{if eq .ID $group}}selected{{end}}>groupe {{.Name}}</option>{{end}}</select>
+      {{- end}}
+      <button type="submit" class="link">Enregistrer</button>
+    </form>
+  </td>
+  <td role="cell" data-label="Dernier envoi">{{if .LastError}}<span class="danger-link small">Échec : {{.LastError}}</span>{{else}}<span class="muted">OK (ou jamais envoyé)</span>{{end}}</td>
+  <td class="actions" role="cell">
+    <form method="post" action="/settings/webhooks/{{.ID}}/test" class="inline">
+      {{template "csrf" $csrf}}
+      <button type="submit" class="link">Envoyer un test</button>
+    </form>
+    <form method="post" action="/settings/webhooks/{{.ID}}/toggle" class="inline">
+      {{template "csrf" $csrf}}
+      <input type="hidden" name="enabled" value="{{if .Enabled}}0{{else}}1{{end}}">
+      <button type="submit" class="link">{{if .Enabled}}Désactiver{{else}}Activer{{end}}</button>
+    </form>
+    <details class="confirm">
+      <summary>Supprimer…</summary>
+      <form method="post" action="/settings/webhooks/{{.ID}}/delete" class="inline">
+        {{template "csrf" $csrf}}
+        <button type="submit" class="danger">Supprimer le canal</button>
+      </form>
+    </details>
+  </td>
+</tr>
+{{end}}
+</tbody>
+</table>
+{{else}}
+<div class="notice"><strong>Aucun canal pour l'instant.</strong> Sans canal, les urgentes n'apparaissent que dans Vigil.</div>
+{{end}}
+{{if not .Data.Mail}}<p class="muted small">E-mail : aucun serveur SMTP configuré (options <code>-smtp-addr</code> et
+  <code>-smtp-from</code>) ; Slack, Teams, Mattermost ou un webhook restent possibles.</p>{{end}}
+
+<section id="nouveau-canal">
+<h2>Ajouter un canal</h2>
+{{template "formError" (errorAt . "nouveau-canal")}}
+<form method="post" action="/settings/webhooks#nouveau-canal" class="card">
+  {{template "csrf" $csrf}}
+  <div class="grid">
+    <label>Nom <input name="name" value="{{$form.Name}}" required maxlength="100"></label>
+    <label>Type <select name="kind">{{range webhookKinds}}<option value="{{.Value}}"{{if eq .Value $form.Kind}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
+    <label>URL du webhook (https), ou adresses e-mail séparées par des virgules
+      <input name="url" value="{{$form.URL}}" required maxlength="2000" autocomplete="off"></label>
+    {{with .Data.Groups}}<label>Périmètre <select name="group"><option value="">tout l'inventaire</option>{{range .}}<option value="{{.ID}}"{{if eq .ID $form.Group}} selected{{end}}>groupe {{.Name}}</option>{{end}}</select></label>{{end}}
+  </div>
+  {{- /* The levels in words, each with what it covers (A84, audit UX 8.1). */}}
+  <fieldset class="plain">
+    <legend>Alertes immédiates</legend>
+    {{range alertOptions}}<label class="check"><input type="radio" name="alerts" value="{{.Value}}"{{if eq .Value $form.Alerts}} checked{{end}}> <span>{{.Label}}
+      <span class="muted small">{{if eq .Value "priority"}}(exploitées, probables ou jugées exploitables){{else if eq .Value "severe"}}(plus les critiques et les hautes){{else}}(digests seulement){{end}}</span></span></label>
+    {{end}}
+  </fieldset>
+  <label class="check"><input type="checkbox" name="digests" value="1"{{if $form.Digests}} checked{{end}}> Recevoir aussi les digests</label>
+  <div class="toolbar form-actions"><button type="submit">Ajouter le canal</button>
+    <span class="muted small">puis « Envoyer un test » sur la ligne du canal.</span></div>
+</form>
+</section>
+{{end}}
