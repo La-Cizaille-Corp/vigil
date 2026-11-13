@@ -23,6 +23,153 @@ Les commandes de chaque cas sont plus bas :
 | sur un serveur Windows (tâche planifiée) | [Serveur Windows](#serveur-windows-tâche-planifiée) |
 | sur un serveur avec Docker Compose | [Serveur Docker Compose](#serveur-docker-compose) |
 
+## De la 0.4 à la 0.5
+
+La procédure est la même, et **la base est conservée** : inventaire, triage et historique, comptes,
+canaux, jetons et réglages. Au premier démarrage, elle passe du schéma 15 au schéma 21 : six
+migrations, qui n'ajoutent que des index, des tables et des colonnes. Rien n'est supprimé. Une copie
+`.bak` est écrite avant, comme pour toute évolution du schéma ; sur une base de 180 Mo (deux noyaux
+suivis), copie et migrations prennent environ une seconde. La 0.4 refuse ensuite cette base : pour y
+revenir, remettez la base d'avant ([revenir en arrière](#revenir-en-arrière)).
+
+**Avant la mise à jour**
+
+- **Tag de l'image** : sous Docker, passez de `0.4` à `0.5` (`docker run` ou `docker-compose.yml`).
+  L'unité systemd, le `Caddyfile` et votre `.env` restent valables.
+- **Expéditeur des e-mails** : un `-smtp-from` (ou `VIGIL_SMTP_FROM`) entre guillemets, avec une
+  adresse IP entre crochets, une espace ou un second `@` empêche désormais Vigil de démarrer.
+  Vérifiez-le. Un canal dont un destinataire a une telle adresse échoue à l'envoi, avec la raison
+  sur le canal : corrigez l'adresse.
+- **Options des commandes** : `vigil user …`, `vigil backup`, `vigil import-sbom` et `vigil digest`
+  ne lisent plus leurs options propres dans l'environnement (`VIGIL_ALL`, `VIGIL_ROLE`,
+  `VIGIL_GROUPS`, `VIGIL_USERNAME`, `VIGIL_O`, `VIGIL_PROJECT`, `VIGIL_NO_WEBHOOKS`) : passez-les en
+  options. Les options communes (`VIGIL_DB`…) et celles de `vigil serve` ne changent pas.
+- **TLS** : `-tls-cert` sans `-tls-key`, ou l'inverse, est refusé au démarrage au lieu de servir en
+  HTTP.
+- **Réseau** : les sources (OSV, NVD, KEV, EPSS) passent par le même contrôle d'adresse que les flux
+  et les webhooks. Si votre DNS les résout vers une adresse privée (miroir, proxy transparent), elles
+  sont refusées sauf avec `-allow-private-urls`.
+- **Scripts** : un appel scripté à `/setup` doit envoyer aussi `confirm`, le mot de passe une seconde
+  fois.
+- **Journaux** : les messages du journal du service passent en anglais (détail ci-dessous), et le
+  détail des nouvelles entrées du journal d'audit s'écrit en paires `clé=valeur`
+  (`id=12 status=resolved`, `source=cli` pour la ligne de commande). Les anciennes entrées gardent
+  leur texte. Adaptez un filtre ou un SIEM qui lisait l'ancien texte.
+
+<details>
+<summary>Messages du journal du service qui changent</summary>
+
+| Avant | Après |
+|---|---|
+| `synchronisation automatique`, `asset sync failed` | `sync failed` (avec `asset=0` pour tout l'inventaire) |
+| `collecte automatique des flux` | `scheduled cti collection failed` |
+| `sauvegarde automatique` | `scheduled backup failed` |
+| `sauvegarde` | `backup done` |
+| `digest automatique` | `scheduled digest failed` |
+| `vigil démarré` | `vigil started` |
+| `arrêt du serveur` | `server shutdown failed` |
+| `e-mails envoyés sans chiffrement à un serveur distant…` | `e-mail sent unencrypted to a remote server…` |
+| `flux CTI en erreur` | `cti feed failed` |
+| `notification en erreur`, clé `canal` | `notification failed`, clé `channel` |
+| `alertes immédiates` | `immediate alerts failed` |
+| `enrichissement KEV/EPSS` | `kev/epss enrichment failed` |
+| `actif non vérifié` | `asset not checked` |
+| `catalogue KEV` | `kev catalog failed` |
+| `export CSV` | `csv export failed` |
+| `recherche CPE` | `cpe search failed` |
+
+</details>
+
+**À la première synchronisation**
+
+1. **Lecture complète** : elle lit encore les gros paquets en entier, près d'une heure pour un noyau
+   Ubuntu. Les suivantes ne lisent que ce qui a changé : moins d'une minute et 600 Ko au lieu de
+   4,5 Go. Ubuntu régénère les avis de son noyau à chaque publication d'un de ses noyaux : comptez
+   encore une lecture complète environ une synchronisation sur sept, et au moins une par semaine.
+2. **Une ligne par CVE** : les avis groupés (USN, DSA) et les seconds avis d'une même CVE sont
+   repliés sur la ligne de la CVE, dont la page les montre. Aucune alerte ne repart et aucune ligne
+   ne paraît nouvelle. La détection d'une ligne gardée peut reculer à celle de l'autre avis : son
+   échéance avance d'autant et peut passer « hors délai ».
+3. **Alertes à attendre, une fois** :
+   - les vulnérabilités déjà marquées « Exploitable – à traiter » partent en alerte urgente ;
+   - sur un noyau Ubuntu, la sévérité d'un avis sans score vient désormais de la priorité d'Ubuntu :
+     une centaine de lignes deviennent hautes ou critiques, et chaque canal abonné aux alertes « À
+     planifier » reçoit un message groupé ;
+   - les CVE plus anciennes que la période de suivi mais probablement exploitées (EPSS ≥ 10 %)
+     entrent dans la période, en alerte urgente : 13 lignes sur la base de test, dont deux CVE TCP de
+     2004 et 2008 que Debian dit toujours affecter le noyau.
+4. **Délai moyen de traitement** : il ne compte plus l'arriéré trouvé à la première analyse d'un
+   actif. La valeur affichée change, en général à la baisse.
+
+**Ce qui change à l'usage**
+
+- **Niveaux** : « Urgentes » remplace « À traiter en priorité » et la case « Prioritaire » des
+  filtres ; les liens `?priority=1` des alertes déjà reçues ouvrent le niveau Urgentes. Chaque ligne
+  commence par son niveau et sa raison. Une vulnérabilité exploitée, ou marquée Exploitable, passe
+  devant une critique qui ne l'est pas ; une vulnérabilité notée par son seul score se range à sa
+  bande. Les réglages d'alerte des canaux s'appellent « Urgentes seulement » et « Urgentes et À
+  planifier » : rien à refaire.
+- **Listes** : pages de 100 lignes, retour à la liste et « Suivante » depuis une vulnérabilité,
+  filtres par actif (`/findings?asset=…`) et par groupe. Une décision peut viser toute la liste
+  filtrée : elle ne change pas ce que quelqu'un a déjà décidé et demande confirmation au-delà de 50
+  vulnérabilités. Export et import VEX sont au-dessus du tableau.
+- **Page d'un actif** : un résumé par niveau et ses dix vulnérabilités les plus urgentes ; la liste
+  complète s'ouvre depuis ses compteurs. Un favori vers `/assets/{id}?page=N` n'ouvre plus que la
+  première page. « Écarter le bruit » y est toujours visible pour les analystes, et « Suivre tout
+  l'historique » demande confirmation.
+- **Inventaire** : colonnes Urgentes et Ouvertes, et une recherche.
+- **Ajouter des actifs** : quatre entrées, un formulaire en trois groupes, des refus qui disent quoi
+  écrire, une erreur par ligne pour un CSV. Un purl doit nommer un paquet, et un CPE doit avoir ses
+  13 champs : un actif déjà en base qui ne le respecte pas est à corriger à sa prochaine
+  modification. La première configuration demande de confirmer le mot de passe.
+- **Digest** : les urgentes d'abord, les nombres par niveau, des listes bornées à 50 lignes ; plus de
+  résumés ni de synthèse par statut, et la colonne « Exploitées (KEV) » du tableau par éditeur
+  devient « Urgentes ». Un outil qui lirait son Markdown est à revoir. « Digest envoyé » ne s'affiche
+  que si un canal l'a reçu ; dans Teams, un digest long garde son lien vers le digest complet.
+- **Veille** : le nombre d'actualités de chaque vue, « Qui concernent mon inventaire » en premier,
+  des pages de 100 groupées par jour, jusqu'aux 500 plus récentes. Les flux RSS 1.0 sont lus ; d'un
+  flux de plus de 2 000 entrées, seules les 2 000 premières le sont.
+- **Paramètres** : des sous-pages (Notifications, Délais, Filtres de veille, Flux, Utilisateurs,
+  Groupes, Jetons d'API, Journal d'audit). Les favoris vers `/settings#canaux` ou `#jetons` mènent à
+  la première. Un formulaire refusé garde ce qui a été saisi.
+- **Groupes d'actifs** (nouveau) : Paramètres → Groupes, définis par des étiquettes et des projets.
+  Un compte peut être limité à des groupes (`vigil user add -groups`, `vigil user set-access`), et
+  un canal ne recevoir que les alertes et le digest d'un groupe. Les comptes existants gardent
+  l'accès à tout, et `vigil user add` sans `-groups` aussi ; créer un compte dans l'interface demande
+  de choisir son accès. Les filtres de veille sont réservés aux comptes qui voient tout.
+- **Comptes** :
+  - « Fermer mes autres sessions » dans Mon compte ;
+  - un nom qui ne diffère d'un compte existant que par la casse est refusé ;
+  - un mot de passe parmi les 3 000 plus courants est refusé quand on le choisit, pas à la
+    connexion ;
+  - un mot de passe de plus de 1 024 octets n'est plus accepté : un compte qui en aurait un
+    reçoit un nouveau mot de passe par `vigil user reset-password` ;
+  - **un jeton d'API créé par un compte désactivé est suspendu** jusqu'à sa réactivation :
+    désactiver un administrateur coupe les CI qui utilisent ses jetons.
+- **Nombres** : CVSS et EPSS s'écrivent avec une virgule (9,8 ; 12,3 %), à l'écran, dans le digest
+  et les alertes. Les exports CSV ajoutent une apostrophe devant ce qui pourrait commencer une
+  formule après un saut de ligne ou une virgule ; un export réimporté redonne les mêmes valeurs.
+- **Imports** : un CSV est importé en entier ou pas du tout. Un fichier trop gros reçoit « Envoi trop
+  volumineux » avec la borne, au lieu de « Jeton CSRF invalide. ». Un SBOM ou un VEX de plus de
+  2 millions de valeurs JSON est refusé ; deux imports simultanés se suivent.
+- **Sources** : une réponse illisible de la NVD, un catalogue KEV vide ou une réponse d'EPSS sans
+  liste laissent l'actif « non vérifié » au lieu de faire passer des vulnérabilités pour corrigées.
+  KEV et EPSS sont redemandés après une panne passagère, et une coupure pendant la lecture d'OSV ne
+  fait plus perdre l'actif. Les messages d'erreur des sources changent (`HTTP 503` au lieu de
+  `status 503`, `réponse illisible`).
+- **Ligne de commande** : `-nvd-api-key` pour `serve`, `sync` et `digest` (la variable
+  `VIGIL_NVD_API_KEY` reste conseillée) ; `vigil digest -base-url` ajoute le lien du digest à ses
+  messages ; `vigil digest` produit aussi les digests des groupes qui ont un canal.
+- **Performances** : listes, alertes et tableau de bord 4 à 15 fois plus rapides sur une grosse base.
+  La base grossit d'environ 1,4 Mo par noyau Ubuntu suivi.
+- **Sauvegardes** : les copies `.bak` sont triées par la date de leur nom, et une copie renommée à
+  la main n'est plus effacée. Une base dans un dossier dont le nom contient « # » ou « % » est
+  sauvegardée correctement : avant, la copie était vide, ou la sauvegarde échouait.
+- **Téléphone** : une vulnérabilité en carte compacte, tous les tableaux en cartes, « Trier par » au
+  lieu des titres de colonnes.
+- **Image Docker** : elle contient les licences (`/usr/share/doc/vigil/`), et `vigil version` y
+  affiche `0.5.0` au lieu de `v0.5.0`.
+
 ## De la 0.4.2 à la 0.4.3
 
 Version corrective : la procédure est la même, la base reste au schéma 15 et rien n'est à reprendre

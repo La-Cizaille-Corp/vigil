@@ -10,7 +10,14 @@ nouvelle dépendance doit l'être aussi.
 | `golang.org/x/crypto` | Hachage argon2id des mots de passe | argon2 n'est pas dans la bibliothèque standard ; module maintenu par l'équipe Go. |
 | `golang.org/x/term` | Saisie du mot de passe sans écho (`vigil user add`) | Pas d'équivalent portable dans la bibliothèque standard. |
 
-Les dépendances indirectes viennent toutes de `modernc.org/sqlite` (runtime C traduit en Go).
+Les dépendances indirectes viennent de `modernc.org/sqlite` (runtime C traduit en Go), sauf
+`golang.org/x/sys`, que `x/crypto` et `x/term` requièrent aussi.
+
+**Alerte connue de govulncheck : GO-2026-5932** (`golang.org/x/crypto/openpgp`, paquet non
+maintenu). Elle est signalée au niveau du module seulement : Vigil n'importe de `x/crypto` que
+`argon2` (et `blake2b`, qu'il emploie), et `openpgp` n'est pas lié au binaire (`go list -deps ./...`).
+govulncheck sort donc sans erreur. Pas d'action : la prochaine version étiquetée de `x/crypto`,
+proposée par Dependabot, fera disparaître l'alerte (revue de la 0.5.0, C7).
 
 Implémentés sans dépendance, volontairement :
 - **TOTP** (RFC 6238) : une trentaine de lignes, testées avec les vecteurs de la RFC ;

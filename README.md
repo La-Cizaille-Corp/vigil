@@ -68,7 +68,7 @@ go build -o vigil ./cmd/vigil
 **Docker** (image distroless, utilisateur non privilégié, données dans `/data`) :
 
 ```bash
-docker run -d --name vigil -p 127.0.0.1:8080:8080 -v vigil-data:/data ghcr.io/la-cizaille-corp/vigil:0.4
+docker run -d --name vigil -p 127.0.0.1:8080:8080 -v vigil-data:/data ghcr.io/la-cizaille-corp/vigil:0.5
 docker exec -it vigil vigil user add -username admin -role admin
 ```
 
