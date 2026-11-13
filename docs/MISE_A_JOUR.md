@@ -269,13 +269,13 @@ Après la mise à jour :
 
 ## 2. Télécharger et vérifier la nouvelle version
 
-Remplacez `0.4.3` par la version à installer. Le programme est extrait dans un dossier à part : il
+Remplacez `0.5.0` par la version à installer. Le programme est extrait dans un dossier à part : il
 ne remplace encore rien.
 
 **Windows** (PowerShell) :
 
 ```powershell
-$v = "0.4.3"; $arch = "amd64"   # arm64 sur processeur ARM
+$v = "0.5.0"; $arch = "amd64"   # arm64 sur processeur ARM
 $zip = "vigil_${v}_windows_$arch.zip"
 $base = "https://github.com/La-Cizaille-Corp/vigil/releases/download/v$v"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -291,7 +291,7 @@ Expand-Archive $zip -DestinationPath ".\vigil-$v" -Force
 **macOS** :
 
 ```bash
-VERSION=0.4.3; ARCH=arm64   # amd64 sur Mac Intel
+VERSION=0.5.0; ARCH=arm64   # amd64 sur Mac Intel
 BASE=https://github.com/La-Cizaille-Corp/vigil/releases/download/v$VERSION
 curl -fsSLO $BASE/vigil_${VERSION}_darwin_$ARCH.tar.gz
 curl -fsSLO $BASE/checksums.txt
@@ -303,7 +303,7 @@ xattr -d com.apple.quarantine vigil-$VERSION/vigil 2>/dev/null || true
 **Linux** :
 
 ```bash
-VERSION=0.4.3; ARCH=amd64   # arm64 sur ARM
+VERSION=0.5.0; ARCH=amd64   # arm64 sur ARM
 BASE=https://github.com/La-Cizaille-Corp/vigil/releases/download/v$VERSION
 curl -fsSLO $BASE/vigil_${VERSION}_linux_$ARCH.tar.gz
 curl -fsSLO $BASE/checksums.txt
@@ -402,8 +402,8 @@ repartirait d'une base vide.
 ```bash
 docker exec vigil vigil backup -o /data/backups/avant-maj-$(date +%Y%m%d-%H%M).db   # sauvegarder (Vigil tourne encore)
 docker stop vigil && docker rm vigil       # arrêter ; le volume vigil-data, qui contient la base, reste
-docker pull ghcr.io/la-cizaille-corp/vigil:0.4   # changez 0.4 pour passer à une nouvelle version mineure
-docker run -d --name vigil --restart unless-stopped -p 127.0.0.1:8080:8080 -v vigil-data:/data ghcr.io/la-cizaille-corp/vigil:0.4
+docker pull ghcr.io/la-cizaille-corp/vigil:0.5   # changez 0.5 pour passer à une nouvelle version mineure
+docker run -d --name vigil --restart unless-stopped -p 127.0.0.1:8080:8080 -v vigil-data:/data ghcr.io/la-cizaille-corp/vigil:0.5
 docker logs --tail 20 vigil
 ```
 
@@ -458,7 +458,7 @@ Dans le dossier du `docker-compose.yml` :
 
 ```bash
 docker compose exec vigil vigil backup -o /data/backups/avant-maj-$(date +%Y%m%d-%H%M).db   # sauvegarder (Vigil tourne encore)
-# Nouvelle version mineure (0.4 → 0.5) : changez le tag de l'image dans docker-compose.yml.
+# Nouvelle version mineure (0.5 → 0.6) : changez le tag de l'image dans docker-compose.yml.
 docker compose pull
 docker compose up -d             # arrête proprement l'ancien conteneur et démarre le nouveau
 docker compose logs --tail 20 vigil
