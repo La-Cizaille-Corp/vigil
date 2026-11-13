@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,6 +17,25 @@ import (
 	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources"
 )
+
+// serve starts a fake source that answers with h, closed at the end of the
+// test. The clients of the sources are tested in their own packages.
+func serve(t *testing.T, h http.HandlerFunc) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// get returns a GET request for url, made as every source makes it.
+func get(t *testing.T, url string) *http.Request {
+	t.Helper()
+	req, err := sources.NewRequest(context.Background(), http.MethodGet, url, "vigil-test", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return req
+}
 
 // The common form of every source: the request says who asks and sends JSON;
 // only a 200 is an answer, read within its bound and decoded; a refusal says
@@ -100,7 +120,7 @@ func TestDo(t *testing.T) {
 	}
 
 	// The network: sending again may succeed.
-	req, _ := sources.NewRequest(context.Background(), http.MethodGet, srv.URL+"/ok", "vigil-test", nil)
+	req := get(t, srv.URL+"/ok")
 	srv.Close()
 	if err := sources.Do(srv.Client(), req, 10, new(doc)); err == nil || !sources.Temporary(err) {
 		t.Errorf("unreachable server: %v (temporary %v)", err, sources.Temporary(err))
@@ -116,8 +136,7 @@ func TestOpenBound(t *testing.T) {
 	srv := serve(t, func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"id": strings.Repeat("a", 100)})
 	})
-	req, _ := sources.NewRequest(context.Background(), http.MethodGet, srv.URL, "vigil-test", nil)
-	body, err := sources.Open(srv.Client(), req, 50)
+	body, err := sources.Open(srv.Client(), get(t, srv.URL), 50)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,8 +165,7 @@ func TestOpenCut(t *testing.T) {
 		}
 	})
 	for path, temporary := range map[string]bool{"/cut": true, "/short": false} {
-		req, _ := sources.NewRequest(context.Background(), http.MethodGet, srv.URL+path, "vigil-test", nil)
-		body, err := sources.Open(srv.Client(), req, 1<<20)
+		body, err := sources.Open(srv.Client(), get(t, srv.URL+path), 1<<20)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -175,7 +193,7 @@ func TestRefusedRedirectIsDefinite(t *testing.T) {
 			http.Redirect(w, r, srv.URL+"/loop", http.StatusFound)
 		}
 	}))
-	defer srv.Close()
+	t.Cleanup(srv.Close)
 	client := srv.Client()
 	client.CheckRedirect = netsafe.CheckRedirect()
 	for path, want := range map[string]string{"/insecure": "redirection vers une URL non https refusée", "/loop": "trop de redirections"} {
@@ -248,6 +266,30 @@ func TestRetry(t *testing.T) {
 	}
 	if err := sources.Sleep(ctx, 0); err != nil {
 		t.Errorf("Sleep(0) = %v", err)
+	}
+}
+
+// Get asks again after a temporary failure, once without delays, and decodes
+// the answer; a request it cannot make is not sent.
+func TestGet(t *testing.T) {
+	ctx := context.Background()
+	var calls atomic.Int32
+	srv := serve(t, func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1)%2 == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		io.WriteString(w, `{"id":"`+r.Header.Get("User-Agent")+`"}`)
+	})
+	var out struct{ ID string }
+	if err := sources.Get(ctx, srv.Client(), srv.URL, "vigil-test", []time.Duration{0}, 100, &out); err != nil || out.ID != "vigil-test" || calls.Load() != 2 {
+		t.Errorf("temporary failure: %d calls, %+v, %v", calls.Load(), out, err)
+	}
+	if err := sources.Get(ctx, srv.Client(), srv.URL, "vigil-test", nil, 100, &out); err == nil || !sources.Temporary(err) || calls.Load() != 3 {
+		t.Errorf("without delays: %d calls, %v", calls.Load(), err)
+	}
+	if err := sources.Get(ctx, srv.Client(), "http://\x7f", "vigil-test", []time.Duration{0}, 100, &out); err == nil || calls.Load() != 3 {
+		t.Errorf("invalid address: %d calls, %v", calls.Load(), err)
 	}
 }
 

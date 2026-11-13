@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -20,7 +20,7 @@ func entry(name, created string) string {
 // product name, then vendor and product, then the vendor, before keywords.
 func TestSearchCPE(t *testing.T) {
 	var seen []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		seen = append(seen, q.Get("cpeMatchString")+q.Get("keywordSearch")+"@"+q.Get("startIndex"))
 		switch q.Get("cpeMatchString") {
@@ -31,9 +31,7 @@ func TestSearchCPE(t *testing.T) {
 		default:
 			io.WriteString(w, `{"totalResults":0,"products":[]}`)
 		}
-	}))
-	defer srv.Close()
-	c := &Client{URL: srv.URL, CPEURL: srv.URL, HTTP: srv.Client()}
+	})
 	got, err := c.SearchCPE(context.Background(), "Fortinet FortiOS 7.2.4")
 	if err != nil {
 		t.Fatal(err)
@@ -53,7 +51,7 @@ func TestSearchCPE(t *testing.T) {
 
 	// One word: product, then vendor; then keywords, newest page only.
 	seen = nil
-	srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c = testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		seen = append(seen, q.Get("cpeMatchString")+q.Get("keywordSearch")+"@"+q.Get("startIndex"))
 		if q.Get("keywordSearch") != "" {
@@ -73,29 +71,25 @@ func TestSearchCPE(t *testing.T) {
 // A search is made while someone waits: over the rate limit, it says so at
 // once instead of asking again.
 func TestSearchCPERateLimit(t *testing.T) {
-	calls := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
+	var calls atomic.Int32
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
 		w.WriteHeader(http.StatusTooManyRequests)
-	}))
-	defer srv.Close()
-	c := &Client{URL: srv.URL, CPEURL: srv.URL, HTTP: srv.Client()}
+	})
 	_, err := c.SearchCPE(context.Background(), "fortios")
-	if err == nil || err.Error() != "nvd: HTTP 429 : limite de requêtes atteinte ? réessayez dans 30 secondes" || calls != 1 {
-		t.Errorf("%d calls, %v", calls, err)
+	if err == nil || err.Error() != "nvd: HTTP 429 : limite de requêtes atteinte ? réessayez dans 30 secondes" || calls.Load() != 1 {
+		t.Errorf("%d calls, %v", calls.Load(), err)
 	}
 }
 
 // An entry whose product has escaped colons keeps its product, version and
 // whole-product name.
 func TestSearchCPEEscapedColons(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `{"totalResults":2,"products":[%s,%s]}`,
 			entry(`cpe:2.3:a:lemonldap-ng:lemonldap\:\:ng:2.0.16:*:*:*:*:*:*:*`, "2023-03-01T10:00:00.000"),
 			entry("cpe:2.3:a:lemonldap-ng:lemonldap:1.0:*:*:*:*:*:*:*", "2010-03-01T10:00:00.000"))
-	}))
-	defer srv.Close()
-	c := &Client{URL: srv.URL, CPEURL: srv.URL, HTTP: srv.Client()}
+	})
 	got, err := c.SearchCPE(context.Background(), "lemonldap")
 	if err != nil {
 		t.Fatal(err)

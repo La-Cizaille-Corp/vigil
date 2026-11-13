@@ -906,6 +906,33 @@ n'était borné que par la page, soit 1 Gio en mémoire pour un seul avis (essai
 1,3 Go alloués). *Écarté* : borner la page plus bas, qui n'en protège pas un seul avis et refuserait une
 page réelle plus lourde que la moyenne.
 
+**A100. Les tests ne parlent qu'à de faux serveurs, montés de la même façon dans chaque paquet.** L'audit
+de code de novembre 2026 (T4) et la revue de la 0.5.0 (T12) comptaient une quarantaine de faux serveurs
+`httptest` écrits à la main dans les tests de `tracking`, des sources et de `notify` : le câblage d'un
+`tracking.Syncer` recopié une dizaine de fois, des serveurs fermés par `defer`, des compteurs de requêtes
+sans verrou, et deux synchroniseurs dont le client OSV visait `https://api.osv.dev` (aucun actif ne
+l'interrogeait, mais un jeu d'essai modifié serait parti sur le réseau). Les tests des clients OSV, KEV
+et EPSS vivaient en partie dans `internal/sources` : la couverture propre d'`osv` laissait `CVSSScore`,
+`SeverityLabel` et `Client.Vuln` à 0 %. Désormais :
+- chaque client est testé dans son paquet, à travers un `testClient(t, h)` ; `sources` ne teste que ce
+  qui est commun (`serve`, `Get`) ; `notify` a `newNotifier(t, st, h)` ;
+- `tracking` a un faux commun, `fakeSources`, tiré de celui du noyau (A90). Il répond une requête à la
+  fois, sous un verrou que le test prend pour changer la réponse (`locked`) ; il écrit la réponse une
+  fois le gestionnaire revenu, si bien qu'un synchroniseur qui lit KEV au milieu d'une page d'OSV
+  n'attend pas cette page ; il compte requêtes et octets par sorte (`counts`). `osvSyncer(t, st, h,
+  enrich)` et `nvdSyncer(t, st, h)` en tirent le synchroniseur ; dans le second, OSV est un serveur qui
+  fait échouer le test s'il est interrogé ;
+- tout faux serveur est fermé par `t.Cleanup` ; les essais renvoyés sont des tables, un serveur par cas.
+
+*Écarté* : un paquet importable commun aux faux serveurs, comme `storetest`, qui ajouterait hors des
+tests un paquet capable d'écouter le réseau (capslock) pour une dizaine de lignes par paquet.
+*Conséquences* : un nouveau test de source part de `testClient`, un test de synchronisation
+d'`osvSyncer` ou de `nvdSyncer`, et aucun test n'atteint un hôte réel. La détection des accès
+concurrents (`go test -race`) reste en CI sur Linux seul : elle demande cgo, présent sur l'exécuteur
+Ubuntu (sous Windows, il faudrait installer une chaîne C) ; ce qu'elle vérifie, les accès du code Go,
+ne dépend pas du système ; et elle allonge les tests (3 min 36 s sous Ubuntu en novembre 2026, contre
+1 min 12 s sous macOS et 1 min 30 s sous Windows sans elle).
+
 **A74. Une seule lecture bornée, hors de `netsafe`, et une seule écriture CSV.** L'audit de code de
 novembre 2026 (R6) relevait que le BOM UTF-8 se retirait de trois façons (SBOM, VEX, CSV), que la
 lecture d'un fichier CSV déposé vivait dans `web` avec sa propre borne, et que `netsafe.ReadLimited`,

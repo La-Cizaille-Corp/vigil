@@ -5,20 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"maps"
 	"net/http"
-	"net/http/httptest"
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
-	"github.com/La-Cizaille-Corp/vigil/internal/sources/epss"
-	"github.com/La-Cizaille-Corp/vigil/internal/sources/kev"
-	"github.com/La-Cizaille-Corp/vigil/internal/sources/osv"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
 )
@@ -26,20 +20,18 @@ import (
 // kernelOSV answers like OSV for an Ubuntu kernel, a package too large for a
 // batch answer (two advisories a page here, three for /v1/query). It writes
 // the dates of modification as OSV does: to the nanosecond in an advisory, to
-// the microsecond in a batch answer. It counts the requests and the bytes it
-// sends, by kind, and a test changes what it answers.
+// the microsecond in a batch answer. A test changes what it answers within
+// locked, and counts what it is asked with counts.
 type kernelOSV struct {
-	srv *httptest.Server
+	*fakeSources
 
-	mu         sync.Mutex
 	advisories map[string]kernelAdvisory
 	kev        []string          // exploited CVEs
 	epss       map[string]string // CVE → score
 	failRefs   bool              // the short list fails after its first page
 	emptyRefs  bool              // the short list, asked after the batch answer, is empty
 	failVulns  bool              // advisories cannot be read alone
-	requests   map[string]int    // querybatch, query, vulns
-	bytes      map[string]int
+	batches    int               // batch requests answered since counts
 }
 
 type kernelAdvisory struct {
@@ -57,9 +49,11 @@ func (k kernelAdvisory) record(id string) string {
 const kernelQuery = `{"package":{"name":"linux","ecosystem":"Ubuntu:22.04:LTS"},"version":"5.15.0-100.110"}`
 
 // newKernelOSV serves 34 advisories: 30 in the tracked period, three older
-// ones and a grouped one (USN) citing the advisories of three of its CVEs.
-func newKernelOSV(t *testing.T) *kernelOSV {
-	k := &kernelOSV{advisories: map[string]kernelAdvisory{}, epss: map[string]string{}, requests: map[string]int{}, bytes: map[string]int{}}
+// ones and a grouped one (USN) citing the advisories of three of its CVEs. It
+// returns them with a synchroniser of st that asks them.
+func newKernelOSV(t *testing.T, st *store.Store) (*kernelOSV, *tracking.Syncer) {
+	t.Helper()
+	k := &kernelOSV{advisories: map[string]kernelAdvisory{}, epss: map[string]string{}}
 	for i := 1; i <= 30; i++ {
 		k.advisories[fmt.Sprintf("UBUNTU-CVE-2026-%02d", i)] = kernelAdvisory{published: fmt.Sprintf("2026-08-%02dT00:00:00Z", i),
 			modified: "2026-10-01T10:00:00.123456789Z", fixed: "5.15.0-200.1", others: []string{fmt.Sprintf("CVE-2026-%02d", i)}}
@@ -70,19 +64,15 @@ func newKernelOSV(t *testing.T) *kernelOSV {
 	}
 	k.advisories["USN-9000-1"] = kernelAdvisory{published: "2026-10-01T00:00:00Z", modified: "2026-10-01T10:00:00.123456789Z", fixed: "5.15.0-200.1",
 		others: []string{"CVE-2026-01", "CVE-2026-02", "CVE-2022-9", "UBUNTU-CVE-2026-01", "UBUNTU-CVE-2026-02", "UBUNTU-CVE-2022-9"}}
-	k.srv = httptest.NewServer(http.HandlerFunc(k.serve))
-	t.Cleanup(k.srv.Close)
-	return k
+	syncer, f := osvSyncer(t, st, k.serve, true)
+	k.fakeSources = f
+	return k, syncer
 }
 
 func (k *kernelOSV) serve(w http.ResponseWriter, r *http.Request) {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	kind, body := "", ""
 	ids := slices.Sorted(maps.Keys(k.advisories))
 	switch {
 	case r.URL.Path == "/v1/querybatch":
-		kind = "querybatch"
 		var req struct {
 			Queries []struct {
 				PageToken string `json:"page_token"`
@@ -95,7 +85,7 @@ func (k *kernelOSV) serve(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusServiceUnavailable)
 				return
 			}
-			if k.emptyRefs && k.requests["querybatch"] > 0 { // not the batch answer of the synchronisation
+			if k.emptyRefs && k.batches > 0 { // not the batch answer of the synchronisation
 				results = append(results, `{"vulns":[],"next_page_token":""}`)
 				continue
 			}
@@ -112,9 +102,9 @@ func (k *kernelOSV) serve(w http.ResponseWriter, r *http.Request) {
 			}
 			results = append(results, `{"vulns":[`+strings.Join(refs, ",")+`],"next_page_token":"`+next+`"}`)
 		}
-		body = `{"results":[` + strings.Join(results, ",") + `]}`
+		k.batches++
+		io.WriteString(w, `{"results":[`+strings.Join(results, ",")+`]}`)
 	case r.URL.Path == "/v1/query":
-		kind = "query"
 		var req struct {
 			PageToken string `json:"page_token"`
 		}
@@ -129,22 +119,21 @@ func (k *kernelOSV) serve(w http.ResponseWriter, r *http.Request) {
 		if end < len(ids) {
 			next = strconv.Itoa(end)
 		}
-		body = `{"vulns":[` + strings.Join(records, ",") + `],"next_page_token":"` + next + `"}`
+		io.WriteString(w, `{"vulns":[`+strings.Join(records, ",")+`],"next_page_token":"`+next+`"}`)
 	case strings.HasPrefix(r.URL.Path, "/v1/vulns/"):
-		kind = "vulns"
 		id := strings.TrimPrefix(r.URL.Path, "/v1/vulns/")
 		a, ok := k.advisories[id]
 		if !ok || k.failVulns {
 			http.NotFound(w, r)
 			return
 		}
-		body = a.record(id)
+		io.WriteString(w, a.record(id))
 	case r.URL.Path == "/kev":
 		entries := []string{`{"cveID":"CVE-1999-0001"}`} // a real catalogue is never empty
 		for _, cve := range k.kev {
 			entries = append(entries, `{"cveID":"`+cve+`","dueDate":"2026-12-01"}`)
 		}
-		body = `{"vulnerabilities":[` + strings.Join(entries, ",") + `]}`
+		io.WriteString(w, `{"vulnerabilities":[`+strings.Join(entries, ",")+`]}`)
 	case r.URL.Path == "/epss":
 		var data []string
 		for _, cve := range strings.Split(r.URL.Query().Get("cve"), ",") {
@@ -152,36 +141,17 @@ func (k *kernelOSV) serve(w http.ResponseWriter, r *http.Request) {
 				data = append(data, `{"cve":"`+cve+`","epss":"`+score+`"}`)
 			}
 		}
-		body = `{"data":[` + strings.Join(data, ",") + `]}`
+		io.WriteString(w, `{"data":[`+strings.Join(data, ",")+`]}`)
 	default:
 		http.NotFound(w, r)
-		return
 	}
-	k.requests[kind]++
-	k.bytes[kind] += len(body)
-	io.WriteString(w, body)
 }
 
-// counts returns the requests and bytes counted since the last call.
+// counts returns the requests answered and the bytes sent since the last
+// call (fakeSources.counts), from when the batch requests are counted again.
 func (k *kernelOSV) counts() (map[string]int, map[string]int) {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	requests, bytes := k.requests, k.bytes
-	k.requests, k.bytes = map[string]int{}, map[string]int{}
-	return requests, bytes
-}
-
-// change applies a change to what OSV answers.
-func (k *kernelOSV) change(f func(k *kernelOSV)) {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	f(k)
-}
-
-func (k *kernelOSV) syncer(st *store.Store) *tracking.Syncer {
-	return &tracking.Syncer{Store: st, OSV: &osv.Client{URL: k.srv.URL, HTTP: http.DefaultClient, UserAgent: "vigil-test"},
-		KEV: &kev.Client{URL: k.srv.URL + "/kev", HTTP: k.srv.Client()}, EPSS: &epss.Client{URL: k.srv.URL + "/epss", HTTP: k.srv.Client()},
-		Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	k.locked(func() { k.batches = 0 })
+	return k.fakeSources.counts()
 }
 
 func addKernel(t *testing.T, st *store.Store, name string) int64 {
@@ -233,14 +203,13 @@ func found(t *testing.T, st *store.Store, assetID int64, ids []string) string {
 // read finds, on a database that always reads in full.
 func TestLargePackageReadAgain(t *testing.T) {
 	ctx := context.Background()
-	k := newKernelOSV(t)
 	st, whole := openStore(t), openStore(t)
+	k, syncer := newKernelOSV(t, st)
+	wholeSyncer := sameSources(syncer, whole)
 	id, wholeID := addKernel(t, st, "linux"), addKernel(t, whole, "linux")
-	syncer, wholeSyncer := k.syncer(st), k.syncer(whole)
-	advisoryIDs := func() []string {
-		k.mu.Lock()
-		defer k.mu.Unlock()
-		return slices.Sorted(maps.Keys(k.advisories))
+	advisoryIDs := func() (ids []string) {
+		k.locked(func() { ids = slices.Sorted(maps.Keys(k.advisories)) })
+		return ids
 	}
 	allIDs := append(advisoryIDs(), "UBUNTU-CVE-2026-31")
 
@@ -281,7 +250,7 @@ func TestLargePackageReadAgain(t *testing.T) {
 		t.Errorf("nothing changed: %v, %v bytes", requests, bytes)
 	}
 
-	k.change(func(k *kernelOSV) {
+	k.locked(func() {
 		a := k.advisories["UBUNTU-CVE-2026-03"]
 		a.modified, a.fixed = "2026-11-01T08:00:00.987654321Z", "5.15.0-210.1"
 		k.advisories["UBUNTU-CVE-2026-03"] = a
@@ -293,7 +262,7 @@ func TestLargePackageReadAgain(t *testing.T) {
 		t.Errorf("the fix of the advisory modified: %q", f.FixedIn)
 	}
 
-	k.change(func(k *kernelOSV) {
+	k.locked(func() {
 		k.advisories["UBUNTU-CVE-2026-31"] = kernelAdvisory{published: "2026-11-02T00:00:00Z", modified: "2026-11-02T00:00:00.5Z",
 			fixed: "5.15.0-210.1", others: []string{"CVE-2026-31"}}
 	})
@@ -303,11 +272,11 @@ func TestLargePackageReadAgain(t *testing.T) {
 
 	// The guard of the tracked period (A31): an old CVE that becomes exploited,
 	// unchanged at OSV, is read alone and reported; one likely to be too.
-	k.change(func(k *kernelOSV) { k.kev = []string{"CVE-2023-9"} })
+	k.locked(func() { k.kev = []string{"CVE-2023-9"} })
 	if requests, _, res := step("an old CVE exploited"); requests["vulns"] != 1 || res.Created != 1 {
 		t.Errorf("an old CVE exploited: %v, %+v", requests, res)
 	}
-	k.change(func(k *kernelOSV) { k.epss["CVE-2024-9"] = "0.5" })
+	k.locked(func() { k.epss["CVE-2024-9"] = "0.5" })
 	if requests, _, res := step("an old CVE likely exploited"); requests["vulns"] != 1 || res.Created != 1 {
 		t.Errorf("an old CVE likely exploited: %v, %+v", requests, res)
 	}
@@ -315,13 +284,13 @@ func TestLargePackageReadAgain(t *testing.T) {
 		t.Errorf("an old advisory stored as it is is not read again: %v", requests)
 	}
 
-	k.change(func(k *kernelOSV) { delete(k.advisories, "UBUNTU-CVE-2026-02") })
+	k.locked(func() { delete(k.advisories, "UBUNTU-CVE-2026-02") })
 	if requests, _, res := step("an advisory no longer reported"); requests["vulns"] != 0 || res.Resolved != 1 {
 		t.Errorf("an advisory no longer reported: %v, %+v", requests, res)
 	}
 
 	// A release of the kernel modifies every advisory: read in full.
-	k.change(func(k *kernelOSV) {
+	k.locked(func() {
 		for id, a := range k.advisories {
 			a.modified = "2026-11-05T00:00:00.000000001Z"
 			k.advisories[id] = a
@@ -332,24 +301,24 @@ func TestLargePackageReadAgain(t *testing.T) {
 	}
 
 	// Without the short list, as before it: in full.
-	k.change(func(k *kernelOSV) { k.failRefs = true })
+	k.locked(func() { k.failRefs = true })
 	if requests, _, res := step("short list failed"); requests["query"] != pages() || res.Failed != 0 {
 		t.Errorf("short list failed: %v, %+v", requests, res)
 	}
-	k.change(func(k *kernelOSV) { k.failRefs = false })
+	k.locked(func() { k.failRefs = false })
 
 	// A short list that holds fewer advisories than the first page of the
 	// batch answer is not the whole list: as without it, in full. Taken as it
 	// is, it would mark every finding of the kernel fixed.
-	k.change(func(k *kernelOSV) { k.emptyRefs = true })
+	k.locked(func() { k.emptyRefs = true })
 	if requests, _, res := step("short list empty"); requests["query"] != pages() || res.Resolved != 0 {
 		t.Errorf("short list empty: %v, %+v", requests, res)
 	}
-	k.change(func(k *kernelOSV) { k.emptyRefs = false })
+	k.locked(func() { k.emptyRefs = false })
 
 	// An advisory that cannot be read: the asset is not checked, keeps its
 	// findings, and its list is not changed.
-	k.change(func(k *kernelOSV) {
+	k.locked(func() {
 		a := k.advisories["UBUNTU-CVE-2026-04"]
 		a.modified, a.fixed = "2026-11-06T00:00:00Z", "5.15.0-220.1"
 		k.advisories["UBUNTU-CVE-2026-04"] = a
@@ -363,7 +332,7 @@ func TestLargePackageReadAgain(t *testing.T) {
 	if after := found(t, st, id, allIDs); after != before {
 		t.Errorf("an asset not checked changed:\n%s\nbefore\n%s", after, before)
 	}
-	k.change(func(k *kernelOSV) { k.failVulns = false })
+	k.locked(func() { k.failVulns = false })
 	if requests, _, _ := step("advisory readable again"); requests["vulns"] != 1 || requests["query"] != 0 {
 		t.Errorf("advisory readable again: %v", requests)
 	}
@@ -404,10 +373,10 @@ func TestLargePackageReadAgain(t *testing.T) {
 // Two assets that ask the same share the list: the second one reads nothing.
 func TestLargePackageSharedList(t *testing.T) {
 	ctx := context.Background()
-	k := newKernelOSV(t)
 	st := openStore(t)
+	k, syncer := newKernelOSV(t, st)
 	first, second := addKernel(t, st, "linux"), addKernel(t, st, "linux") // two servers
-	if res, err := k.syncer(st).Run(ctx); err != nil || res.Failed != 0 {
+	if res, err := syncer.Run(ctx); err != nil || res.Failed != 0 {
 		t.Fatalf("%+v, %v", res, err)
 	}
 	if requests, _ := k.counts(); requests["query"] != 12 || requests["vulns"] != 0 {
@@ -424,20 +393,16 @@ func TestLargePackageSharedList(t *testing.T) {
 func TestModifiedPrecision(t *testing.T) {
 	ctx := context.Background()
 	st := openStore(t)
-	reads := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	syncer, srv := osvSyncer(t, st, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/querybatch":
 			io.WriteString(w, `{"results":[{"vulns":[{"id":"GHSA-35jh-r3h4-6jhm","modified":"2026-10-17T02:55:38.085813Z"}]}]}`)
 		case "/v1/vulns/GHSA-35jh-r3h4-6jhm":
-			reads++
 			io.WriteString(w, `{"id":"GHSA-35jh-r3h4-6jhm","modified":"2026-10-17T02:55:38.085813876Z","published":"2021-05-06T16:05:51Z"}`)
 		default:
 			http.NotFound(w, r)
 		}
-	}))
-	defer srv.Close()
-	syncer := &tracking.Syncer{Store: st, OSV: &osv.Client{URL: srv.URL, HTTP: http.DefaultClient}, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	}, false)
 	if _, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "lodash", Kind: "package", PURL: "pkg:npm/lodash@4.17.15",
 		Criticality: "low", Source: "manual"}); err != nil {
 		t.Fatal(err)
@@ -447,7 +412,7 @@ func TestModifiedPrecision(t *testing.T) {
 			t.Fatalf("%+v, %v", res, err)
 		}
 	}
-	if reads != 1 {
-		t.Errorf("the advisory was downloaded %d times", reads)
+	if requests, _ := srv.counts(); requests["vulns"] != 1 {
+		t.Errorf("the advisory was downloaded %d times", requests["vulns"])
 	}
 }

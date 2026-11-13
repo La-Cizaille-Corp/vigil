@@ -98,8 +98,13 @@ func TestDigestByLevels(t *testing.T) {
 		st.SetExploitSignals(ctx, store.ExploitSignal{ID: v.id, KEV: v.kev, EPSS: -1})
 		st.ObserveFinding(ctx, asset, v.id, "", v.seen)
 		if v.fixed {
-			list, _ := st.ListFindings(ctx, store.Everything, store.FindingFilter{Search: v.id})
-			st.SetFindingStatus(ctx, store.Everything, list[0].ID, 0, store.StatusResolved, "", "")
+			list, err := st.ListFindings(ctx, store.Everything, store.FindingFilter{Search: v.id})
+			if err != nil || len(list) != 1 {
+				t.Fatalf("finding of %s: %+v, %v", v.id, list, err)
+			}
+			if err := st.SetFindingStatus(ctx, store.Everything, list[0].ID, 0, store.StatusResolved, "", ""); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 	d, err := Generate(ctx, st, store.Everything, store.Group{})

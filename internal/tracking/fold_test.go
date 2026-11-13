@@ -4,17 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"log/slog"
 	"net/http"
-	"net/http/httptest"
 	"slices"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
-	"github.com/La-Cizaille-Corp/vigil/internal/sources/epss"
-	"github.com/La-Cizaille-Corp/vigil/internal/sources/kev"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/osv"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
@@ -22,10 +17,8 @@ import (
 
 // ubuntuKernel answers like OSV for an Ubuntu kernel, a package too large for
 // a batch answer: an advisory per CVE, an old one, and grouped advisories (USN)
-// citing the advisories of their CVEs; epss gives the EPSS scores.
-func ubuntuKernel(t *testing.T, epssScores *string) (*httptest.Server, *sync.Mutex) {
-	t.Helper()
-	var mu sync.Mutex
+// citing the advisories of their CVEs; epssScores gives the EPSS scores.
+func ubuntuKernel(epssScores *string) http.HandlerFunc {
 	const range5 = `"affected":[{"package":{"name":"linux","ecosystem":"Ubuntu:22.04:LTS"},"ranges":[{"type":"ECOSYSTEM","events":[{"introduced":"0"},{"fixed":"5.15.0-200.1"}]}]}]`
 	advisories := map[string]string{
 		"UBUNTU-CVE-2026-1": `{"id":"UBUNTU-CVE-2026-1","published":"2026-09-01T00:00:00Z","modified":"2026-09-01T00:00:00Z","upstream":["CVE-2026-1"],"severity":[{"type":"Ubuntu","score":"medium"}],` + range5 + `}`,
@@ -40,9 +33,7 @@ func ubuntuKernel(t *testing.T, epssScores *string) (*httptest.Server, *sync.Mut
 		"USN-9100-1": `{"id":"USN-9100-1","published":"2026-09-07T00:00:00Z","modified":"2026-09-07T00:00:00Z","upstream":["CVE-2026-7","UBUNTU-CVE-2026-7"],` + range5 + `}`,
 	}
 	order := []string{"UBUNTU-CVE-2022-9", "UBUNTU-CVE-2026-1", "UBUNTU-CVE-2026-2", "UBUNTU-CVE-2026-7", "USN-9000-1", "USN-9100-1"}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		defer mu.Unlock()
+	return func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/v1/querybatch": // three advisories a page, by id
 			var body struct {
@@ -77,15 +68,7 @@ func ubuntuKernel(t *testing.T, epssScores *string) (*httptest.Server, *sync.Mut
 		default:
 			http.NotFound(w, r)
 		}
-	}))
-	t.Cleanup(srv.Close)
-	return srv, &mu
-}
-
-func syncerFor(st *store.Store, srv *httptest.Server) *tracking.Syncer {
-	return &tracking.Syncer{Store: st, OSV: &osv.Client{URL: srv.URL, HTTP: http.DefaultClient, UserAgent: "vigil-test"},
-		KEV: &kev.Client{URL: srv.URL + "/kev", HTTP: srv.Client()}, EPSS: &epss.Client{URL: srv.URL + "/epss", HTTP: srv.Client()},
-		Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	}
 }
 
 // findingOf returns the finding of an asset for an advisory, folded or not.
@@ -116,7 +99,7 @@ func TestGroupedAdvisoryFolded(t *testing.T) {
 	ctx := context.Background()
 	st := openStore(t)
 	scores := `{"data":[]}`
-	srv, _ := ubuntuKernel(t, &scores)
+	syncer, srv := osvSyncer(t, st, ubuntuKernel(&scores), true)
 	id, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "linux", Kind: "os", Ecosystem: "Ubuntu:22.04:LTS",
 		Version: "5.15.0-100.110", TrackSince: "2026-07-08", Criticality: "high", Source: "manual"})
 	if err != nil {
@@ -139,7 +122,6 @@ func TestGroupedAdvisoryFolded(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	syncer := syncerFor(st, srv)
 	res, err := syncer.Run(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -189,7 +171,7 @@ func TestGroupedAdvisoryFolded(t *testing.T) {
 
 	// Once likely to be exploited, the old CVE passes the tracked period, as
 	// an exploited one does (A31).
-	scores = `{"data":[{"cve":"CVE-2022-9","epss":"0.42"}]}`
+	srv.locked(func() { scores = `{"data":[{"cve":"CVE-2022-9","epss":"0.42"}]}` })
 	if _, err := syncer.Run(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +186,6 @@ func TestGroupedAdvisoryFolded(t *testing.T) {
 func TestSameCVEFolded(t *testing.T) {
 	ctx := context.Background()
 	st := openStore(t)
-	var mu sync.Mutex
 	reported := []string{"GHSA-aaaa", "GO-2026-1"}
 	advisories := map[string]string{
 		"GHSA-aaaa": `{"id":"GHSA-aaaa","aliases":["CVE-2026-5","GO-2026-1"],"published":"2026-09-01T00:00:00Z","modified":"2026-09-01T00:00:00Z",
@@ -212,9 +193,7 @@ func TestSameCVEFolded(t *testing.T) {
 		"GO-2026-1": `{"id":"GO-2026-1","aliases":["CVE-2026-5","GHSA-aaaa"],"published":"2026-09-02T00:00:00Z","modified":"2026-09-02T00:00:00Z",
 			"affected":[{"package":{"purl":"pkg:golang/golang.org/x/net"},"ranges":[{"type":"SEMVER","events":[{"introduced":"0"},{"fixed":"0.61.0"}]}]}]}`,
 	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		defer mu.Unlock()
+	syncer, srv := osvSyncer(t, st, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/v1/querybatch":
 			var refs []string
@@ -231,8 +210,7 @@ func TestSameCVEFolded(t *testing.T) {
 		default:
 			http.NotFound(w, r)
 		}
-	}))
-	defer srv.Close()
+	}, true)
 	id, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "x/net", Kind: "package", PURL: "pkg:golang/golang.org/x/net@v0.47.0",
 		Version: "v0.47.0", Criticality: "medium", Source: "manual"})
 	if err != nil {
@@ -255,10 +233,13 @@ func TestSameCVEFolded(t *testing.T) {
 		}
 	}
 	ghsa, gov := findingOf(t, st, id, "GHSA-aaaa"), findingOf(t, st, id, "GO-2026-1")
-	st.SetFindingStatus(ctx, store.Everything, ghsa.ID, alice, "not_affected", "code_not_reachable", "non atteint")
-	st.SetFindingStatus(ctx, store.Everything, gov.ID, bob, "exploitable", "", "à corriger") // the later one
+	if err := st.SetFindingStatus(ctx, store.Everything, ghsa.ID, alice, "not_affected", "code_not_reachable", "non atteint"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetFindingStatus(ctx, store.Everything, gov.ID, bob, "exploitable", "", "à corriger"); err != nil { // the later one
+		t.Fatal(err)
+	}
 
-	syncer := syncerFor(st, srv)
 	if _, err := syncer.Run(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +254,10 @@ func TestSameCVEFolded(t *testing.T) {
 	if ghsa = findingOf(t, st, id, "GHSA-aaaa"); ghsa.FoldedInto != kept.ID || ghsa.Status != "not_affected" {
 		t.Errorf("folded: %+v", ghsa)
 	}
-	events, _ := st.ListFindingEvents(ctx, store.Everything, kept.ID)
+	events, err := st.ListFindingEvents(ctx, store.Everything, kept.ID)
+	if err != nil || len(events) == 0 {
+		t.Fatalf("history of the finding kept: %+v, %v", events, err)
+	}
 	if last := events[len(events)-1]; !strings.Contains(last.Comment, "décision divergente sur GHSA-aaaa") || !strings.Contains(last.Comment, "alice") {
 		t.Errorf("note on the finding kept: %+v", last)
 	}
@@ -288,9 +272,7 @@ func TestSameCVEFolded(t *testing.T) {
 
 	// GO-2026-1 is no longer reported, GHSA-aaaa still is: the CVE is, so its
 	// finding stays open.
-	mu.Lock()
-	reported = []string{"GHSA-aaaa"}
-	mu.Unlock()
+	srv.locked(func() { reported = []string{"GHSA-aaaa"} })
 	if res, err := syncer.Run(ctx); err != nil || res.Resolved != 0 {
 		t.Fatalf("result %+v, %v", res, err)
 	}

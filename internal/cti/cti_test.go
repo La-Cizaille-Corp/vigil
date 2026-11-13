@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -229,7 +228,7 @@ func newFeedCollector(t *testing.T, h http.HandlerFunc) (*store.Store, *Collecto
 	if _, err := st.CreateFeed(ctx, store.Feed{Name: "x", URL: srv.URL, Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	return st, &Collector{Store: st, HTTP: srv.Client(), Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	return st, &Collector{Store: st, HTTP: srv.Client(), Log: slog.New(slog.DiscardHandler)}
 }
 
 // S8 of the code audit: one collection at a time. A second request is
@@ -248,7 +247,9 @@ func TestRunIsExclusive(t *testing.T) {
 	unblock := func() { once.Do(func() { close(release) }) }
 	t.Cleanup(unblock) // before the feed server closes
 	ctx := context.Background()
-	st.SetSetting(ctx, SettingNewsPerDay, "24")
+	if err := st.SetSetting(ctx, SettingNewsPerDay, "24"); err != nil {
+		t.Fatal(err)
+	}
 
 	first := make(chan error, 1)
 	go func() { _, err := c.Run(ctx); first <- err }()
@@ -294,38 +295,50 @@ func TestRunIsExclusive(t *testing.T) {
 // The feeds are collected as often as the setting says, read each time.
 func TestRunIfDue(t *testing.T) {
 	ctx := context.Background()
-	calls := 0
+	var calls atomic.Int32
 	st, c := newFeedCollector(t, func(w http.ResponseWriter, r *http.Request) {
-		calls++
+		calls.Add(1)
 		w.Write([]byte(`<rss><channel></channel></rss>`))
 	})
+	set := func(perDay string) {
+		t.Helper()
+		if err := st.SetSetting(ctx, SettingNewsPerDay, perDay); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runIfDue := func() {
+		t.Helper()
+		if err := c.RunIfDue(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	if n, _ := NewsPerDay(ctx, st); n != defaultNewsPerDay {
 		t.Errorf("default frequency = %d", n)
 	}
-	st.SetSetting(ctx, SettingNewsPerDay, "3")
+	set("3")
 	if n, _ := NewsPerDay(ctx, st); n != defaultNewsPerDay {
 		t.Errorf("unknown frequency = %d", n)
 	}
-	st.SetSetting(ctx, SettingNewsPerDay, "0")
-	c.RunIfDue(ctx)
-	if calls != 0 {
-		t.Errorf("collected on demand only: %d calls", calls)
+	set("0")
+	runIfDue()
+	if n := calls.Load(); n != 0 {
+		t.Errorf("collected on demand only: %d calls", n)
 	}
-	st.SetSetting(ctx, SettingNewsPerDay, "24")
-	c.RunIfDue(ctx) // never collected yet
-	c.RunIfDue(ctx) // the hour has not passed
-	if calls != 1 {
-		t.Errorf("once an hour: %d calls", calls)
+	set("24")
+	runIfDue() // never collected yet
+	runIfDue() // the hour has not passed
+	if n := calls.Load(); n != 1 {
+		t.Errorf("once an hour: %d calls", n)
 	}
 	c.last = time.Now().Add(-61 * time.Minute)
-	c.RunIfDue(ctx)
-	if calls != 2 {
-		t.Errorf("after an hour: %d calls", calls)
+	runIfDue()
+	if n := calls.Load(); n != 2 {
+		t.Errorf("after an hour: %d calls", n)
 	}
-	st.SetSetting(ctx, SettingNewsPerDay, "1") // lowered: the day has not passed
-	c.RunIfDue(ctx)
-	if calls != 2 {
-		t.Errorf("once a day: %d calls", calls)
+	set("1") // lowered: the day has not passed
+	runIfDue()
+	if n := calls.Load(); n != 2 {
+		t.Errorf("once a day: %d calls", n)
 	}
 }

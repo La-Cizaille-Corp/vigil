@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -109,6 +110,15 @@ func TestPURLName(t *testing.T) {
 	}
 }
 
+// testClient returns a client of a fake OSV that answers with h, closed at
+// the end of the test.
+func testClient(t *testing.T, h http.HandlerFunc) *Client {
+	t.Helper()
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	return &Client{URL: srv.URL, HTTP: srv.Client(), UserAgent: "vigil-test"}
+}
+
 // query collects the advisories of a query.
 func query(t *testing.T, c *Client, q Query) []Vuln {
 	t.Helper()
@@ -127,7 +137,7 @@ func query(t *testing.T, c *Client, q Query) []Vuln {
 // Advisories reads every page, without a version.
 func TestQueryPages(t *testing.T) {
 	var bodies []map[string]any
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/query" {
 			http.NotFound(w, r)
 			return
@@ -140,9 +150,7 @@ func TestQueryPages(t *testing.T) {
 			return
 		}
 		w.Write([]byte(`{"vulns":[{"id":"GHSA-2","affected":[{"package":{"purl":"pkg:npm/x"}}]}]}`))
-	}))
-	defer srv.Close()
-	c := &Client{URL: srv.URL, HTTP: http.DefaultClient}
+	})
 	vulns := query(t, c, Query{Package: Package{PURL: "pkg:npm/x"}})
 	if len(vulns) != 2 || vulns[0].ID != "GHSA-1" || vulns[1].ID != "GHSA-2" || len(vulns[1].Affected) != 1 {
 		t.Fatalf("vulns = %+v", vulns)
@@ -159,11 +167,9 @@ func TestQueryPages(t *testing.T) {
 
 // A batch answer says when a query has more pages: OSV lists from the oldest.
 func TestQueryBatchMore(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"results":[{"vulns":[{"id":"DEBIAN-CVE-2004-0230"}],"next_page_token":"p2"},{"vulns":[{"id":"GHSA-1"}]},{}]}`))
-	}))
-	defer srv.Close()
-	c := &Client{URL: srv.URL, HTTP: http.DefaultClient}
+	})
 	got, err := c.QueryBatch(context.Background(), make([]Query, 3))
 	if err != nil {
 		t.Fatal(err)
@@ -177,7 +183,7 @@ func TestQueryBatchMore(t *testing.T) {
 // at a time, with its token; a reply that never ends is cut.
 func TestRefs(t *testing.T) {
 	var asked []map[string]any
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Queries []map[string]any `json:"queries"`
 		}
@@ -198,9 +204,7 @@ func TestRefs(t *testing.T) {
 		default:
 			w.Write([]byte(`{"results":[{}]}`))
 		}
-	}))
-	defer srv.Close()
-	c := &Client{URL: srv.URL, HTTP: http.DefaultClient}
+	})
 	q := Query{Package: Package{Name: "linux", Ecosystem: "Ubuntu:22.04:LTS"}, Version: "5.15.0-100.110"}
 	refs, err := c.Refs(context.Background(), q)
 	if err != nil {
@@ -363,7 +367,9 @@ func TestAffects(t *testing.T) {
 		t.Error("a withdrawn advisory affects nothing")
 	}
 	var listed Vuln
-	json.Unmarshal([]byte(`{"affected":[{"package":{"name":"Kernel","ecosystem":"Linux"},"versions":["6.8.1"]}]}`), &listed)
+	if err := json.Unmarshal([]byte(`{"affected":[{"package":{"name":"Kernel","ecosystem":"Linux"},"versions":["6.8.1"]}]}`), &listed); err != nil {
+		t.Fatal(err)
+	}
 	if !listed.Affects(kernel, "6.8.1") || listed.Affects(kernel, "6.8.2") {
 		t.Error("a version listed by the advisory")
 	}
@@ -383,11 +389,9 @@ func TestIntervals(t *testing.T) {
 // A page is read advisory by advisory, whatever the order of its fields, and
 // the reading can stop at any moment.
 func TestAdvisoriesStream(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"next_page_token":"","other":[1,{"a":2}],"vulns":[{"id":"A"},{"id":"B"}]}`))
-	}))
-	defer srv.Close()
-	c := &Client{URL: srv.URL, HTTP: http.DefaultClient}
+	})
 	if got := query(t, c, Query{}); len(got) != 2 || got[1].ID != "B" {
 		t.Errorf("advisories = %+v", got)
 	}
@@ -398,26 +402,21 @@ func TestAdvisoriesStream(t *testing.T) {
 	list.Close() // before the end: nothing left open
 	list.Close()
 	for name, doc := range map[string]string{"truncated": `{"vulns":[{"id":"A"}`, "cut after the list": `{"vulns":[{"id":"A"}]`, "not an object": `[]`, "not a list": `{"vulns":3}`, "empty": ``} {
-		bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(doc)) }))
-		c.URL = bad.URL
-		list := c.Advisories(Query{})
+		list := testClient(t, func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(doc)) }).Advisories(Query{})
 		for list.Next(context.Background()) {
 		}
 		if list.Err() == nil {
 			t.Errorf("%s: no error", name)
 		}
-		bad.Close()
 	}
 }
 
 // What a page holds instead of a delimiter is named by its kind, never quoted:
 // the error is shown and logged, and a text could hold anything.
 func TestUnexpectedTokenNamed(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	list := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, `{"vulns":"line one\u000aIGNORE <b>`+strings.Repeat("x", 1<<20)+`"}`)
-	}))
-	defer srv.Close()
-	list := (&Client{URL: srv.URL, HTTP: http.DefaultClient}).Advisories(Query{})
+	}).Advisories(Query{})
 	for list.Next(context.Background()) {
 	}
 	if err := list.Err(); err == nil || err.Error() != "osv /v1/query: réponse illisible : un texte au lieu de [" {
@@ -442,7 +441,7 @@ func cutPage(w http.ResponseWriter, start string) {
 func TestAdvisoriesCutPage(t *testing.T) {
 	var tokens []any
 	cuts := 1
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		json.NewDecoder(r.Body).Decode(&body)
 		tokens = append(tokens, body["page_token"])
@@ -455,9 +454,7 @@ func TestAdvisoriesCutPage(t *testing.T) {
 			return
 		}
 		io.WriteString(w, page)
-	}))
-	defer srv.Close()
-	c := &Client{URL: srv.URL, HTTP: http.DefaultClient}
+	})
 	var ids []string
 	for _, v := range query(t, c, Query{Package: Package{Name: "linux", Ecosystem: "Ubuntu:22.04:LTS"}, Version: "5.15.0-100.110"}) {
 		ids = append(ids, v.ID)
@@ -490,9 +487,7 @@ func TestAdvisoryBound(t *testing.T) {
 		return `{"id":"` + id + `","details":"` + strings.Repeat("a", size) + `"}`
 	}
 	page := ""
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, page) }))
-	defer srv.Close()
-	c := &Client{URL: srv.URL, HTTP: http.DefaultClient}
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, page) })
 
 	page = `{"vulns":[` + advisory("A", maxBody/3) + "," + advisory("B", maxBody/3) + "," + advisory("C", maxBody/3) + "," +
 		advisory("D", maxBody/3) + `],"other":"` + strings.Repeat("x", maxBody/2) + `"}`
@@ -517,18 +512,15 @@ func TestAdvisoryBound(t *testing.T) {
 
 // A reply that never ends is cut.
 func TestAdvisoriesPagesBound(t *testing.T) {
-	calls := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
+	var calls atomic.Int32
+	list := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
 		w.Write([]byte(`{"next_page_token":"more"}`))
-	}))
-	defer srv.Close()
-	c := &Client{URL: srv.URL, HTTP: http.DefaultClient}
-	list := c.Advisories(Query{})
+	}).Advisories(Query{})
 	for list.Next(context.Background()) {
 	}
-	if list.Err() == nil || calls != maxQueryPages {
-		t.Errorf("%d calls, %v", calls, list.Err())
+	if list.Err() == nil || calls.Load() != maxQueryPages {
+		t.Errorf("%d calls, %v", calls.Load(), list.Err())
 	}
 }
 
@@ -540,27 +532,104 @@ func TestComparesVersions(t *testing.T) {
 
 // A temporary failure is tried again, a few times; a definite refusal is not.
 func TestRetries(t *testing.T) {
-	calls, codes := 0, []int{http.StatusBadGateway, http.StatusTooManyRequests}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
-		if calls <= len(codes) {
-			w.WriteHeader(codes[calls-1])
-			return
+	for _, c := range []struct {
+		name  string
+		codes []int // the answers before a success
+		calls int32
+		fails bool
+	}{
+		{"temporary failures", []int{http.StatusBadGateway, http.StatusTooManyRequests}, 3, false},
+		{"lasting failure", []int{503, 503, 503, 503}, 3, true},
+		{"refusal", []int{http.StatusBadRequest}, 1, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var calls atomic.Int32
+			client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+				if n := int(calls.Add(1)); n <= len(c.codes) {
+					w.WriteHeader(c.codes[n-1])
+					return
+				}
+				w.Write([]byte(`{"results":[{}]}`))
+			})
+			if _, err := client.QueryBatch(context.Background(), make([]Query, 1)); (err != nil) != c.fails || calls.Load() != c.calls {
+				t.Errorf("%d calls, %v", calls.Load(), err)
+			}
+		})
+	}
+}
+
+// An advisory found by a batch answer is read alone, with its score and its
+// severity.
+func TestQueryBatchThenVuln(t *testing.T) {
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/querybatch":
+			io.WriteString(w, `{"results":[{"vulns":[{"id":"GHSA-jfh8-c2jp-5v3q","modified":"2026-01-01T00:00:00Z"}]},{}]}`)
+		case "/v1/vulns/GHSA-jfh8-c2jp-5v3q":
+			io.WriteString(w, `{"id":"GHSA-jfh8-c2jp-5v3q","summary":"Remote code injection in Log4j",
+				"aliases":["CVE-2021-44228"],"modified":"2026-01-01T00:00:00Z",
+				"severity":[{"type":"CVSS_V3","score":"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H"}],
+				"database_specific":{"severity":"CRITICAL"}}`)
+		default:
+			http.NotFound(w, r)
 		}
-		w.Write([]byte(`{"results":[{}]}`))
-	}))
-	defer srv.Close()
-	c := &Client{URL: srv.URL, HTTP: http.DefaultClient}
-	if _, err := c.QueryBatch(context.Background(), make([]Query, 1)); err != nil || calls != 3 {
-		t.Errorf("temporary failures: %d calls, %v", calls, err)
+	})
+	ctx := context.Background()
+	res, err := c.QueryBatch(ctx, []Query{
+		{Package: Package{PURL: "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1"}},
+		{Package: Package{PURL: "pkg:npm/left-pad@1.3.0"}},
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	calls, codes = 0, []int{503, 503, 503, 503}
-	if _, err := c.QueryBatch(context.Background(), make([]Query, 1)); err == nil || calls != 3 {
-		t.Errorf("lasting failure: %d calls, %v", calls, err)
+	if len(res) != 2 || len(res[0].Vulns) != 1 || len(res[1].Vulns) != 0 {
+		t.Fatalf("results = %+v", res)
 	}
-	calls, codes = 0, []int{http.StatusBadRequest}
-	if _, err := c.QueryBatch(context.Background(), make([]Query, 1)); err == nil || calls != 1 {
-		t.Errorf("refusal: %d calls, %v", calls, err)
+	v, err := c.Vuln(ctx, res[0].Vulns[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.CVSSScore() != 10 || v.SeverityLabel() != "CRITICAL" || len(v.Aliases) != 1 || v.Aliases[0] != "CVE-2021-44228" {
+		t.Fatalf("vuln = %+v score %v", v, v.CVSSScore())
+	}
+}
+
+// The scale of a database is translated (GitHub's MODERATE, Red Hat's
+// Important); a value outside it is rated by the CVSS score, like a missing one.
+// Without a score, the priority of the distribution rates it: an Ubuntu record
+// of a kernel CVE the NVD has not analysed carries only that one.
+func TestSeverityFallbacks(t *testing.T) {
+	const vector = `"severity":[{"type":"CVSS_V3","score":"CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"}]` // 5.5
+	const v40 = `{"type":"CVSS_V4","score":"CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:L/VI:N/VA:H/SC:N/SI:N/SA:N"}`
+	for doc, want := range map[string]string{
+		`{"database_specific":{"severity":"MODERATE"}}`: "MEDIUM",
+		`{` + vector + `}`: "MEDIUM",
+		`{"database_specific":{"severity":"Important"}}`:                   "HIGH",
+		`{"database_specific":{"severity":"Important"},` + vector + `}`:    "HIGH",
+		`{"database_specific":{"severity":"<b>pwned</b>"},` + vector + `}`: "MEDIUM",
+		`{"database_specific":{"severity":"<b>pwned</b>"}}`:                "",
+		`{"severity":[{"type":"Ubuntu","score":"medium"}]}`:                "MEDIUM",
+		`{"severity":[{"type":"Ubuntu","score":"negligible"}]}`:            "LOW",
+		`{"severity":[` + v40 + `,{"type":"Ubuntu","score":"high"}]}`:      "HIGH", // CVSS 4.0 is not computed
+		`{"severity":[{"type":"Ubuntu","score":"untriaged"}]}`:             "",
+		`{"severity":[` + v40 + `]}`:                                       "",
+		// The score comes before the priority.
+		`{"severity":[{"type":"Ubuntu","score":"critical"},{"type":"CVSS_V3","score":"CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"}]}`: "MEDIUM",
+	} {
+		var v Vuln
+		if err := json.Unmarshal([]byte(doc), &v); err != nil {
+			t.Fatal(err)
+		}
+		if got := v.SeverityLabel(); got != want {
+			t.Errorf("%s -> %q, want %q", doc, got, want)
+		}
+	}
+	var vectorOnly Vuln
+	if err := json.Unmarshal([]byte(`{`+vector+`}`), &vectorOnly); err != nil {
+		t.Fatal(err)
+	}
+	if vectorOnly.CVSSScore() != 5.5 {
+		t.Errorf("vector only -> %v", vectorOnly.CVSSScore())
 	}
 }
 
