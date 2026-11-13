@@ -8,6 +8,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -59,9 +60,9 @@ type Store struct {
 	upgradeBackup string // copy written before the last schema upgrade, if any
 }
 
-// ErrNewerSchema is returned when the database was written by a more recent
+// errNewerSchema is returned when the database was written by a more recent
 // version of Vigil: running older code on it could lose or corrupt data.
-var ErrNewerSchema = errors.New("base de données plus récente que cette version de Vigil")
+var errNewerSchema = errors.New("base de données plus récente que cette version de Vigil")
 
 // Open opens (or creates) the database at path and applies pending migrations.
 func Open(ctx context.Context, path string) (*Store, error) {
@@ -87,8 +88,11 @@ func Open(ctx context.Context, path string) (*Store, error) {
 
 	// Temporary data stays in memory: no temporary file to write, as the file
 	// system of the container is read-only (see deploy/docker-compose.yml).
-	dsn := path + "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=temp_store(2)"
-	db, err := sql.Open("sqlite", dsn)
+	name, err := dsn(path, "_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=temp_store(2)")
+	if err != nil {
+		return nil, fmt.Errorf("open database: %w", err)
+	}
+	db, err := sql.Open("sqlite", name)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
@@ -105,6 +109,24 @@ func Open(ctx context.Context, path string) (*Store, error) {
 
 // Close releases the database.
 func (s *Store) Close() error { return s.db.Close() }
+
+// dsn names the database file at path for the driver, with the connection
+// parameters given: a "file:" URI of its absolute path, escaped. Given as it
+// is, a path holding "?" was cut there by the driver and, in a URI, "#" began
+// a fragment and "%" an escape: another file was opened, or created.
+func dsn(path, params string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	// "file://" and an absolute path starting with "/": no authority, also for
+	// a Windows drive (/C:/...) or share (//server/share/...).
+	p := filepath.ToSlash(abs)
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	return "file://" + (&url.URL{Path: p}).EscapedPath() + "?" + params, nil
+}
 
 // migration is one embedded schema change, applied once and never edited
 // after a release (TestMigrationsFrozen guards this).
@@ -185,7 +207,7 @@ func (s *Store) migrate(ctx context.Context, path string) error {
 		// SECURITY: older code on a newer schema could silently lose data.
 		return fmt.Errorf("%w : %s est au schéma %d, cette version gère jusqu'au schéma %d ; "+
 			"installez une version à jour de Vigil, ou restaurez la copie .bak écrite avant la mise à jour",
-			ErrNewerSchema, path, current, latest)
+			errNewerSchema, path, current, latest)
 	}
 	versions, err := collect(ctx, s.db, "read applied migrations", value[int], `SELECT version FROM schema_migrations`)
 	if err != nil {

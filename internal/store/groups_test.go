@@ -200,7 +200,7 @@ func TestRestrictedWrites(t *testing.T) {
 	refused := func(label string, err error, want OutsideGroupsError) {
 		t.Helper()
 		var e *OutsideGroupsError
-		if !errors.As(err, &e) || !errors.Is(err, ErrOutsideGroups) {
+		if !errors.As(err, &e) || !errors.Is(err, errOutsideGroups) {
 			t.Errorf("%s: %v, want refused", label, err)
 			return
 		}
@@ -232,7 +232,7 @@ func TestRestrictedWrites(t *testing.T) {
 		ForeignTags: []string{"equipe-b"}})
 	for _, project := range []string{"erp", "partage", "inconnu"} {
 		_, err := st.ReplaceProjectAssets(ctx, sc, project, []Asset{{Name: "c", Kind: "package", PURL: "pkg:npm/c@1"}})
-		if !errors.Is(err, ErrOutsideGroups) {
+		if !errors.Is(err, errOutsideGroups) {
 			t.Errorf("SBOM of the project %s: %v", project, err)
 		}
 	}

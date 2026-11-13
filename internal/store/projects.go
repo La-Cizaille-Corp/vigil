@@ -19,7 +19,7 @@ type ImportResult struct {
 // findings are resolved with a history event (the component is gone, often
 // replaced by a fixed version), its decisions are kept, and it comes back as
 // it was if a later SBOM lists it again. Manually created assets are never
-// touched. The components must land inside the scope (ErrOutsideGroups): for
+// touched. The components must land inside the scope (an OutsideGroupsError): for
 // a restricted account, the groups naming the project exist and are all its
 // own (A68); a component it keeps or retires stays in its groups.
 func (s *Store) ReplaceProjectAssets(ctx context.Context, sc Scope, project string, assets []Asset) (ImportResult, error) {

@@ -88,7 +88,7 @@ func TestDashboardStats(t *testing.T) {
 	if len(s.Weeks) != 12 || newTotal != 4 || last.Closed != 1 {
 		t.Errorf("weeks: %+v", s.Weeks)
 	}
-	if len(s.TopAssets) != 1 || s.TopAssets[0].Total() != 3 || s.TopAssets[0].Critical != 1 {
+	if len(s.TopAssets) != 1 || s.TopAssets[0].Total() != 3 || s.TopAssets[0].Critical != 1 || s.TopAssets[0].Urgent != s.Priority {
 		t.Errorf("top assets: %+v", s.TopAssets)
 	}
 	// The inventory counts the urgent ones of each asset: those of the dashboard, for its only asset.

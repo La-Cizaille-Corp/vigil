@@ -233,7 +233,7 @@ func (s *Store) InTrackedPeriod(ctx context.Context, assetID int64, vulnID, sinc
 	var in bool
 	err := s.q(ctx).QueryRowContext(ctx, `
 		SELECT EXISTS (SELECT 1 FROM findings WHERE asset_id = ? AND vuln_id = ?)
-		    OR EXISTS (SELECT 1 FROM vulnerabilities v WHERE v.id = ? AND `+inPeriod+`)`,
+		    OR EXISTS (SELECT 1 FROM `+listedVulns+` WHERE v.id = ? AND `+inPeriod+`)`,
 		assetID, vulnID, vulnID, since, since).Scan(&in)
 	if err != nil {
 		return false, fmt.Errorf("tracked period %d/%s: %w", assetID, vulnID, err)
@@ -254,7 +254,7 @@ func (s *Store) AutoResolveStale(ctx context.Context, assetID int64, reported []
 	closed := 0
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
 		open, err := collect(ctx, tx, "open findings", scanFindingState, `
-			SELECT f.id, f.status, f.vuln_id FROM findings f JOIN vulnerabilities v ON v.id = f.vuln_id
+			SELECT f.id, f.status, f.vuln_id FROM findings f`+vulnJoin+`
 			WHERE f.asset_id = ? AND f.status IN `+openStatuses+` AND `+shownExpr+` AND `+inPeriod,
 			assetID, since, since)
 		if err != nil {
@@ -415,8 +415,19 @@ var (
 
 const findingFrom = `
 	FROM findings f
-	JOIN assets a ON a.id = f.asset_id
-	JOIN vulnerabilities v ON v.id = f.vuln_id`
+	JOIN assets a ON a.id = f.asset_id` + vulnJoin
+
+// listedVulns is the table of advisories, aliased v, read through the index
+// vulnerabilities_listed (migration 021, A91). It holds every column the lists,
+// counts, alerts and the synchronisation read of an advisory: they no longer
+// read its record, where kev, epss and cvss come after the advisory stored,
+// several overflow pages to walk. The index is named: without statistics,
+// SQLite would take the one of the primary key, and read the record.
+const listedVulns = `vulnerabilities v INDEXED BY vulnerabilities_listed`
+
+// vulnJoin joins its advisory, aliased v, to the finding aliased f.
+const vulnJoin = `
+	JOIN ` + listedVulns + ` ON v.id = f.vuln_id`
 
 // scanFinding reads the columns of findingSelect, then extra ones if given; a
 // finding is late when its deadline is before today (see day).
@@ -592,7 +603,7 @@ func (s *Store) ListVulnCVEs(ctx context.Context) (map[string][]string, error) {
 	}, `
 		SELECT id, id FROM vulnerabilities WHERE id LIKE 'CVE-%'
 		UNION
-		SELECT v.id, j.value FROM vulnerabilities v, json_each(v.aliases) j WHERE j.value LIKE 'CVE-%'`)
+		SELECT v.id, j.value FROM `+listedVulns+`, json_each(v.aliases) j WHERE j.value LIKE 'CVE-%'`)
 	if err != nil {
 		return nil, err
 	}
