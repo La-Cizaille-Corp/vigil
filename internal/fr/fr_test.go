@@ -85,4 +85,7 @@ func TestOr(t *testing.T) {
 			t.Errorf("Or(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
+	if got := Join([]string{"a", "b", "c"}, "et"); got != "a, b et c" {
+		t.Errorf("Join = %q", got)
+	}
 }

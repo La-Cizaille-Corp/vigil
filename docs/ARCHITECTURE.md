@@ -596,7 +596,8 @@ d'une vulnérabilité ramenait à la liste sans ses filtres.
   compris), validé par la même liste blanche que `next` (`listPath` : `/findings` ou `/findings?…`, sinon la
   liste par défaut). La page offre « Retour à la liste » et « Suivante dans la liste » ; après « Enregistrer »,
   elle revient avec les deux, la suivante étant lue avant que la décision sorte la vulnérabilité de la liste
-  (`then=`). Cela coûte une lecture de la liste entière (0,17 s sur la base noyau).
+  (`then=`). Cela coûte une lecture de la liste entière (0,17 s sur la base noyau), une seule par décision :
+  la page qui suit l'enregistrement reprend `then` sans relire la liste (revue de la 0.5.0, W12).
 - *VEX* : « Exporter les analyses en VEX » et « Importer un VEX… » rejoignent l'export CSV au-dessus du tableau ;
   l'export dit qu'il prend toutes les analyses (ou celles du projet), sans les autres filtres.
 
@@ -887,6 +888,13 @@ utilisateur. *Conséquences* : le message d'un SBOM trop gros change ; `inventor
 valeurs telles quelles, et seule l'écriture les neutralise ; les exports restent identiques octet
 pour octet (test) ; capslock voit `limit` capable de lire fichiers et réseau (son lecteur ne sait pas
 ce qu'il lit), et `netsafe` ne l'est plus de lire des fichiers.
+*Envoi au-delà de la borne* (revue de la 0.5.0, W7) : avant toute lecture, le corps d'une requête est
+borné selon sa route (`bodyLimit` : 64 Kio pour un formulaire, 2 Mo et 64 Kio pour un CSV, 21 Mo pour
+un SBOM, un VEX ou l'API). Un envoi qui dépassait cette borne laissait le formulaire vide et recevait
+« Jeton CSRF invalide. » (403), qui fait croire à une attaque. `require` lit désormais le formulaire
+avant d'y chercher le jeton et répond 413 en disant la borne (« Envoi trop volumineux : le fichier CSV
+doit faire 2 Mo au plus. ») ; les pages ne disent plus « manquant ou trop volumineux » d'un fichier
+absent. Un fichier entre sa propre borne et celle du corps garde le message de `limit.File`.
 
 **A13. Statuts CycloneDX / VEX.** Des statuts maison auraient été plus « parlants » mais non
 interopérables. Les états VEX (`in_triage`, `exploitable`, `resolved`, `not_affected` +
@@ -938,7 +946,18 @@ d'origine (liste blanche de chemins, pas de redirection ouverte). L'état couran
 résultat (nouvelles, rouvertes, corrigées, ignorées, erreur) est affiché à côté ; il est gardé
 en mémoire, car il ne concerne que le processus en cours. Ajouter, modifier ou « Analyser » un
 actif lance son analyse seule ; si une synchronisation est en cours, l'analyse attend qu'elle
-finisse au lieu d'être perdue.
+finisse au lieu d'être perdue. Depuis la revue de la 0.5.0 (W2), la même attente vaut pour la
+synchronisation d'un import (CSV, SBOM, API) et pour la synchronisation programmée de `serve`, qui
+étaient abandonnées si une autre tournait : un import pendant une synchronisation affichait
+« synchronisation lancée » et ses composants attendaient la suivante, et une analyse d'actif en cours
+au moment du tick faisait sauter la synchronisation programmée jusqu'à l'intervalle suivant (6 h par
+défaut). Une seule fonction attend et lance (`Server.Sync`, réessai toutes les 5 secondes), et une
+seule attente par actif, ou pour tout l'inventaire : une demande pour ce qui attend déjà n'ajoute rien,
+puisque l'attente lit l'inventaire quand elle démarre. Deux « Analyser » de suite ne font donc qu'une
+analyse, et une série de demandes n'empile plus d'analyses ni de goroutines. Le bouton « Synchroniser
+l'inventaire » reste refusé pendant une synchronisation (« déjà en cours »). *Écarté* : faire attendre
+`Syncer.Run` lui-même, qui refuse une seconde synchronisation (`ErrRunning`) et sur lequel comptent ce
+bouton et l'état « déjà en cours ».
 
 **A58. Fréquence de collecte des flux, réglable dans l'interface.** Les actualités suivaient
 `-sync-interval`, avec les vulnérabilités : 4 collectes par jour par défaut, et changer l'une changeait

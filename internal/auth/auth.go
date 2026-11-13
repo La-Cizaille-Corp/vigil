@@ -165,11 +165,18 @@ func VerifyPassword(password, encoded string) (bool, error) {
 }
 
 // dummyHash is verified when the user does not exist, so that response time
-// does not reveal which usernames exist.
-var dummyHash, _ = HashPassword("not-a-real-password-just-timing")
+// does not reveal which usernames exist. It is made at its first use, not
+// when the package loads: an argon2 hash takes 64 MiB and tens of
+// milliseconds, which every command of vigil would pay otherwise. The
+// password is fixed and passes the policy (checked by test): HashPassword
+// can only fail here if the system has no randomness left.
+var dummyHash = sync.OnceValue(func() string {
+	hash, _ := HashPassword("not-a-real-password-just-timing")
+	return hash
+})
 
 // VerifyDummy burns the same CPU time as a real verification.
-func VerifyDummy(password string) { _, _ = VerifyPassword(password, dummyHash) }
+func VerifyDummy(password string) { _, _ = VerifyPassword(password, dummyHash()) }
 
 // NewToken returns a URL-safe random token of 32 bytes.
 func NewToken() (string, error) {

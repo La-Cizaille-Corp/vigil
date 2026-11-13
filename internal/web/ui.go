@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -92,17 +93,6 @@ func trackingSource(a store.Asset) string {
 	return ""
 }
 
-// splitTags splits a comma-separated list of tags.
-func splitTags(v string) []string {
-	var out []string
-	for _, t := range strings.Split(v, ",") {
-		if t = strings.TrimSpace(t); t != "" {
-			out = append(out, t)
-		}
-	}
-	return out
-}
-
 // findingTitle names a finding by its CVE when it has one: teams and news
 // speak of CVE-2021-44228, not GHSA-jfh8-c2jp-5v3q. An advisory of several
 // CVEs keeps its own name: the first of its 1 902 CVEs does not describe
@@ -169,42 +159,86 @@ func (s *Server) syncStatus() tracking.Status {
 // its own: without an NVD key an asset takes about a minute, a kernel more.
 const syncTimeout = 2 * time.Hour
 
-// runSync matches the inventory against vulnerability sources in the
-// background; it is a no-op when a sync is already running.
-func (s *Server) runSync() {
-	if s.Syncer == nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(s.background(), syncTimeout)
-	defer cancel()
-	if _, err := s.Syncer.Run(ctx); err != nil && !errors.Is(err, tracking.ErrRunning) {
-		s.Log.Error("sync failed", "err", err)
-	}
+// syncRetry is how long a run asked while another one goes waits before it
+// tries again.
+var syncRetry = 5 * time.Second
+
+// syncQueue holds the runs waiting for the one in progress, by asset (0 for
+// the whole inventory): one waiting run each.
+type syncQueue struct {
+	mu      sync.Mutex
+	waiting map[int64]bool
 }
 
-// runAssetSync checks one asset in the background. A sync in progress may
-// have listed the inventory before the asset was added or changed, so the
-// check waits for it instead of being dropped.
-func (s *Server) runAssetSync(id int64) {
-	if s.Syncer == nil {
+// enter marks a run of id as waiting, and reports false when one already is.
+func (q *syncQueue) enter(id int64) bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.waiting[id] {
+		return false
+	}
+	if q.waiting == nil {
+		q.waiting = map[int64]bool{}
+	}
+	q.waiting[id] = true
+	return true
+}
+
+// leave ends the wait of a run of id.
+func (q *syncQueue) leave(id int64) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	delete(q.waiting, id)
+}
+
+// Sync matches the asset id, or the whole inventory for 0, against the
+// vulnerability sources once the run in progress is over: the Syncer makes
+// one at a time, and a run in progress may have read the inventory before
+// what asked for this one (an asset added or changed, an import). So a run
+// asked meanwhile waits instead of being lost (A32), whoever asks: a form, an
+// import, the schedule of serve. One waiting run of id is enough, as it reads
+// the inventory when it starts: a second request for it returns at once. Sync
+// returns when its run is done, or when ctx ends.
+func (s *Server) Sync(ctx context.Context, id int64) {
+	if s.Syncer == nil || !s.syncs.enter(id) {
 		return
 	}
-	ctx, cancel := context.WithTimeout(s.background(), syncTimeout)
-	defer cancel()
 	for {
-		_, err := s.Syncer.RunAsset(ctx, id)
+		// From here a new request waits for a run of its own: this one may
+		// read the inventory before the change that asked for it.
+		s.syncs.leave(id)
+		var err error
+		if id == 0 {
+			_, err = s.Syncer.Run(ctx)
+		} else {
+			_, err = s.Syncer.RunAsset(ctx, id)
+		}
 		if !errors.Is(err, tracking.ErrRunning) {
 			if err != nil && !errors.Is(err, store.ErrNotFound) {
-				s.Log.Error("asset sync failed", "asset", id, "err", err)
+				s.Log.Error("sync failed", "asset", id, "err", err)
 			}
 			return
 		}
+		if !s.syncs.enter(id) {
+			return // a request made meanwhile waits for it
+		}
 		select {
 		case <-ctx.Done():
+			s.syncs.leave(id)
 			return
-		case <-time.After(5 * time.Second):
+		case <-time.After(syncRetry):
 		}
 	}
+}
+
+// syncInBackground starts Sync for a request of the UI: it goes on once the
+// answer is sent, bounded by syncTimeout.
+func (s *Server) syncInBackground(id int64) {
+	go func() {
+		ctx, cancel := context.WithTimeout(s.background(), syncTimeout)
+		defer cancel()
+		s.Sync(ctx, id)
+	}()
 }
 
 // keyGroups writes a key in groups of four characters, easier to copy by

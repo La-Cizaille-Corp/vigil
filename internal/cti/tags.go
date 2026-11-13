@@ -125,9 +125,9 @@ type Tags struct {
 func Classify(it Item, f store.Feed) Tags {
 	text := it.Title + " " + it.Summary
 	return Tags{
-		Countries:   match(countryTags, text, splitNonEmpty(f.Country)),
-		Sectors:     match(sectorTags, text, splitNonEmpty(f.Sectors)),
-		Regulations: match(regulationTags, text, splitNonEmpty(f.Regulations)),
+		Countries:   match(countryTags, text, store.SplitList(f.Country)),
+		Sectors:     match(sectorTags, text, store.SplitList(f.Sectors)),
+		Regulations: match(regulationTags, text, store.SplitList(f.Regulations)),
 	}
 }
 
@@ -146,16 +146,6 @@ func match(tags []tag, text string, initial []string) []string {
 		out = append(out, v)
 	}
 	sort.Strings(out)
-	return out
-}
-
-func splitNonEmpty(s string) []string {
-	var out []string
-	for _, p := range strings.Split(s, ",") {
-		if p = strings.TrimSpace(p); p != "" {
-			out = append(out, p)
-		}
-	}
 	return out
 }
 

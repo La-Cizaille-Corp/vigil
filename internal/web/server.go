@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -76,6 +77,7 @@ type Server struct {
 
 	pages    map[string]*template.Template
 	once     onceStore     // values shown once after a redirect
+	syncs    syncQueue     // runs waiting for the one in progress (see Sync)
 	limiter  *auth.Limiter // failed attempts per client (see clientKey), or per user from a session
 	accounts *auth.Limiter // failed sign-ins per account name
 
@@ -223,8 +225,7 @@ func (s *Server) parseTemplates() error {
 		"tracking":    trackingSource,
 		"vendorOf":    inventory.VendorName,
 		"wholeVendor": inventory.WholeVendor,
-		"syncStatus":  s.syncStatus,
-		"tags":        splitTags,
+		"tags":        store.SplitList,
 		"dict3": func(countries, sectors, regulations []string) tagSelection {
 			return tagSelection{countries, sectors, regulations}
 		},
@@ -247,7 +248,6 @@ func (s *Server) parseTemplates() error {
 		"ecosystems":        func() []string { return inventory.Ecosystems },
 		"statuses":          func() []choice.Option { return tracking.Statuses },
 		"justifs":           func() []choice.Option { return tracking.Justifications },
-		"queryable":         inventory.Queryable,
 		"byName":            inventory.ByName,
 		"wholeDistribution": inventory.WholeDistribution,
 		"checkedVersion":    inventory.CheckedVersion,
@@ -262,20 +262,12 @@ func (s *Server) parseTemplates() error {
 		"webhookKindLabel":  func(v string) string { return choice.Label(notify.Kinds, v) },
 		"target":            notify.Target,
 		"alertOptions":      func() []choice.Option { return notify.AlertOptions },
-		"alertLabel":        func(v string) string { return choice.Label(notify.AlertOptions, v) },
 		// A list that is not sorted by its reader (dashboard, asset page); the
 		// vulnerability list builds its own findingRows.
 		"findingRows": func(list []store.Finding) findingRows {
 			return findingRows{List: list, Head: plainHeaders(findingColumnList)}
 		},
-		"has": func(list []string, v string) bool {
-			for _, x := range list {
-				if x == v {
-					return true
-				}
-			}
-			return false
-		},
+		"has": slices.Contains[[]string],
 		// SECURITY: digest HTML is produced by html/template from stored data
 		// (see package digest), so it is already escaped.
 		"trustedDigest": func(s string) template.HTML { return template.HTML(s) }, // #nosec G203 -- escaped at generation

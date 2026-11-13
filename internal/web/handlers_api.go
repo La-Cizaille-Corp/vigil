@@ -66,9 +66,7 @@ func (s *Server) apiSBOM(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, "sbom_import_api", "project", project, "token", tok.Name, "format", doc.Format,
 		"added", res.Added, "kept", res.Kept, "removed", res.Removed, "skipped", doc.Skipped)
-	if s.Syncer != nil {
-		go s.runSync()
-	}
+	s.syncInBackground(0)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"project": project, "format": doc.Format,
 		"added": res.Added, "kept": res.Kept, "removed": res.Removed, "skipped": doc.Skipped,

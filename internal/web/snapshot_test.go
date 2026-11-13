@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/digest"
+	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
 
@@ -34,6 +35,18 @@ var snapshotNoise = []struct {
 	{regexp.MustCompile(`name="csrf" value="[^"]*"`), `name="csrf" value="CSRF"`},
 	{regexp.MustCompile(`Généré le [0-9/]+ [0-9:]+ — période depuis le [0-9/]+ [0-9:]+`), "Généré le MAINTENANT — période depuis le IL-Y-A-7-JOURS"},
 	{regexp.MustCompile(`Digest du [0-9/]+ [0-9:]+`), "Digest du MAINTENANT"},
+}
+
+// sinceNoise replaces the default start of the tracked period, 120 days
+// before now (inventory.DefaultSince), as the form to add an asset shows it:
+// the date changes every day.
+func sinceNoise(now time.Time) *strings.Replacer {
+	since := inventory.DefaultSince(now)
+	day, err := time.Parse(time.DateOnly, since)
+	if err != nil {
+		panic(err)
+	}
+	return strings.NewReplacer(since, "IL-Y-A-120-JOURS", day.Format("02/01/2006"), "IL-Y-A-120-JOURS")
 }
 
 // The main pages and the digest are rendered as kept in testdata/snapshots:
@@ -131,6 +144,7 @@ func TestRenderSnapshots(t *testing.T) {
 		for _, n := range snapshotNoise {
 			body = n.re.ReplaceAllString(body, n.with)
 		}
+		body = sinceNoise(time.Now()).Replace(body)
 		file := filepath.Join("testdata", "snapshots", name)
 		if *updateSnapshots {
 			if err := os.WriteFile(file, []byte(body), 0o600); err != nil {

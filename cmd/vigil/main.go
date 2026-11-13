@@ -321,11 +321,9 @@ func runServe(ctx context.Context, log *slog.Logger, args []string) error {
 	}
 	go srv.PurgeSessions(ctx)
 	if *syncEvery > 0 {
-		go every(ctx, *syncEvery, true, func() {
-			if _, err := sv.syncer.Run(ctx); err != nil && !errors.Is(err, tracking.ErrRunning) {
-				log.Error("scheduled sync failed", "err", err)
-			}
-		})
+		// A run of the UI in progress delays the scheduled one, which then
+		// waits for it instead of being skipped until the next interval.
+		go every(ctx, *syncEvery, true, func() { srv.Sync(ctx, 0) })
 		go every(ctx, time.Minute, true, func() {
 			if err := sv.cti.RunIfDue(ctx); err != nil {
 				log.Error("scheduled cti collection failed", "err", err)

@@ -146,12 +146,18 @@ func (s *Server) saveWatch(w http.ResponseWriter, r *http.Request) {
 	redirect(w, r, "/settings/watch#contenu", "watch-saved")
 }
 
-// feedTagsFromForm reads the tags a feed applies to its items, or the watched
+// tagsFromForm reads the tags a feed applies to its items, or the watched
 // ones: several countries, sectors and regulations each, known values only.
+func tagsFromForm(r *http.Request) tagSelection {
+	return tagSelection{choice.KnownOnly(cti.Countries, r.PostForm["country"]), choice.KnownOnly(cti.Sectors, r.PostForm["sector"]),
+		choice.KnownOnly(cti.Regulations, r.PostForm["regulation"])}
+}
+
+// feedTagsFromForm is tagsFromForm as a feed and the watch store them, each
+// list separated by commas (see store.SplitList).
 func feedTagsFromForm(r *http.Request) (country, sectors, regulations string) {
-	return strings.Join(choice.KnownOnly(cti.Countries, r.PostForm["country"]), ","),
-		strings.Join(choice.KnownOnly(cti.Sectors, r.PostForm["sector"]), ","),
-		strings.Join(choice.KnownOnly(cti.Regulations, r.PostForm["regulation"]), ",")
+	t := tagsFromForm(r)
+	return strings.Join(t.Countries, ","), strings.Join(t.Sectors, ","), strings.Join(t.Regulations, ",")
 }
 
 func (s *Server) feedCreate(w http.ResponseWriter, r *http.Request) {
@@ -396,7 +402,7 @@ func maskURL(raw string) string {
 func (s *Server) sbomImport(w http.ResponseWriter, r *http.Request) {
 	file, _, err := r.FormFile("sbom")
 	if err != nil {
-		s.renderNewAsset(w, r, http.StatusBadRequest, defaultAssetForm(), addSBOM, "Fichier SBOM manquant ou trop volumineux (20 Mo au plus).")
+		s.renderNewAsset(w, r, http.StatusBadRequest, defaultAssetForm(), addSBOM, "Fichier SBOM manquant.")
 		return
 	}
 	defer file.Close()
@@ -424,7 +430,7 @@ func (s *Server) sbomImport(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, "sbom_import", "project", project, "format", doc.Format,
 		"added", res.Added, "kept", res.Kept, "removed", res.Removed, "skipped", doc.Skipped)
-	go s.runSync()
+	s.syncInBackground(0)
 	redirect(w, r, "/assets?project="+url.QueryEscape(project), "sbom-imported")
 }
 

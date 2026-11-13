@@ -149,7 +149,7 @@ func TestCommonPasswordsList(t *testing.T) {
 			t.Errorf("%q has the shape of a generated password", p)
 		}
 	}
-	if dummyHash == "" {
+	if dummyHash() == "" {
 		t.Error("the timing dummy password is refused")
 	}
 }

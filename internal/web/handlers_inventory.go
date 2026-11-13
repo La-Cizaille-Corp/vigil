@@ -261,9 +261,9 @@ func (s *Server) assetCSV(w http.ResponseWriter, r *http.Request) {
 // skipped, so that the same file can be imported again after adding lines to
 // it.
 func (s *Server) assetCSVImport(w http.ResponseWriter, r *http.Request) {
-	file, _, err := r.FormFile("csv") // body bounded by limitBody
+	file, _, err := r.FormFile("csv") // a body past its bound is refused before (see require)
 	if err != nil {
-		s.renderNewAsset(w, r, http.StatusBadRequest, defaultAssetForm(), addCSV, "Fichier CSV manquant ou trop volumineux (2 Mo au plus).")
+		s.renderNewAsset(w, r, http.StatusBadRequest, defaultAssetForm(), addCSV, "Fichier CSV manquant.")
 		return
 	}
 	defer file.Close()
@@ -310,7 +310,7 @@ func (s *Server) assetCSVImport(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, "csv_import", "added", added, "skipped", skipped)
 	if added > 0 {
-		go s.runSync()
+		s.syncInBackground(0)
 	}
 	redirect(w, r, "/assets", "csv-imported")
 }

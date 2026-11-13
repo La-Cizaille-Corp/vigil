@@ -81,7 +81,7 @@ func scanUser(row scanner, extra ...any) (User, error) {
 		return u, ErrNotFound
 	}
 	u.CreatedAt = parseTime(created)
-	for _, g := range splitTags(groups) {
+	for _, g := range SplitList(groups) {
 		id, perr := strconv.ParseInt(g, 10, 64)
 		if perr != nil {
 			return u, fmt.Errorf("group of user %d: %w", u.ID, perr)

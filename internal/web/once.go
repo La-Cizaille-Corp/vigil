@@ -18,7 +18,7 @@ const onceTTL = 2 * time.Minute
 type onceKind string
 
 const (
-	onceToken    onceKind = "token"    // a new API token, shown by /settings
+	onceToken    onceKind = "token"    // a new API token, shown by /settings/tokens
 	oncePassword onceKind = "password" // a temporary password, shown by /settings/users
 )
 

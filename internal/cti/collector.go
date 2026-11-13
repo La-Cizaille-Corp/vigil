@@ -164,7 +164,7 @@ func WatchedRegulations(ctx context.Context, st *store.Store) (store.CTIFilter, 
 	if err != nil {
 		return store.CTIFilter{}, err
 	}
-	f := store.CTIFilter{Regulations: splitNonEmpty(regs)}
+	f := store.CTIFilter{Regulations: store.SplitList(regs)}
 	f.AnyRegulation = len(f.Regulations) == 0
 	return f, nil
 }
@@ -179,7 +179,7 @@ func WatchedFilter(ctx context.Context, st *store.Store) (store.CTIFilter, error
 	if err != nil {
 		return store.CTIFilter{}, err
 	}
-	return store.CTIFilter{Countries: splitNonEmpty(countries), Sectors: splitNonEmpty(sectors)}, nil
+	return store.CTIFilter{Countries: store.SplitList(countries), Sectors: store.SplitList(sectors)}, nil
 }
 
 // SaveWatched stores the watched countries, sectors and regulations, ignoring

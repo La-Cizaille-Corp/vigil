@@ -3,7 +3,6 @@ package web
 import (
 	"errors"
 	"fmt"
-	"html/template"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -408,7 +407,7 @@ func (s *Server) assetCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "asset_create", "id", id)
-	go s.runAssetSync(id)
+	s.syncInBackground(id)
 	redirect(w, r, assetPath(id), createdMessage(a))
 }
 
@@ -562,7 +561,7 @@ func (s *Server) assetUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "asset_update", "id", a.ID)
-	go s.runAssetSync(a.ID)
+	s.syncInBackground(a.ID)
 	redirect(w, r, assetPath(a.ID), "asset-updated")
 }
 
@@ -579,7 +578,7 @@ func (s *Server) assetFullHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "asset_update", "id", a.ID, "full_history", true)
-	go s.runAssetSync(a.ID)
+	s.syncInBackground(a.ID)
 	redirect(w, r, assetPath(a.ID), "asset-updated")
 }
 
@@ -593,7 +592,7 @@ func (s *Server) assetScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "asset_scan", "id", a.ID)
-	go s.runAssetSync(a.ID)
+	s.syncInBackground(a.ID)
 	redirect(w, r, assetPath(a.ID), "scan-started")
 }
 
@@ -771,8 +770,8 @@ func (s *Server) renderFindings(w http.ResponseWriter, r *http.Request, status i
 			Select: analyst && len(shown) > 0, Checked: b.Checked, Back: back, Reset: reset},
 		"Sort": q.Get("sort"), "Dir": q.Get("dir"),
 		"Levels": l.Levels, "Level": q.Get("level"), "Since": sinceDays(q), "More": more,
-		// Re-encoded from the parsed query: a safe relative link with the same filters, every page.
-		"CSVLink": template.URL("/findings.csv?" + without(q, "msg", "page").Encode()), // #nosec G203 -- fixed path, encoded values
+		// Re-encoded from the parsed query: a relative link with the same filters, every page.
+		"CSVLink": "/findings.csv?" + without(q, "msg", "page").Encode(),
 	}})
 }
 
@@ -1119,13 +1118,16 @@ func (s *Server) renderFinding(w http.ResponseWriter, r *http.Request, status in
 		return
 	}
 	back := listBack(r)
-	next, err := s.following(r, back, f.ID)
-	if err != nil {
-		s.serverError(w, r, err)
-		return
-	}
-	if then, err := strconv.ParseInt(r.URL.Query().Get("then"), 10, 64); next == 0 && err == nil && then > 0 && then != f.ID {
-		next = then // the one that followed it before it left the list (findingUpdate)
+	// After a decision, the one that followed it in the list was read before
+	// the decision could take it out (findingUpdate): it comes as then, and
+	// the whole list is not read a second time. Otherwise, the next one of
+	// the list.
+	next, err := strconv.ParseInt(r.URL.Query().Get("then"), 10, 64)
+	if err != nil || next <= 0 || next == f.ID {
+		if next, err = s.following(r, back, f.ID); err != nil {
+			s.serverError(w, r, err)
+			return
+		}
 	}
 	data := map[string]any{"Finding": f, "Vuln": v, "Events": events, "Mentions": mentions, "Fixes": tracking.Fixes(v.Raw, asset),
 		"ByName": inventory.ByName(asset), "Latest": inventory.IsLatest(asset), "Back": back, "Following": next,
@@ -1257,7 +1259,7 @@ func (s *Server) syncNow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "sync", "trigger", "manual")
-	go s.runSync()
+	s.syncInBackground(0)
 	redirect(w, r, back, "sync-started")
 }
 
