@@ -50,7 +50,8 @@ depuis les [releases](https://github.com/La-Cizaille-Corp/vigil/releases), puis 
 
 ```bash
 sha256sum --ignore-missing -c checksums.txt
-gh attestation verify vigil_*_linux_amd64.tar.gz --repo La-Cizaille-Corp/vigil
+gh attestation verify vigil_*_linux_amd64.tar.gz --repo La-Cizaille-Corp/vigil \
+  --signer-workflow La-Cizaille-Corp/vigil/.github/workflows/release.yml
 ```
 
 Chaque archive est accompagnée de son SBOM CycloneDX et d'une attestation de provenance signée.
@@ -153,7 +154,7 @@ vigil serve -addr 0.0.0.0:8080 -behind-proxy -base-url https://vigil.example.org
 ```
 
 Vigil refuse d'écouter sur une interface non locale sans TLS. Les flux et webhooks ne peuvent
-pas viser d'adresses privées ou locales, sauf avec `-allow-private-urls`.
+pas viser d'adresses privées ou locales, ni les sources y rediriger, sauf avec `-allow-private-urls`.
 
 Rôles : `viewer` (lecture), `analyst` (inventaire, triage, synchronisation, digests, filtres de
 veille), `admin` (flux CTI, webhooks, jetons d'API et comptes en plus). Les administrateurs gèrent

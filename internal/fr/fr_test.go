@@ -44,10 +44,10 @@ func TestNumbers(t *testing.T) {
 		{Percent(0.00049), "0,0\u00a0%"},
 		{Percent(1), "100,0\u00a0%"},
 		{Percent(-1), ""},
-		{Days(0.4), "<\u00a01\u00a0j"},
-		{Days(3.46), "3,5\u00a0j"},
-		{Days(9.94), "9,9\u00a0j"},
-		{Days(12.4), "12\u00a0j"},
+		{days(0.4), "<\u00a01\u00a0j"},
+		{days(3.46), "3,5\u00a0j"},
+		{days(9.94), "9,9\u00a0j"},
+		{days(12.4), "12\u00a0j"},
 	} {
 		if c.got != c.want {
 			t.Errorf("got %q, want %q", c.got, c.want)

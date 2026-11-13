@@ -22,8 +22,8 @@ import (
 
 const maxFeedBytes = 8 << 20
 
-// Item is one normalised feed entry.
-type Item struct {
+// feedItem is one normalised feed entry.
+type feedItem struct {
 	GUID      string
 	Title     string
 	Link      string
@@ -31,8 +31,8 @@ type Item struct {
 	Published time.Time
 }
 
-// Fetch downloads and parses a feed.
-func Fetch(ctx context.Context, client *http.Client, url, userAgent string) ([]Item, error) {
+// fetch downloads and parses a feed.
+func fetch(ctx context.Context, client *http.Client, url, userAgent string) ([]feedItem, error) {
 	// The URL of a feed may carry an access key: errors leave it out.
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -52,75 +52,111 @@ func Fetch(ctx context.Context, client *http.Client, url, userAgent string) ([]I
 	if err != nil {
 		return nil, err
 	}
-	return Parse(body)
+	return parseFeed(body)
 }
 
-// Parse reads RSS 2.0 or Atom. encoding/xml never resolves external
-// entities, so XXE is not possible.
-func Parse(data []byte) ([]Item, error) {
-	var doc struct {
-		XMLName xml.Name
-		Channel struct {
-			Items []struct {
-				GUID        string `xml:"guid"`
-				Title       string `xml:"title"`
-				Link        string `xml:"link"`
-				Description string `xml:"description"`
-				PubDate     string `xml:"pubDate"`
-				Date        string `xml:"http://purl.org/dc/elements/1.1/ date"`
-			} `xml:"item"`
-		} `xml:"channel"`
-		Entries []struct {
-			ID    string `xml:"id"`
-			Title string `xml:"title"`
-			Links []struct {
-				Href string `xml:"href,attr"`
-				Rel  string `xml:"rel,attr"`
-			} `xml:"link"`
-			Summary   string `xml:"summary"`
-			Content   string `xml:"content"`
-			Published string `xml:"published"`
-			Updated   string `xml:"updated"`
-		} `xml:"entry"`
+// rssItem is an item of RSS 2.0, or of RSS 1.0 (RDF), whose items are
+// children of the root rather than of the channel.
+type rssItem struct {
+	GUID        string `xml:"guid"`
+	Title       string `xml:"title"`
+	Link        string `xml:"link"`
+	Description string `xml:"description"`
+	PubDate     string `xml:"pubDate"`
+	Date        string `xml:"http://purl.org/dc/elements/1.1/ date"`
+}
+
+func (it rssItem) item() feedItem {
+	return feedItem{
+		GUID:      firstNonEmpty(it.GUID, it.Link, it.Title),
+		Title:     it.Title,
+		Link:      it.Link,
+		Summary:   it.Description,
+		Published: parseDate(firstNonEmpty(it.PubDate, it.Date)),
 	}
+}
+
+// atomEntry is an entry of Atom.
+type atomEntry struct {
+	ID    string `xml:"id"`
+	Title string `xml:"title"`
+	Links []struct {
+		Href string `xml:"href,attr"`
+		Rel  string `xml:"rel,attr"`
+	} `xml:"link"`
+	Summary   string `xml:"summary"`
+	Content   string `xml:"content"`
+	Published string `xml:"published"`
+	Updated   string `xml:"updated"`
+}
+
+func (e atomEntry) item() feedItem {
+	link := ""
+	for _, l := range e.Links {
+		if l.Rel == "" || l.Rel == "alternate" {
+			link = l.Href
+			break
+		}
+	}
+	return feedItem{
+		GUID:      firstNonEmpty(e.ID, link, e.Title),
+		Title:     e.Title,
+		Link:      link,
+		Summary:   firstNonEmpty(e.Summary, e.Content),
+		Published: parseDate(firstNonEmpty(e.Published, e.Updated)),
+	}
+}
+
+// maxFeedEntries bounds the entries decoded from one document; the rest of
+// it is not read. SECURITY: decoding the whole document before keeping
+// maxFeedItems let 8 MiB of empty <item/> make a million structures, about
+// half a gibibyte for each collection (revue 0.5.0, C1).
+const maxFeedEntries = 2000
+
+// parseFeed reads RSS 2.0, RSS 1.0 (RDF) or Atom, one entry at a time, at most
+// maxFeedEntries of them. encoding/xml never resolves external entities, so
+// XXE is not possible.
+func parseFeed(data []byte) ([]feedItem, error) {
 	dec := xml.NewDecoder(bytes.NewReader(data))
 	dec.Strict = false
 	dec.CharsetReader = charsetReader
-	if err := dec.Decode(&doc); err != nil {
-		return nil, fmt.Errorf("flux illisible : %w", err)
-	}
-
-	var items []Item
-	switch doc.XMLName.Local {
-	case "rss", "RDF":
-		for _, it := range doc.Channel.Items {
-			items = append(items, Item{
-				GUID:      firstNonEmpty(it.GUID, it.Link, it.Title),
-				Title:     it.Title,
-				Link:      it.Link,
-				Summary:   it.Description,
-				Published: parseDate(firstNonEmpty(it.PubDate, it.Date)),
-			})
+	var items []feedItem
+	root, depth := "", 0
+	for depth > 0 || root == "" {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil, fmt.Errorf("flux illisible : %w", err)
 		}
-	case "feed":
-		for _, e := range doc.Entries {
-			link := ""
-			for _, l := range e.Links {
-				if l.Rel == "" || l.Rel == "alternate" {
-					link = l.Href
-					break
+		switch t := tok.(type) {
+		case xml.EndElement:
+			depth--
+		case xml.StartElement:
+			if root == "" {
+				if root = t.Name.Local; root != "rss" && root != "RDF" && root != "feed" {
+					return nil, errors.New("format de flux inconnu (RSS ou Atom attendu)")
 				}
+				depth++
+				continue
 			}
-			items = append(items, Item{
-				GUID:      firstNonEmpty(e.ID, link, e.Title),
-				Title:     e.Title,
-				Link:      link,
-				Summary:   firstNonEmpty(e.Summary, e.Content),
-				Published: parseDate(firstNonEmpty(e.Published, e.Updated)),
-			})
+			// An item or an entry is decoded whole, its end element with it;
+			// the decoder goes into any other element (the channel of RSS 2.0).
+			var it interface{ item() feedItem }
+			switch {
+			case root == "feed" && t.Name.Local == "entry":
+				it = &atomEntry{}
+			case root != "feed" && t.Name.Local == "item":
+				it = &rssItem{}
+			default:
+				depth++
+				continue
+			}
+			if err := dec.DecodeElement(it, &t); err != nil {
+				return nil, fmt.Errorf("flux illisible : %w", err)
+			}
+			if items = append(items, it.item()); len(items) == maxFeedEntries {
+				depth = 0 // the rest of the feed is left unread
+			}
 		}
-	default:
-		return nil, errors.New("format de flux inconnu (RSS ou Atom attendu)")
 	}
 
 	now := time.Now().UTC()

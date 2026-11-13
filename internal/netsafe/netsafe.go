@@ -1,5 +1,6 @@
-// Package netsafe provides HTTP clients for user-supplied URLs (CTI feeds,
-// webhooks) with protection against server-side request forgery.
+// Package netsafe provides the HTTP clients of every outgoing request, to
+// user-supplied URLs (CTI feeds, webhooks) as to the fixed sources (OSV, NVD,
+// KEV, EPSS), with protection against server-side request forgery.
 package netsafe
 
 import (
@@ -71,7 +72,12 @@ var proxyFromEnv = http.ProxyFromEnvironment
 // The residual risk is small: only https is allowed, and the certificate is
 // checked against the name, which an internal service cannot present, so no
 // request reaches it; at most a connection is attempted.
-func NewClient(timeout time.Duration, allowPrivate bool) *http.Client {
+//
+// The headers named in drop (an API key) leave a request redirected to
+// another host (CheckRedirect). The time limit of a request, its answer
+// included, is timeout: none is set for the headers alone, as a source may
+// take a while to compute a large page before answering.
+func NewClient(timeout time.Duration, allowPrivate bool, drop ...string) *http.Client {
 	direct := &net.Dialer{Timeout: 10 * time.Second}
 	dial := direct.DialContext
 	proxy := proxyFromEnv
@@ -114,14 +120,13 @@ func NewClient(timeout time.Duration, allowPrivate bool) *http.Client {
 		}
 	}
 	transport := &http.Transport{
-		Proxy:                 proxy,
-		DialContext:           dial,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ResponseHeaderTimeout: 30 * time.Second,
-		MaxIdleConns:          10,
-		IdleConnTimeout:       60 * time.Second,
+		Proxy:               proxy,
+		DialContext:         dial,
+		TLSHandshakeTimeout: 10 * time.Second,
+		MaxIdleConns:        10,
+		IdleConnTimeout:     60 * time.Second,
 	}
-	return &http.Client{Timeout: timeout, Transport: transport, CheckRedirect: CheckRedirect()}
+	return &http.Client{Timeout: timeout, Transport: transport, CheckRedirect: CheckRedirect(drop...)}
 }
 
 // CheckRedirect is the redirect policy of every outgoing client, for the
@@ -246,4 +251,15 @@ func WithoutURL(err error) error {
 		return ue.Err
 	}
 	return err
+}
+
+// MaskURL is what may be shown of a URL that can hold a secret (a webhook
+// token, a feed key): its scheme and host. SECURITY: the audit log, and the
+// settings pages for those who may not see the whole URL, show this only.
+func MaskURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return "…"
+	}
+	return u.Scheme + "://" + u.Host + "/…"
 }

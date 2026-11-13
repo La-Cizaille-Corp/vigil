@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
 
 // stderr runs fn and returns what it wrote on the standard error, where flag
@@ -41,7 +43,7 @@ var (
 	dbOption       = "fichier SQLite"
 	serviceOptions = map[string]string{
 		"base-url":           "adresse publique de l'interface, pour les liens des alertes, des digests et des webhooks",
-		"allow-private-urls": "autoriser flux et webhooks vers des adresses privées ou locales",
+		"allow-private-urls": "autoriser flux, webhooks et sources vers des adresses privées ou locales",
 		"nvd-api-key":        "clé d'API NVD facultative, qui relève la limite de requêtes (préférez la variable VIGIL_NVD_API_KEY)",
 		"smtp-addr":          "serveur SMTP hôte:port pour les notifications par e-mail (vide = désactivé)",
 	}
@@ -181,5 +183,61 @@ func TestMailSettingsCheckedFirst(t *testing.T) {
 	}
 	if _, err := os.Stat(db); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("database opened despite the mail settings: %v", err)
+	}
+}
+
+// C8 of the 0.5.0 review: the environment sets the shared options and those
+// of serve only. VIGIL_ALL=true used to make `vigil user reset-totp`, without
+// an option, remove the second factor of every account; VIGIL_ROLE and
+// VIGIL_GROUPS changed what `vigil user add` created.
+func TestCommandOptionsNotFromEnvironment(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	t.Setenv("VIGIL_DB", filepath.Join(dir, "vigil.db"))
+	t.Setenv("VIGIL_ALL", "true")
+	t.Setenv("VIGIL_ROLE", "admin")
+	t.Setenv("VIGIL_GROUPS", "inconnu")
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	if err := run(ctx, log, []string{"user", "reset-totp"}); err == nil || !strings.Contains(err.Error(), "-username nom ou -all") {
+		t.Errorf("reset-totp without an option, VIGIL_ALL=true: %v", err)
+	}
+	in := filepath.Join(dir, "password")
+	if err := os.WriteFile(in, []byte("a-strong-password\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	stdin := os.Stdin
+	os.Stdin = f
+	defer func() { os.Stdin = stdin }()
+	if err := run(ctx, log, []string{"user", "add", "-username", "carol"}); err != nil {
+		t.Fatalf("user add with VIGIL_ROLE and VIGIL_GROUPS set: %v", err)
+	}
+	st, err := store.Open(ctx, filepath.Join(dir, "vigil.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if u, err := st.AnyUserByName(ctx, "carol"); err != nil || u.Role != "analyst" || !u.Access.All {
+		t.Errorf("carol: %+v, %v; want an analyst who sees everything", u, err)
+	}
+}
+
+// C8 of the 0.5.0 review: -tls-cert without -tls-key, or the other way, is
+// refused; the UI used to be served in clear text without a word.
+func TestTLSOptionsGoTogether(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // the server, if it started, would stop at once
+	t.Setenv("VIGIL_DB", filepath.Join(t.TempDir(), "vigil.db"))
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	for _, half := range [][]string{{"-tls-cert", "cert.pem"}, {"-tls-key", "key.pem"}} {
+		err := run(ctx, log, append([]string{"serve", "-addr", "127.0.0.1:0", "-sync-interval", "0"}, half...))
+		var bad *usageError
+		if !errors.As(err, &bad) || !strings.Contains(err.Error(), "-tls-cert et -tls-key") {
+			t.Errorf("serve %v: %v", half, err)
+		}
 	}
 }

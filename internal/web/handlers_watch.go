@@ -173,7 +173,7 @@ func (s *Server) feedCreate(w http.ResponseWriter, r *http.Request) {
 	f.Country, f.Sectors, f.Regulations = feedTagsFromForm(r)
 	// A refusal shows the form again as typed, its message in it (A89).
 	refuse := func(msg string) { s.renderFeeds(w, r, http.StatusBadRequest, feedFormFrom(r), formFeed, msg) }
-	if f.Name == "" || !clip.Fits(f.Name, maxNameLen) {
+	if f.Name == "" || !clip.Fits(f.Name, clip.MaxName) {
 		refuse("Nom de flux invalide : 1 à 100 caractères.")
 		return
 	}
@@ -190,12 +190,12 @@ func (s *Server) feedCreate(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	s.audit(r, "feed_create", "id", id, "name", f.Name, "url", maskURL(f.URL))
+	s.audit(r, "feed_create", "id", id, "name", f.Name, "url", netsafe.MaskURL(f.URL))
 	redirect(w, r, "/settings/feeds#contenu", "feed-created")
 }
 
 // feedUpdate changes the tags of a feed and applies them to the items
-// already collected.
+// already collected, in one transaction: all of them or none (A34).
 func (s *Server) feedUpdate(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Formulaire invalide.", http.StatusBadRequest)
@@ -206,15 +206,17 @@ func (s *Server) feedUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f.Country, f.Sectors, f.Regulations = feedTagsFromForm(r)
-	err := s.Store.UpdateFeedTags(r.Context(), f.ID, f.Country, f.Sectors, f.Regulations)
-	if err == nil {
-		err = cti.Retag(r.Context(), s.Store, f)
-	}
+	err := s.Store.InTx(r.Context(), func(ctx context.Context) error {
+		if err := s.Store.UpdateFeedTags(ctx, f.ID, f.Country, f.Sectors, f.Regulations); err != nil {
+			return err
+		}
+		return cti.Retag(ctx, s.Store, f)
+	})
 	if err != nil {
 		s.storeError(w, r, err)
 		return
 	}
-	s.audit(r, "feed_update", "id", f.ID, "name", f.Name, "url", maskURL(f.URL))
+	s.audit(r, "feed_update", "id", f.ID, "name", f.Name, "url", netsafe.MaskURL(f.URL))
 	redirect(w, r, "/settings/feeds", "feed-updated")
 }
 
@@ -385,16 +387,6 @@ func (s *Server) auditList(w http.ResponseWriter, r *http.Request) {
 func (s *Server) webhookDelete(w http.ResponseWriter, r *http.Request) {
 	s.change(w, r, change{action: "webhook_delete", to: "/settings/webhooks", msg: "hook-deleted",
 		apply: func(id int64) error { return s.Store.DeleteWebhook(r.Context(), id) }})
-}
-
-// maskURL keeps the scheme and host of a URL: feed URLs may carry an access
-// key in their path or query.
-func maskURL(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" {
-		return "(URL)"
-	}
-	return u.Scheme + "://" + u.Host + "/…"
 }
 
 // --- SBOM -----------------------------------------------------------------

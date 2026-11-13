@@ -50,9 +50,6 @@ const (
 	maxTeamsText = 20000
 	// maxAlertLines bounds the findings listed in one alert.
 	maxAlertLines = 15
-	// maxNameLen is the longest channel name, in characters, as for the
-	// feeds and API tokens of the same settings page.
-	maxNameLen = 100
 )
 
 // Notifier sends digests and alerts to every enabled channel.
@@ -67,7 +64,7 @@ type Notifier struct {
 
 // ValidateWebhook checks a channel before it is stored.
 func ValidateWebhook(w store.Webhook) error {
-	if w.Name == "" || !clip.Fits(w.Name, maxNameLen) {
+	if w.Name == "" || !clip.Fits(w.Name, clip.MaxName) {
 		return errors.New("nom invalide")
 	}
 	if !choice.Has(Kinds, w.Kind) {
@@ -77,7 +74,7 @@ func ValidateWebhook(w store.Webhook) error {
 		return errors.New("niveau d'alerte invalide")
 	}
 	if w.Kind == "email" {
-		_, err := ParseRecipients(w.URL)
+		_, err := parseRecipients(w.URL)
 		return err
 	}
 	return netsafe.ValidateURL(w.URL)
@@ -89,40 +86,58 @@ func Target(w store.Webhook) string {
 	if w.Kind == "email" {
 		return w.URL
 	}
-	return MaskURL(w.URL)
-}
-
-// MaskURL hides the secret part of a webhook URL for display.
-func MaskURL(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return "…"
-	}
-	return u.Scheme + "://" + u.Host + "/…"
+	return netsafe.MaskURL(w.URL)
 }
 
 // message is one notification, rendered for each kind of channel.
 type message struct {
 	Subject string         // e-mail subject
 	Text    string         // Markdown, for chats and e-mail
+	Tail    string         // ends Text whatever the cut (fit): the link of a digest
 	Event   map[string]any // payload of generic JSON webhooks
 }
 
-// SendDigest delivers a digest to the channels receiving digests of what it
-// covers: the whole inventory, or its group (A68). Failures are recorded per
-// channel and joined.
-func (n *Notifier) SendDigest(ctx context.Context, d store.Digest, link string) error {
-	// Cut once, below the chat limit, so that the note and the link survive.
-	tail := ""
-	if link != "" {
-		tail = "\n\n" + link
+// truncated marks a text cut to fit a channel.
+const truncated = "\n\n… (tronqué, voir le digest complet dans Vigil)"
+
+// fit returns text and its tail within budget bytes, cut once for the
+// channel that sends it: the cut is marked, the tail (the link of a digest)
+// kept whole, and no character split. C4 of the 0.5.0 review: a digest cut
+// for chats was cut again for Teams, which lost its note and its link.
+func fit(text, tail string, budget int) string {
+	if tail != "" {
+		tail = "\n\n" + tail
 	}
-	text := d.Markdown
-	if len(text)+len(tail) > maxText {
-		note := "\n\n… (tronqué, voir le digest complet dans Vigil)"
-		text = clip.Bytes(text, maxText-len(tail)-len(note)-len("…")) + note
+	if len(text)+len(tail) <= budget {
+		return text + tail
 	}
-	text += tail
+	return clip.Bytes(text, budget-len(tail)-len(truncated)-len("…")) + truncated + tail
+}
+
+// budget is the size of a message on a channel of kind, in bytes: a Teams
+// card holds less than the text of a chat message.
+func budget(kind string) int {
+	if kind == "teams" {
+		return maxTeamsText
+	}
+	return maxText
+}
+
+// link is the address of a page of the interface, or "" when the public
+// address of the interface is unknown (-base-url).
+func (n *Notifier) link(path string) string {
+	if n.BaseURL == "" {
+		return ""
+	}
+	return strings.TrimRight(n.BaseURL, "/") + path
+}
+
+// SendDigest delivers a digest, with the link of its page, to the channels
+// receiving digests of what it covers: the whole inventory, or its group (A68,
+// store.Webhook.ReceivesDigest). It returns how many channels received it;
+// failures are recorded per channel and joined.
+func (n *Notifier) SendDigest(ctx context.Context, d store.Digest) (int, error) {
+	link := n.link("/digests/" + strconv.FormatInt(d.ID, 10))
 	day := d.CreatedAt
 	if day.IsZero() {
 		day = time.Now()
@@ -133,7 +148,8 @@ func (n *Notifier) SendDigest(ctx context.Context, d store.Digest, link string) 
 	}
 	m := message{
 		Subject: subject,
-		Text:    text,
+		Text:    d.Markdown,
+		Tail:    link,
 		Event: map[string]any{
 			"event":      "digest",
 			"digest_id":  d.ID,
@@ -144,7 +160,7 @@ func (n *Notifier) SendDigest(ctx context.Context, d store.Digest, link string) 
 			"group":      d.GroupName,
 		},
 	}
-	return n.deliver(ctx, m, func(h store.Webhook) bool { return h.Digests && h.Group == d.Group })
+	return n.deliver(ctx, m, func(h store.Webhook) bool { return h.ReceivesDigest(d.Group) })
 }
 
 // SendAlerts notifies the open findings that became urgent since the last
@@ -187,8 +203,9 @@ func (n *Notifier) SendAlerts(ctx context.Context) error {
 			if len(selected) == 0 {
 				continue
 			}
-			m := n.alertMessage(selected)
-			errs = append(errs, n.deliver(ctx, m, func(h store.Webhook) bool { return h.Alerts == level && h.Group == group }))
+			m := n.alertMessage(selected, group)
+			_, err := n.deliver(ctx, m, func(h store.Webhook) bool { return h.Alerts == level && h.Group == group })
+			errs = append(errs, err)
 		}
 	}
 	if err := n.Store.MarkAlerted(ctx, alerts); err != nil {
@@ -197,8 +214,9 @@ func (n *Notifier) SendAlerts(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-func (n *Notifier) alertMessage(alerts []store.Alert) message {
-	base := strings.TrimRight(n.BaseURL, "/")
+// alertMessage is the alert of findings of group, 0 for the whole inventory:
+// the lists it leads to are those of the group, as in its digest (A87).
+func (n *Notifier) alertMessage(alerts []store.Alert, group int64) message {
 	byLevel := map[string]int{}
 	for _, a := range alerts {
 		byLevel[tracking.Level(a.Finding)]++
@@ -208,10 +226,7 @@ func (n *Notifier) alertMessage(alerts []store.Alert) message {
 	fmt.Fprintf(&b, "**Vigil — %s**\n\n", title)
 	var items []map[string]any
 	for i, a := range alerts {
-		link := ""
-		if base != "" {
-			link = fmt.Sprintf("%s/findings/%d", base, a.ID)
-		}
+		link := n.link("/findings/" + strconv.FormatInt(a.ID, 10))
 		reason := alertReason(a)
 		if i < maxAlertLines {
 			// SECURITY: identifiers, names and summaries come from sources and
@@ -235,12 +250,16 @@ func (n *Notifier) alertMessage(alerts []store.Alert) message {
 	if len(alerts) > maxAlertLines {
 		fmt.Fprintf(&b, "- … et %d autre(s)\n", len(alerts)-maxAlertLines)
 	}
-	if base != "" {
-		// The lists of the levels the alert announces (A60).
+	if n.BaseURL != "" {
+		// The lists of the levels the alert announces (A60), in its group.
 		b.WriteString("\n")
 		for _, l := range tracking.Levels[:2] {
 			if byLevel[l.Value] > 0 {
-				fmt.Fprintf(&b, "%s : %s/findings?level=%s\n", l.Label, base, l.Value)
+				q := url.Values{"level": {l.Value}}
+				if group != 0 {
+					q.Set("group", strconv.FormatInt(group, 10))
+				}
+				fmt.Fprintf(&b, "%s : %s\n", l.Label, n.link("/findings?"+q.Encode()))
 			}
 		}
 	}
@@ -292,12 +311,14 @@ func alertReason(a store.Alert) string {
 	return strings.Join(parts, ", ")
 }
 
-// deliver sends m to every enabled channel accepted by want.
-func (n *Notifier) deliver(ctx context.Context, m message, want func(store.Webhook) bool) error {
+// deliver sends m to every enabled channel accepted by want, and returns how
+// many received it.
+func (n *Notifier) deliver(ctx context.Context, m message, want func(store.Webhook) bool) (int, error) {
 	hooks, err := n.Store.ListWebhooks(ctx)
 	if err != nil {
-		return err
+		return 0, err
 	}
+	sent := 0
 	var errs []error
 	for _, h := range hooks {
 		if !h.Enabled || !want(h) {
@@ -307,34 +328,37 @@ func (n *Notifier) deliver(ctx context.Context, m message, want func(store.Webho
 		if sendErr != nil {
 			n.Log.Warn("notification failed", "channel", h.Name, "err", sendErr)
 			errs = append(errs, fmt.Errorf("%s: %w", h.Name, sendErr))
+		} else {
+			sent++
 		}
 		if err := n.Store.RecordWebhookResult(ctx, h.ID, sendErr); err != nil {
-			return err
+			return sent, err
 		}
 	}
-	return errors.Join(errs...)
+	return sent, errors.Join(errs...)
 }
 
 func (n *Notifier) send(ctx context.Context, h store.Webhook, m message) error {
+	text := fit(m.Text, m.Tail, budget(h.Kind))
 	if h.Kind == "email" {
 		if n.Mail == nil {
 			return errors.New("aucun serveur SMTP configuré (option -smtp-addr)")
 		}
-		to, err := ParseRecipients(h.URL)
+		to, err := parseRecipients(h.URL)
 		if err != nil {
 			return err
 		}
-		return n.Mail.Send(ctx, to, m.Subject, m.Text)
+		return n.Mail.Send(ctx, to, m.Subject, text)
 	}
 	var payload any
 	switch h.Kind {
 	case "generic":
 		payload = m.Event
 	case "teams":
-		payload = teamsCard(m.Text)
+		payload = teamsCard(text)
 	default:
 		// Slack and Mattermost accept a Markdown "text" field on incoming webhooks.
-		payload = map[string]string{"text": clip.Bytes(m.Text, maxText)}
+		payload = map[string]string{"text": text}
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -372,8 +396,9 @@ func (n *Notifier) SendTest(ctx context.Context, h store.Webhook) error {
 	return sendErr
 }
 
-// teamsCard is a message as the workflows of Teams expect it: an Adaptive Card.
-// The incoming webhooks of the former connectors take it too.
+// teamsCard is a message as the workflows of Teams expect it: an Adaptive Card,
+// its text already cut to the budget of Teams (fit). The incoming webhooks of
+// the former connectors take it too.
 func teamsCard(text string) map[string]any {
 	return map[string]any{"type": "message", "attachments": []map[string]any{{
 		"contentType": "application/vnd.microsoft.card.adaptive",
@@ -382,7 +407,7 @@ func teamsCard(text string) map[string]any {
 			"type":    "AdaptiveCard",
 			"version": "1.4",
 			"msteams": map[string]string{"width": "Full"},
-			"body":    []map[string]any{{"type": "TextBlock", "text": clip.Bytes(text, maxTeamsText), "wrap": true}},
+			"body":    []map[string]any{{"type": "TextBlock", "text": text, "wrap": true}},
 		},
 	}}}
 }

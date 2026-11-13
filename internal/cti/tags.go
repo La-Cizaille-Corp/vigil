@@ -115,16 +115,16 @@ func init() {
 	}
 }
 
-// Tags are the classification of an item.
-type Tags struct {
+// itemTags are the classification of an item.
+type itemTags struct {
 	Countries, Sectors, Regulations []string
 }
 
-// Classify returns the tags of an item: those of its feed plus those
+// classify returns the tags of an item: those of its feed plus those
 // detected in its title and summary.
-func Classify(it Item, f store.Feed) Tags {
+func classify(it feedItem, f store.Feed) itemTags {
 	text := it.Title + " " + it.Summary
-	return Tags{
+	return itemTags{
 		Countries:   match(countryTags, text, store.SplitList(f.Country)),
 		Sectors:     match(sectorTags, text, store.SplitList(f.Sectors)),
 		Regulations: match(regulationTags, text, store.SplitList(f.Regulations)),
@@ -187,7 +187,7 @@ func Retag(ctx context.Context, st *store.Store, f store.Feed) error {
 		return err
 	}
 	for _, it := range items {
-		tags := Classify(Item{Title: it.Title, Summary: it.Summary}, f)
+		tags := classify(feedItem{Title: it.Title, Summary: it.Summary}, f)
 		if err := st.SetCTIItemTags(ctx, it.ID, tags.Countries, tags.Sectors, tags.Regulations); err != nil {
 			return err
 		}

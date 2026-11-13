@@ -1285,19 +1285,18 @@ func (s *Server) renderDigests(w http.ResponseWriter, r *http.Request, status in
 }
 
 // digestCreate generates the digest of the whole inventory or of a group of
-// the account, and sends it to the notification channels of what it covers.
-// They are read first: when they cannot be, nothing is generated, rather than
-// a digest said to be done and sent to no one.
+// the account (digestGroup), and sends it to the notification channels of
+// what it covers. They are read first: when they cannot be, nothing is
+// generated, rather than a digest said to be done and sent to no one. It is
+// said sent only when a channel received it.
 func (s *Server) digestCreate(w http.ResponseWriter, r *http.Request) {
-	var group store.Group
-	if id := groupParam(r.PostForm); id != 0 {
-		var err error
-		if group, err = s.Store.Group(r.Context(), readScope(r), id); err != nil {
-			s.storeError(w, r, err)
-			return
-		}
-	} else if sess, _ := sessionFrom(r.Context()); sess.User.Restricted() {
+	group, err := s.digestGroup(r, groupParam(r.PostForm))
+	if errors.Is(err, errWholeInventory) {
 		s.renderDigests(w, r, http.StatusBadRequest, "Choisissez un de vos groupes : le digest de tout l'inventaire est réservé aux comptes qui le voient.")
+		return
+	}
+	if err != nil {
+		s.storeError(w, r, err)
 		return
 	}
 	hooks, err := s.Store.ListWebhooks(r.Context())
@@ -1305,16 +1304,18 @@ func (s *Server) digestCreate(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	d, err := digest.Generate(r.Context(), s.Store, group)
+	d, err := digest.Generate(r.Context(), s.Store, readScope(r), group)
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
 	msg := "digest-created"
-	if slices.ContainsFunc(hooks, func(h store.Webhook) bool { return h.Enabled && h.Group == group.ID }) {
-		msg = "digest-sent"
-		if err := s.Notifier.SendDigest(r.Context(), d, s.digestLink(d)); err != nil {
+	if slices.ContainsFunc(hooks, func(h store.Webhook) bool { return h.ReceivesDigest(group.ID) }) {
+		switch sent, err := s.Notifier.SendDigest(r.Context(), d); {
+		case err != nil:
 			msg = "digest-webhook"
+		case sent > 0:
+			msg = "digest-sent"
 		}
 	}
 	detail := []any{"id", d.ID}
@@ -1349,12 +1350,4 @@ func (s *Server) digestMarkdown(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition",
 		`attachment; filename="vigil-digest-`+d.CreatedAt.Format(time.DateOnly)+`.md"`)
 	_, _ = w.Write([]byte(d.Markdown)) // a client that disconnects is not an error
-}
-
-// digestLink is the absolute URL of a digest, or "" when BaseURL is unknown.
-func (s *Server) digestLink(d store.Digest) string {
-	if s.BaseURL == "" {
-		return ""
-	}
-	return strings.TrimRight(s.BaseURL, "/") + digestPath(d.ID)
 }

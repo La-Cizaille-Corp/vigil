@@ -518,7 +518,8 @@ comptent des caractères (`Text`, `Prefix`, `Fits`) ; seul le budget d'un messag
 octets (`Bytes`). *Conséquence* : les limites de saisie déjà comptées en octets (nom d'utilisateur, projet)
 restaient à harmoniser ; c'est fait depuis l'audit de code de novembre 2026 (nom d'utilisateur, noms de flux,
 de canal et de jeton, projet, filtre d'étiquette, dans l'interface comme en ligne de commande), avec une
-constante par limite partagée (`auth.MaxUsernameLength`, `inventory.MaxProjectLen`). Seul le mot de passe
+constante par limite partagée (`auth.MaxUsernameLength`, `inventory.MaxProjectLen`, et `clip.MaxName` pour les
+noms de flux, de canal, de jeton et de groupe, qui avait deux copies, revue 0.5.0, W10). Seul le mot de passe
 reste borné en octets (`auth.MaxPasswordBytes`), car la borne porte sur ce que reçoit argon2.
 
 **A66. La liste des vulnérabilités s'ouvre sur ce qui reste à traiter.** Elle montrait tout par défaut, y
@@ -556,7 +557,7 @@ des tableaux du tableau de bord qui mêlaient les corrigées, et un lien « de l
 - *Mots* : « Plus de filtres (2 appliqués) » au lieu de « (actifs) », qui se lisait « filtres d'actifs » ;
   « Activé » / « Désactivé » pour un compte. CVSS et EPSS sont alignés à droite et ne se coupent pas (classe
   `num`, `white-space: nowrap`), la raison d'une ligne non plus. Dans une phrase (« … est de 74,8 % » sur la
-  page d'une vulnérabilité, à 375 px), « % » passait encore seul à la ligne : `fr.Percent` et `fr.Days`
+  page d'une vulnérabilité, à 375 px), « % » passait encore seul à la ligne : `fr.Percent` et `fr.days`
   écrivent une espace insécable avant leur unité, ce qu'A79 avait écarté.
 
 *Écarté* : garder `priority=1` comme synonyme silencieux de `level=urgent` (deux URL pour une liste, et le
@@ -685,7 +686,10 @@ coupés au milieu d'un mot.
 - *Borne* : chaque liste (urgentes, nouvelles, hors délai) s'arrête à 50 lignes, suivies de « … et 3 253 autres »
   et d'un lien vers la liste de l'interface (`/findings?level=urgent`, `?since=7`, `?overdue=1`, avec `group=`
   pour le digest d'un groupe). Le Markdown, qui ne connaît pas l'adresse de Vigil, nomme la liste (« dans
-  Vigil : la liste des urgentes ») ; le message envoyé se termine déjà par le lien du digest. Les digests par
+  Vigil : la liste des urgentes ») ; le message envoyé se termine déjà par le lien du digest, que construit le
+`Notifier` d'après `-base-url`, comme ceux des alertes (revue 0.5.0, C10 : la ligne de commande et la page
+avaient chacune leur copie) ; l'alerte d'un canal limité à un groupe mène de même aux listes de ce groupe
+(`group=`), et non plus à celles de tout l'inventaire, dont les nombres différaient des siens. Les digests par
   groupe (A68) suivent les mêmes règles, par la même fonction. Mesure sur une copie de la base noyau, ses digests
   effacés pour couvrir les 7 jours par défaut comme l'audit : Markdown 1,87 Mo et 7 698 lignes avant, 10,7 Ko et
   122 lignes après ; HTML 3,28 Mo avant, 26 Ko après. Il tient dans un message de discussion (30 000 octets).
@@ -978,6 +982,10 @@ ou son adresse n'est plus valide (`logic.azure.com`, retirée fin 2025). Microso
 explication selon les cas : l'état du canal donne donc le code et le message de la réponse quand il y en
 a, ce qu'il faut régler pour Teams, et le bouton « Envoyer un test » évite d'attendre une alerte pour
 vérifier. Rien de ce qui cite une adresse n'est repris d'une réponse : elle pourrait contenir le secret.
+Une carte tient en 28 Ko, moins qu'un message de discussion : un message est coupé une seule fois, au budget
+de son canal (`fit`, 20 000 octets pour Teams, 30 000 pour les autres), la note « tronqué » et le lien du
+digest gardés. Le digest était coupé pour les discussions puis recoupé pour Teams, qui perdait la note et le
+lien dès 20 Ko (revue 0.5.0, C4).
 
 **A15. Priorisation KEV > EPSS > sévérité, plutôt que CVSS seul.** Le CVSS mesure la gravité
 théorique, pas la probabilité d'exploitation. Exploitation avérée (KEV) d'abord, puis probabilité
@@ -1106,7 +1114,21 @@ hebdomadaire compte toujours toutes les vulnérabilités traitées.
 **A34. Plusieurs pays, secteurs et réglementations par flux, modifiables.** Un flux européen ou
 un site de normalisation couvre souvent plusieurs pays ou textes : un sélecteur unique obligeait
 à choisir. Les étiquettes d'un flux se modifient après coup (y compris celles des flux par
-défaut) et sont réappliquées aux actualités déjà collectées.
+défaut) et sont réappliquées aux actualités déjà collectées, dans la même transaction que le changement
+d'étiquettes du flux : un échec en cours de route laissait le flux et une partie de ses actualités réétiquetés
+(revue 0.5.0, C13), et 3 000 actualités se réétiquettent en 0,24 s au lieu de 1,02 s, une validation au lieu
+d'une par actualité.
+
+**A94. Un flux se lit entrée par entrée, 2 000 au plus.** La revue de la 0.5.0 (C1) a mesuré qu'un flux de
+8 Mio fait d'éléments `<item/>` vides, décodé d'un bloc avant d'en garder 500, coûtait 2,3 Gio d'allocations et
+450 Mio de tas vivant à chaque collecte (onze flux tiers par défaut, quatre collectes par jour) : de quoi faire
+tuer un petit serveur par manque de mémoire. `cti.parseFeed` lit désormais le document élément par élément
+(`xml.Decoder.Token`, puis `DecodeElement` pour chaque `item` ou `entry`) et s'arrête à 2 000 entrées
+(`maxFeedEntries`) : le même flux se lit en 3 ms, avec 2 Mio. Les 500 plus récentes des entrées lues sont
+gardées, comme avant ; un flux range ses entrées de la plus récente à la plus ancienne, et ce qui suit la
+2 000ᵉ n'est pas lu, même tronqué. La même boucle lit RSS 1.0 (RDF), dont les `item` sont des enfants de la
+racine et non du canal : ils étaient perdus sans erreur (C12). *Écarté* : compter les `<item` dans les octets
+avant de décoder, que contourne un préfixe d'espace de noms (`<a:item/>` reste un `item` pour `encoding/xml`).
 
 **A19. Digest « depuis le précédent ».** Une fenêtre fixe (7 jours) ferait manquer ou répéter
 des éléments selon la fréquence de génération. Formats : Markdown (webhooks, export) et HTML
@@ -1168,14 +1190,21 @@ requêtes semblent locales : la page est alors désactivée et la création pass
 (défaut découvert en revue de sécurité).
 
 **A23. Refus d'écouter en clair hors de `127.0.0.1`.** Sans TLS natif ni `-behind-proxy`
-explicite, le serveur refuse de démarrer sur une interface réseau.
+explicite, le serveur refuse de démarrer sur une interface réseau. `-tls-cert` et `-tls-key` vont
+ensemble : l'une sans l'autre est refusée, au lieu d'être ignorée en servant en clair (revue 0.5.0, C8).
 
-**A24. Client HTTP anti-SSRF pour les URL saisies.** Flux et webhooks sont des URL fournies par
-les utilisateurs : contrôle à la connexion (après résolution DNS, contre le DNS rebinding) des
-adresses privées, locales et réservées ; redirections limitées et en HTTPS ; proxy de
-l'environnement ignoré (il masquerait la destination réelle). Les sources fixes (OSV, NVD…)
-utilisent un client ordinaire, avec la même règle de redirection (`netsafe.CheckRedirect` : 5 au
-plus, en HTTPS, la clé NVD retirée si l'hôte change).
+**A24. Client HTTP anti-SSRF pour toutes les requêtes sortantes.** Flux et webhooks sont des URL
+fournies par les utilisateurs : contrôle à la connexion (après résolution DNS, contre le DNS
+rebinding) des adresses privées, locales et réservées ; redirections limitées et en HTTPS. Le proxy
+de l'environnement, d'abord ignoré parce qu'il masquait la destination réelle, est honoré depuis A44 :
+la destination est vérifiée avant de lui être confiée. Les sources fixes (OSV, NVD, KEV, EPSS)
+passent par le même client (`netsafe.NewClient`) depuis la revue de la 0.5.0 (T13) : elles avaient un
+client ordinaire, qui suivait une redirection en HTTPS vers une adresse interne ; `-allow-private-urls`
+vaut pour elles aussi. Même règle de redirection pour tous (`netsafe.CheckRedirect` : 5 au plus, en
+HTTPS, la clé NVD retirée si l'hôte change). *Conséquence* : le délai propre aux en-têtes (30 s) est
+retiré, seule compte la limite de la requête (60 s, 5 min pour OSV) : une source calcule parfois
+longtemps une grosse page avant de répondre, et le client ordinaire des sources n'en avait pas.
+Sans `ForceAttemptHTTP2` (la connexion est composée par le contrôle), les sources passent en HTTP/1.1.
 
 **A25. API par jeton limité à un projet.** Les pipelines CI poussent leur SBOM via
 `PUT /api/v1/projects/{projet}/sbom`. Un jeton n'écrit qu'un seul projet (moindre privilège),
@@ -1255,7 +1284,13 @@ l'inventaire ou un groupe (`digests.group_id`) : les digests périodiques sont c
 et un par groupe ayant un canal de digests actif (`digest.Run`), chacun « depuis le précédent » de son
 groupe (A19) ; dans l'interface, on génère celui de tout l'inventaire ou d'un de ses groupes. Un compte
 limité lit les digests de ses groupes, jamais celui de tout l'inventaire ; un compte sans restriction
-les lit tous. La marque « déjà alertée » d'une vulnérabilité reste unique : un canal de groupe ajouté
+les lit tous. Depuis la revue de la 0.5.0 (W6), ce que couvre le digest demandé par la page se décide dans
+`scope.go` (`digestGroup` : le groupe, que le compte doit voir, ou tout l'inventaire, réservé à qui voit
+tout), et `digest.Generate` reçoit la portée de l'appelant, qu'il réduit au groupe sans jamais l'élargir :
+le digest du groupe zéro ne lit plus `store.Everything` pour quiconque le demande. Les canaux qui reçoivent
+le digest d'un périmètre sont désignés en un seul endroit (`store.Webhook.ReceivesDigest`), pour l'envoi,
+les digests périodiques et la page ; celle-ci ne dit « envoyé » que si un canal l'a reçu (`SendDigest`
+rend leur nombre, W8 et C5 : un canal d'alertes seules suffisait à l'annoncer envoyé). La marque « déjà alertée » d'une vulnérabilité reste unique : un canal de groupe ajouté
 plus tard ne reçoit pas les alertes déjà envoyées, comme un canal ajouté aujourd'hui. Un groupe auquel
 un canal est limité ne se supprime pas (il recevrait sinon tout l'inventaire) ; ses digests partent
 avec lui. *Écritures* : un compte limité ne fait entrer un actif que dans ses
@@ -1596,18 +1631,37 @@ même mécanisme (`-nvd-api-key`, ou de préférence `VIGIL_NVD_API_KEY`, invisi
 utilisateurs de la machine) au lieu d'une lecture à part de la variable, et `VIGIL_DB` n'est lu
 qu'à cet endroit. *Écarté* : une bibliothèque d'options (cobra…), une dépendance pour une dizaine
 de commandes. *Conséquence* : `vigil digest` accepte `-base-url` (ou `VIGIL_BASE_URL`) et met alors
-le lien du digest dans ses messages, comme le digest programmé de `serve`.
+le lien du digest dans ses messages, comme le digest programmé de `serve`. *Amendé (revue 0.5.0, C8)* :
+l'environnement ne règle plus que les options communes et celles de `serve` (`envOptions`), qui sont la
+configuration du service ; les options propres aux autres commandes (`-all`, `-role`, `-groups`,
+`-username`, `-o`, `-project`, `-no-webhooks`) ne viennent que de la ligne de commande. Un conteneur
+transmet son environnement à `docker compose exec vigil vigil user …` : `VIGIL_ALL=true` y faisait retirer
+la double authentification de tous les comptes à un `vigil user reset-totp` lancé sans option, et
+`VIGIL_ROLE=admin` créer un administrateur. Aucune variable documentée n'est touchée.
 
 **A28. Binaire d'abord, Docker en option.** Le binaire Go suffit (systemd fourni). L'image
 existe pour les équipes dont l'exploitation passe par des conteneurs : distroless, non-root,
-lecture seule hors `/data`. Le Compose d'exemple ajoute Caddy pour le HTTPS automatique, puisque
-l'image n'écoute pas en clair sur le réseau sans proxy. Elle porte les licences des archives de
+lecture seule hors `/data`. Le Compose d'exemple ajoute Caddy pour le HTTPS automatique : l'image
+écoute en clair sur `0.0.0.0:8080` avec `-behind-proxy` (sa commande par défaut), et compte donc sur un
+reverse proxy devant elle ; son port ne se publie que sur `127.0.0.1` (`docker run -p
+127.0.0.1:8080:8080`) ou reste interne au Compose (`expose`). Elle porte les licences des archives de
 release (celle de Vigil et celle de la liste SecLists embarquée, dans `/usr/share/doc/vigil/`) :
 un test les rapproche de `.goreleaser.yaml`, et la CI les relit dans l'image construite.
 
 **A29. Releases vérifiables.** GoReleaser : builds reproductibles (`-trimpath`, horodatage du
 commit), six plateformes, checksums, SBOM par archive, attestation de provenance signée ; release
-créée en brouillon et publiée après relecture.
+créée en brouillon et publiée après relecture. *Amendé (revue 0.5.0, C2, C3)* : ce qui est publié, et
+quand. Les tests tournent d'abord, dans un job à part qui n'a ni jeton d'écriture ni jeton OIDC (ils
+tournaient dans le job qui signe la provenance : un code exécuté par les tests, dépendances comprises,
+pouvait signer en son nom), et qui refuse un tag posé hors de `main`. Puis les binaires et la release en
+brouillon ; puis l'image, qui n'attendait ni les tests ni les binaires. Elle est publique dès la fin du
+workflow, étiquettes `X.Y.Z` et `X.Y` : une image n'a pas de brouillon, et le Compose suit l'étiquette
+`X.Y`. Aucun cache n'est restauré (`setup-go`, `cache: false`) : la release se construit sans rien de ce
+qu'ont écrit d'autres exécutions. `vigil version` dit la même version dans l'image et dans les binaires
+(`0.5.0`, sans le « v » du tag). La vérification d'une archive nomme le workflow qui l'a signée
+(`gh attestation verify … --signer-workflow La-Cizaille-Corp/vigil/.github/workflows/release.yml`). Les
+règles du dépôt (contrôles exigés pour fusionner dans `main`, tags `v*` réservés aux administrateurs)
+sont des réglages GitHub, hors du code.
 
 **A36. Mettre à jour sans jamais perdre de données.** Les données vivent hors du binaire (fichier
 SQLite ou volume Docker) ; une mise à jour remplace le binaire et applique les migrations au

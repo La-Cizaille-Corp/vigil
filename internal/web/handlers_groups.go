@@ -43,11 +43,11 @@ func (s *Server) renderGroups(w http.ResponseWriter, r *http.Request, status int
 		Data: map[string]any{"Groups": groups, "Ungrouped": ungrouped}})
 }
 
-// groupName reads the name of a group: 1 to maxNameLen characters, without a
+// groupName reads the name of a group: 1 to clip.MaxName characters, without a
 // comma, so that vigil user -groups can list several.
 func groupName(r *http.Request) (string, bool) {
 	name := strings.Join(strings.Fields(r.PostFormValue("name")), " ")
-	return name, name != "" && clip.Fits(name, maxNameLen) && !strings.Contains(name, ",")
+	return name, name != "" && clip.Fits(name, clip.MaxName) && !strings.Contains(name, ",")
 }
 
 const (

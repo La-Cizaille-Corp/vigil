@@ -74,6 +74,29 @@ func TestSourceRedirects(t *testing.T) {
 	}
 }
 
+// T13 of the 0.5.0 review: the fixed sources go through netsafe as the URLs
+// of the users do. A source, or a redirect of one, towards an address of the
+// internal network is refused at connection, unless -allow-private-urls; the
+// clients used to reach any address.
+func TestSourcesGuardedAgainstSSRF(t *testing.T) {
+	internal := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer internal.Close()
+	for _, args := range [][]string{nil, {"-allow-private-urls"}} {
+		_, opts := newCommand("sync", true)
+		if err := opts.parse(args); err != nil {
+			t.Fatal(err)
+		}
+		s := opts.services(nil, slog.New(slog.NewTextHandler(io.Discard, nil))).syncer
+		for name, client := range map[string]*http.Client{"OSV": s.OSV.HTTP, "NVD": s.NVD.HTTP, "KEV": s.KEV.HTTP, "EPSS": s.EPSS.HTTP} {
+			_, err := client.Get(internal.URL)
+			// Allowed, the request reaches the server, whose certificate is not trusted.
+			if refused := err != nil && strings.Contains(err.Error(), "adresse de destination interdite"); refused != (args == nil) {
+				t.Errorf("%s %v: %v", name, args, err)
+			}
+		}
+	}
+}
+
 // S16: vigil user add refuses a name that differs from an existing one only
 // by case, and says why.
 func TestUserAddIgnoresCase(t *testing.T) {
