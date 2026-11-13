@@ -3,7 +3,6 @@ package tracking
 import (
 	"context"
 	"math"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -14,6 +13,7 @@ import (
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/nvd"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/osv"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 )
 
 // A summary taken from a description without a sentence end in its first 300
@@ -111,11 +111,7 @@ func TestSourceDataChecked(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
+	st := storetest.Open(t)
 	storeOSV := func(adv osv.Vuln) error { // as for an asset: stored once its advisories are read
 		pending := &advisories{store: st}
 		if err := (&Syncer{Store: st}).storeOSV(ctx, pending, adv, true); err != nil {

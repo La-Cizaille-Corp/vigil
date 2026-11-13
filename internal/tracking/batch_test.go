@@ -21,6 +21,7 @@ import (
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/kev"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/osv"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
 )
 
@@ -29,12 +30,8 @@ import (
 // other assets are recorded.
 func TestFailedRecordingWritesNothingOfTheAsset(t *testing.T) {
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "test.db")
-	st, err := store.Open(ctx, path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
+	path := filepath.Join(storetest.TempDir(t), "test.db")
+	st := storetest.OpenAt(t, path)
 	// The database refuses the second finding of the first asset.
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -98,7 +95,7 @@ func TestFailedRecordingWritesNothingOfTheAsset(t *testing.T) {
 // for the signals, and asks EPSS once for a CVE that several advisories cite.
 func TestSignalSourcesAskedOnce(t *testing.T) {
 	ctx := context.Background()
-	st := openStore(t)
+	st := storetest.Open(t)
 	var mu sync.Mutex
 	kevReads, epssAsked := 0, []string{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -147,7 +144,7 @@ func TestSignalSourcesAskedOnce(t *testing.T) {
 // one asset asks for the CVEs of its advisories, not for those of the base.
 func TestEPSSAskedOncePerCVE(t *testing.T) {
 	ctx := context.Background()
-	st := openStore(t)
+	st := storetest.Open(t)
 	const n = 300
 	advisory := func(prefix string, i int, ecosystem string) string {
 		published := "2020-01-01T00:00:00Z" // three in four older than the period

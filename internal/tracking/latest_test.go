@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"slices"
 	"sync"
 	"testing"
@@ -15,18 +14,9 @@ import (
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/nvd"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/osv"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
 )
-
-func openStore(t *testing.T) *store.Store {
-	t.Helper()
-	st, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { st.Close() })
-	return st
-}
 
 func openIDs(t *testing.T, st *store.Store, assetID int64) []string {
 	t.Helper()
@@ -48,7 +38,7 @@ func openIDs(t *testing.T, st *store.Store, assetID int64) []string {
 // have no fixed version yet, and no longer once the fix is out.
 func TestLatestPackage(t *testing.T) {
 	ctx := context.Background()
-	st := openStore(t)
+	st := storetest.Open(t)
 	var mu sync.Mutex
 	openEvents, modified := `[{"introduced":"2.0.0"}]`, "2026-10-01T00:00:00Z"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -119,7 +109,7 @@ const (
 // latest release keeps the CVEs without a fixed version.
 func TestByNameAndLatestCPE(t *testing.T) {
 	ctx := context.Background()
-	st := openStore(t)
+	st := storetest.Open(t)
 	var mu sync.Mutex
 	var keywords []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/nvd"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
 )
 
@@ -18,7 +19,7 @@ import (
 // not taken as fixed.
 func TestNVDRefusalKeepsFindingsOpen(t *testing.T) {
 	ctx := context.Background()
-	st := openStore(t)
+	st := storetest.Open(t)
 	var refuse atomic.Bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if refuse.Load() {
@@ -58,7 +59,7 @@ func TestNVDRefusalKeepsFindingsOpen(t *testing.T) {
 // written again: every synchronisation rewrote it. Modified, it is.
 func TestNVDRecordWrittenOnceModified(t *testing.T) {
 	ctx := context.Background()
-	st := openStore(t)
+	st := storetest.Open(t)
 	var description, modified atomic.Value
 	description.Store("first text")
 	modified.Store("2024-02-13T16:00:00.000")

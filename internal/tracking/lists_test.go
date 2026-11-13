@@ -20,6 +20,7 @@ import (
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/kev"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/osv"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
 )
 
@@ -234,7 +235,7 @@ func found(t *testing.T, st *store.Store, assetID int64, ids []string) string {
 func TestLargePackageReadAgain(t *testing.T) {
 	ctx := context.Background()
 	k := newKernelOSV(t)
-	st, whole := openStore(t), openStore(t)
+	st, whole := storetest.Open(t), storetest.Open(t)
 	id, wholeID := addKernel(t, st, "linux"), addKernel(t, whole, "linux")
 	syncer, wholeSyncer := k.syncer(st), k.syncer(whole)
 	advisoryIDs := func() []string {
@@ -405,7 +406,7 @@ func TestLargePackageReadAgain(t *testing.T) {
 func TestLargePackageSharedList(t *testing.T) {
 	ctx := context.Background()
 	k := newKernelOSV(t)
-	st := openStore(t)
+	st := storetest.Open(t)
 	first, second := addKernel(t, st, "linux"), addKernel(t, st, "linux") // two servers
 	if res, err := k.syncer(st).Run(ctx); err != nil || res.Failed != 0 {
 		t.Fatalf("%+v, %v", res, err)
@@ -423,7 +424,7 @@ func TestLargePackageSharedList(t *testing.T) {
 // downloaded again at each synchronisation.
 func TestModifiedPrecision(t *testing.T) {
 	ctx := context.Background()
-	st := openStore(t)
+	st := storetest.Open(t)
 	reads := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

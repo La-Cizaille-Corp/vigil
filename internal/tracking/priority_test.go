@@ -11,6 +11,7 @@ import (
 
 	"github.com/La-Cizaille-Corp/vigil/internal/digest"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
 )
 
@@ -128,20 +129,12 @@ func TestTemplateFuncs(t *testing.T) {
 // edge cases alike.
 func TestUrgencyEverywhere(t *testing.T) {
 	ctx := context.Background()
-	st := openStore(t)
-	assetID, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "appliance", Kind: "product", Criticality: "high", Source: "manual"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := storetest.Open(t)
+	assetID := storetest.Asset(t, st, store.Asset{Name: "appliance", Kind: "product", Criticality: "high", Source: "manual"})
 	observe := func(id, severity string, cvss float64, kev bool, epss float64) {
 		t.Helper()
-		if err := st.UpsertVulnerability(ctx, store.Vulnerability{ID: id, Severity: severity, CVSS: cvss}); err != nil {
-			t.Fatal(err)
-		}
+		storetest.Finding(t, st, assetID, store.Vulnerability{ID: id, Severity: severity, CVSS: cvss}, time.Now())
 		if _, err := st.SetExploitSignals(ctx, store.ExploitSignal{ID: id, KEV: kev, EPSS: epss}); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := st.ObserveFinding(ctx, assetID, id, "", time.Now()); err != nil {
 			t.Fatal(err)
 		}
 	}

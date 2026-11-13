@@ -1,4 +1,4 @@
-package store
+package store_test
 
 import (
 	"context"
@@ -15,6 +15,9 @@ import (
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
+
+	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 )
 
 // releasedMigrations are the checksums of migrations shipped in a release.
@@ -42,19 +45,19 @@ var releasedMigrations = map[string]string{
 }
 
 func TestMigrationsFrozen(t *testing.T) {
-	list, err := migrations()
+	list, err := store.Migrations()
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, m := range list {
-		sum := sha256.Sum256([]byte(strings.ReplaceAll(m.body, "\r\n", "\n")))
-		if want, ok := releasedMigrations[m.name]; ok && hex.EncodeToString(sum[:]) != want {
-			t.Errorf("%s was released and must not change: add a new migration instead", m.name)
+		sum := sha256.Sum256([]byte(strings.ReplaceAll(m.Body, "\r\n", "\n")))
+		if want, ok := releasedMigrations[m.Name]; ok && hex.EncodeToString(sum[:]) != want {
+			t.Errorf("%s was released and must not change: add a new migration instead", m.Name)
 		}
 	}
 	for i := 1; i < len(list); i++ {
-		if list[i].version == list[i-1].version {
-			t.Errorf("two migrations share version %d", list[i].version)
+		if list[i].Version == list[i-1].Version {
+			t.Errorf("two migrations share version %d", list[i].Version)
 		}
 	}
 }
@@ -77,23 +80,23 @@ func TestUpgradeFromReleases(t *testing.T) {
 	for _, dump := range dumps {
 		t.Run(filepath.Base(dump), func(t *testing.T) {
 			ctx := context.Background()
-			path := filepath.Join(t.TempDir(), "vigil.db")
+			path := filepath.Join(storetest.TempDir(t), "vigil.db")
 			before, oldVersion := loadDump(t, path, dump)
 
-			st, err := Open(ctx, path)
+			st, err := store.Open(ctx, path)
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer st.Close()
-			if v, _ := st.SchemaVersion(ctx); v != LatestSchema() {
-				t.Fatalf("schema %d after upgrade, want %d", v, LatestSchema())
+			if v, _ := st.SchemaVersion(ctx); v != store.LatestSchema() {
+				t.Fatalf("schema %d after upgrade, want %d", v, store.LatestSchema())
 			}
 
 			// The copy written before the upgrade is the old database, intact.
 			// The fixture of the latest release has nothing to upgrade until
 			// the next migration: it is then only reopened.
 			backup := st.UpgradeBackup()
-			if oldVersion == LatestSchema() {
+			if oldVersion == store.LatestSchema() {
 				if backup != "" {
 					t.Errorf("a copy was written without a pending migration: %q", backup)
 				}
@@ -101,7 +104,7 @@ func TestUpgradeFromReleases(t *testing.T) {
 				if !strings.Contains(backup, fmt.Sprintf(".schema-%d.", oldVersion)) {
 					t.Fatalf("upgrade backup: %q", backup)
 				}
-				if err := CheckIntegrity(ctx, backup); err != nil {
+				if err := store.CheckIntegrity(ctx, backup); err != nil {
 					t.Fatal(err)
 				}
 				if got := snapshotFile(t, backup); !reflect.DeepEqual(got, before) {
@@ -110,7 +113,7 @@ func TestUpgradeFromReleases(t *testing.T) {
 			}
 
 			// Every row and every value written by the old version is still there.
-			after := snapshot(t, st.db)
+			after := storetest.Snapshot(t, store.DB(st))
 			for table, rows := range before {
 				if table == "schema_migrations" {
 					continue
@@ -133,7 +136,7 @@ func TestUpgradeFromReleases(t *testing.T) {
 
 			// Opening again applies nothing and writes no second copy.
 			st.Close()
-			again, err := Open(ctx, path)
+			again, err := store.Open(ctx, path)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -146,7 +149,7 @@ func TestUpgradeFromReleases(t *testing.T) {
 }
 
 // checkUpgradedData reads the upgraded database through the application code.
-func checkUpgradedData(ctx context.Context, t *testing.T, st *Store) {
+func checkUpgradedData(ctx context.Context, t *testing.T, st *store.Store) {
 	t.Helper()
 	admin, err := st.UserByName(ctx, "admin")
 	if err != nil {
@@ -155,7 +158,7 @@ func checkUpgradedData(ctx context.Context, t *testing.T, st *Store) {
 	if ok, _ := auth.VerifyPassword("un-mot-de-passe-solide", admin.PasswordHash); !ok || admin.Role != "admin" {
 		t.Error("the administrator can no longer log in")
 	}
-	findings, err := st.ListFindings(ctx, Everything, FindingFilter{})
+	findings, err := st.ListFindings(ctx, store.Everything, store.FindingFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,10 +174,10 @@ func checkUpgradedData(ctx context.Context, t *testing.T, st *Store) {
 	// Migration 019 folds nothing (A80): the next synchronisation does, with
 	// what the sources report. Every finding of a release is still listed.
 	var folded int
-	if err := st.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM findings WHERE folded_into <> 0`).Scan(&folded); err != nil || folded != 0 {
+	if err := store.DB(st).QueryRowContext(ctx, `SELECT COUNT(*) FROM findings WHERE folded_into <> 0`).Scan(&folded); err != nil || folded != 0 {
 		t.Errorf("%d findings folded by the upgrade (%v), want none", folded, err)
 	}
-	assets, err := st.ListAssets(ctx, Everything)
+	assets, err := st.ListAssets(ctx, store.Everything)
 	if err != nil || len(assets) < 4 {
 		t.Fatalf("assets: %d, %v", len(assets), err)
 	}
@@ -206,7 +209,7 @@ func checkUpgradedData(ctx context.Context, t *testing.T, st *Store) {
 	if hooks, _ := st.ListWebhooks(ctx); len(hooks) != 1 || hooks[0].Name != "Équipe sécu" {
 		t.Errorf("webhooks: %+v", hooks)
 	}
-	if _, err := st.DashboardStats(ctx, Everything, time.Now()); err != nil {
+	if _, err := st.DashboardStats(ctx, store.Everything, time.Now()); err != nil {
 		t.Error(err)
 	}
 	// T9: every account keeps access to everything (migration 017, A68), and
@@ -220,7 +223,7 @@ func checkUpgradedData(ctx context.Context, t *testing.T, st *Store) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		seen, err := st.ListFindings(ctx, u.Scope(), FindingFilter{})
+		seen, err := st.ListFindings(ctx, u.Scope(), store.FindingFilter{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -233,23 +236,23 @@ func checkUpgradedData(ctx context.Context, t *testing.T, st *Store) {
 
 func TestRefuseNewerSchema(t *testing.T) {
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "vigil.db")
-	st, err := Open(ctx, path)
+	path := filepath.Join(storetest.TempDir(t), "vigil.db")
+	st, err := store.Open(ctx, path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.db.ExecContext(ctx, `INSERT INTO schema_migrations (version) VALUES (?)`, LatestSchema()+1); err != nil {
+	if _, err := store.DB(st).ExecContext(ctx, `INSERT INTO schema_migrations (version) VALUES (?)`, store.LatestSchema()+1); err != nil {
 		t.Fatal(err)
 	}
 	st.Close()
-	if _, err := Open(ctx, path); !errors.Is(err, errNewerSchema) {
+	if _, err := store.Open(ctx, path); !errors.Is(err, store.ErrNewerSchema) {
 		t.Fatalf("a database from a newer version was opened: %v", err)
 	}
 }
 
 func TestNewDatabaseNeedsNoBackup(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "vigil.db")
-	st, err := Open(context.Background(), path)
+	path := filepath.Join(storetest.TempDir(t), "vigil.db")
+	st, err := store.Open(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,83 +284,39 @@ func loadDump(t *testing.T, path, dump string) (map[string][]map[string]string, 
 	if err := db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	return snapshot(t, db), version
+	return storetest.Snapshot(t, db), version
 }
 
 func snapshotFile(t *testing.T, path string) map[string][]map[string]string {
 	t.Helper()
-	db, err := openReadOnly(path)
+	db, err := store.OpenReadOnly(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	return snapshot(t, db)
-}
-
-// snapshot returns every row of every table, as text, in rowid order.
-func snapshot(t *testing.T, db *sql.DB) map[string][]map[string]string {
-	t.Helper()
-	var tables []string
-	rows, err := db.Query(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for rows.Next() {
-		var n string
-		rows.Scan(&n)
-		tables = append(tables, n)
-	}
-	rows.Close()
-	out := map[string][]map[string]string{}
-	for _, table := range tables {
-		rows, err := db.Query(`SELECT * FROM "` + table + `" ORDER BY rowid`)
-		if err != nil {
-			t.Fatal(err)
-		}
-		cols, _ := rows.Columns()
-		for rows.Next() {
-			values := make([]any, len(cols))
-			ptrs := make([]any, len(cols))
-			for i := range values {
-				ptrs[i] = &values[i]
-			}
-			if err := rows.Scan(ptrs...); err != nil {
-				t.Fatal(err)
-			}
-			row := map[string]string{}
-			for i, c := range cols {
-				row[c] = fmt.Sprintf("%v", values[i])
-				if b, ok := values[i].([]byte); ok {
-					row[c] = string(b)
-				}
-			}
-			out[table] = append(out[table], row)
-		}
-		rows.Close()
-	}
-	return out
+	return storetest.Snapshot(t, db)
 }
 
 // A backup taken with a newer binary before an upgrade copies the database
 // as it is, without upgrading it first.
 func TestBackupFileKeepsSchema(t *testing.T) {
 	ctx := context.Background()
-	dir := t.TempDir()
+	dir := storetest.TempDir(t)
 	src := filepath.Join(dir, "vigil.db")
 	before, version := loadDump(t, src, "testdata/upgrade/v0.2.0.sql")
 	dest := filepath.Join(dir, "copy.db")
-	if err := BackupFile(ctx, src, dest); err != nil {
+	if err := store.BackupFile(ctx, src, dest); err != nil {
 		t.Fatal(err)
 	}
 	for _, path := range []string{src, dest} {
-		if v, err := FileSchema(ctx, path); err != nil || v != version {
+		if v, err := store.FileSchema(ctx, path); err != nil || v != version {
 			t.Errorf("%s: schema %d (%v), want %d", filepath.Base(path), v, err, version)
 		}
 	}
 	if !reflect.DeepEqual(snapshotFile(t, dest), before) {
 		t.Error("the backup differs from the database")
 	}
-	if err := BackupFile(ctx, filepath.Join(dir, "missing.db"), filepath.Join(dir, "x.db")); err == nil {
+	if err := store.BackupFile(ctx, filepath.Join(dir, "missing.db"), filepath.Join(dir, "x.db")); err == nil {
 		t.Error("backup of a missing database")
 	}
 }

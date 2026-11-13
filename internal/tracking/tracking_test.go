@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -17,6 +16,7 @@ import (
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/kev"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/osv"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
 )
 
@@ -67,11 +67,7 @@ func fakeOSV(t *testing.T) *httptest.Server {
 
 func TestSyncLifecycle(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
+	st := storetest.Open(t)
 
 	srv := fakeOSV(t)
 	defer srv.Close()
@@ -147,11 +143,7 @@ func TestSyncLifecycle(t *testing.T) {
 // version must be resolved, and reopened on the way back.
 func TestVersionFieldOverridesThePURL(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
+	st := storetest.Open(t)
 	srv := fakeOSV(t)
 	defer srv.Close()
 	client := &osv.Client{URL: srv.URL, HTTP: http.DefaultClient, UserAgent: "vigil-test"}
@@ -160,9 +152,7 @@ func TestVersionFieldOverridesThePURL(t *testing.T) {
 
 	asset := store.Asset{Name: "lodash", Kind: "package", PURL: "pkg:npm/lodash@4.17.15", Version: "4.17.15",
 		Criticality: "high", Source: "manual"}
-	if asset.ID, err = st.CreateAsset(ctx, store.Everything, asset); err != nil {
-		t.Fatal(err)
-	}
+	asset.ID = storetest.Asset(t, st, asset)
 	if res, err := syncer.Run(ctx); err != nil || res.Created != 1 {
 		t.Fatalf("created = %d, err = %v", res.Created, err)
 	}
@@ -191,11 +181,7 @@ func TestVersionFieldOverridesThePURL(t *testing.T) {
 // published since the start of its tracked period, or exploited.
 func TestTrackedPeriod(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
+	st := storetest.Open(t)
 	srv := fakeOSV(t)
 	defer srv.Close()
 	client := &osv.Client{URL: srv.URL, HTTP: http.DefaultClient, UserAgent: "vigil-test"}
