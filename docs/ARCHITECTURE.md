@@ -1280,6 +1280,11 @@ HTTPS, la clé NVD retirée si l'hôte change). *Conséquence* : le délai propr
 retiré, seule compte la limite de la requête (60 s, 5 min pour OSV) : une source calcule parfois
 longtemps une grosse page avant de répondre, et le client ordinaire des sources n'en avait pas.
 Sans `ForceAttemptHTTP2` (la connexion est composée par le contrôle), les sources passent en HTTP/1.1.
+Une URL de flux ou de canal qui vise une adresse privée est acceptée à l'enregistrement et refusée à
+chaque connexion, la raison affichée dans l'état du flux ou du canal (« adresse de destination
+interdite ») : un contrôle à l'enregistrement ne vaudrait que pour l'adresse du moment, et
+`-allow-private-urls` peut changer d'un démarrage à l'autre (revue de la 0.5.0, W5 et C6). Refuser
+dès l'enregistrement une adresse IP littérale non publique ou `localhost` serait un confort, différé.
 
 **A25. API par jeton limité à un projet.** Les pipelines CI poussent leur SBOM via
 `PUT /api/v1/projects/{projet}/sbom`. Un jeton n'écrit qu'un seul projet (moindre privilège),
@@ -1293,6 +1298,11 @@ pourquoi une CI échoue (l'API répond « jeton invalide », comme pour un jeton
 sans créateur connu (colonne vide : aucun chemin de Vigil n'en crée aujourd'hui) reste valide.
 Écartés : révoquer les jetons à la désactivation, ce qu'une réactivation ne pourrait pas défaire ;
 une réponse distincte de l'API, qui dirait à qui détient le jeton que le compte est désactivé.
+Un changement de rôle ou d'accès du créateur ne suspend pas ses jetons : un jeton écrit son projet
+quelle que soit la portée de son créateur, qui peut être devenu analyste ou limité à des groupes qui
+ne contiennent pas ce projet (revue de la 0.5.0, W3). Il se révoque à la main. Écarté : suspendre les
+jetons à la rétrogradation, qui casserait sans bruit les CI d'un administrateur dont seul le rôle
+change, et ne servirait à rien contre un secret déjà copié par le compte rétrogradé.
 
 **A70. Noms de compte : uniques à la casse près, et absents du journal s'ils sont inconnus.**
 Audit de novembre 2026, S16 et S17.
@@ -1376,7 +1386,9 @@ groupes et G après rencontre ses groupes. La même règle couvre la création (
 modification, la suppression (G après vide : un actif partagé avec un autre groupe ne se supprime pas
 depuis un compte limité), l'import CSV (tout ou rien, A41) et l'import SBOM (les composants nouveaux,
 sans étiquette, sont dans les groupes de leur projet : ces groupes existent et sont tous les siens ;
-un composant gardé ou retiré ne change pas de groupe). Elle est vérifiée dans la transaction de
+un composant gardé ou retiré ne change pas de groupe ; un composant qu'une étiquette partage avec un
+autre groupe suit pourtant le SBOM de son projet : l'import qui l'omet le retire pour tous, risque
+accepté au modèle de menace, revue de la 0.5.0, S2). Elle est vérifiée dans la transaction de
 `CreateAssets`, `UpdateAsset`, `DeleteAsset` et `ReplaceProjectAssets` (`checkMove`), les groupes de
 l'actif avant et après calculés par la même condition que la lecture (`ruleMatch`). Le refus
 (`store.OutsideGroupsError`) dit quoi corriger, avec les seules valeurs de l'actif, que l'utilisateur a
@@ -1833,3 +1845,27 @@ sauvegardes) gardent le nettoyage ordinaire.
 | Liste des sessions ouvertes (date, adresse) | Différé | Le bouton « Fermer mes autres sessions » de Mon compte couvre le besoin sans nouvelle colonne ; à ouvrir sur demande. |
 | Jeton CSRF avant la connexion | Écarté | `Origin` et `Sec-Fetch-Site` suffisent avec les navigateurs actuels ; le cas restant est consigné au [modèle de menace](THREAT_MODEL.md), « Risques acceptés ». |
 | Structures typées par page (au lieu de `map[string]any`) | Différé | Gros changement pour peu de gain ; à faire page par page, quand on y touche. |
+| Délai de traitement critique pour le statut Exploitable | Différé | Seule une entrée KEV prend aujourd'hui le délai critique (A39) ; le statut « Exploitable » range la vulnérabilité avec les exploitées (A78) sans changer son échéance. |
+| Sévérité repliée sur le CVSS dans l'anneau, le filtre Sévérité et « Actifs les plus exposés » | Différé | Ils restent par sévérité de l'avis : ils concordent entre eux, pas avec la bande du classement d'urgence (A78). |
+| Sévérité de la NVD pour les CVE non notées | Écarté | La NVD n'a pas analysé les CVE concernées (4 729 sur 6 248 CVE de kernel.org au statut Received) : 2 lignes notées sur 4 000, pour une requête par CVE. |
+| Rôle par groupe d'actifs | Différé | Le rôle global d'un compte limité suffit aux équipes visées ; une colonne `role` dans `user_groups` l'ajouterait (A68). |
+| Administrateur de groupe | Différé | Déléguer les comptes demanderait un journal d'audit filtré par groupe. |
+| Notifications par compte | Différé | Les comptes n'ont pas d'adresse ; les canaux limités à un groupe couvrent l'équipe (A68). |
+| Une ligne par CVE pour Red Hat | Différé | OSV n'a pas d'avis par CVE pour Red Hat : les RHSA de plusieurs CVE restent des lignes (A80). À reprendre avec un écosystème de version Red Hat (A55). |
+| Garde EPSS de la période de suivi pour la NVD | Différé | La NVD n'est interrogée que sur la période et sur KEV ; la garde des CVE anciennes probables (A31) ne vaut que pour OSV. |
+| Cartes et onglets annoncés dans le digest | Différé | Son HTML est écrit à la génération ; sur téléphone, ses tableaux défilent de côté. |
+| Colonne « Actif » masquée dans une liste filtrée sur un actif | Différé | Le gabarit commun des listes l'aurait demandé à part (A86). |
+| Filtre exact par CVE (`cve=`) | Écarté | La recherche suffit pour « sur tous les actifs », au prix d'une CVE courte qui trouve aussi les plus longues (CVE-2022-3114 trouve CVE-2022-31140). |
+| Refus d'un écosystème ou d'un purl sans version | Écarté | Un export de l'inventaire réimporté contient des composants de SBOM sans version : tout le fichier serait refusé ; le message de l'ajout dit ce qui manque (A88). |
+| Liens absolus dans le Markdown du digest | Différé | Il faudrait l'adresse de Vigil à la génération ; le message envoyé finit par le lien du digest, dont la page porte les liens (A87). |
+| Détection par le nom signalée sur chaque ligne d'une liste | Différé | La page de l'actif et le message de l'ajout le disent déjà. |
+| QR code de la clé de double authentification | Écarté | Une dépendance ou quelques centaines de lignes d'encodage (A26) pour une saisie unique ; la clé s'affiche par groupes de quatre (A89). |
+| Relecture par ce qui a changé des paquets lus en entier d'emblée (`latest`, écosystème `Linux`) | Différé | La liste devrait garder les plages de chaque avis ; le noyau officiel se lit en moins de 3 minutes (150 Mo) une fois par synchronisation (A90). |
+| Ne pas retélécharger un avis non gardé dont seule la date a changé | Écarté | Ses dates et alias ne changent presque jamais lors des régénérations d'Ubuntu, mais rien ne le garantit : le résultat ne serait plus celui d'une lecture complète (A90). |
+| Lecture de la NVD page par page, fiche NVD compactée | Différé | Toutes les pages d'une requête sont tenues en mémoire, et la fiche brute garde l'enregistrement entier alors que seules les configurations sont relues (revue de la 0.5.0, T8). À mesurer (12 Mo par page) avant de lire page par page comme OSV (A62). |
+| Image Docker publiée à la publication de la release | Différé | Une image n'a pas de brouillon : elle est publique à la fin du workflow du tag, après les tests et les binaires (A29). L'attacher à la publication demanderait un second workflow qui la reconstruise ou la promeuve. |
+| Ne pas retirer, à l'import d'un compte limité, un composant partagé avec un autre groupe | Différé | Risque accepté au modèle de menace (revue de la 0.5.0, S2) ; le compter comme gardé, ou nommer son étiquette dans un refus, est une petite évolution à la demande. |
+| Mise en cache de la feuille de style | Différé | 27 Ko rechargés à chaque page (`no-store` partout) ; un chemin versionné et un cache long pour `/static/` seulement (revue de la 0.5.0, W14). |
+| Inventaire lu par une seule fonction, comptes en SQL | Différé | L'inventaire filtre en Go et son export ignore les filtres de groupe, d'étiquette et de recherche ; une fonction `listedAssets` comme `listedFindings` (A85), sans effet notable aux volumes mesurés (revue de la 0.5.0, W9, W12). |
+| Rationalisations mineures relevées par la revue de la 0.5.0 | Différé | Messages de `inventory.Validate` composés même pour un actif valide (T11), nombres de versions au-delà d'int64 (T15), `ErrNoRows` vers `ErrNotFound` écrit 14 fois (S6), doublons des commandes de la ligne de commande (C14), antislash dans les tableaux Markdown (C9, cosmétique), transaction unique de `CreateDismissalRule` (S5) : au fil des lots qui toucheront ces fichiers. |
+| Liste d'autorisation de gitleaks limitée aux fixtures connues | Différé | Les fichiers `_test.go` sont aujourd'hui exclus en entier : un vrai secret collé dans une fixture ne serait pas détecté (revue de la 0.5.0, C3). |
