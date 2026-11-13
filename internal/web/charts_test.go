@@ -10,6 +10,7 @@ import (
 
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 )
 
 func TestDonut(t *testing.T) {
@@ -52,16 +53,16 @@ func TestAxis(t *testing.T) {
 }
 
 func TestDashboardPage(t *testing.T) {
-	st, base := newTestServer(t)
+	st, base := newBareServer(t, nil)
 	ctx := context.Background()
-	hash, _ := auth.HashPassword("a-strong-password")
-	st.CreateUser(ctx, "viewer", hash, auth.RoleViewer, store.Access{All: true})
-	id, _ := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "fortios", Kind: "os", Criticality: "high", Source: "manual"})
-	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-1", Severity: "CRITICAL", EPSS: -1, CVSS: -1})
-	st.SetExploitSignals(ctx, store.ExploitSignal{ID: "CVE-1", KEV: true, EPSS: 0.5})
-	st.ObserveFinding(ctx, id, "CVE-1", "", time.Now())
+	addUser(t, st, "viewer", auth.RoleViewer)
+	id := storetest.Asset(t, st, store.Asset{Name: "fortios", Kind: "os", Criticality: "high", Source: "manual"})
+	storetest.Finding(t, st, id, store.Vulnerability{ID: "CVE-1", Severity: "CRITICAL", EPSS: -1, CVSS: -1}, time.Now())
+	if _, err := st.SetExploitSignals(ctx, store.ExploitSignal{ID: "CVE-1", KEV: true, EPSS: 0.5}); err != nil {
+		t.Fatal(err)
+	}
 
-	c := loginAs(t, base, "viewer", "a-strong-password")
+	c := loginAs(t, base, "viewer", testPassword)
 	code, body := c.get("/")
 	if code != http.StatusOK {
 		t.Fatalf("dashboard: %d", code)

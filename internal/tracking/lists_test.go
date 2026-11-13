@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
 )
 
@@ -203,7 +204,7 @@ func found(t *testing.T, st *store.Store, assetID int64, ids []string) string {
 // read finds, on a database that always reads in full.
 func TestLargePackageReadAgain(t *testing.T) {
 	ctx := context.Background()
-	st, whole := openStore(t), openStore(t)
+	st, whole := storetest.Open(t), storetest.Open(t)
 	k, syncer := newKernelOSV(t, st)
 	wholeSyncer := sameSources(syncer, whole)
 	id, wholeID := addKernel(t, st, "linux"), addKernel(t, whole, "linux")
@@ -373,7 +374,7 @@ func TestLargePackageReadAgain(t *testing.T) {
 // Two assets that ask the same share the list: the second one reads nothing.
 func TestLargePackageSharedList(t *testing.T) {
 	ctx := context.Background()
-	st := openStore(t)
+	st := storetest.Open(t)
 	k, syncer := newKernelOSV(t, st)
 	first, second := addKernel(t, st, "linux"), addKernel(t, st, "linux") // two servers
 	if res, err := syncer.Run(ctx); err != nil || res.Failed != 0 {
@@ -392,7 +393,7 @@ func TestLargePackageSharedList(t *testing.T) {
 // downloaded again at each synchronisation.
 func TestModifiedPrecision(t *testing.T) {
 	ctx := context.Background()
-	st := openStore(t)
+	st := storetest.Open(t)
 	syncer, srv := osvSyncer(t, st, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/querybatch":

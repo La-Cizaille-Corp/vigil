@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -20,23 +19,8 @@ import (
 	"github.com/La-Cizaille-Corp/vigil/internal/cti"
 	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 )
-
-// postAsync posts a form without calling t.Fatal, for use from goroutines.
-func (c *client) postAsync(path string, form url.Values) (int, error) {
-	req, err := http.NewRequest(http.MethodPost, c.base+path, strings.NewReader(form.Encode()))
-	if err != nil {
-		return 0, err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
-	return resp.StatusCode, nil
-}
 
 // S1: a feed URL may carry an access key. The settings page masks the URL
 // for non-administrators; a transport error quoted it whole, and it was
@@ -78,11 +62,8 @@ func TestFeedErrorKeepsTheURLSecret(t *testing.T) {
 		t.Errorf("service log: %s", strings.TrimSpace(logs.String()))
 	}
 
-	hash, _ := auth.HashPassword("a-strong-password")
-	if _, err := st.CreateUser(ctx, "viewer", hash, auth.RoleViewer, store.Access{All: true}); err != nil {
-		t.Fatal(err)
-	}
-	viewer := loginAs(t, base, "viewer", "a-strong-password")
+	addUser(t, st, "viewer", auth.RoleViewer)
+	viewer := loginAs(t, base, "viewer", testPassword)
 	if code, body := viewer.get("/settings/feeds"); code != http.StatusOK || strings.Contains(body, secret) {
 		t.Errorf("settings as viewer: %d, secret shown: %v", code, strings.Contains(body, secret))
 	}
@@ -100,7 +81,7 @@ func TestActionsAreAudited(t *testing.T) {
 		st.SetFeedEnabled(ctx, f.ID, false)
 	}
 	_, ids := seedFindings(t, st)
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 	for path, form := range map[string]url.Values{
 		fmt.Sprintf("/findings/%d", ids[0]): {"status": {"false_positive"}, "comment": {"test"}},
 		"/cti/refresh":                      {},
@@ -153,9 +134,9 @@ func TestCTIRefreshRefusedWhileRunning(t *testing.T) {
 	if _, err := st.CreateFeed(ctx, store.Feed{Name: "x", URL: feed.URL, Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 	refresh := func() string {
-		_, loc := c.postLocation("/cti/refresh", url.Values{"csrf": {c.csrf()}})
+		_, loc := c.send(http.MethodPost, "/cti/refresh", url.Values{"csrf": {c.csrf()}})
 		return loc
 	}
 
@@ -199,8 +180,8 @@ func TestVEXImportResults(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	ctx := context.Background()
 	const lodash, fortios = "pkg:npm/lodash@4.17.15", "cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*"
-	lib, _ := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "lodash", Kind: "package", Criticality: "high", Source: "manual", PURL: lodash})
-	fw, _ := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "fortios", Version: "7.2.4", Kind: "os", Criticality: "high", Source: "manual", CPE: fortios})
+	lib := storetest.Asset(t, st, store.Asset{Name: "lodash", Kind: "package", Criticality: "high", Source: "manual", PURL: lodash})
+	fw := storetest.Asset(t, st, store.Asset{Name: "fortios", Version: "7.2.4", Kind: "os", Criticality: "high", Source: "manual", CPE: fortios})
 	for _, v := range []struct {
 		asset int64
 		vuln  store.Vulnerability
@@ -209,8 +190,7 @@ func TestVEXImportResults(t *testing.T) {
 		{lib, store.Vulnerability{ID: "CVE-2020-8203", Severity: "HIGH", Modified: "m"}},
 		{fw, store.Vulnerability{ID: "CVE-2024-21762", Severity: "CRITICAL", Modified: "m"}},
 	} {
-		st.UpsertVulnerability(ctx, v.vuln)
-		st.ObserveFinding(ctx, v.asset, v.vuln.ID, "", time.Now())
+		storetest.Finding(t, st, v.asset, v.vuln, time.Now())
 	}
 	finding := func(asset int64, vuln string) store.Finding {
 		t.Helper()
@@ -238,7 +218,7 @@ func TestVEXImportResults(t *testing.T) {
 		statement("CVE-2020-8203", "pkg:npm/other@1.0.0", "resolved", "", ""),                              // other component
 		statement("CVE-2020-8203", lodash, "not_affected", "", "sans justification"),                       // refused
 	}, ",") + `]}`
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 	if code, loc := c.upload("/findings/vex", "vex", "vex.json", doc, url.Values{"csrf": {c.csrf()}}); code != http.StatusSeeOther ||
 		loc != "/findings?msg=vex-imported" {
 		t.Fatalf("import: %d %s", code, loc)
@@ -268,7 +248,7 @@ func TestVEXImportResults(t *testing.T) {
 func TestAccountLimitersHoldInParallel(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	ctx := context.Background()
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 	token := c.csrf()
 	parallel := func(n int, path string, form func(i int) url.Values) (checked int) {
 		codes := make([]int, n)
@@ -277,11 +257,7 @@ func TestAccountLimitersHoldInParallel(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				code, err := c.postAsync(path, form(i))
-				if err != nil {
-					t.Error(err)
-				}
-				codes[i] = code
+				codes[i] = c.post(path, form(i))
 			}()
 		}
 		wg.Wait()
@@ -304,9 +280,7 @@ func TestAccountLimitersHoldInParallel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	secret, _ := auth.NewTOTPSecret()
-	st.SetTOTPPending(ctx, user.ID, secret)
-	st.EnableTOTP(ctx, user.ID, 0)
+	enableTOTP(t, st, user.ID)
 	if n := parallel(40, "/account/totp/disable", func(i int) url.Values {
 		return url.Values{"csrf": {token}, "code": {fmt.Sprintf("%06d", 100000+i)}}
 	}); n > 5 {
@@ -314,12 +288,11 @@ func TestAccountLimitersHoldInParallel(t *testing.T) {
 	}
 
 	// A right current password with a mistyped confirmation is no guess.
-	other := loginAs(t, base, "admin", "a-strong-password")
+	other := loginAs(t, base, "admin", testPassword)
 	for range 6 {
-		code, err := other.postAsync("/account/password", url.Values{"csrf": {other.csrf()}, "current": {"a-strong-password"},
-			"new": {"another-strong-password"}, "confirm": {"a-typo"}})
-		if err != nil || code != http.StatusBadRequest {
-			t.Fatalf("mistyped confirmation: %d, %v", code, err)
+		if code := other.post("/account/password", url.Values{"csrf": {other.csrf()}, "current": {testPassword},
+			"new": {"another-strong-password"}, "confirm": {"a-typo"}}); code != http.StatusBadRequest {
+			t.Fatalf("mistyped confirmation: %d", code)
 		}
 	}
 }
@@ -330,7 +303,7 @@ func TestAccountLimitersHoldInParallel(t *testing.T) {
 // from a watch saved with repeated values.
 func TestRepeatedFilterValues(t *testing.T) {
 	st, base := newServerWith(t, nil)
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 	repeated := strings.Repeat("country=FR&", 1001)
 	if code, _ := c.get("/cti?" + repeated); code != http.StatusOK {
 		t.Errorf("/cti with 1,001 identical countries: %d", code)

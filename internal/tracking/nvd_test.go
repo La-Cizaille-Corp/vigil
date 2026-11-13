@@ -7,13 +7,14 @@ import (
 	"testing"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 )
 
 // A refused NVD key (404) leaves the asset unchecked: its open findings are
 // not taken as fixed.
 func TestNVDRefusalKeepsFindingsOpen(t *testing.T) {
 	ctx := context.Background()
-	st := openStore(t)
+	st := storetest.Open(t)
 	refuse := false
 	s, srv := nvdSyncer(t, st, func(w http.ResponseWriter, r *http.Request) {
 		if refuse {
@@ -51,7 +52,7 @@ func TestNVDRefusalKeepsFindingsOpen(t *testing.T) {
 // written again: every synchronisation rewrote it. Modified, it is.
 func TestNVDRecordWrittenOnceModified(t *testing.T) {
 	ctx := context.Background()
-	st := openStore(t)
+	st := storetest.Open(t)
 	description, modified := "first text", "2024-02-13T16:00:00.000"
 	s, srv := nvdSyncer(t, st, func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, `{"totalResults":1,"vulnerabilities":[{"cve":{"id":"CVE-2024-21762","published":"2024-02-09T09:15:00.000",

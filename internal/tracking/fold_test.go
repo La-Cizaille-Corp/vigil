@@ -12,6 +12,7 @@ import (
 
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/osv"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
 )
 
@@ -97,7 +98,7 @@ func findingOf(t *testing.T, st *store.Store, assetID int64, vulnID string) stor
 // kept on it and left out of every list.
 func TestGroupedAdvisoryFolded(t *testing.T) {
 	ctx := context.Background()
-	st := openStore(t)
+	st := storetest.Open(t)
 	scores := `{"data":[]}`
 	syncer, srv := osvSyncer(t, st, ubuntuKernel(&scores), true)
 	id, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "linux", Kind: "os", Ecosystem: "Ubuntu:22.04:LTS",
@@ -110,13 +111,8 @@ func TestGroupedAdvisoryFolded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.UpsertVulnerability(ctx, store.Vulnerability{ID: "USN-9000-1", Published: "2026-10-01T00:00:00Z", Modified: "2026-01-01T00:00:00Z",
-		Aliases: []string{"CVE-2026-1", "CVE-2026-2", "CVE-2022-9", "UBUNTU-CVE-2026-1", "UBUNTU-CVE-2026-2", "UBUNTU-CVE-2022-9"}, EPSS: -1, CVSS: -1}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.ObserveFinding(ctx, id, "USN-9000-1", "", time.Now()); err != nil {
-		t.Fatal(err)
-	}
+	storetest.Finding(t, st, id, store.Vulnerability{ID: "USN-9000-1", Published: "2026-10-01T00:00:00Z", Modified: "2026-01-01T00:00:00Z",
+		Aliases: []string{"CVE-2026-1", "CVE-2026-2", "CVE-2022-9", "UBUNTU-CVE-2026-1", "UBUNTU-CVE-2026-2", "UBUNTU-CVE-2022-9"}, EPSS: -1, CVSS: -1}, time.Now())
 	usn := findingOf(t, st, id, "USN-9000-1")
 	if err := st.SetFindingStatus(ctx, store.Everything, usn.ID, user, "not_affected", "code_not_present", "pas de wifi"); err != nil {
 		t.Fatal(err)
@@ -185,7 +181,7 @@ func TestGroupedAdvisoryFolded(t *testing.T) {
 // earliest detection and stays open while one of them is reported.
 func TestSameCVEFolded(t *testing.T) {
 	ctx := context.Background()
-	st := openStore(t)
+	st := storetest.Open(t)
 	reported := []string{"GHSA-aaaa", "GO-2026-1"}
 	advisories := map[string]string{
 		"GHSA-aaaa": `{"id":"GHSA-aaaa","aliases":["CVE-2026-5","GO-2026-1"],"published":"2026-09-01T00:00:00Z","modified":"2026-09-01T00:00:00Z",
@@ -219,18 +215,14 @@ func TestSameCVEFolded(t *testing.T) {
 	// Two findings of another CVE, no longer reported: one stays, closed by
 	// the synchronisation, the other is folded into it.
 	for _, vuln := range []string{"GHSA-bbbb", "GO-2025-9"} {
-		st.UpsertVulnerability(ctx, store.Vulnerability{ID: vuln, Aliases: []string{"CVE-2025-9"}, Modified: "old", EPSS: -1, CVSS: -1})
-		st.ObserveFinding(ctx, id, vuln, "", time.Now())
+		storetest.Finding(t, st, id, store.Vulnerability{ID: vuln, Aliases: []string{"CVE-2025-9"}, Modified: "old", EPSS: -1, CVSS: -1}, time.Now())
 	}
 	// Both advisories had a finding before 0.5.0, decided differently.
 	alice, _ := st.CreateUser(ctx, "alice", "hash", "analyst", store.Access{All: true})
 	bob, _ := st.CreateUser(ctx, "bob", "hash", "analyst", store.Access{All: true})
 	early := time.Date(2026, 9, 3, 0, 0, 0, 0, time.UTC)
 	for i, vuln := range []string{"GHSA-aaaa", "GO-2026-1"} {
-		st.UpsertVulnerability(ctx, store.Vulnerability{ID: vuln, Aliases: []string{"CVE-2026-5"}, Modified: "old", EPSS: -1, CVSS: -1})
-		if _, err := st.ObserveFinding(ctx, id, vuln, "", early.AddDate(0, 0, i)); err != nil {
-			t.Fatal(err)
-		}
+		storetest.Finding(t, st, id, store.Vulnerability{ID: vuln, Aliases: []string{"CVE-2026-5"}, Modified: "old", EPSS: -1, CVSS: -1}, early.AddDate(0, 0, i))
 	}
 	ghsa, gov := findingOf(t, st, id, "GHSA-aaaa"), findingOf(t, st, id, "GO-2026-1")
 	if err := st.SetFindingStatus(ctx, store.Everything, ghsa.ID, alice, "not_affected", "code_not_reachable", "non atteint"); err != nil {

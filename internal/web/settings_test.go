@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -39,10 +38,7 @@ func menuOf(page string) (links []string, current string) {
 func TestSettingsSubpages(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	ctx := context.Background()
-	hash, _ := auth.HashPassword("a-strong-password")
-	if _, err := st.CreateUser(ctx, "viewer", hash, auth.RoleViewer, store.Access{All: true}); err != nil {
-		t.Fatal(err)
-	}
+	addUser(t, st, "viewer", auth.RoleViewer)
 	feed, err := st.CreateFeed(ctx, store.Feed{Name: "Avis", URL: "https://example.org/feed", Enabled: true})
 	if err != nil {
 		t.Fatal(err)
@@ -64,7 +60,7 @@ func TestSettingsSubpages(t *testing.T) {
 		{"analyst", "/settings/watch", []string{"/settings/watch", "/settings/feeds"}},
 		{"viewer", "/settings/watch", []string{"/settings/watch", "/settings/feeds"}},
 	} {
-		client := loginAs(t, base, c.user, "a-strong-password")
+		client := loginAs(t, base, c.user, testPassword)
 		if code, to := client.send(http.MethodGet, "/settings", nil); code != http.StatusSeeOther || to != c.home {
 			t.Errorf("%s: /settings leads to %d %q, want %s", c.user, code, to, c.home)
 		}
@@ -79,8 +75,8 @@ func TestSettingsSubpages(t *testing.T) {
 			}
 		}
 	}
-	admin := loginAs(t, base, "admin", "a-strong-password")
-	if _, page := admin.get("/settings/groups/" + strconv.FormatInt(group, 10)); func() string { _, cur := menuOf(page); return cur }() != "/settings/groups" {
+	admin := loginAs(t, base, "admin", testPassword)
+	if _, page := admin.get("/settings/groups/" + itoa(group)); func() string { _, cur := menuOf(page); return cur }() != "/settings/groups" {
 		t.Error("the page of a group is not under Groupes in the menu")
 	}
 	if _, page := admin.get("/findings"); strings.Contains(page, "settings-nav") {
@@ -94,7 +90,7 @@ func TestSettingsSubpages(t *testing.T) {
 // 8.2, A89).
 func TestSettingsFormsKeepInput(t *testing.T) {
 	_, base := newServerWith(t, nil)
-	admin := loginAs(t, base, "admin", "a-strong-password")
+	admin := loginAs(t, base, "admin", testPassword)
 	csrf := admin.csrf()
 
 	code, page := admin.postBody("/settings/webhooks", url.Values{"csrf": {csrf}, "name": {"Équipe sécurité"}, "kind": {"teams"},
@@ -130,11 +126,11 @@ func TestSettingsFormsKeepInput(t *testing.T) {
 		t.Errorf("deadlines refused: %d\n%s", code, form)
 	}
 
-	if code, to := admin.postLocation("/settings/webhooks", url.Values{"csrf": {csrf}, "name": {"Équipe"}, "kind": {"generic"},
+	if code, to := admin.send(http.MethodPost, "/settings/webhooks", url.Values{"csrf": {csrf}, "name": {"Équipe"}, "kind": {"generic"},
 		"url": {"https://example.org/hook"}, "alerts": {"priority"}}); code != http.StatusSeeOther || to != "/settings/webhooks?msg=hook-created#contenu" {
 		t.Errorf("channel added: %d %q", code, to)
 	}
-	if code, to := admin.postLocation("/settings/tokens", url.Values{"csrf": {csrf}, "name": {"ci"}, "project": {"app"}}); code != http.StatusSeeOther ||
+	if code, to := admin.send(http.MethodPost, "/settings/tokens", url.Values{"csrf": {csrf}, "name": {"ci"}, "project": {"app"}}); code != http.StatusSeeOther ||
 		to != "/settings/tokens?msg=token-created#jeton" {
 		t.Errorf("token created: %d %q", code, to)
 	}
@@ -148,7 +144,7 @@ func TestSettingsFormsKeepInput(t *testing.T) {
 // pointed out (audit UX 8.3, A89).
 func TestSLAOrderWarning(t *testing.T) {
 	_, base := newServerWith(t, nil)
-	admin := loginAs(t, base, "admin", "a-strong-password")
+	admin := loginAs(t, base, "admin", testPassword)
 	const warning = "ne décroissent pas de Basse à Critique"
 	if _, page := admin.get("/settings/sla"); strings.Contains(page, warning) {
 		t.Error("the default deadlines are said not to decrease")
@@ -166,7 +162,7 @@ func TestSLAOrderWarning(t *testing.T) {
 // 8.4, A89).
 func TestTOTPKeyInGroups(t *testing.T) {
 	st, base := newServerWith(t, nil)
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 	c.post("/account/totp/start", url.Values{"csrf": {c.csrf()}})
 	u, _ := st.UserByName(context.Background(), "analyst")
 	_, pending, _, err := st.UserTOTP(context.Background(), u.ID)

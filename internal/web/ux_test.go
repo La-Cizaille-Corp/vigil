@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -16,34 +15,23 @@ import (
 	"github.com/La-Cizaille-Corp/vigil/internal/cti"
 	"github.com/La-Cizaille-Corp/vigil/internal/inventory"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 )
 
-// postLocation posts a form and returns the status and redirect target.
-func (c *client) postLocation(path string, form url.Values) (int, string) {
-	return c.send(http.MethodPost, path, form)
-}
-
-func loginAs(t *testing.T, base, username, password string) *client {
-	t.Helper()
-	c := newClient(t, base)
-	if code := c.post("/login", url.Values{"username": {username}, "password": {password}}); code != http.StatusSeeOther {
-		t.Fatalf("login %s: %d", username, code)
-	}
-	return c
-}
-
 func TestAssetAndSyncFlow(t *testing.T) {
-	st, base := newTestServer(t)
-	hash, _ := auth.HashPassword("a-strong-password")
-	st.CreateUser(context.Background(), "admin", hash, auth.RoleAdmin, store.Access{All: true})
-	c := loginAs(t, base, "admin", "a-strong-password")
+	st, base := newBareServer(t, nil)
+	addUser(t, st, "admin", auth.RoleAdmin)
+	c := loginAs(t, base, "admin", testPassword)
 
-	// A new asset is tracked over the last 120 days by default.
+	// A new asset is tracked over the last 120 days by default: the day
+	// before or after the request, should it cross midnight.
+	before := inventory.DefaultSince(time.Now())
 	_, body := c.get("/assets/new")
-	if want := `name="track_since" value="` + inventory.DefaultSince(time.Now()) + `"`; !strings.Contains(body, want) {
-		t.Errorf("default tracked period missing: %s", want)
+	after := inventory.DefaultSince(time.Now())
+	if !strings.Contains(body, `name="track_since" value="`+before+`"`) && !strings.Contains(body, `name="track_since" value="`+after+`"`) {
+		t.Errorf("default tracked period missing: %s", after)
 	}
-	code, loc := c.postLocation("/assets", url.Values{"csrf": {c.csrf()}, "name": {"lodash"}, "kind": {"package"},
+	code, loc := c.send(http.MethodPost, "/assets", url.Values{"csrf": {c.csrf()}, "name": {"lodash"}, "kind": {"package"},
 		"criticality": {"high"}, "purl": {"pkg:npm/lodash@4.17.15"}, "track_since": {"2026-01-01"}})
 	if code != http.StatusSeeOther || !strings.HasPrefix(loc, "/assets/") || !strings.Contains(loc, "msg=asset-created") {
 		t.Fatalf("create: %d %s", code, loc)
@@ -52,14 +40,14 @@ func TestAssetAndSyncFlow(t *testing.T) {
 	if len(assets) != 1 || assets[0].TrackSince != "2026-01-01" {
 		t.Fatalf("assets: %+v", assets)
 	}
-	if code, _ := c.postLocation("/assets", url.Values{"csrf": {c.csrf()}, "name": {"x"}, "kind": {"package"},
+	if code, _ := c.send(http.MethodPost, "/assets", url.Values{"csrf": {c.csrf()}, "name": {"x"}, "kind": {"package"},
 		"criticality": {"high"}, "track_since": {"hier"}}); code != http.StatusBadRequest {
 		t.Errorf("invalid date accepted: %d", code)
 	}
 
 	// A sync returns to the page it was started from, never elsewhere.
 	for next, want := range map[string]string{"/findings": "/findings?", "https://evil.example": "/?", "/assets": "/assets?"} {
-		_, loc := c.postLocation("/sync", url.Values{"csrf": {c.csrf()}, "next": {next}})
+		_, loc := c.send(http.MethodPost, "/sync", url.Values{"csrf": {c.csrf()}, "next": {next}})
 		if !strings.HasPrefix(loc, want) {
 			t.Errorf("sync from %s redirected to %s", next, loc)
 		}
@@ -69,11 +57,10 @@ func TestAssetAndSyncFlow(t *testing.T) {
 // The Version field overrides the purl: editing it keeps the purl as written,
 // and editing the purl alone brings the field along.
 func TestAssetUpdateVersionAndPURL(t *testing.T) {
-	st, base := newTestServer(t)
+	st, base := newBareServer(t, nil)
 	ctx := context.Background()
-	hash, _ := auth.HashPassword("a-strong-password")
-	st.CreateUser(ctx, "admin", hash, auth.RoleAdmin, store.Access{All: true})
-	c := loginAs(t, base, "admin", "a-strong-password")
+	addUser(t, st, "admin", auth.RoleAdmin)
+	c := loginAs(t, base, "admin", testPassword)
 
 	id, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "lodash", Kind: "package", Criticality: "high",
 		Source: "manual", PURL: "pkg:npm/lodash@4.17.15", Version: "4.17.15"})
@@ -84,7 +71,7 @@ func TestAssetUpdateVersionAndPURL(t *testing.T) {
 		{"pkg:npm/lodash@4.17.15", "4.17.21", "4.17.21"},
 		{"pkg:npm/lodash@4.17.30", "4.17.21", "4.17.30"},
 	} {
-		code, loc := c.postLocation("/assets/"+strconv.FormatInt(id, 10), url.Values{"csrf": {c.csrf()}, "name": {"lodash"},
+		code, loc := c.send(http.MethodPost, "/assets/"+itoa(id), url.Values{"csrf": {c.csrf()}, "name": {"lodash"},
 			"kind": {"package"}, "criticality": {"high"}, "purl": {step.purl}, "version": {step.version}})
 		if code != http.StatusSeeOther || !strings.Contains(loc, "msg=asset-updated") {
 			t.Fatalf("update: %d %s", code, loc)
@@ -103,23 +90,22 @@ func TestAssetUpdateVersionAndPURL(t *testing.T) {
 // form stays folded until values are refused. Each vulnerability shows the
 // versions fixing it for the asset, in the page and in the export.
 func TestAssetPageLayout(t *testing.T) {
-	st, base := newTestServer(t)
+	st, base := newBareServer(t, nil)
 	ctx := context.Background()
-	hash, _ := auth.HashPassword("a-strong-password")
-	st.CreateUser(ctx, "admin", hash, auth.RoleAdmin, store.Access{All: true})
-	st.CreateUser(ctx, "reader", hash, auth.RoleViewer, store.Access{All: true})
-	id, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "lodash", Kind: "package", Criticality: "high",
+	addUser(t, st, "admin", auth.RoleAdmin)
+	addUser(t, st, "reader", auth.RoleViewer)
+	id := storetest.Asset(t, st, store.Asset{Name: "lodash", Kind: "package", Criticality: "high",
 		Source: "manual", PURL: "pkg:npm/lodash", Version: "4.17.15"})
-	if err != nil {
+	if err := st.UpsertVulnerability(ctx, store.Vulnerability{ID: "GHSA-fix", Severity: "HIGH", Modified: "m"}); err != nil {
 		t.Fatal(err)
 	}
-	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "GHSA-fix", Severity: "HIGH", Modified: "m"})
-	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "GHSA-open", Severity: "LOW", Modified: "m"})
-	st.ObserveFinding(ctx, id, "GHSA-fix", "4.17.21", time.Now())
-	st.ObserveFinding(ctx, id, "GHSA-open", "", time.Now())
-	path := "/assets/" + strconv.FormatInt(id, 10)
+	if _, err := st.ObserveFinding(ctx, id, "GHSA-fix", "4.17.21", time.Now()); err != nil { // with its fixed versions
+		t.Fatal(err)
+	}
+	storetest.Finding(t, st, id, store.Vulnerability{ID: "GHSA-open", Severity: "LOW", Modified: "m"}, time.Now())
+	path := "/assets/" + itoa(id)
 
-	admin := loginAs(t, base, "admin", "a-strong-password")
+	admin := loginAs(t, base, "admin", testPassword)
 	_, page := admin.get(path)
 	details, vulns := strings.Index(page, "<h2>Détails</h2>"), strings.Index(page, `<h2 id="vulnerabilites">Vulnérabilités de cet actif`)
 	if details < 0 || vulns < 0 || details > vulns || !strings.Contains(page, `<details class="card edit">`) {
@@ -137,7 +123,7 @@ func TestAssetPageLayout(t *testing.T) {
 		t.Errorf("refused form: %d, open %v", code, strings.Contains(page, `<details class="card edit" open>`))
 	}
 
-	reader := loginAs(t, base, "reader", "a-strong-password")
+	reader := loginAs(t, base, "reader", testPassword)
 	if _, page := reader.get(path); !strings.Contains(page, "<h2>Détails</h2>") || strings.Contains(page, "Modifier l'actif") {
 		t.Error("a viewer sees the details only")
 	}
@@ -152,7 +138,7 @@ func TestAssetPageLayout(t *testing.T) {
 func TestDashboardCardsLinkToTheirList(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	seedFindings(t, st)
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 	_, page := c.get("/")
 	if !strings.Contains(page, `<a class="kpi kpi-hero" href="/findings?level=urgent">`) ||
 		!strings.Contains(page, `<a class="kpi" href="/findings">`) || strings.Contains(page, "%3d") {
@@ -171,20 +157,19 @@ func TestDashboardWeekIsTheList(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	ctx := context.Background()
 	asset, _ := seedFindings(t, st) // one of the week, two older
+	ids := map[string]int64{}
 	for i := range 12 {
 		id := fmt.Sprintf("CVE-2026-%04d", i)
-		st.UpsertVulnerability(ctx, store.Vulnerability{ID: id, Severity: "MEDIUM", EPSS: -1, CVSS: 5})
-		st.ObserveFinding(ctx, asset, id, "", time.Now().Add(-time.Hour))
+		ids[id] = storetest.Finding(t, st, asset, store.Vulnerability{ID: id, Severity: "MEDIUM", EPSS: -1, CVSS: 5}, time.Now().Add(-time.Hour))
 	}
 	fixed := "CVE-2026-0000"
-	st.UpsertVulnerability(ctx, store.Vulnerability{ID: fixed, Severity: "CRITICAL", EPSS: -1, CVSS: 10})
-	list, _ := st.ListFindings(ctx, store.Everything, store.FindingFilter{})
-	for _, f := range list {
-		if f.VulnID == fixed {
-			st.SetFindingStatus(ctx, store.Everything, f.ID, 0, "resolved", "", "")
-		}
+	if err := st.UpsertVulnerability(ctx, store.Vulnerability{ID: fixed, Severity: "CRITICAL", EPSS: -1, CVSS: 10}); err != nil {
+		t.Fatal(err)
 	}
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	if err := st.SetFindingStatus(ctx, store.Everything, ids[fixed], 0, "resolved", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	c := loginAs(t, base, "analyst", testPassword)
 	_, page := c.get("/")
 	if strings.Contains(page, ">"+fixed+"<") {
 		t.Error("a fixed vulnerability among the new ones")
@@ -214,7 +199,7 @@ func TestDashboardWeekIsTheList(t *testing.T) {
 func TestLandmarksAndBulkPanel(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	seedFindings(t, st)
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 	_, page := c.get("/findings")
 	for _, want := range []string{`<a class="skip" href="#contenu">`, `<main id="contenu">`,
 		`<nav aria-label="Navigation principale">`, `<td class="f-text text" role="cell" data-label="Résumé">`} {
@@ -232,11 +217,10 @@ func TestLandmarksAndBulkPanel(t *testing.T) {
 }
 
 func TestFeedTags(t *testing.T) {
-	st, base := newTestServer(t)
+	st, base := newBareServer(t, nil)
 	ctx := context.Background()
-	hash, _ := auth.HashPassword("a-strong-password")
-	st.CreateUser(ctx, "admin", hash, auth.RoleAdmin, store.Access{All: true})
-	c := loginAs(t, base, "admin", "a-strong-password")
+	addUser(t, st, "admin", auth.RoleAdmin)
+	c := loginAs(t, base, "admin", testPassword)
 
 	form := url.Values{"csrf": {c.csrf()}, "name": {"Test"}, "url": {"https://example.org/feed.xml"},
 		"country": {"FR", "EU", "XX"}, "regulation": {"nis2", "cra"}}
@@ -254,7 +238,7 @@ func TestFeedTags(t *testing.T) {
 		}
 	}
 	update := url.Values{"csrf": {c.csrf()}, "sector": {"energy"}}
-	if code := c.post("/settings/feeds/"+strconv.FormatInt(id, 10), update); code != http.StatusSeeOther {
+	if code := c.post("/settings/feeds/"+itoa(id), update); code != http.StatusSeeOther {
 		t.Fatalf("update feed: %d", code)
 	}
 	feeds, _ = st.ListFeeds(ctx)
@@ -266,25 +250,24 @@ func TestFeedTags(t *testing.T) {
 }
 
 func TestPasswordChange(t *testing.T) {
-	st, base := newTestServer(t)
-	hash, _ := auth.HashPassword("a-strong-password")
-	st.CreateUser(context.Background(), "bob", hash, auth.RoleViewer, store.Access{All: true})
-	c := loginAs(t, base, "bob", "a-strong-password")
-	other := loginAs(t, base, "bob", "a-strong-password")
+	st, base := newBareServer(t, nil)
+	addUser(t, st, "bob", auth.RoleViewer)
+	c := loginAs(t, base, "bob", testPassword)
+	other := loginAs(t, base, "bob", testPassword)
 
 	change := func(current, next, confirm string) int {
 		return c.post("/account/password", url.Values{"csrf": {c.csrf()}, "current": {current}, "new": {next}, "confirm": {confirm}})
 	}
-	if code := change("wrong-password", "another-strong-one", "another-strong-one"); code != http.StatusBadRequest {
-		t.Errorf("wrong current password: %d", code)
+	for _, refused := range []struct{ what, current, next, confirm string }{
+		{"wrong current password", "wrong-password", "another-strong-one", "another-strong-one"},
+		{"mismatch", testPassword, "another-strong-one", "different-one-here"},
+		{"weak password", testPassword, "short", "short"},
+	} {
+		if code := change(refused.current, refused.next, refused.confirm); code != http.StatusBadRequest {
+			t.Errorf("%s: %d", refused.what, code)
+		}
 	}
-	if code := change("a-strong-password", "another-strong-one", "different-one-here"); code != http.StatusBadRequest {
-		t.Errorf("mismatch: %d", code)
-	}
-	if code := change("a-strong-password", "short", "short"); code != http.StatusBadRequest {
-		t.Errorf("weak password: %d", code)
-	}
-	if code := change("a-strong-password", "another-strong-one", "another-strong-one"); code != http.StatusSeeOther {
+	if code := change(testPassword, "another-strong-one", "another-strong-one"); code != http.StatusSeeOther {
 		t.Fatalf("change: %d", code)
 	}
 	if code, _ := other.get("/account"); code != http.StatusSeeOther {
@@ -294,12 +277,11 @@ func TestPasswordChange(t *testing.T) {
 }
 
 func TestNewsFrequency(t *testing.T) {
-	st, base := newTestServer(t)
+	st, base := newBareServer(t, nil)
 	ctx := context.Background()
-	hash, _ := auth.HashPassword("a-strong-password")
-	st.CreateUser(ctx, "admin", hash, auth.RoleAdmin, store.Access{All: true})
-	st.CreateUser(ctx, "bob", hash, auth.RoleViewer, store.Access{All: true})
-	c := loginAs(t, base, "admin", "a-strong-password")
+	addUser(t, st, "admin", auth.RoleAdmin)
+	addUser(t, st, "bob", auth.RoleViewer)
+	c := loginAs(t, base, "admin", testPassword)
 	_, body := c.get("/settings/feeds")
 	if !strings.Contains(body, `<option value="4" selected>4 fois par jour</option>`) || !strings.Contains(body, "À la demande seulement") {
 		t.Errorf("default frequency not offered:\n%s", body)
@@ -315,7 +297,7 @@ func TestNewsFrequency(t *testing.T) {
 			t.Errorf("frequency %q: %d", bad, code)
 		}
 	}
-	viewer := loginAs(t, base, "bob", "a-strong-password")
+	viewer := loginAs(t, base, "bob", testPassword)
 	if code := viewer.post("/settings/news", url.Values{"csrf": {viewer.csrf()}, "per_day": {"1"}}); code != http.StatusForbidden {
 		t.Errorf("a reader changed the frequency: %d", code)
 	}
@@ -328,7 +310,7 @@ func TestNewsFrequency(t *testing.T) {
 // account (A84).
 func TestLevelWordsInSettings(t *testing.T) {
 	st, base := newServerWith(t, nil)
-	admin := loginAs(t, base, "admin", "a-strong-password")
+	admin := loginAs(t, base, "admin", testPassword)
 	_, body := admin.get("/settings/webhooks")
 	for _, want := range []string{`value=""> <span>Aucune alerte immédiate`, `value="priority" checked> <span>Urgentes seulement`,
 		`value="severe"> <span>Urgentes et À planifier`} {
@@ -343,7 +325,7 @@ func TestLevelWordsInSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if code := admin.post("/settings/users/"+strconv.FormatInt(u.ID, 10)+"/disable", url.Values{"csrf": {admin.csrf()}}); code != http.StatusSeeOther {
+	if code := admin.post("/settings/users/"+itoa(u.ID)+"/disable", url.Values{"csrf": {admin.csrf()}}); code != http.StatusSeeOther {
 		t.Fatalf("disable: %d", code)
 	}
 	_, body = admin.get("/settings/users")

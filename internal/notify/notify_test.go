@@ -6,12 +6,12 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 )
 
 // newNotifier returns a notifier of st and the address of a fake chat server,
@@ -25,11 +25,7 @@ func newNotifier(t *testing.T, st *store.Store, h http.HandlerFunc) (*Notifier, 
 
 func TestSendDigest(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "n.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
+	st := storetest.Open(t)
 
 	bodies := map[string]map[string]any{}
 	n, chat := newNotifier(t, st, func(w http.ResponseWriter, r *http.Request) {
@@ -111,11 +107,7 @@ func TestValidateWebhook(t *testing.T) {
 // a digest already cut for chats, and lost the note and the link.
 func TestLongDigestKeepsLink(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "n.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
+	st := storetest.Open(t)
 	texts := map[string]string{}
 	n, chat := newNotifier(t, st, func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
@@ -236,11 +228,7 @@ func TestAlertTitleAndLinks(t *testing.T) {
 // signature is checked on the query string.
 func TestTeamsCard(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "n.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
+	st := storetest.Open(t)
 	var query string
 	var body struct {
 		Type        string `json:"type"`
@@ -262,6 +250,7 @@ func TestTeamsCard(t *testing.T) {
 	})
 	const signed = "api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=a%2Bb-c_d"
 	h := store.Webhook{Name: "Équipe", Kind: "teams", URL: chat + "/workflows/1/invoke?" + signed, Enabled: true}
+	var err error
 	if h.ID, err = st.CreateWebhook(ctx, h); err != nil {
 		t.Fatal(err)
 	}

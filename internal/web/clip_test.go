@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
 )
 
@@ -23,11 +24,10 @@ func TestVEXImportKeepsALongAccentedDetail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-2024-0001", Severity: "HIGH", Modified: "m"})
-	st.ObserveFinding(ctx, id, "CVE-2024-0001", "", time.Now())
+	storetest.Finding(t, st, id, store.Vulnerability{ID: "CVE-2024-0001", Severity: "HIGH", Modified: "m"}, time.Now())
 	doc := `{"bomFormat":"CycloneDX","specVersion":"1.5","vulnerabilities":[{"id":"CVE-2024-0001",
 		"analysis":{"state":"false_positive","detail":"` + strings.Repeat("é", 4500) + `"},"affects":[{"ref":"pkg:npm/x@1.0.0"}]}]}`
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 	if code, _ := c.upload("/findings/vex", "vex", "vex.json", doc, url.Values{"csrf": {c.csrf()}}); code != http.StatusSeeOther {
 		t.Fatalf("import: %d", code)
 	}

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,7 +25,7 @@ func TestDatabaseInAnyFolder(t *testing.T) {
 	}
 	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
-			parent := t.TempDir()
+			parent := tempDir(t)
 			dir := filepath.Join(parent, name)
 			path := filepath.Join(dir, "vigil.db")
 			st, err := Open(ctx, path)
@@ -80,18 +81,23 @@ func TestBackupWhileWriting(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A writer keeps going during the backup.
-	done := make(chan struct{})
+	done := make(chan error)
 	go func() {
-		defer close(done)
-		for i := 0; i < 50; i++ {
-			st.CreateAsset(ctx, Everything, Asset{Name: "during", Kind: "package", Criticality: "low", Source: "manual"})
+		var errs []error
+		for range 50 {
+			_, err := st.CreateAsset(ctx, Everything, Asset{Name: "during", Kind: "package", Criticality: "low", Source: "manual"})
+			errs = append(errs, err)
 		}
+		done <- errors.Join(errs...)
 	}()
-	dest := filepath.Join(t.TempDir(), "copy.db")
-	if err := backup(ctx, st.db, dest); err != nil {
+	dest := filepath.Join(tempDir(t), "copy.db")
+	err := backup(ctx, st.db, dest)
+	if werr := <-done; werr != nil {
+		t.Errorf("writer during the backup: %v", werr)
+	}
+	if err != nil {
 		t.Fatal(err)
 	}
-	<-done
 
 	copyStore, err := Open(ctx, dest)
 	if err != nil {
@@ -104,6 +110,53 @@ func TestBackupWhileWriting(t *testing.T) {
 	}
 	if info, err := os.Stat(dest); err != nil || (info.Mode().Perm()&0o077 != 0 && os.PathSeparator == '/') {
 		t.Errorf("backup permissions: %v %v", info.Mode(), err)
+	}
+}
+
+// A scheduled backup is a whole copy of the database, named after its time,
+// and the oldest scheduled backups beyond the number kept are deleted, the
+// files of the directory it did not write kept.
+func TestScheduledBackup(t *testing.T) {
+	ctx := context.Background()
+	st := openTest(t)
+	if _, err := st.CreateAsset(ctx, Everything, Asset{Name: "nginx", Kind: "technology", Criticality: "low", Source: "manual"}); err != nil {
+		t.Fatal(err)
+	}
+	dir := tempDir(t)
+	old := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for _, name := range []string{backupName(old), backupName(old.Add(time.Hour)), "vigil-avant-maj.db"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before := time.Now().UTC().Truncate(time.Second)
+	dest, err := st.BackupTo(ctx, dir, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if at, ok := backupStamp(filepath.Base(dest)); !ok || filepath.Dir(dest) != dir || at.Before(before) || at.After(time.Now()) {
+		t.Errorf("backup %s: not a scheduled backup of now in %s", dest, dir)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	want := []string{backupName(old.Add(time.Hour)), filepath.Base(dest), "vigil-avant-maj.db"}
+	slices.Sort(want)
+	if !slices.Equal(names, want) {
+		t.Errorf("after the backup: %v, want %v", names, want)
+	}
+	copyStore, err := Open(ctx, dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer copyStore.Close()
+	if assets, err := copyStore.ListAssets(ctx, Everything); err != nil || len(assets) != 1 || assets[0].Name != "nginx" {
+		t.Errorf("backed up assets: %+v, %v", assets, err)
 	}
 }
 

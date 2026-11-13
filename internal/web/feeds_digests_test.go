@@ -14,6 +14,7 @@ import (
 
 	"github.com/La-Cizaille-Corp/vigil/internal/notify"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 )
 
 // C13 of the 0.5.0 review: the new tags of a feed and their application to
@@ -21,9 +22,9 @@ import (
 // feed and its first items tagged, the others not.
 func TestFeedUpdateIsAllOrNothing(t *testing.T) {
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "web.db")
+	path := filepath.Join(storetest.TempDir(t), "web.db")
 	st, base := newServerIn(t, path, nil)
-	admin := loginAs(t, base, "admin", "a-strong-password")
+	admin := loginAs(t, base, "admin", testPassword)
 	feed, err := st.CreateFeed(ctx, store.Feed{Name: "Avis", URL: "https://example.org/feed", Enabled: true})
 	if err != nil {
 		t.Fatal(err)
@@ -36,7 +37,7 @@ func TestFeedUpdateIsAllOrNothing(t *testing.T) {
 	}
 	breakDB(t, path, `CREATE TRIGGER no_retag BEFORE UPDATE OF sectors ON cti_items
 		WHEN NEW.id = (SELECT max(id) FROM cti_items) BEGIN SELECT RAISE(ABORT, 'disk on fire'); END`)
-	code := admin.post("/settings/feeds/"+strconv.FormatInt(feed, 10), url.Values{"csrf": {admin.csrf()}, "sector": {"energy"}})
+	code := admin.post("/settings/feeds/"+itoa(feed), url.Values{"csrf": {admin.csrf()}, "sector": {"energy"}})
 	if code != http.StatusInternalServerError {
 		t.Errorf("failed retag: %d", code)
 	}
@@ -56,14 +57,14 @@ func TestDigestSaidSentOnlyWhenReceived(t *testing.T) {
 	ctx := context.Background()
 	hook := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	defer hook.Close()
-	path := filepath.Join(t.TempDir(), "web.db")
+	path := filepath.Join(storetest.TempDir(t), "web.db")
 	st, base := newServerIn(t, path, func(s *Server) {
 		s.Notifier = &notify.Notifier{Store: s.Store, HTTP: hook.Client(), Log: s.Log}
 	})
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 	generate := func() string {
 		t.Helper()
-		code, loc := c.postLocation("/digests", url.Values{"csrf": {c.csrf()}})
+		code, loc := c.send(http.MethodPost, "/digests", url.Values{"csrf": {c.csrf()}})
 		if code != http.StatusSeeOther {
 			t.Fatalf("digest: %d", code)
 		}

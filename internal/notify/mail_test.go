@@ -8,13 +8,13 @@ import (
 	"mime/quotedprintable"
 	"net"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 )
 
 // fakeSMTP is a minimal SMTP server recording the messages it receives.
@@ -242,11 +242,7 @@ func TestRecipientsArePlainAddresses(t *testing.T) {
 
 func TestSendAlerts(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "a.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
+	st := storetest.Open(t)
 	var mu sync.Mutex
 	bodies := map[string][]map[string]any{}
 	n, chat := newNotifier(t, st, func(w http.ResponseWriter, r *http.Request) {
@@ -257,6 +253,7 @@ func TestSendAlerts(t *testing.T) {
 		mu.Unlock()
 	})
 	mailSrv := newFakeSMTP(t, false)
+	var err error
 	if n.Mail, err = NewMailer(mailSrv.addr, MailNoTLS, "", "", "vigil@example.org"); err != nil {
 		t.Fatal(err)
 	}
@@ -271,12 +268,12 @@ func TestSendAlerts(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	assetID, _ := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "fortios", Version: "7.2.4", Kind: "os", Criticality: "high", Source: "manual"})
-	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-KEV", Severity: "CRITICAL", Summary: "Contournement d'authentification", EPSS: -1, CVSS: 9.8})
-	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-HIGH", Severity: "HIGH", EPSS: -1, CVSS: 7.5})
-	st.SetExploitSignals(ctx, store.ExploitSignal{ID: "CVE-KEV", KEV: true, EPSS: 0.9})
-	st.ObserveFinding(ctx, assetID, "CVE-KEV", "", time.Now())
-	st.ObserveFinding(ctx, assetID, "CVE-HIGH", "", time.Now())
+	assetID := storetest.Asset(t, st, store.Asset{Name: "fortios", Version: "7.2.4", Kind: "os", Criticality: "high", Source: "manual"})
+	storetest.Finding(t, st, assetID, store.Vulnerability{ID: "CVE-KEV", Severity: "CRITICAL", Summary: "Contournement d'authentification", EPSS: -1, CVSS: 9.8}, time.Now())
+	storetest.Finding(t, st, assetID, store.Vulnerability{ID: "CVE-HIGH", Severity: "HIGH", EPSS: -1, CVSS: 7.5}, time.Now())
+	if _, err := st.SetExploitSignals(ctx, store.ExploitSignal{ID: "CVE-KEV", KEV: true, EPSS: 0.9}); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := n.SendAlerts(ctx); err != nil {
 		t.Fatal(err)

@@ -3,27 +3,22 @@ package digest
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 )
 
 func TestGenerate(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "d.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	id, _ := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "log4j-core", Version: "2.14.1", Kind: "package", Criticality: "high", Source: "manual",
+	st := storetest.Open(t)
+	id := storetest.Asset(t, st, store.Asset{Name: "log4j-core", Version: "2.14.1", Kind: "package", Criticality: "high", Source: "manual",
 		PURL: "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1"})
-	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "GHSA-jfh8", Aliases: []string{"CVE-2021-44228"},
-		Summary: "Log4Shell <script>", Severity: "CRITICAL", CVSS: 10})
-	st.ObserveFinding(ctx, id, "GHSA-jfh8", "", time.Now().Add(-20*24*time.Hour)) // past the 15-day critical deadline
+	storetest.Finding(t, st, id, store.Vulnerability{ID: "GHSA-jfh8", Aliases: []string{"CVE-2021-44228"},
+		Summary: "Log4Shell <script>", Severity: "CRITICAL", CVSS: 10}, time.Now().Add(-20*24*time.Hour)) // past the 15-day critical deadline
 	feed, _ := st.CreateFeed(ctx, store.Feed{Name: "CERT-FR", URL: "https://example.org/feed", Country: "FR", Enabled: true})
 	st.InsertCTIItem(ctx, feed, store.CTIItem{GUID: "1", Title: "Campagne contre les hôpitaux", Link: "https://example.org/1",
 		Published: time.Now(), Countries: []string{"FR"}, Sectors: []string{"health"}})
@@ -76,12 +71,8 @@ func TestGenerate(t *testing.T) {
 // first, and leaves the fixed ones to their count.
 func TestDigestByLevels(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "d.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	asset, _ := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "linux", Version: "6.12", Kind: "os", Criticality: "high", Source: "manual",
+	st := storetest.Open(t)
+	asset := storetest.Asset(t, st, store.Asset{Name: "linux", Version: "6.12", Kind: "os", Criticality: "high", Source: "manual",
 		CPE: "cpe:2.3:o:linux:linux_kernel:6.12:*:*:*:*:*:*:*"})
 	old := time.Now().Add(-30 * 24 * time.Hour)
 	for _, v := range []struct {
@@ -94,15 +85,12 @@ func TestDigestByLevels(t *testing.T) {
 		{"CVE-2026-0003", "CRITICAL", false, true, time.Now()}, // new, fixed at once: a count only
 		{"CVE-2026-0004", "LOW", false, false, time.Now()},     // new, to watch
 	} {
-		st.UpsertVulnerability(ctx, store.Vulnerability{ID: v.id, Severity: v.severity, CVSS: -1, EPSS: -1, Summary: "faille " + v.id})
-		st.SetExploitSignals(ctx, store.ExploitSignal{ID: v.id, KEV: v.kev, EPSS: -1})
-		st.ObserveFinding(ctx, asset, v.id, "", v.seen)
+		id := storetest.Finding(t, st, asset, store.Vulnerability{ID: v.id, Severity: v.severity, CVSS: -1, EPSS: -1, Summary: "faille " + v.id}, v.seen)
+		if _, err := st.SetExploitSignals(ctx, store.ExploitSignal{ID: v.id, KEV: v.kev, EPSS: -1}); err != nil {
+			t.Fatal(err)
+		}
 		if v.fixed {
-			list, err := st.ListFindings(ctx, store.Everything, store.FindingFilter{Search: v.id})
-			if err != nil || len(list) != 1 {
-				t.Fatalf("finding of %s: %+v, %v", v.id, list, err)
-			}
-			if err := st.SetFindingStatus(ctx, store.Everything, list[0].ID, 0, store.StatusResolved, "", ""); err != nil {
+			if err := st.SetFindingStatus(ctx, store.Everything, id, 0, store.StatusResolved, "", ""); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -146,19 +134,17 @@ func TestDigestByLevels(t *testing.T) {
 // maxListed lines, with the number of the others and their list.
 func TestDigestBound(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "d.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	asset, _ := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "linux", Version: "6.12", Kind: "os", Criticality: "high", Source: "manual"})
+	st := storetest.Open(t)
+	asset := storetest.Asset(t, st, store.Asset{Name: "linux", Version: "6.12", Kind: "os", Criticality: "high", Source: "manual"})
 	const n = 3 * maxListed
 	for i := range n {
 		id := fmt.Sprintf("CVE-2026-%04d", i)
-		st.UpsertVulnerability(ctx, store.Vulnerability{ID: id, Severity: "CRITICAL", CVSS: -1, EPSS: -1, Summary: strings.Repeat("résumé long ", 40)})
-		st.SetExploitSignals(ctx, store.ExploitSignal{ID: id, KEV: i%2 == 0, EPSS: -1})
 		// Past the 15-day deadline of a critical one: every one is overdue.
-		st.ObserveFinding(ctx, asset, id, "", time.Now().Add(-20*24*time.Hour+time.Duration(i)*time.Second))
+		storetest.Finding(t, st, asset, store.Vulnerability{ID: id, Severity: "CRITICAL", CVSS: -1, EPSS: -1, Summary: strings.Repeat("résumé long ", 40)},
+			time.Now().Add(-20*24*time.Hour+time.Duration(i)*time.Second))
+		if _, err := st.SetExploitSignals(ctx, store.ExploitSignal{ID: id, KEV: i%2 == 0, EPSS: -1}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	d, err := Generate(ctx, st, store.Everything, store.Group{})
 	if err != nil {
@@ -187,15 +173,12 @@ func TestDigestBound(t *testing.T) {
 // New findings that are all urgent are listed once, at the head (A87).
 func TestDigestOnlyUrgentNew(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "d.db"))
-	if err != nil {
+	st := storetest.Open(t)
+	asset := storetest.Asset(t, st, store.Asset{Name: "nginx", Version: "1.24", Kind: "product", Criticality: "high", Source: "manual"})
+	storetest.Finding(t, st, asset, store.Vulnerability{ID: "CVE-2026-0001", Severity: "HIGH", CVSS: -1, EPSS: -1}, time.Now())
+	if _, err := st.SetExploitSignals(ctx, store.ExploitSignal{ID: "CVE-2026-0001", KEV: true, EPSS: -1}); err != nil {
 		t.Fatal(err)
 	}
-	defer st.Close()
-	asset, _ := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "nginx", Version: "1.24", Kind: "product", Criticality: "high", Source: "manual"})
-	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-2026-0001", Severity: "HIGH", CVSS: -1, EPSS: -1})
-	st.SetExploitSignals(ctx, store.ExploitSignal{ID: "CVE-2026-0001", KEV: true, EPSS: -1})
-	st.ObserveFinding(ctx, asset, "CVE-2026-0001", "", time.Now())
 	d, err := Generate(ctx, st, store.Everything, store.Group{})
 	if err != nil {
 		t.Fatal(err)
@@ -266,22 +249,13 @@ func TestLinkCannotBreakOut(t *testing.T) {
 // store.Everything whoever asked for it.
 func TestGenerateKeepsToTheScope(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "d.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
+	st := storetest.Open(t)
 	groups := map[string]int64{}
 	for _, name := range []string{"a", "b"} {
-		asset, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "actif-" + name, Version: "1", Kind: "package",
+		asset := storetest.Asset(t, st, store.Asset{Name: "actif-" + name, Version: "1", Kind: "package",
 			Criticality: "high", Source: "manual", Tags: []string{name}})
-		if err != nil {
-			t.Fatal(err)
-		}
-		st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-2026-000" + name, Severity: "HIGH", CVSS: 8, EPSS: -1})
-		if _, err := st.ObserveFinding(ctx, asset, "CVE-2026-000"+name, "", time.Now()); err != nil {
-			t.Fatal(err)
-		}
+		storetest.Finding(t, st, asset, store.Vulnerability{ID: "CVE-2026-000" + name, Severity: "HIGH", CVSS: 8, EPSS: -1}, time.Now())
+		var err error
 		if groups[name], err = st.CreateGroup(ctx, "groupe "+name); err != nil {
 			t.Fatal(err)
 		}

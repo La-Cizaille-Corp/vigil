@@ -27,7 +27,7 @@ func TestTagFilterReadsTagsAsStored(t *testing.T) {
 	}
 
 	_, base := newServerWith(t, nil)
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 	if code := c.post("/assets", url.Values{"csrf": {c.csrf()}, "name": {"nginx"}, "kind": {"technology"},
 		"criticality": {"high"}, "tags": {"Équipe Web"}}); code != http.StatusSeeOther {
 		t.Fatalf("create: %d", code)

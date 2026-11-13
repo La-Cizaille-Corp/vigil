@@ -1,7 +1,6 @@
 package web
 
 import (
-	"context"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -14,7 +13,6 @@ import (
 	"testing"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
-	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
 
 // Every route but the static files goes through the route table: one
@@ -171,19 +169,13 @@ func TestRouteMatrix(t *testing.T) {
 		}
 	}
 
-	st, base := newTestServer(t)
+	st, base := newBareServer(t, nil)
 	roles := []string{auth.RoleViewer, auth.RoleAnalyst, auth.RoleAdmin}
 	users := map[string]*client{}
 	tokens := map[string]string{}
 	for _, role := range roles {
-		hash, err := auth.HashPassword(role + "-password")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := st.CreateUser(context.Background(), role, hash, role, store.Access{All: true}); err != nil {
-			t.Fatal(err)
-		}
-		users[role] = loginAs(t, base, role, role+"-password")
+		addUser(t, st, role, role)
+		users[role] = loginAs(t, base, role, testPassword)
 		tokens[role] = users[role].csrf()
 	}
 	for _, rt := range routes {

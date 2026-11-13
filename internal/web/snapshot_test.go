@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -113,15 +112,15 @@ func TestRenderSnapshots(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := loginAs(t, base, "analyst", "a-strong-password")
-	admin := loginAs(t, base, "admin", "a-strong-password")
-	digestPath := "/digests/" + strconv.FormatInt(d.ID, 10)
+	c := loginAs(t, base, "analyst", testPassword)
+	admin := loginAs(t, base, "admin", testPassword)
+	digestPath := "/digests/" + itoa(d.ID)
 	for name, path := range map[string]string{
 		"dashboard.html":     "/",
 		"findings.html":      "/findings?level=all",
 		"finding-kev.html":   "/findings/1",
 		"finding-zero.html":  "/findings/3",
-		"asset.html":         "/assets/" + strconv.FormatInt(forti, 10),
+		"asset.html":         "/assets/" + itoa(forti),
 		"assets.html":        "/assets",
 		"cti.html":           "/cti?all=1",
 		"asset-new.html":     "/assets/new",

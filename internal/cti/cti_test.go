@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"reflect"
 	"runtime"
 	"strings"
@@ -19,6 +18,7 @@ import (
 
 	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 )
 
 const rss = `<?xml version="1.0" encoding="ISO-8859-1"?>
@@ -212,11 +212,7 @@ func TestParseRSS10(t *testing.T) {
 func newFeedCollector(t *testing.T, h http.HandlerFunc) (*store.Store, *Collector) {
 	t.Helper()
 	ctx := context.Background()
-	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "cti.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { st.Close() })
+	st := storetest.Open(t)
 	feeds, _ := st.ListFeeds(ctx)
 	for _, f := range feeds {
 		if err := st.DeleteFeed(ctx, f.ID); err != nil {

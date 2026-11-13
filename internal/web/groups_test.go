@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -67,7 +66,7 @@ func sees(account, object string) bool {
 func newGroupFixture(t *testing.T) *groupFixture {
 	t.Helper()
 	ctx := context.Background()
-	st, base := newTestServer(t)
+	st, base := newBareServer(t, nil)
 	fx := &groupFixture{st: st, base: base, asset: map[string]int64{}, finding: map[string]int64{},
 		rule: map[string]int64{}, client: map[string]*client{}, digests: map[string]int64{}}
 	must := func(err error) {
@@ -136,7 +135,7 @@ func newGroupFixture(t *testing.T) *groupFixture {
 		Link: "https://example.org/42", Published: time.Now()})
 	must(err)
 
-	hash, err := auth.HashPassword("a-strong-password")
+	hash, err := testHash()
 	must(err)
 	for name, a := range fixtureAccounts {
 		access := store.Access{All: a.groups == "all"}
@@ -145,7 +144,7 @@ func newGroupFixture(t *testing.T) *groupFixture {
 		}
 		_, err := st.CreateUser(ctx, name, hash, a.role, access)
 		must(err)
-		fx.client[name] = loginAs(t, base, name, "a-strong-password")
+		fx.client[name] = loginAs(t, base, name, testPassword)
 	}
 	return fx
 }
@@ -181,6 +180,7 @@ func (fx *groupFixture) state(t *testing.T, name string) string {
 // objectOf classifies a route whose path names an object of the inventory:
 // asset, finding or digest. A new route of that kind must be classified here.
 func objectOf(t *testing.T, pattern string) string {
+	t.Helper()
 	_, path, _ := strings.Cut(pattern, " ")
 	switch {
 	case strings.HasPrefix(path, "/assets/{id}"):
@@ -226,7 +226,7 @@ func TestObjectRoutesFollowTheScope(t *testing.T) {
 				case "digest":
 					id = fx.digests[obj]
 				}
-				target := strings.NewReplacer("{id}", strconv.FormatInt(id, 10), "{rule}", strconv.FormatInt(fx.rule[obj], 10)).Replace(path)
+				target := strings.NewReplacer("{id}", itoa(id), "{rule}", itoa(fx.rule[obj])).Replace(path)
 				visible := sees(account, obj)
 				want := http.StatusOK
 				switch {

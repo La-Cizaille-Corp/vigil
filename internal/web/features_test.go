@@ -1,16 +1,11 @@
 package web
 
 import (
-	"bytes"
 	"context"
 	"io"
-	"log/slog"
-	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -19,93 +14,18 @@ import (
 	"github.com/La-Cizaille-Corp/vigil/internal/notify"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/nvd"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
 )
-
-// newServerWith starts a test server after setup has adjusted it, with an
-// admin "admin" and an analyst "analyst" (password "a-strong-password").
-func newServerWith(t *testing.T, setup func(*Server)) (*store.Store, string) {
-	t.Helper()
-	return newServerIn(t, filepath.Join(t.TempDir(), "web.db"), setup)
-}
-
-// newServerIn is newServerWith on the database file path, for the tests that
-// break the database on purpose (see breakDB).
-func newServerIn(t *testing.T, path string, setup func(*Server)) (*store.Store, string) {
-	t.Helper()
-	st, err := store.Open(context.Background(), path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { st.Close() })
-	srv := &Server{Store: st, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
-	if setup != nil {
-		setup(srv)
-	}
-	h, err := srv.Handler()
-	if err != nil {
-		t.Fatal(err)
-	}
-	ts := httptest.NewServer(h)
-	t.Cleanup(ts.Close)
-	hash, _ := auth.HashPassword("a-strong-password")
-	st.CreateUser(context.Background(), "admin", hash, auth.RoleAdmin, store.Access{All: true})
-	st.CreateUser(context.Background(), "analyst", hash, auth.RoleAnalyst, store.Access{All: true})
-	return st, ts.URL
-}
-
-func (c *client) upload(path, field, name, content string, form url.Values) (int, string) {
-	var b bytes.Buffer
-	mw := multipart.NewWriter(&b)
-	for k, vs := range form {
-		for _, v := range vs {
-			mw.WriteField(k, v)
-		}
-	}
-	fw, _ := mw.CreateFormFile(field, name)
-	io.WriteString(fw, content)
-	mw.Close()
-	req, _ := http.NewRequest(http.MethodPost, c.base+path, &b)
-	req.Header.Set("Content-Type", mw.FormDataContentType())
-	resp, err := c.http.Do(req)
-	if err != nil {
-		c.t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if loc := resp.Header.Get("Location"); loc != "" {
-		return resp.StatusCode, loc
-	}
-	return resp.StatusCode, string(body)
-}
-
-func seedFindings(t *testing.T, st *store.Store) (assetID int64, ids []int64) {
-	t.Helper()
-	ctx := context.Background()
-	assetID, _ = st.CreateAsset(ctx, store.Everything, store.Asset{Name: "fortios", Version: "7.2.4", Kind: "os", Criticality: "high", Source: "manual"})
-	for i, v := range []store.Vulnerability{
-		{ID: "CVE-2024-0001", Severity: "CRITICAL", Summary: "=cmd|' /C calc'!A0", EPSS: -1, CVSS: 9.8},
-		{ID: "CVE-2024-0002", Severity: "HIGH", EPSS: -1, CVSS: 7.5},
-		{ID: "CVE-2024-0003", Severity: "LOW", EPSS: -1, CVSS: 2},
-	} {
-		st.UpsertVulnerability(ctx, v)
-		st.ObserveFinding(ctx, assetID, v.ID, "", time.Now().Add(-time.Duration(i*20)*24*time.Hour))
-	}
-	list, _ := st.ListFindings(ctx, store.Everything, store.FindingFilter{})
-	for _, f := range list {
-		ids = append(ids, f.ID)
-	}
-	return assetID, ids
-}
 
 func TestBulkTriage(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	_, ids := seedFindings(t, st)
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 	form := url.Values{"csrf": {c.csrf()}, "status": {"not_affected"}, "justification": {"code_not_reachable"},
 		"comment": {"Module désactivé"}, "next": {"/findings?severity=HIGH&severity=CRITICAL"},
-		"id": {strconv.FormatInt(ids[0], 10), strconv.FormatInt(ids[1], 10)}}
-	code, loc := c.postLocation("/findings/bulk", form)
+		"id": {itoa(ids[0]), itoa(ids[1])}}
+	code, loc := c.send(http.MethodPost, "/findings/bulk", form)
 	if code != http.StatusSeeOther || loc != "/findings?severity=HIGH&severity=CRITICAL&msg=bulk-updated" {
 		t.Fatalf("bulk: %d %s", code, loc)
 	}
@@ -114,23 +34,22 @@ func TestBulkTriage(t *testing.T) {
 		t.Errorf("updated: %+v", list)
 	}
 	// Without a comment, a bulk decision keeps each finding's own comment.
-	code, _ = c.postLocation("/findings/bulk", url.Values{"csrf": {c.csrf()}, "status": {"exploitable"},
-		"id": {strconv.FormatInt(ids[0], 10)}, "next": {"/findings"}})
+	code, _ = c.send(http.MethodPost, "/findings/bulk", url.Values{"csrf": {c.csrf()}, "status": {"exploitable"},
+		"id": {itoa(ids[0])}, "next": {"/findings"}})
 	if f, _ := st.Finding(context.Background(), store.Everything, ids[0]); code != http.StatusSeeOther || f.Status != "exploitable" || f.Comment != "Module désactivé" {
 		t.Errorf("comment lost by a bulk decision: %d %+v", code, f)
 	}
 	// SECURITY: the return address cannot leave the findings list.
 	form.Set("next", "https://evil.example/")
-	if _, loc := c.postLocation("/findings/bulk", form); !strings.HasPrefix(loc, "/findings?msg=") {
+	if _, loc := c.send(http.MethodPost, "/findings/bulk", form); !strings.HasPrefix(loc, "/findings?msg=") {
 		t.Errorf("open redirect: %s", loc)
 	}
 	form.Set("status", "nope")
 	if code := c.post("/findings/bulk", form); code != http.StatusBadRequest {
 		t.Errorf("invalid status: %d", code)
 	}
-	hash, _ := auth.HashPassword("a-strong-password")
-	st.CreateUser(context.Background(), "viewer", hash, auth.RoleViewer, store.Access{All: true})
-	viewer := loginAs(t, base, "viewer", "a-strong-password")
+	addUser(t, st, "viewer", auth.RoleViewer)
+	viewer := loginAs(t, base, "viewer", testPassword)
 	if _, body := viewer.get("/findings"); strings.Contains(body, `form="bulk"`) {
 		t.Error("a viewer sees the bulk form")
 	}
@@ -139,7 +58,7 @@ func TestBulkTriage(t *testing.T) {
 func TestCSVExportsAndImport(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	seedFindings(t, st)
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 
 	code, body := c.get("/findings.csv?severity=CRITICAL")
 	if code != http.StatusOK || !strings.HasPrefix(body, "\xef\xbb\xbfid;vulnerabilite") || strings.Count(body, "\n") != 2 {
@@ -178,14 +97,12 @@ func TestCSVExportsAndImport(t *testing.T) {
 func TestDeadlinesAndAudit(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	seedFindings(t, st) // the low one was found 40 days ago, the high one 20 days ago
-	admin := loginAs(t, base, "admin", "a-strong-password")
+	admin := loginAs(t, base, "admin", testPassword)
 	if code := admin.post("/settings/sla", url.Values{"csrf": {admin.csrf()}, "critical": {"15"}, "high": {"10"}, "medium": {"90"}, "low": {"0"}}); code != http.StatusSeeOther {
 		t.Fatalf("save SLA: %d", code)
 	}
 	_, body := admin.get("/findings?overdue=1")
-	if !strings.Contains(body, "CVE-2024-0002") || strings.Contains(body, "CVE-2024-0003") || !strings.Contains(body, "Hors délai") {
-		t.Errorf("overdue list:\n%s", body)
-	}
+	pageHas(t, "overdue list", body, []string{"CVE-2024-0002", "Hors délai"}, "CVE-2024-0003")
 	if code := admin.post("/settings/sla", url.Values{"csrf": {admin.csrf()}, "critical": {"-3"}, "high": {"1"}, "medium": {"1"}, "low": {"1"}}); code != http.StatusBadRequest {
 		t.Errorf("negative deadline: %d", code)
 	}
@@ -195,7 +112,7 @@ func TestDeadlinesAndAudit(t *testing.T) {
 	if code, body := admin.get("/settings/audit"); code != http.StatusOK || !strings.Contains(body, "sla_update") {
 		t.Errorf("audit page: %d", code)
 	}
-	analyst := loginAs(t, base, "analyst", "a-strong-password")
+	analyst := loginAs(t, base, "analyst", testPassword)
 	if code, _ := analyst.get("/settings/audit"); code != http.StatusForbidden {
 		t.Errorf("analyst reads the audit log: %d", code)
 	}
@@ -204,7 +121,7 @@ func TestDeadlinesAndAudit(t *testing.T) {
 func TestNotificationChannels(t *testing.T) {
 	var mail *notify.Mailer
 	st, base := newServerWith(t, func(s *Server) { s.Notifier = &notify.Notifier{Store: s.Store, Mail: mail} })
-	admin := loginAs(t, base, "admin", "a-strong-password")
+	admin := loginAs(t, base, "admin", testPassword)
 	form := url.Values{"csrf": {admin.csrf()}, "name": {"RSSI"}, "kind": {"email"}, "url": {"rssi@example.org"}, "alerts": {"priority"}, "digests": {"1"}}
 	if code := admin.post("/settings/webhooks", form); code != http.StatusBadRequest {
 		t.Errorf("e-mail channel without SMTP: %d", code)
@@ -218,7 +135,7 @@ func TestNotificationChannels(t *testing.T) {
 	if len(hooks) != 1 || hooks[0].Alerts != "priority" || !hooks[0].Digests {
 		t.Fatalf("channel: %+v", hooks)
 	}
-	id := strconv.FormatInt(hooks[0].ID, 10)
+	id := itoa(hooks[0].ID)
 	if code := admin.post("/settings/webhooks/"+id, url.Values{"csrf": {admin.csrf()}, "alerts": {"severe"}}); code != http.StatusSeeOther {
 		t.Fatalf("update channel: %d", code)
 	}
@@ -228,9 +145,8 @@ func TestNotificationChannels(t *testing.T) {
 	if code := admin.post("/settings/webhooks/"+id, url.Values{"csrf": {admin.csrf()}, "alerts": {"all"}}); code != http.StatusBadRequest {
 		t.Errorf("unknown alert level: %d", code)
 	}
-	if _, body := admin.get("/settings/webhooks"); strings.Contains(body, "secret") || !strings.Contains(body, "aucun serveur SMTP") {
-		t.Error("settings page: secret shown or SMTP state missing")
-	}
+	_, body := admin.get("/settings/webhooks")
+	pageHas(t, "settings page", body, []string{"aucun serveur SMTP"}, "secret")
 }
 
 // cpeEntry is a CPE dictionary entry as returned by the NVD.
@@ -256,7 +172,7 @@ func TestCPESearch(t *testing.T) {
 	_, base := newServerWith(t, func(s *Server) {
 		s.Syncer = &tracking.Syncer{Store: s.Store, NVD: &nvd.Client{URL: dict.URL, CPEURL: dict.URL, HTTP: dict.Client()}}
 	})
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 	code, body := c.get("/assets/cpe?q=elasticsearch+8.15")
 	if code != http.StatusOK {
 		t.Fatalf("search: %d\n%s", code, body)
@@ -265,12 +181,8 @@ func TestCPESearch(t *testing.T) {
 	if current < 0 || old < 0 || current > old {
 		t.Errorf("current vendor %d, old vendor %d: the current name must come first, the old one flagged", current, old)
 	}
-	if !strings.Contains(body, "Suivre tous les produits Elastic") || !strings.Contains(body, "cpe%3A2.3%3A%2A%3Aelastic%3A%2A") {
-		t.Error("no link to track every product of the vendor")
-	}
-	if !strings.Contains(body, "Elastic Elasticsearch 8.15.1") || strings.Contains(body, "Elastic Elasticsearch 9.1.0") {
-		t.Error("versions offered do not follow the search")
-	}
+	pageHas(t, "link to track every product of the vendor", body, []string{"Suivre tous les produits Elastic", "cpe%3A2.3%3A%2A%3Aelastic%3A%2A"})
+	pageHas(t, "versions offered along the search", body, []string{"Elastic Elasticsearch 8.15.1"}, "Elastic Elasticsearch 9.1.0")
 	// "Use" prefills the new asset form.
 	_, body = c.get("/assets/new?cpe=cpe%3A2.3%3Ao%3Afortinet%3Afortios%3A7.2.4%3A*%3A*%3A*%3A*%3A*%3A*%3A*&kind=os&name=Fortinet+FortiOS&version=7.2.4")
 	for _, want := range []string{`value="Fortinet FortiOS"`, `value="7.2.4"`, `value="cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*"`} {
@@ -301,14 +213,17 @@ func TestClientIPBehindProxy(t *testing.T) {
 func TestAssetTags(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	ctx := context.Background()
-	c := loginAs(t, base, "analyst", "a-strong-password")
-	code, loc := c.postLocation("/assets", url.Values{"csrf": {c.csrf()}, "name": {"nginx"}, "kind": {"technology"},
+	c := loginAs(t, base, "analyst", testPassword)
+	code, loc := c.send(http.MethodPost, "/assets", url.Values{"csrf": {c.csrf()}, "name": {"nginx"}, "kind": {"technology"},
 		"criticality": {"high"}, "tags": {"Prod, Équipe Web; prod"}})
 	if code != http.StatusSeeOther {
 		t.Fatalf("create: %d %s", code, loc)
 	}
-	other, _ := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "redis", Kind: "technology", Criticality: "low", Source: "manual", Tags: []string{"recette"}})
-	assets, _ := st.ListAssets(ctx, store.Everything)
+	other := storetest.Asset(t, st, store.Asset{Name: "redis", Kind: "technology", Criticality: "low", Source: "manual", Tags: []string{"recette"}})
+	assets, err := st.ListAssets(ctx, store.Everything)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var nginx store.Asset
 	for _, a := range assets {
 		if a.Name == "nginx" {
@@ -320,21 +235,16 @@ func TestAssetTags(t *testing.T) {
 	}
 	// Inventory filtered by tag, with the tags in use offered.
 	_, body := c.get("/assets?tag=prod")
-	if !strings.Contains(body, ">nginx</a>") || strings.Contains(body, ">redis</a>") || !strings.Contains(body, "recette (1)") {
-		t.Errorf("inventory filtered by tag:\n%s", body)
-	}
+	pageHas(t, "inventory filtered by tag", body, []string{">nginx</a>", "recette (1)"}, ">redis</a>")
 	// Vulnerabilities filtered by the tag of their asset.
-	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-1", Severity: "HIGH", EPSS: -1, CVSS: -1})
-	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-2", Severity: "HIGH", EPSS: -1, CVSS: -1})
-	st.ObserveFinding(ctx, nginx.ID, "CVE-1", "", time.Now())
-	st.ObserveFinding(ctx, other, "CVE-2", "", time.Now())
-	list, _ := st.ListFindings(ctx, store.Everything, store.FindingFilter{Tag: "équipe web"})
-	if len(list) != 1 || list[0].VulnID != "CVE-1" {
-		t.Errorf("findings with tag: %+v", list)
+	storetest.Finding(t, st, nginx.ID, store.Vulnerability{ID: "CVE-1", Severity: "HIGH", EPSS: -1, CVSS: -1}, time.Now())
+	storetest.Finding(t, st, other, store.Vulnerability{ID: "CVE-2", Severity: "HIGH", EPSS: -1, CVSS: -1}, time.Now())
+	list, err := st.ListFindings(ctx, store.Everything, store.FindingFilter{Tag: "équipe web"})
+	if err != nil || len(list) != 1 || list[0].VulnID != "CVE-1" {
+		t.Errorf("findings with tag: %+v, %v", list, err)
 	}
-	if _, body := c.get("/findings?tag=recette"); !strings.Contains(body, "CVE-2") || strings.Contains(body, "CVE-1") {
-		t.Error("findings page not filtered by tag")
-	}
+	_, body = c.get("/findings?tag=recette")
+	pageHas(t, "findings filtered by tag", body, []string{"CVE-2"}, "CVE-1")
 	// Tags survive a CSV round trip.
 	if _, body := c.get("/assets.csv"); !strings.Contains(body, "prod, équipe web") {
 		t.Errorf("CSV export misses the tags:\n%s", body)
@@ -359,23 +269,21 @@ func TestWebhookTestButton(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := "/settings/webhooks/" + strconv.FormatInt(id, 10) + "/test"
-	admin := loginAs(t, base, "admin", "a-strong-password")
-	if code, loc := admin.postLocation(path, url.Values{"csrf": {admin.csrf()}}); code != http.StatusSeeOther || !strings.Contains(loc, "msg=hook-test-sent") {
+	path := "/settings/webhooks/" + itoa(id) + "/test"
+	admin := loginAs(t, base, "admin", testPassword)
+	if code, loc := admin.send(http.MethodPost, path, url.Values{"csrf": {admin.csrf()}}); code != http.StatusSeeOther || !strings.Contains(loc, "msg=hook-test-sent") {
 		t.Errorf("test: %d %s", code, loc)
 	}
 	status = http.StatusUnauthorized
-	if code, loc := admin.postLocation(path, url.Values{"csrf": {admin.csrf()}}); code != http.StatusSeeOther || !strings.Contains(loc, "msg=hook-test-failed") {
+	if code, loc := admin.send(http.MethodPost, path, url.Values{"csrf": {admin.csrf()}}); code != http.StatusSeeOther || !strings.Contains(loc, "msg=hook-test-failed") {
 		t.Errorf("failed test: %d %s", code, loc)
 	}
 	_, body := admin.get("/settings/webhooks")
-	if !strings.Contains(body, "DirectApiAuthorizationRequired") || !strings.Contains(body, "Tout le monde") || strings.Contains(body, "SECRET") {
-		t.Errorf("state of the channel:\n%s", body)
-	}
+	pageHas(t, "state of the channel", body, []string{"DirectApiAuthorizationRequired", "Tout le monde"}, "SECRET")
 	if code := admin.post("/settings/webhooks/999/test", url.Values{"csrf": {admin.csrf()}}); code != http.StatusNotFound {
 		t.Errorf("unknown channel: %d", code)
 	}
-	analyst := loginAs(t, base, "analyst", "a-strong-password")
+	analyst := loginAs(t, base, "analyst", testPassword)
 	if code := analyst.post(path, url.Values{"csrf": {analyst.csrf()}}); code != http.StatusForbidden {
 		t.Errorf("an analyst tested a channel: %d", code)
 	}

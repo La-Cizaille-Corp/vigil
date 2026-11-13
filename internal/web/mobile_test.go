@@ -3,7 +3,6 @@ package web
 import (
 	"context"
 	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -18,7 +17,7 @@ import (
 func TestPhoneSortForm(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	seedFindings(t, st)
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 
 	_, body := c.get("/findings?severity=HIGH&severity=CRITICAL&level=all&sort=cvss&dir=asc&page=1&msg=bulk-updated")
 	start := strings.Index(body, `<form method="get" action="/findings" class="sort-form">`)
@@ -79,12 +78,12 @@ func TestTablesReadAsCards(t *testing.T) {
 	if _, err := st.CreateGroup(ctx, "Équipe web"); err != nil {
 		t.Fatal(err)
 	}
-	admin := loginAs(t, base, "admin", "a-strong-password")
+	admin := loginAs(t, base, "admin", testPassword)
 
 	tables := regexp.MustCompile(`<table[^>]*>`)
 	cells := regexp.MustCompile(`<t[dh][ >][^>]*>?`)
-	for _, path := range []string{"/", "/assets", "/assets/" + strconv.FormatInt(asset, 10), "/findings",
-		"/findings/" + strconv.FormatInt(ids[0], 10), "/cti?all=1", "/settings/feeds", "/settings/webhooks", "/settings/tokens", "/settings/users", "/settings/audit", "/settings/groups"} {
+	for _, path := range []string{"/", "/assets", "/assets/" + itoa(asset), "/findings",
+		"/findings/" + itoa(ids[0]), "/cti?all=1", "/settings/feeds", "/settings/webhooks", "/settings/tokens", "/settings/users", "/settings/audit", "/settings/groups"} {
 		_, body := admin.get(path)
 		found := tables.FindAllString(body, -1)
 		if len(found) == 0 && path != "/cti?all=1" && !strings.HasPrefix(path, "/findings/") {
@@ -104,7 +103,7 @@ func TestTablesReadAsCards(t *testing.T) {
 			t.Errorf("%s: %d links open a new tab, %d say so", path, n, told)
 		}
 	}
-	_, body := admin.get("/findings/" + strconv.FormatInt(ids[0], 10))
+	_, body := admin.get("/findings/" + itoa(ids[0]))
 	if !strings.Contains(body, `<a href="https://example.org/advisory" rel="noopener noreferrer" target="_blank">https://example.org/advisory<span class="sr-only"> (nouvel onglet)</span></a>`) {
 		t.Error("a reference does not say it opens a new tab")
 	}

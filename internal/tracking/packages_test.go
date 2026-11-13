@@ -12,6 +12,7 @@ import (
 
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/osv"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
 )
 
@@ -20,7 +21,7 @@ import (
 // The whole list is read, and only what the asset can report is stored.
 func TestLargePackage(t *testing.T) {
 	ctx := context.Background()
-	st := openStore(t)
+	st := storetest.Open(t)
 	var batches []osv.Query
 	syncer, srv := osvSyncer(t, st, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -103,7 +104,7 @@ func TestLargePackage(t *testing.T) {
 // a binary package: what it is asked is the source package, in its release.
 func TestPURLQualifiers(t *testing.T) {
 	ctx := context.Background()
-	st := openStore(t)
+	st := storetest.Open(t)
 	var asked []osv.Query
 	syncer, _ := osvSyncer(t, st, func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
@@ -145,7 +146,7 @@ func TestPURLQualifiers(t *testing.T) {
 // not stop the others; the progress reaches the end.
 func TestFailedAssetAndProgress(t *testing.T) {
 	ctx := context.Background()
-	st := openStore(t)
+	st := storetest.Open(t)
 	syncer, _ := nvdSyncer(t, st, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("keywordSearch") == "panne" {
 			w.WriteHeader(http.StatusServiceUnavailable)
@@ -159,15 +160,10 @@ func TestFailedAssetAndProgress(t *testing.T) {
 		return nil
 	}
 	add := func(name string) int64 {
-		id, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: name, Kind: "product", Criticality: "low", Source: "manual"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		return id
+		return storetest.Asset(t, st, store.Asset{Name: name, Kind: "product", Criticality: "low", Source: "manual"})
 	}
 	down, up := add("panne"), add("marche")
-	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-1", EPSS: -1, CVSS: -1})
-	st.ObserveFinding(ctx, down, "CVE-1", "", time.Now())
+	storetest.Finding(t, st, down, store.Vulnerability{ID: "CVE-1", EPSS: -1, CVSS: -1}, time.Now())
 
 	res, err := syncer.Run(ctx)
 	if err != nil {
@@ -202,7 +198,7 @@ const (
 // package are read once for all its assets, and their ranges compared here.
 func TestVersionsComparedHere(t *testing.T) {
 	ctx := context.Background()
-	st := openStore(t)
+	st := storetest.Open(t)
 	syncer, srv := osvSyncer(t, st, func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Package osv.Package `json:"package"`
@@ -255,7 +251,7 @@ func TestVersionsComparedHere(t *testing.T) {
 // A dismissal rule applies to the findings of a sync, and before the alerts.
 func TestDismissalRuleAtSync(t *testing.T) {
 	ctx := context.Background()
-	st := openStore(t)
+	st := storetest.Open(t)
 	syncer, _ := osvSyncer(t, st, func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, `{"vulns":[
 			{"id":"CVE-2026-1","summary":"wifi: fix","published":"2026-10-01T00:00:00Z","modified":"2026-10-02T00:00:00Z","affected":[{"package":{"name":"Kernel","ecosystem":"Linux"},"ranges":[{"type":"ECOSYSTEM","events":[{"introduced":"6.0.0"}]}]}]},

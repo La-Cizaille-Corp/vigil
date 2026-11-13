@@ -5,23 +5,13 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"path/filepath"
 	"slices"
 	"testing"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/osv"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 )
-
-func openStore(t *testing.T) *store.Store {
-	t.Helper()
-	st, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { st.Close() })
-	return st
-}
 
 func openIDs(t *testing.T, st *store.Store, assetID int64) []string {
 	t.Helper()
@@ -43,7 +33,7 @@ func openIDs(t *testing.T, st *store.Store, assetID int64) []string {
 // have no fixed version yet, and no longer once the fix is out.
 func TestLatestPackage(t *testing.T) {
 	ctx := context.Background()
-	st := openStore(t)
+	st := storetest.Open(t)
 	openEvents, modified := `[{"introduced":"2.0.0"}]`, "2026-10-01T00:00:00Z"
 	syncer, srv := osvSyncer(t, st, func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
@@ -105,7 +95,7 @@ const (
 // latest release keeps the CVEs without a fixed version.
 func TestByNameAndLatestCPE(t *testing.T) {
 	ctx := context.Background()
-	st := openStore(t)
+	st := storetest.Open(t)
 	var keywords []string
 	syncer, _ := nvdSyncer(t, st, func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()

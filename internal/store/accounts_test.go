@@ -129,15 +129,123 @@ func TestUserNamesIgnoreCase(t *testing.T) {
 func TestPurgeAudit(t *testing.T) {
 	ctx := context.Background()
 	st := openTest(t)
-	st.Audit(ctx, 0, "login", "x")
+	if err := st.Audit(ctx, 0, "login", "x"); err != nil {
+		t.Fatal(err)
+	}
 	if n, err := st.PurgeAudit(ctx, time.Now().Add(-time.Hour)); err != nil || n != 0 {
 		t.Fatalf("recent entry purged: %d %v", n, err)
 	}
 	if n, err := st.PurgeAudit(ctx, time.Now().Add(time.Hour)); err != nil || n != 1 {
 		t.Fatalf("old entry kept: %d %v", n, err)
 	}
+}
+
+// The policy of the second factor is one of three values; another one is
+// refused and leaves it as it was.
+func TestTOTPPolicy(t *testing.T) {
+	ctx := context.Background()
+	st := openTest(t)
+	for _, policy := range []string{TOTPAdmins, TOTPEveryone, TOTPOptional} {
+		if err := st.SetTOTPPolicy(ctx, policy); err != nil {
+			t.Fatalf("%s: %v", policy, err)
+		}
+		if got, err := st.TOTPPolicy(ctx); err != nil || got != policy {
+			t.Errorf("policy %q, %v; want %q", got, err, policy)
+		}
+	}
 	if err := st.SetTOTPPolicy(ctx, "sometimes"); err == nil {
 		t.Error("unknown policy accepted")
+	}
+	if got, err := st.TOTPPolicy(ctx); err != nil || got != TOTPOptional {
+		t.Errorf("policy after a refusal: %q, %v", got, err)
+	}
+}
+
+// A time step of the second factor is used once: neither it nor an earlier
+// one is accepted again, even by requests made at the same time, and the step
+// of the enrolment counts as used.
+func TestUseTOTPStep(t *testing.T) {
+	ctx := context.Background()
+	st := openTest(t)
+	id, err := st.CreateUser(ctx, "alice", "hash", "analyst", Access{All: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetTOTPPending(ctx, id, "SECRET"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.EnableTOTP(ctx, id, 100); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		step int64
+		ok   bool
+	}{{100, false}, {99, false}, {101, true}, {101, false}, {100, false}, {105, true}} {
+		if ok, err := st.UseTOTPStep(ctx, id, c.step); err != nil || ok != c.ok {
+			t.Errorf("step %d: %v, %v; want %v", c.step, ok, err, c.ok)
+		}
+	}
+	var wg sync.WaitGroup
+	var used atomic.Int32
+	for range 20 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ok, err := st.UseTOTPStep(ctx, id, 106)
+			if err != nil {
+				t.Error(err)
+			}
+			if ok {
+				used.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+	if n := used.Load(); n != 1 {
+		t.Errorf("one step used %d times at once", n)
+	}
+	if ok, err := st.UseTOTPStep(ctx, 999, 200); err != nil || ok {
+		t.Errorf("step of an unknown account: %v, %v", ok, err)
+	}
+}
+
+// Expired sessions are deleted, the others kept.
+func TestDeleteExpiredSessions(t *testing.T) {
+	ctx := context.Background()
+	st := openTest(t)
+	id, err := st.CreateUser(ctx, "alice", "hash", "analyst", Access{All: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for token, expires := range map[string]time.Time{"old": time.Now().Add(-time.Minute), "live": time.Now().Add(time.Hour)} {
+		if err := st.CreateSession(ctx, token, id, "csrf", expires); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.DeleteExpiredSessions(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var left []string
+	rows, err := st.db.QueryContext(ctx, `SELECT token_hash FROM sessions`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var token string
+		if err := rows.Scan(&token); err != nil {
+			t.Fatal(err)
+		}
+		left = append(left, token)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	rows.Close()
+	if len(left) != 1 || left[0] != "live" {
+		t.Errorf("sessions left: %v, want the live one", left)
+	}
+	if _, err := st.Session(ctx, "live"); err != nil {
+		t.Errorf("live session: %v", err)
 	}
 }
 

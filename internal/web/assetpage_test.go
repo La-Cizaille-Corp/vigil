@@ -14,6 +14,7 @@ import (
 
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 )
 
 // The list of one asset (?asset=) keeps the asset through its levels, its
@@ -27,9 +28,8 @@ func TestAssetFilter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-2026-1000", Severity: "HIGH", CVSS: 7.5, EPSS: -1, Summary: "nginx"})
-	st.ObserveFinding(ctx, nginx, "CVE-2026-1000", "", time.Now())
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	storetest.Finding(t, st, nginx, store.Vulnerability{ID: "CVE-2026-1000", Severity: "HIGH", CVSS: 7.5, EPSS: -1, Summary: "nginx"}, time.Now())
+	c := loginAs(t, base, "analyst", testPassword)
 	id := itoa(linux)
 
 	_, body := c.get("/findings?asset=" + id)
@@ -111,8 +111,7 @@ func TestAssetPageLevels(t *testing.T) {
 		case 2:
 			v.Severity, v.CVSS = "CRITICAL", 9.8
 		}
-		st.UpsertVulnerability(ctx, v)
-		st.ObserveFinding(ctx, asset, v.ID, "", time.Now().Add(time.Duration(i)*time.Minute))
+		storetest.Finding(t, st, asset, v, time.Now().Add(time.Duration(i)*time.Minute))
 	}
 	st.SetExploitSignals(ctx, store.ExploitSignal{ID: "CVE-2026-0001", KEV: true, EPSS: 0.2})
 	list, _ := st.ListFindings(ctx, store.Everything, store.FindingFilter{AssetID: asset})
@@ -121,7 +120,7 @@ func TestAssetPageLevels(t *testing.T) {
 			st.SetFindingStatus(ctx, store.Everything, f.ID, 0, s, "", "")
 		}
 	}
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 	id := itoa(asset)
 	_, page := c.get("/assets/" + id)
 
@@ -161,9 +160,8 @@ func TestAssetPageLevels(t *testing.T) {
 		t.Error("a search without result")
 	}
 	// A reader sees the levels, not the noise block nor what a rule would set aside.
-	hash, _ := auth.HashPassword("a-strong-password")
-	st.CreateUser(ctx, "lecteur", hash, auth.RoleViewer, store.Access{All: true})
-	_, page = loginAs(t, base, "lecteur", "a-strong-password").get("/assets/" + id + "?q=faille")
+	addUser(t, st, "lecteur", auth.RoleViewer)
+	_, page = loginAs(t, base, "lecteur", testPassword).get("/assets/" + id + "?q=faille")
 	if len(levelCounters.FindAllString(page, -1)) != 5 || strings.Contains(page, `id="bruit"`) || strings.Contains(page, `id="apercu"`) {
 		t.Error("reader's view of the asset")
 	}
@@ -174,10 +172,10 @@ func TestAssetPageLevels(t *testing.T) {
 func TestFullHistoryConfirmed(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	ctx := context.Background()
-	asset, _ := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "linux", Version: "6.12", Kind: "os", Criticality: "high",
+	asset := storetest.Asset(t, st, store.Asset{Name: "linux", Version: "6.12", Kind: "os", Criticality: "high",
 		Source: "manual", TrackSince: "2026-07-08"})
 	st.SetOlderVulns(ctx, asset, 2487)
-	_, page := loginAs(t, base, "analyst", "a-strong-password").get("/assets/" + itoa(asset))
+	_, page := loginAs(t, base, "analyst", testPassword).get("/assets/" + itoa(asset))
 	confirm := strings.Index(page, `<details class="confirm">
     <summary>Suivre tout l'historique…</summary>`)
 	form := strings.Index(page, `action="/assets/`+itoa(asset)+`/full-history"`)
@@ -198,21 +196,18 @@ func TestInventoryCounts(t *testing.T) {
 		{Name: "calme", Version: "2.0", Kind: "package"},
 	} {
 		a.Criticality, a.Source = "high", "manual"
-		id, err := st.CreateAsset(ctx, store.Everything, a)
-		if err != nil {
-			t.Fatal(err)
-		}
-		ids[a.Name] = id
+		ids[a.Name] = storetest.Asset(t, st, a)
 	}
 	for _, o := range []struct {
 		asset, vuln string
 		kev         bool
 	}{{"srv", "CVE-2026-0001", true}, {"srv", "CVE-2026-0002", false}, {"srv", "CVE-2026-0003", false}, {"libssl3", "CVE-2026-0004", false}} {
-		st.UpsertVulnerability(ctx, store.Vulnerability{ID: o.vuln, Severity: "HIGH", CVSS: 7.5, EPSS: -1})
-		st.SetExploitSignals(ctx, store.ExploitSignal{ID: o.vuln, KEV: o.kev, EPSS: -1})
-		st.ObserveFinding(ctx, ids[o.asset], o.vuln, "", time.Now())
+		storetest.Finding(t, st, ids[o.asset], store.Vulnerability{ID: o.vuln, Severity: "HIGH", CVSS: 7.5, EPSS: -1}, time.Now())
+		if _, err := st.SetExploitSignals(ctx, store.ExploitSignal{ID: o.vuln, KEV: o.kev, EPSS: -1}); err != nil {
+			t.Fatal(err)
+		}
 	}
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 	_, body := c.get("/assets?sort=urgent")
 	srv, lib := itoa(ids["srv"]), itoa(ids["libssl3"])
 	for _, want := range []string{
@@ -248,12 +243,10 @@ func TestInventoryCounts(t *testing.T) {
 // of its text on each asset, seen first on its page (A61, A86).
 func TestNoiseOffer(t *testing.T) {
 	st, base := newServerWith(t, nil)
-	ctx := context.Background()
 	linux, _ := seedMany(t, st, 3) // "wifi: fix"
-	tool, _ := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "wifi-manager", Version: "2", Kind: "package", Criticality: "low", Source: "manual"})
-	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-2026-2000", Severity: "LOW", CVSS: 3, EPSS: -1, Summary: "wifi password"})
-	st.ObserveFinding(ctx, tool, "CVE-2026-2000", "", time.Now())
-	analyst := loginAs(t, base, "analyst", "a-strong-password")
+	tool := storetest.Asset(t, st, store.Asset{Name: "wifi-manager", Version: "2", Kind: "package", Criticality: "low", Source: "manual"})
+	storetest.Finding(t, st, tool, store.Vulnerability{ID: "CVE-2026-2000", Severity: "LOW", CVSS: 3, EPSS: -1, Summary: "wifi password"}, time.Now())
+	analyst := loginAs(t, base, "analyst", testPassword)
 
 	_, body := analyst.get("/findings?q=wifi")
 	link := `<a href="/assets/` + itoa(linux) + `?q=wifi#bruit">linux 6.12 (3)</a>`
@@ -266,9 +259,8 @@ func TestNoiseOffer(t *testing.T) {
 	if _, body := analyst.get("/findings?q=wi"); strings.Contains(body, "Écartez") {
 		t.Error("offered for a text too short to be a rule")
 	}
-	hash, _ := auth.HashPassword("a-strong-password")
-	st.CreateUser(ctx, "lecteur", hash, auth.RoleViewer, store.Access{All: true})
-	if _, body := loginAs(t, base, "lecteur", "a-strong-password").get("/findings?q=wifi"); strings.Contains(body, "Écartez") {
+	addUser(t, st, "lecteur", auth.RoleViewer)
+	if _, body := loginAs(t, base, "lecteur", testPassword).get("/findings?q=wifi"); strings.Contains(body, "Écartez") {
 		t.Error("offered to a reader")
 	}
 	// The link lands on what the rule would set aside.
@@ -283,7 +275,7 @@ func TestNoiseOffer(t *testing.T) {
 func TestFindingPageDetails(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	ctx := context.Background()
-	asset, _ := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "linux", Version: "5.15", Kind: "os", Criticality: "high", Source: "manual"})
+	asset := storetest.Asset(t, st, store.Asset{Name: "linux", Version: "5.15", Kind: "os", Criticality: "high", Source: "manual"})
 	aliases := []string{"CVE-2022-3114"}
 	for i := range 25 {
 		aliases = append(aliases, fmt.Sprintf("CVE-2022-4%04d", i))
@@ -292,8 +284,7 @@ func TestFindingPageDetails(t *testing.T) {
 		{ID: "USN-8875-1", Aliases: aliases, Severity: "HIGH", CVSS: 7.5, EPSS: -1, Summary: "Linux kernel vulnerabilities"},
 		{ID: "RHSA-2026:0001", Aliases: []string{"CVE-2026-0001"}, Severity: "CRITICAL", CVSS: 9.8, EPSS: -1, Summary: "Red Hat Security Advisory: openssl security update"},
 	} {
-		st.UpsertVulnerability(ctx, v)
-		st.ObserveFinding(ctx, asset, v.ID, "", time.Now().Add(-40*24*time.Hour))
+		storetest.Finding(t, st, asset, v, time.Now().Add(-40*24*time.Hour))
 	}
 	st.SetExploitSignals(ctx, store.ExploitSignal{ID: "RHSA-2026:0001", KEV: true, KEVDue: "2026-01-15", EPSS: -1})
 	ids := map[string]int64{}
@@ -301,7 +292,7 @@ func TestFindingPageDetails(t *testing.T) {
 	for _, f := range list {
 		ids[f.VulnID] = f.ID
 	}
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 
 	_, grouped := c.get("/findings/" + itoa(ids["USN-8875-1"]))
 	if !strings.Contains(grouped, "<h1>USN-8875-1</h1>") || strings.Contains(grouped, "sur tous les actifs") ||

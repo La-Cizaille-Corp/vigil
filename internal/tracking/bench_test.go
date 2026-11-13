@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/kev"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
 )
 
@@ -65,16 +65,10 @@ func bigPackage(n int) http.HandlerFunc {
 func BenchmarkSync(b *testing.B) {
 	sources, _ := osvSyncer(b, nil, bigPackage(benchAdvisories), true) // asked by a synchroniser of each database
 	ctx := context.Background()
-	setup := func(b *testing.B, i int) *tracking.Syncer {
-		st, err := store.Open(ctx, filepath.Join(b.TempDir(), fmt.Sprintf("bench-%d.db", i)))
-		if err != nil {
-			b.Fatal(err)
-		}
-		b.Cleanup(func() { st.Close() })
-		if _, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "big", Kind: "package", PURL: "pkg:npm/big",
-			Version: "latest", Criticality: "medium", Source: "manual"}); err != nil {
-			b.Fatal(err)
-		}
+	setup := func(b *testing.B) *tracking.Syncer {
+		st := storetest.Open(b)
+		storetest.Asset(b, st, store.Asset{Name: "big", Kind: "package", PURL: "pkg:npm/big",
+			Version: "latest", Criticality: "medium", Source: "manual"})
 		return sameSources(sources, st)
 	}
 	run := func(b *testing.B, s *tracking.Syncer) {
@@ -85,17 +79,17 @@ func BenchmarkSync(b *testing.B) {
 		}
 	}
 	b.Run("first", func(b *testing.B) {
-		for i := range b.N {
+		for range b.N {
 			b.StopTimer()
-			s := setup(b, i)
+			s := setup(b)
 			b.StartTimer()
 			run(b, s)
 		}
 	})
 	b.Run("again", func(b *testing.B) {
-		for i := range b.N {
+		for range b.N {
 			b.StopTimer()
-			s := setup(b, i)
+			s := setup(b)
 			run(b, s)
 			b.StartTimer()
 			run(b, s)
