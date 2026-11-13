@@ -108,43 +108,32 @@ func Snapshot(t testing.TB, db *sql.DB) map[string][]map[string]string {
 }
 
 func snapshot(ctx context.Context, db *sql.DB) (map[string][]map[string]string, error) {
-	var tables []string
-	rows, err := db.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`)
+	tables, err := readRows(ctx, db, `SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`)
 	if err != nil {
-		return nil, err
-	}
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		tables = append(tables, name)
-	}
-	if err := closeRows(rows); err != nil {
 		return nil, err
 	}
 	out := map[string][]map[string]string{}
 	for _, table := range tables {
-		list, err := tableRows(ctx, db, table)
+		list, err := readRows(ctx, db, `SELECT * FROM "`+table["name"]+`" ORDER BY rowid`)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", table, err)
+			return nil, fmt.Errorf("%s: %w", table["name"], err)
 		}
 		if len(list) > 0 {
-			out[table] = list
+			out[table["name"]] = list
 		}
 	}
 	return out, nil
 }
 
-func tableRows(ctx context.Context, db *sql.DB, table string) ([]map[string]string, error) {
-	rows, err := db.QueryContext(ctx, `SELECT * FROM "`+table+`" ORDER BY rowid`) // #nosec G202 -- a name read from sqlite_master
+// readRows reads every row of a query, each value as text by column name.
+func readRows(ctx context.Context, db *sql.DB, query string) ([]map[string]string, error) {
+	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close() // after a failure; a no-op once closed below
 	cols, err := rows.Columns()
 	if err != nil {
-		rows.Close()
 		return nil, err
 	}
 	var list []map[string]string
@@ -155,7 +144,6 @@ func tableRows(ctx context.Context, db *sql.DB, table string) ([]map[string]stri
 			ptrs[i] = &values[i]
 		}
 		if err := rows.Scan(ptrs...); err != nil {
-			rows.Close()
 			return nil, err
 		}
 		row := map[string]string{}
@@ -167,16 +155,10 @@ func tableRows(ctx context.Context, db *sql.DB, table string) ([]map[string]stri
 		}
 		list = append(list, row)
 	}
-	return list, closeRows(rows)
-}
-
-// closeRows closes rows read to the end, with the error that ended them.
-func closeRows(rows *sql.Rows) error {
 	if err := rows.Err(); err != nil {
-		rows.Close()
-		return err
+		return nil, err
 	}
-	return rows.Close()
+	return list, rows.Close()
 }
 
 // SystemMethods are the store methods reserved to the synchronisation, the

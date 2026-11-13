@@ -1305,8 +1305,9 @@ leurs identifiants dans le contenu de la requête) ; la base elle-même (SQLite 
 ligne, et la connexion unique, A5, interdit des vues par utilisateur). *Vérification* : un test liste
 par réflexion les méthodes du stockage et exige pour chacune un cas d'isolation (la portée nulle
 n'atteint rien et ne change rien) ou une raison d'en être exemptée ; dans `internal/web`, seul
-`scope.go` accorde `store.Everything`, les méthodes de la synchronisation ne sont pas appelées, et
-les routes forment une table que les tests parcourent.
+`scope.go` accorde `store.Everything`, les méthodes de la synchronisation ne sont pas appelées (une
+seule liste, `storetest.SystemMethods`, sert aux deux tests, A98), et les routes forment une table
+que les tests parcourent.
 
 **A68. Groupes d'actifs définis par des étiquettes et des projets ; comptes limités à des groupes,
 contrôlés dans le stockage.** Une équipe, un site ou un client devait pouvoir ne voir que son
@@ -1752,6 +1753,38 @@ Compose), sinon l'en-tête pourrait être forgé.
 par SHA, images par digest, outils versionnés, délai de 7 jours avant toute mise à jour non
 urgente, détection des nouvelles capacités (capslock), recherche de secrets sur tout
 l'historique, analyse statique et CodeQL, revue des dépendances, scan de l'image.
+
+**A98. Les tests prennent leur base et leurs fixtures dans `internal/storetest` ; ceux de `store`
+qui s'en servent sont des tests externes.** L'audit du code (T1, T2) comptait quatorze copies de
+l'ouverture d'une base de test et une vingtaine de paires `UpsertVulnerability` + `ObserveFinding`,
+le plus souvent sans vérifier l'erreur ; la revue 0.5.0 (S3) a trouvé deux listes des méthodes
+réservées à la synchronisation, celle de `internal/web` en oubliant cinq. `storetest` donne `Open`
+(base migrée dans un dossier du test, fermée puis retirée à la fin), `OpenAt` (pour un test qui
+touche aussi le fichier), `TempDir`, `Asset`, `Finding`, `Snapshot` (toutes les lignes de toutes les
+tables) et `SystemMethods` ; une erreur de mise en place fait échouer le test. `storetest` importe
+`store` : un test interne de `store` ne peut donc pas l'importer. Ceux qui s'en servent (portée,
+mise à niveau, statistiques, alertes, généralités) sont en `package store_test` et lisent les
+quelques éléments internes dont ils ont besoin (la connexion pour du SQL écrit à la main, des
+erreurs, la liste des migrations) par `export_test.go`, compilé avec les tests seulement ; ceux qui
+testent du code non exporté (sauvegardes, plans de requête, contrats SQL) restent internes et ouvrent
+leur base par `openTest`. Écartés : tout `store` en tests externes (il faudrait exporter vers les
+tests une bonne part de l'intérieur du paquet) ; garder `fingerprint` et `snapshot` côté interne et
+une copie de la liste côté web (deux façons de faire, déjà divergentes). Les aides de
+`internal/web` (serveur, comptes, client, empreinte du mot de passe calculée une fois) sont dans
+`helpers_test.go`. *Conséquence* : `storetest` est un paquet ordinaire, que seuls des tests
+importent ; capslock le compte comme nouveau paquet aux capacités de `store`.
+
+**A99. Le dossier d'une base de test est retiré avec des reprises.** Sous Windows, des tests de
+`store`, `web` et `tracking` échouaient par intermittence au nettoyage (« TempDir RemoveAll cleanup
+… The directory is not empty ») : 15 échecs en 20 passages des trois paquets lancés ensemble. La
+base est pourtant fermée avant (ordre des `t.Cleanup` vérifié, aucun test parallèle), et le dossier
+est vide une demi-milliseconde plus tard : un antivirus qui analyse le fichier à peine fermé le
+garde ouvert un instant, et `testing` reprend la suppression sur « accès refusé » mais pas sur
+« dossier non vide ». `storetest.TempDir` (et son double `tempDir` des tests internes de `store`,
+que le cycle d'import empêche de partager) retire lui-même le dossier avant `testing`, en reprenant
+pendant deux secondes au plus : plus aucun échec en 20 passages. Écarté : exclure le dossier
+temporaire de l'antivirus (réglage du poste, pas du dépôt). Les dossiers sans base (rotation des
+sauvegardes) gardent le nettoyage ordinaire.
 
 ## 5. Écarté ou différé
 

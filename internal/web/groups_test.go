@@ -180,6 +180,7 @@ func (fx *groupFixture) state(t *testing.T, name string) string {
 // objectOf classifies a route whose path names an object of the inventory:
 // asset, finding or digest. A new route of that kind must be classified here.
 func objectOf(t *testing.T, pattern string) string {
+	t.Helper()
 	_, path, _ := strings.Cut(pattern, " ")
 	switch {
 	case strings.HasPrefix(path, "/assets/{id}"):
