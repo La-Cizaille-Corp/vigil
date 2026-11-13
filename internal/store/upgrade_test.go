@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -42,6 +43,13 @@ var releasedMigrations = map[string]string{
 	"014_dismissal_rules.sql":    "cde67f593e03fc9a8eb357fd0075f2d963a181fab50837e044eb487bf4d32dbb",
 	// 0.4.1
 	"015_finding_fixed_in.sql": "d17b3ba0ad9efc6d3c878e991fcad3d8ffe66e3fe2a3888bad4de8d549b6ec42",
+	// 0.5.0
+	"016_history_indexes.sql":          "076c2cb502f9bdd3d6d247fdc5cb19008f97f4aa050e2a045a55958be86d9c63",
+	"017_asset_groups.sql":             "2d5166fa82920d11bf1e2072b4baaccaeb559dcc0d258ea1b45c08a165076108",
+	"018_group_channels.sql":           "687774aec094144e0ef50995ece82eadbf5dd3ef75c5ac71e7c307b7a4a47b20",
+	"019_finding_folded.sql":           "187280da9a05de6ce3c22fa92d6dc7ea8b2b3e9f9ded47304f59dd67b8699a3c",
+	"020_osv_lists.sql":                "4f0a7c9ded452840e19f698c204bbf3b7295ad0df888ec5f26ad7e0ef953b1b3",
+	"021_vulnerability_list_index.sql": "ed030f51baa1a1e84d55d598860c579e778733f0dff3beeafc7f66e84bba27db",
 }
 
 func TestMigrationsFrozen(t *testing.T) {
@@ -132,7 +140,7 @@ func TestUpgradeFromReleases(t *testing.T) {
 				}
 			}
 
-			checkUpgradedData(ctx, t, st)
+			checkUpgradedData(ctx, t, st, oldVersion)
 
 			// Opening again applies nothing and writes no second copy.
 			st.Close()
@@ -149,7 +157,8 @@ func TestUpgradeFromReleases(t *testing.T) {
 }
 
 // checkUpgradedData reads the upgraded database through the application code.
-func checkUpgradedData(ctx context.Context, t *testing.T, st *store.Store) {
+// oldVersion is the schema the release wrote the database with.
+func checkUpgradedData(ctx context.Context, t *testing.T, st *store.Store, oldVersion int) {
 	t.Helper()
 	admin, err := st.UserByName(ctx, "admin")
 	if err != nil {
@@ -172,10 +181,14 @@ func checkUpgradedData(ctx context.Context, t *testing.T, st *store.Store) {
 		t.Errorf("%d triaged findings kept, want 3", triaged)
 	}
 	// Migration 019 folds nothing (A80): the next synchronisation does, with
-	// what the sources report. Every finding of a release is still listed.
+	// what the sources report. Every finding of an older release is still
+	// listed; from 0.5.0, the fixture holds the rows its sync folded.
 	var folded int
-	if err := store.DB(st).QueryRowContext(ctx, `SELECT COUNT(*) FROM findings WHERE folded_into <> 0`).Scan(&folded); err != nil || folded != 0 {
-		t.Errorf("%d findings folded by the upgrade (%v), want none", folded, err)
+	if err := store.DB(st).QueryRowContext(ctx, `SELECT COUNT(*) FROM findings WHERE folded_into <> 0`).Scan(&folded); err != nil {
+		t.Fatal(err)
+	}
+	if oldVersion < 19 && folded != 0 {
+		t.Errorf("%d findings folded by the upgrade, want none", folded)
 	}
 	assets, err := st.ListAssets(ctx, store.Everything)
 	if err != nil || len(assets) < 4 {
@@ -206,14 +219,16 @@ func checkUpgradedData(ctx context.Context, t *testing.T, st *store.Store) {
 	if !custom {
 		t.Error("custom feed lost")
 	}
-	if hooks, _ := st.ListWebhooks(ctx); len(hooks) != 1 || hooks[0].Name != "Équipe sécu" {
+	hooks, _ := st.ListWebhooks(ctx)
+	if !slices.ContainsFunc(hooks, func(h store.Webhook) bool { return h.Name == "Équipe sécu" && h.Group == 0 }) {
 		t.Errorf("webhooks: %+v", hooks)
 	}
 	if _, err := st.DashboardStats(ctx, store.Everything, time.Now()); err != nil {
 		t.Error(err)
 	}
-	// T9: every account keeps access to everything (migration 017, A68), and
-	// sees as many assets and findings as before.
+	// T9: every account of a release before 0.5.0 keeps access to everything
+	// (migration 017, A68), and sees as many assets and findings as before.
+	// From 0.5.0, an account limited to groups stays limited.
 	users, err := st.ListUsers(ctx)
 	if err != nil || len(users) == 0 {
 		t.Fatalf("users: %d, %v", len(users), err)
@@ -227,7 +242,9 @@ func checkUpgradedData(ctx context.Context, t *testing.T, st *store.Store) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !u.Access.All || len(mine) != len(assets) || len(seen) != len(findings) {
+		limited := oldVersion >= 17 && u.Restricted()
+		full := len(mine) == len(assets) && len(seen) == len(findings)
+		if (!limited && (!u.Access.All || !full)) || (limited && (full || len(mine) == 0)) {
 			t.Errorf("%s (%s): access %+v, %d assets of %d, %d findings of %d", u.Username, u.Role, u.Access,
 				len(mine), len(assets), len(seen), len(findings))
 		}
