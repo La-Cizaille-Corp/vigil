@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -17,43 +18,53 @@ const sample = `{"totalResults":1,"vulnerabilities":[{"cve":{"id":"CVE-2024-2176
  "metrics":{"cvssMetricV31":[{"cvssData":{"baseSeverity":"CRITICAL","baseScore":9.8}}]},
  "references":[{"url":"https://fortiguard.com/psirt/FG-IR-24-015"},{"url":"javascript:alert(1)"}]}}]}`
 
+// testClient returns a client of a fake NVD, CVE API and CPE dictionary, that
+// answers with h, closed at the end of the test.
+func testClient(t *testing.T, h http.HandlerFunc) *Client {
+	t.Helper()
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	return &Client{URL: srv.URL, CPEURL: srv.URL, HTTP: srv.Client(), UserAgent: "vigil-test"}
+}
+
 // The NVD often answers 503 for a moment: the request is sent again, a few
 // times, and a definite refusal is not.
 func TestRetries(t *testing.T) {
-	calls, codes := 0, []int{http.StatusServiceUnavailable, http.StatusForbidden}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
-		if calls <= len(codes) {
-			w.WriteHeader(codes[calls-1])
-			return
-		}
-		io.WriteString(w, sample)
-	}))
-	defer srv.Close()
-	c := &Client{URL: srv.URL, HTTP: srv.Client()}
 	q := Query{CPE: "cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*"}
-	if cves, err := c.ForCPE(context.Background(), q); err != nil || len(cves) != 1 || calls != 3 {
-		t.Errorf("temporary failures: %d calls, %v, %v", calls, cves, err)
-	}
-	calls, codes = 0, []int{503, 503, 503, 503}
-	if _, err := c.ForCPE(context.Background(), q); err == nil || calls != 3 {
-		t.Errorf("lasting failure: %d calls, %v", calls, err)
-	}
-	calls, codes = 0, []int{http.StatusBadRequest}
-	if _, err := c.ForCPE(context.Background(), q); err == nil || calls != 1 {
-		t.Errorf("refusal: %d calls, %v", calls, err)
+	for _, c := range []struct {
+		name  string
+		codes []int // the answers before a success
+		calls int32
+		fails bool
+	}{
+		{"temporary failures", []int{http.StatusServiceUnavailable, http.StatusForbidden}, 3, false},
+		{"lasting failure", []int{503, 503, 503, 503}, 3, true},
+		{"refusal", []int{http.StatusBadRequest}, 1, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var calls atomic.Int32
+			client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+				if n := int(calls.Add(1)); n <= len(c.codes) {
+					w.WriteHeader(c.codes[n-1])
+					return
+				}
+				io.WriteString(w, sample)
+			})
+			cves, err := client.ForCPE(context.Background(), q)
+			if (err != nil) != c.fails || !c.fails && len(cves) != 1 || calls.Load() != c.calls {
+				t.Errorf("%d calls, %v, %v", calls.Load(), cves, err)
+			}
+		})
 	}
 }
 
 func TestForCPE(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if got := r.URL.Query().Get("cpeName"); got != "cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*" {
 			t.Errorf("cpeName = %q", got)
 		}
 		io.WriteString(w, sample)
-	}))
-	defer srv.Close()
-	c := &Client{URL: srv.URL, HTTP: srv.Client()}
+	})
 	cves, err := c.ForCPE(context.Background(), Query{CPE: "cpe:2.3:o:fortinet:fortios:*:*:*:*:*:*:*:*", Version: "7.2.4"})
 	if err != nil {
 		t.Fatal(err)
@@ -65,12 +76,10 @@ func TestForCPE(t *testing.T) {
 
 func TestWholeProduct(t *testing.T) {
 	var got []url.Values
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		got = append(got, r.URL.Query())
 		io.WriteString(w, sample) // the same CVE in every answer: it must be reported once
-	}))
-	defer srv.Close()
-	c := &Client{URL: srv.URL, HTTP: srv.Client()}
+	})
 	ctx := context.Background()
 	product := "cpe:2.3:o:fortinet:fortios:*:*:*:*:*:*:*:*"
 
@@ -104,12 +113,10 @@ func TestWholeProduct(t *testing.T) {
 
 func TestModes(t *testing.T) {
 	var got []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		got = append(got, r.URL.RawQuery)
 		io.WriteString(w, `{"totalResults":0,"vulnerabilities":[]}`)
-	}))
-	defer srv.Close()
-	c := &Client{URL: srv.URL, HTTP: srv.Client()}
+	})
 	ctx := context.Background()
 	// A versioned CPE is widened to the product for product-wide modes.
 	cpe := "cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*"
@@ -117,6 +124,9 @@ func TestModes(t *testing.T) {
 		if _, err := c.ForCPE(ctx, q); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if len(got) != 2 {
+		t.Fatalf("requests: %q", got)
 	}
 	if !strings.Contains(got[0], "virtualMatchString=cpe%3A2.3%3Ao%3Afortinet%3Afortios%3A%2A") || strings.Contains(got[0], "pubStartDate") {
 		t.Errorf("all: %s", got[0])
@@ -133,12 +143,10 @@ func TestModes(t *testing.T) {
 // version is filled, and it goes to the NVD with its escapes.
 func TestForCPEEscapedColons(t *testing.T) {
 	var got []url.Values
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		got = append(got, r.URL.Query())
 		io.WriteString(w, `{"totalResults":0,"vulnerabilities":[]}`)
-	}))
-	defer srv.Close()
-	c := &Client{URL: srv.URL, HTTP: srv.Client()}
+	})
 	ctx := context.Background()
 	product := `cpe:2.3:a:lemonldap-ng:lemonldap\:\:ng:*:*:*:*:*:*:*:*`
 	for _, q := range []Query{{CPE: product, Version: "2.0.16"}, {CPE: product}, {CPE: product, Mode: "from", From: "2.0"}} {
@@ -159,12 +167,10 @@ func TestForCPEEscapedColons(t *testing.T) {
 // whole product, even when the asset has a version.
 func TestWholeVendor(t *testing.T) {
 	var got []url.Values
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		got = append(got, r.URL.Query())
 		io.WriteString(w, sample)
-	}))
-	defer srv.Close()
-	c := &Client{URL: srv.URL, HTTP: srv.Client()}
+	})
 	vendor := WholeVendor("fortinet")
 	if _, err := c.ForCPE(context.Background(), Query{CPE: vendor, Version: "7.2.4"}); err != nil {
 		t.Fatal(err)
@@ -179,14 +185,13 @@ func TestWholeVendor(t *testing.T) {
 // an unknown CPE name gets a 200 without results). That is a failure, said as
 // the NVD says it, and not an empty answer.
 func TestRefusedKeyIsAnError(t *testing.T) {
-	calls := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
+	var calls atomic.Int32
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
 		w.Header().Set("message", "Invalid apiKey.")
 		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer srv.Close()
-	c := &Client{URL: srv.URL, CPEURL: srv.URL, HTTP: srv.Client(), APIKey: "wrong"}
+	})
+	c.APIKey = "wrong"
 	ctx := context.Background()
 	if cves, err := c.ForCPE(ctx, Query{CPE: "cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*"}); err == nil || !strings.Contains(err.Error(), "Invalid apiKey.") {
 		t.Errorf("ForCPE: %v, %v", cves, err)
@@ -194,8 +199,8 @@ func TestRefusedKeyIsAnError(t *testing.T) {
 	if cves, err := c.ForKeyword(ctx, "FortiOS", time.Time{}); err == nil || !strings.Contains(err.Error(), "HTTP 404 (Invalid apiKey.)") {
 		t.Errorf("ForKeyword: %v, %v", cves, err)
 	}
-	if calls != 2 {
-		t.Errorf("%d calls: a refusal is not sent again", calls)
+	if calls.Load() != 2 {
+		t.Errorf("%d calls: a refusal is not sent again", calls.Load())
 	}
 	_, err := c.SearchCPE(ctx, "fortios")
 	if err == nil || !strings.Contains(err.Error(), "Invalid apiKey.") || strings.Contains(err.Error(), "limite de requêtes") {
@@ -209,9 +214,7 @@ func TestRefusedKeyIsAnError(t *testing.T) {
 // type. A rejected CVE is left out on purpose.
 func TestUnreadableRecord(t *testing.T) {
 	page := ""
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, page) }))
-	defer srv.Close()
-	c := &Client{URL: srv.URL, HTTP: srv.Client()}
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, page) })
 	q := Query{CPE: "cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*"}
 	for name, doc := range map[string]string{
 		"score of another type": `{"totalResults":2,"vulnerabilities":[{"cve":{"id":"CVE-2026-0002"}},

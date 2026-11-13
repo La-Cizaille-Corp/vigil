@@ -55,7 +55,7 @@ var (
 func TestCommandHelp(t *testing.T) {
 	db := filepath.Join(t.TempDir(), "vigil.db")
 	t.Setenv("VIGIL_DB", db)
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	log := slog.New(slog.DiscardHandler)
 	for _, c := range []struct {
 		args     []string
 		services bool
@@ -106,7 +106,7 @@ func TestCommandHelp(t *testing.T) {
 
 // A command line that cannot run ends with status 2, after its explanation.
 func TestCommandLineErrors(t *testing.T) {
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	log := slog.New(slog.DiscardHandler)
 	t.Setenv("VIGIL_DB", filepath.Join(t.TempDir(), "vigil.db"))
 	for _, args := range [][]string{nil, {"frobnicate"}, {"sync", "-no-such-option"}} {
 		var err error
@@ -132,7 +132,7 @@ func TestOptionsFromEnvironment(t *testing.T) {
 	t.Setenv("VIGIL_DB", filepath.Join(dir, "env.db"))
 	t.Setenv("VIGIL_NVD_API_KEY", "key-from-env")
 	t.Setenv("VIGIL_BASE_URL", "https://vigil.example")
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	log := slog.New(slog.DiscardHandler)
 
 	_, o := newCommand("sync", true)
 	if err := o.parse(nil); err != nil {
@@ -175,7 +175,7 @@ func TestOptionsFromEnvironment(t *testing.T) {
 func TestMailSettingsCheckedFirst(t *testing.T) {
 	db := filepath.Join(t.TempDir(), "vigil.db")
 	t.Setenv("VIGIL_SMTP_ADDR", "smtp.example")
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	log := slog.New(slog.DiscardHandler)
 	for _, cmd := range []string{"sync", "digest"} {
 		if err := run(context.Background(), log, []string{cmd, "-db", db}); err == nil || !strings.Contains(err.Error(), "hôte:port") {
 			t.Errorf("%s with VIGIL_SMTP_ADDR without a port: %v", cmd, err)
@@ -197,7 +197,7 @@ func TestCommandOptionsNotFromEnvironment(t *testing.T) {
 	t.Setenv("VIGIL_ALL", "true")
 	t.Setenv("VIGIL_ROLE", "admin")
 	t.Setenv("VIGIL_GROUPS", "inconnu")
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	log := slog.New(slog.DiscardHandler)
 	if err := run(ctx, log, []string{"user", "reset-totp"}); err == nil || !strings.Contains(err.Error(), "-username nom ou -all") {
 		t.Errorf("reset-totp without an option, VIGIL_ALL=true: %v", err)
 	}
@@ -232,7 +232,7 @@ func TestTLSOptionsGoTogether(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // the server, if it started, would stop at once
 	t.Setenv("VIGIL_DB", filepath.Join(t.TempDir(), "vigil.db"))
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	log := slog.New(slog.DiscardHandler)
 	for _, half := range [][]string{{"-tls-cert", "cert.pem"}, {"-tls-key", "key.pem"}} {
 		err := run(ctx, log, append([]string{"serve", "-addr", "127.0.0.1:0", "-sync-interval", "0"}, half...))
 		var bad *usageError

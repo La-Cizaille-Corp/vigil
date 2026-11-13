@@ -2,6 +2,7 @@ package tracking_test
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -11,92 +12,88 @@ import (
 )
 
 // The fixed version comes from the stored advisory; the range holding the
-// asset's version comes first.
-// The upstream kernel is a package like any other: its ranges from OSV.
-func TestFixLinesKernel(t *testing.T) {
-	lines := tracking.Fixes(`{"affected":[{"package":{"name":"Kernel","ecosystem":"Linux"},"ranges":[
+// asset's version comes first, the asset's own (yours), and the others follow.
+func TestFixLines(t *testing.T) {
+	const (
+		kernel = `{"affected":[{"package":{"name":"Kernel","ecosystem":"Linux"},"ranges":[
 		{"type":"ECOSYSTEM","events":[{"introduced":"5.11.0"},{"fixed":"5.15.223"}]},
-		{"type":"ECOSYSTEM","events":[{"introduced":"6.7.0"},{"fixed":"6.12.113"}]}]}]}`,
-		store.Asset{Name: "Linux Kernel", Ecosystem: "Linux", Version: "6.8.1"})
-	if len(lines) != 2 || !lines[0].Yours || !strings.Contains(lines[0].Text, "6.12.113") || lines[1].Yours {
-		t.Errorf("lines = %+v", lines)
-	}
-}
-
-// At its latest release, an asset is in the last interval of a range that ends
-// affected, the rule of osv.Vuln.Unfixed: an interval affected up to a version
-// and followed by a fixed one is not its own.
-func TestFixLinesLatest(t *testing.T) {
-	raw := `{"affected":[{"package":{"purl":"pkg:npm/x"},"ranges":[
+		{"type":"ECOSYSTEM","events":[{"introduced":"6.7.0"},{"fixed":"6.12.113"}]}]}]}`
+		latest = `{"affected":[{"package":{"purl":"pkg:npm/x"},"ranges":[
 		{"type":"SEMVER","events":[{"introduced":"0"},{"last_affected":"1.0"},{"introduced":"2.0"},{"fixed":"2.5"}]},
 		{"type":"SEMVER","events":[{"introduced":"3.0"},{"fixed":"3.1"},{"introduced":"4.0"},{"last_affected":"4.2"}]}]}]}`
-	var yours []string
-	for _, l := range tracking.Fixes(raw, store.Asset{PURL: "pkg:npm/x", Version: "latest"}) {
-		if l.Yours {
-			yours = append(yours, l.Text)
-		}
-	}
-	if len(yours) != 1 || !strings.Contains(yours[0], "4.2") {
-		t.Errorf("ranges of the latest release: %q", yours)
-	}
-}
-
-func TestFixLines(t *testing.T) {
-	osvRaw := `{"affected":[{"package":{"purl":"pkg:maven/org.apache.logging.log4j/log4j-core"},"ranges":[
+		osvRaw = `{"affected":[{"package":{"purl":"pkg:maven/org.apache.logging.log4j/log4j-core"},"ranges":[
 		{"type":"ECOSYSTEM","events":[{"introduced":"2.4"},{"fixed":"2.12.2"}]},
 		{"type":"ECOSYSTEM","events":[{"introduced":"2.13.0"},{"fixed":"2.15.0"}]},
 		{"type":"GIT","events":[{"introduced":"0"},{"fixed":"abc123"}]}]},
 		{"package":{"purl":"pkg:maven/other/lib"},"ranges":[{"type":"ECOSYSTEM","events":[{"introduced":"0"},{"fixed":"9.9"}]}]}]}`
-	lines := tracking.Fixes(osvRaw, store.Asset{PURL: "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1"})
-	if len(lines) != 2 || !lines[0].Yours || !strings.Contains(lines[0].Text, "2.15.0") || lines[1].Yours {
-		t.Errorf("OSV: %+v", lines)
-	}
-
-	nvdRaw := `{"configurations":[{"nodes":[{"cpeMatch":[
+		nvdRaw = `{"configurations":[{"nodes":[{"cpeMatch":[
 		{"vulnerable":true,"criteria":"cpe:2.3:o:fortinet:fortios:*:*:*:*:*:*:*:*","versionStartIncluding":"7.2.0","versionEndExcluding":"7.2.5"},
 		{"vulnerable":true,"criteria":"cpe:2.3:o:fortinet:fortios:*:*:*:*:*:*:*:*","versionStartIncluding":"7.0.0","versionEndIncluding":"7.0.12"},
 		{"vulnerable":true,"criteria":"cpe:2.3:a:fortinet:fortiproxy:*:*:*:*:*:*:*:*","versionEndExcluding":"7.0.10"}]}]}]}`
-	lines = tracking.Fixes(nvdRaw, store.Asset{CPE: "cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*", Version: "7.2.4"})
-	if len(lines) != 2 || !lines[0].Yours || !strings.Contains(lines[0].Text, "corrigée en 7.2.5") {
-		t.Errorf("NVD: %+v", lines)
-	}
-	lines = tracking.Fixes(nvdRaw, store.Asset{CPE: "cpe:2.3:*:fortinet:*:*:*:*:*:*:*:*:*"})
-	if len(lines) != 3 || !strings.HasPrefix(lines[2].Text, "fortiproxy : ") {
-		t.Errorf("whole vendor: %+v", lines)
-	}
-
-	// At the latest release, the ranges without a fixed version are the
-	// asset's: an open one for OSV, an unbounded one for the NVD.
-	openRaw := `{"affected":[{"package":{"purl":"pkg:npm/left"},"ranges":[
+		openRaw = `{"affected":[{"package":{"purl":"pkg:npm/left"},"ranges":[
 		{"type":"SEMVER","events":[{"introduced":"0"},{"fixed":"1.2.0"}]},
 		{"type":"SEMVER","events":[{"introduced":"2.0.0"}]}]}]}`
-	lines = tracking.Fixes(openRaw, store.Asset{PURL: "pkg:npm/left", Version: "latest"})
-	if len(lines) != 2 || !lines[0].Yours || lines[0].Text != "aucune version corrigée indiquée (affectée à partir de 2.0.0)" || lines[1].Yours {
-		t.Errorf("OSV latest: %+v", lines)
-	}
-	lines = tracking.Fixes(openRaw, store.Asset{PURL: "pkg:npm/left@1.1.0"})
-	if len(lines) != 2 || !lines[0].Yours || lines[0].Text != "corrigée en 1.2.0" {
-		t.Errorf("OSV open range: %+v", lines)
-	}
-	nvdOpen := `{"configurations":[{"nodes":[{"cpeMatch":[
+		nvdOpen = `{"configurations":[{"nodes":[{"cpeMatch":[
 		{"vulnerable":true,"criteria":"cpe:2.3:a:ivanti:connect_secure:*:*:*:*:*:*:*:*","versionEndExcluding":"22.7"},
 		{"vulnerable":true,"criteria":"cpe:2.3:a:ivanti:connect_secure:*:*:*:*:*:*:*:*","versionStartIncluding":"22.7"},
 		{"vulnerable":true,"criteria":"cpe:2.3:a:ivanti:policy_secure:*:*:*:*:*:*:*:*","versionEndExcluding":"22.8"}]}]}]}`
-	lines = tracking.Fixes(nvdOpen, store.Asset{Name: "Ivanti Connect Secure", Version: "latest", Kind: "product"})
-	if len(lines) != 2 || !lines[0].Yours || lines[0].Text != "connect_secure : aucune version corrigée indiquée (affectée à partir de 22.7)" {
-		t.Errorf("by name, latest: %+v", lines)
-	}
-	lines = tracking.Fixes(nvdOpen, store.Asset{Name: "Connect Secure", Version: "22.6R1", Kind: "product"})
-	if len(lines) != 2 || !lines[0].Yours || lines[0].Text != "connect_secure : corrigée en 22.7" {
-		t.Errorf("by name: %+v", lines)
-	}
-	nvdRelease := `{"configurations":[{"nodes":[{"cpeMatch":[
+		nvdRelease = `{"configurations":[{"nodes":[{"cpeMatch":[
 		{"vulnerable":true,"criteria":"cpe:2.3:a:ivanti:connect_secure:*:*:*:*:*:*:*:*","versionEndExcluding":"22.7"},
 		{"vulnerable":true,"criteria":"cpe:2.3:a:ivanti:connect_secure:22.7:r2.2:*:*:*:*:*:*"},
 		{"vulnerable":true,"criteria":"cpe:2.3:a:ivanti:connect_secure:22.7:r2.3:*:*:*:*:*:*"}]}]}]}`
-	lines = tracking.Fixes(nvdRelease, store.Asset{Name: "Connect Secure", Version: "22.7R2.3", Kind: "product"})
-	if len(lines) != 2 || !lines[0].Yours || lines[0].Text != "connect_secure : version 22.7 r2.3 citée comme affectée, sans version corrigée indiquée" || lines[1].Yours {
-		t.Errorf("release named: %+v", lines)
+	)
+	for _, c := range []struct {
+		name  string
+		raw   string
+		asset store.Asset
+		yours bool     // the first line is the asset's own
+		want  []string // the lines, in order
+	}{
+		// The upstream kernel is a package like any other: its ranges from OSV.
+		{"kernel", kernel, store.Asset{Name: "Linux Kernel", Ecosystem: "Linux", Version: "6.8.1"}, true,
+			[]string{"corrigée en 6.12.113 (affectée à partir de 6.7.0)", "corrigée en 5.15.223 (affectée à partir de 5.11.0)"}},
+		// At its latest release, an asset is in the last interval of a range
+		// that ends affected, the rule of osv.Vuln.Unfixed: an interval affected
+		// up to a version and followed by a fixed one is not its own.
+		{"OSV, ranges of the latest release", latest, store.Asset{PURL: "pkg:npm/x", Version: "latest"}, true, []string{
+			"affectée jusqu'à 4.2 incluse, sans version corrigée indiquée (affectée à partir de 4.0)",
+			"affectée jusqu'à 1.0 incluse, sans version corrigée indiquée",
+			"corrigée en 2.5 (affectée à partir de 2.0)", "corrigée en 3.1 (affectée à partir de 3.0)"}},
+		{"OSV", osvRaw, store.Asset{PURL: "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1"}, true,
+			[]string{"corrigée en 2.15.0 (affectée à partir de 2.13.0)", "corrigée en 2.12.2 (affectée à partir de 2.4)"}},
+		{"NVD", nvdRaw, store.Asset{CPE: "cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*", Version: "7.2.4"}, true, []string{
+			"corrigée en 7.2.5 (affectée à partir de 7.2.0)",
+			"affectée jusqu'à 7.0.12 incluse, sans version corrigée indiquée (affectée à partir de 7.0.0)"}},
+		{"whole vendor", nvdRaw, store.Asset{CPE: "cpe:2.3:*:fortinet:*:*:*:*:*:*:*:*:*"}, false, []string{
+			"fortios : corrigée en 7.2.5 (affectée à partir de 7.2.0)",
+			"fortios : affectée jusqu'à 7.0.12 incluse, sans version corrigée indiquée (affectée à partir de 7.0.0)",
+			"fortiproxy : corrigée en 7.0.10"}},
+		// At the latest release, the ranges without a fixed version are the
+		// asset's: an open one for OSV, an unbounded one for the NVD.
+		{"OSV latest", openRaw, store.Asset{PURL: "pkg:npm/left", Version: "latest"}, true,
+			[]string{"aucune version corrigée indiquée (affectée à partir de 2.0.0)", "corrigée en 1.2.0"}},
+		{"OSV open range", openRaw, store.Asset{PURL: "pkg:npm/left@1.1.0"}, true,
+			[]string{"corrigée en 1.2.0", "aucune version corrigée indiquée (affectée à partir de 2.0.0)"}},
+		{"by name, latest", nvdOpen, store.Asset{Name: "Ivanti Connect Secure", Version: "latest", Kind: "product"}, true,
+			[]string{"connect_secure : aucune version corrigée indiquée (affectée à partir de 22.7)", "connect_secure : corrigée en 22.7"}},
+		{"by name", nvdOpen, store.Asset{Name: "Connect Secure", Version: "22.6R1", Kind: "product"}, true,
+			[]string{"connect_secure : corrigée en 22.7", "connect_secure : aucune version corrigée indiquée (affectée à partir de 22.7)"}},
+		{"release named", nvdRelease, store.Asset{Name: "Connect Secure", Version: "22.7R2.3", Kind: "product"}, true, []string{
+			"connect_secure : version 22.7 r2.3 citée comme affectée, sans version corrigée indiquée", "connect_secure : corrigée en 22.7"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			lines := tracking.Fixes(c.raw, c.asset)
+			var texts []string
+			for i, l := range lines {
+				texts = append(texts, l.Text)
+				if l.Yours != (c.yours && i == 0) {
+					t.Errorf("line %d %q: yours %v", i, l.Text, l.Yours)
+				}
+			}
+			if !slices.Equal(texts, c.want) {
+				t.Errorf("lines\n%q\nwant\n%q", texts, c.want)
+			}
+		})
 	}
 }
 

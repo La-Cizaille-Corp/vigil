@@ -27,7 +27,7 @@ func TestSourceRedirects(t *testing.T) {
 	if err := opts.parse(nil); err != nil {
 		t.Fatal(err)
 	}
-	sv := opts.services(nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	sv := opts.services(nil, slog.New(slog.DiscardHandler))
 	// One client for the sources, and a copy for OSV with its own time limit.
 	s := sv.syncer
 	if s.KEV.HTTP != s.NVD.HTTP || s.EPSS.HTTP != s.NVD.HTTP || s.OSV.HTTP == s.NVD.HTTP ||
@@ -38,11 +38,11 @@ func TestSourceRedirects(t *testing.T) {
 	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, `{"id":"GHSA-x"}`)
 	}))
-	defer plain.Close()
+	t.Cleanup(plain.Close)
 	secure := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, plain.URL+r.URL.Path, http.StatusFound)
 	}))
-	defer secure.Close()
+	t.Cleanup(secure.Close)
 	o := sv.syncer.OSV
 	o.URL, o.HTTP.Transport = secure.URL, secure.Client().Transport
 	if v, err := o.Vuln(ctx, "GHSA-x"); err == nil {
@@ -54,7 +54,7 @@ func TestSourceRedirects(t *testing.T) {
 		keys["other"] = r.Header.Get("apiKey")
 		io.WriteString(w, `{"totalResults":0,"vulnerabilities":[]}`)
 	}))
-	defer other.Close()
+	t.Cleanup(other.Close)
 	origin := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/start" {
 			http.Redirect(w, r, "/again?"+r.URL.RawQuery, http.StatusFound)
@@ -63,7 +63,7 @@ func TestSourceRedirects(t *testing.T) {
 		keys["again"] = r.Header.Get("apiKey")
 		http.Redirect(w, r, other.URL+"/final?"+r.URL.RawQuery, http.StatusFound)
 	}))
-	defer origin.Close()
+	t.Cleanup(origin.Close)
 	n := sv.syncer.NVD
 	n.URL, n.APIKey, n.HTTP.Transport = origin.URL+"/start", "secret", origin.Client().Transport
 	if _, err := n.ForKeyword(ctx, "fortios", time.Time{}); err != nil {
@@ -80,13 +80,13 @@ func TestSourceRedirects(t *testing.T) {
 // clients used to reach any address.
 func TestSourcesGuardedAgainstSSRF(t *testing.T) {
 	internal := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-	defer internal.Close()
+	t.Cleanup(internal.Close)
 	for _, args := range [][]string{nil, {"-allow-private-urls"}} {
 		_, opts := newCommand("sync", true)
 		if err := opts.parse(args); err != nil {
 			t.Fatal(err)
 		}
-		s := opts.services(nil, slog.New(slog.NewTextHandler(io.Discard, nil))).syncer
+		s := opts.services(nil, slog.New(slog.DiscardHandler)).syncer
 		for name, client := range map[string]*http.Client{"OSV": s.OSV.HTTP, "NVD": s.NVD.HTTP, "KEV": s.KEV.HTTP, "EPSS": s.EPSS.HTTP} {
 			_, err := client.Get(internal.URL)
 			// Allowed, the request reaches the server, whose certificate is not trusted.
@@ -194,7 +194,10 @@ func TestUserAccessFromTheCommandLine(t *testing.T) {
 	if _, err := st.AnyUserByName(ctx, "dom"); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("account created with an unknown group: %v", err)
 	}
-	entries, _ := st.ListAudit(ctx, 10)
+	entries, err := st.ListAudit(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var details []string
 	for _, e := range entries {
 		details = append(details, e.Action+" "+e.Detail)

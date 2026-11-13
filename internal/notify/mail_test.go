@@ -5,11 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"log/slog"
 	"mime/quotedprintable"
 	"net"
 	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -137,8 +135,11 @@ func TestMailerSend(t *testing.T) {
 // credentials or the message in clear text.
 func TestMailerRequiresSTARTTLS(t *testing.T) {
 	srv := newFakeSMTP(t, false)
-	m, _ := NewMailer(srv.addr, "", "vigil", "secret", "vigil@example.org")
-	err := m.Send(context.Background(), []string{"a@example.org"}, "s", "t")
+	m, err := NewMailer(srv.addr, "", "vigil", "secret", "vigil@example.org")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = m.Send(context.Background(), []string{"a@example.org"}, "s", "t")
 	if err == nil || !strings.Contains(err.Error(), "STARTTLS") {
 		t.Fatalf("clear-text fallback: %v", err)
 	}
@@ -248,20 +249,22 @@ func TestSendAlerts(t *testing.T) {
 	defer st.Close()
 	var mu sync.Mutex
 	bodies := map[string][]map[string]any{}
-	web := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	n, chat := newNotifier(t, st, func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		json.NewDecoder(r.Body).Decode(&body)
 		mu.Lock()
 		bodies[r.URL.Path] = append(bodies[r.URL.Path], body)
 		mu.Unlock()
-	}))
-	defer web.Close()
+	})
 	mailSrv := newFakeSMTP(t, false)
-	mailer, _ := NewMailer(mailSrv.addr, MailNoTLS, "", "", "vigil@example.org")
+	if n.Mail, err = NewMailer(mailSrv.addr, MailNoTLS, "", "", "vigil@example.org"); err != nil {
+		t.Fatal(err)
+	}
+	n.BaseURL = "https://vigil.example.org/"
 	for _, h := range []store.Webhook{
-		{Name: "prio", Kind: "slack", URL: web.URL + "/prio", Enabled: true, Alerts: "priority"},
-		{Name: "all", Kind: "generic", URL: web.URL + "/severe", Enabled: true, Alerts: "severe"},
-		{Name: "digest-only", Kind: "slack", URL: web.URL + "/digest", Enabled: true, Digests: true},
+		{Name: "prio", Kind: "slack", URL: chat + "/prio", Enabled: true, Alerts: "priority"},
+		{Name: "all", Kind: "generic", URL: chat + "/severe", Enabled: true, Alerts: "severe"},
+		{Name: "digest-only", Kind: "slack", URL: chat + "/digest", Enabled: true, Digests: true},
 		{Name: "mail", Kind: "email", URL: "rssi@example.org", Enabled: true, Alerts: "priority"},
 	} {
 		if _, err := st.CreateWebhook(ctx, h); err != nil {
@@ -275,8 +278,6 @@ func TestSendAlerts(t *testing.T) {
 	st.ObserveFinding(ctx, assetID, "CVE-KEV", "", time.Now())
 	st.ObserveFinding(ctx, assetID, "CVE-HIGH", "", time.Now())
 
-	n := &Notifier{Store: st, HTTP: web.Client(), Mail: mailer, BaseURL: "https://vigil.example.org/",
-		UserAgent: "test", Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	if err := n.SendAlerts(ctx); err != nil {
 		t.Fatal(err)
 	}

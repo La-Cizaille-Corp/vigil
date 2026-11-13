@@ -4,18 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"log/slog"
 	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"slices"
-	"sync"
 	"testing"
 
-	"github.com/La-Cizaille-Corp/vigil/internal/sources/nvd"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/osv"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
-	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
 )
 
 func openStore(t *testing.T) *store.Store {
@@ -49,9 +44,8 @@ func openIDs(t *testing.T, st *store.Store, assetID int64) []string {
 func TestLatestPackage(t *testing.T) {
 	ctx := context.Background()
 	st := openStore(t)
-	var mu sync.Mutex
 	openEvents, modified := `[{"introduced":"2.0.0"}]`, "2026-10-01T00:00:00Z"
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	syncer, srv := osvSyncer(t, st, func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Package osv.Package `json:"package"`
 			Version string      `json:"version"`
@@ -60,18 +54,12 @@ func TestLatestPackage(t *testing.T) {
 		if r.URL.Path != "/v1/query" || body.Package.PURL != "pkg:npm/left" || body.Version != "" {
 			t.Errorf("unexpected query %s %+v", r.URL.Path, body)
 		}
-		mu.Lock()
-		events, mod := openEvents, modified
-		mu.Unlock()
 		io.WriteString(w, `{"vulns":[
-			{"id":"GHSA-open","modified":"`+mod+`","published":"2026-10-01T00:00:00Z",
-			 "affected":[{"package":{"purl":"pkg:npm/left"},"ranges":[{"type":"SEMVER","events":`+events+`}]}]},
+			{"id":"GHSA-open","modified":"`+modified+`","published":"2026-10-01T00:00:00Z",
+			 "affected":[{"package":{"purl":"pkg:npm/left"},"ranges":[{"type":"SEMVER","events":`+openEvents+`}]}]},
 			{"id":"GHSA-fixed","modified":"2026-10-01T00:00:00Z","published":"2026-10-01T00:00:00Z",
 			 "affected":[{"package":{"purl":"pkg:npm/left"},"ranges":[{"type":"SEMVER","events":[{"introduced":"0"},{"fixed":"1.2.0"}]}]}]}]}`)
-	}))
-	defer srv.Close()
-	client := &osv.Client{URL: srv.URL, HTTP: http.DefaultClient, UserAgent: "vigil-test"}
-	syncer := &tracking.Syncer{Store: st, OSV: client, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	}, false)
 
 	id, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "left", Kind: "package", PURL: "pkg:npm/left@1.0.0", Version: "latest",
 		Criticality: "medium", Source: "manual"})
@@ -89,9 +77,7 @@ func TestLatestPackage(t *testing.T) {
 	}
 
 	// The fix is released: the finding is marked fixed.
-	mu.Lock()
-	openEvents, modified = `[{"introduced":"2.0.0"},{"fixed":"2.0.1"}]`, "2026-10-20T00:00:00Z"
-	mu.Unlock()
+	srv.locked(func() { openEvents, modified = `[{"introduced":"2.0.0"},{"fixed":"2.0.1"}]`, "2026-10-20T00:00:00Z" })
 	if res, err := syncer.Run(ctx); err != nil || res.Resolved != 1 {
 		t.Fatalf("after the fix: %+v, %v", res, err)
 	}
@@ -120,26 +106,20 @@ const (
 func TestByNameAndLatestCPE(t *testing.T) {
 	ctx := context.Background()
 	st := openStore(t)
-	var mu sync.Mutex
 	var keywords []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	syncer, _ := nvdSyncer(t, st, func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		list := cveAwaiting + "," + cveFixedBefore + "," + cveInRange + "," + cveOpen
 		switch {
 		case q.Has("keywordSearch"):
-			mu.Lock()
 			keywords = append(keywords, q.Get("keywordSearch"))
-			mu.Unlock()
 		case q.Get("virtualMatchString") == "cpe:2.3:a:ivanti:connect_secure:*:*:*:*:*:*:*:*":
 			list = cveFixedBefore + "," + cveInRange + "," + cveOpen
 		default:
 			t.Errorf("unexpected query %s", r.URL.RawQuery)
 		}
 		io.WriteString(w, `{"totalResults":4,"vulnerabilities":[`+list+`]}`)
-	}))
-	defer srv.Close()
-	syncer := &tracking.Syncer{Store: st, OSV: &osv.Client{HTTP: http.DefaultClient}, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		NVD: &nvd.Client{URL: srv.URL, HTTP: srv.Client()}}
+	})
 
 	add := func(a store.Asset) int64 {
 		a.Kind, a.Criticality = "product", "high"
