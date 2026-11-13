@@ -249,32 +249,43 @@ func TestLinkCannotBreakOut(t *testing.T) {
 // store.Everything whoever asked for it.
 func TestGenerateKeepsToTheScope(t *testing.T) {
 	ctx := context.Background()
-	st := storetest.Open(t)
-	groups := map[string]int64{}
-	for _, name := range []string{"a", "b"} {
-		asset := storetest.Asset(t, st, store.Asset{Name: "actif-" + name, Version: "1", Kind: "package",
-			Criticality: "high", Source: "manual", Tags: []string{name}})
-		storetest.Finding(t, st, asset, store.Vulnerability{ID: "CVE-2026-000" + name, Severity: "HIGH", CVSS: 8, EPSS: -1}, time.Now())
-		var err error
-		if groups[name], err = st.CreateGroup(ctx, "groupe "+name); err != nil {
-			t.Fatal(err)
+	// One base per case: a digest covers the period since the previous one of
+	// its target, stored to the second, so a second digest of the whole
+	// inventory on the same base would list the findings only when it falls in
+	// the same second as the first.
+	inventory := func() (*store.Store, map[string]int64) {
+		st := storetest.Open(t)
+		groups := map[string]int64{}
+		for _, name := range []string{"a", "b"} {
+			asset := storetest.Asset(t, st, store.Asset{Name: "actif-" + name, Version: "1", Kind: "package",
+				Criticality: "high", Source: "manual", Tags: []string{name}})
+			storetest.Finding(t, st, asset, store.Vulnerability{ID: "CVE-2026-000" + name, Severity: "HIGH", CVSS: 8, EPSS: -1}, time.Now())
+			var err error
+			if groups[name], err = st.CreateGroup(ctx, "groupe "+name); err != nil {
+				t.Fatal(err)
+			}
+			if err := st.SetGroupRules(ctx, groups[name], []string{name}, nil); err != nil {
+				t.Fatal(err)
+			}
 		}
-		if err := st.SetGroupRules(ctx, groups[name], []string{name}, nil); err != nil {
-			t.Fatal(err)
-		}
+		return st, groups
 	}
 	for _, c := range []struct {
-		name  string
-		sc    store.Scope
-		group store.Group
-		want  []string
+		name         string
+		scope, group string // the group's name; "" for store.Everything and the whole inventory
+		want         []string
 	}{
-		{"everything, whole inventory", store.Everything, store.Group{}, []string{"actif-a", "actif-b"}},
-		{"everything, group a", store.Everything, store.Group{ID: groups["a"]}, []string{"actif-a"}},
-		{"group a, whole inventory", store.InGroups(groups["a"]), store.Group{}, []string{"actif-a"}},
-		{"group a, group b", store.InGroups(groups["a"]), store.Group{ID: groups["b"]}, nil},
+		{"everything, whole inventory", "", "", []string{"actif-a", "actif-b"}},
+		{"everything, group a", "", "a", []string{"actif-a"}},
+		{"group a, whole inventory", "a", "", []string{"actif-a"}},
+		{"group a, group b", "a", "b", nil},
 	} {
-		d, err := Generate(ctx, st, c.sc, c.group)
+		st, groups := inventory()
+		sc := store.Everything
+		if c.scope != "" {
+			sc = store.InGroups(groups[c.scope])
+		}
+		d, err := Generate(ctx, st, sc, store.Group{ID: groups[c.group]})
 		if err != nil {
 			t.Fatal(err)
 		}
