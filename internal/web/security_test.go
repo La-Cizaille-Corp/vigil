@@ -3,7 +3,6 @@ package web
 import (
 	"context"
 	"html/template"
-	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -16,21 +15,6 @@ import (
 	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
-
-func (c *client) postBody(path string, form url.Values, headers ...string) (int, string) {
-	req, _ := http.NewRequest(http.MethodPost, c.base+path, strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	for i := 0; i+1 < len(headers); i += 2 {
-		req.Header.Set(headers[i], headers[i+1])
-	}
-	resp, err := c.http.Do(req)
-	if err != nil {
-		c.t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	b, _ := io.ReadAll(resp.Body)
-	return resp.StatusCode, string(b)
-}
 
 // A page that makes its own domain resolve to 127.0.0.1 (DNS rebinding)
 // reaches a local instance with that domain as Host: it is refused.
@@ -57,8 +41,8 @@ func TestHostCheck(t *testing.T) {
 // A reverse proxy configured without -behind-proxy makes every request look
 // local: the first-run setup must not be reachable through it.
 func TestSetupRefusesForwardedRequests(t *testing.T) {
-	st, base := newTestServer(t)
-	code := newClient(t, base).post("/setup", url.Values{"username": {"x"}, "password": {"a-strong-password"}, "confirm": {"a-strong-password"}},
+	st, base := newBareServer(t, nil)
+	code := newClient(t, base).post("/setup", url.Values{"username": {"x"}, "password": {testPassword}, "confirm": {testPassword}},
 		"X-Forwarded-For", "203.0.113.7")
 	if n, _ := st.CountUsers(context.Background()); code != http.StatusForbidden || n != 0 {
 		t.Fatalf("setup through a proxy: %d, %d users", code, n)
@@ -69,19 +53,18 @@ func TestSetupRefusesForwardedRequests(t *testing.T) {
 // another account, and guesses spread over many addresses still hit the
 // per-account limit.
 func TestLoginLimits(t *testing.T) {
-	st, base := newTestServer(t)
-	hash, _ := auth.HashPassword("a-strong-password")
-	st.CreateUser(context.Background(), "admin", hash, auth.RoleAdmin, store.Access{All: true})
-	st.CreateUser(context.Background(), "eve", hash, auth.RoleViewer, store.Access{All: true})
+	st, base := newBareServer(t, nil)
+	addUser(t, st, "admin", auth.RoleAdmin)
+	addUser(t, st, "eve", auth.RoleViewer)
 	c := newClient(t, base)
 	for range 4 {
 		c.post("/login", url.Values{"username": {"admin"}, "password": {"guess"}})
 	}
-	if code := c.post("/login", url.Values{"username": {"eve"}, "password": {"a-strong-password"}}); code != http.StatusSeeOther {
+	if code := c.post("/login", url.Values{"username": {"eve"}, "password": {testPassword}}); code != http.StatusSeeOther {
 		t.Fatalf("eve login: %d", code)
 	}
 	c.post("/login", url.Values{"username": {"admin"}, "password": {"guess"}})
-	if code := c.post("/login", url.Values{"username": {"admin"}, "password": {"a-strong-password"}}); code != http.StatusTooManyRequests {
+	if code := c.post("/login", url.Values{"username": {"admin"}, "password": {testPassword}}); code != http.StatusTooManyRequests {
 		t.Errorf("a valid login of another account reset the address counter: %d", code)
 	}
 
@@ -90,11 +73,11 @@ func TestLoginLimits(t *testing.T) {
 	for i := range 10 {
 		c.post("/login", url.Values{"username": {"admin"}, "password": {"guess"}}, "X-Forwarded-For", "198.51.100."+itoa(int64(i+1)))
 	}
-	if code := c.post("/login", url.Values{"username": {"admin"}, "password": {"a-strong-password"}},
+	if code := c.post("/login", url.Values{"username": {"admin"}, "password": {testPassword}},
 		"X-Forwarded-For", "203.0.113.50"); code != http.StatusTooManyRequests {
 		t.Errorf("per-account limit not applied: %d", code)
 	}
-	if code := c.post("/login", url.Values{"username": {"analyst"}, "password": {"a-strong-password"}},
+	if code := c.post("/login", url.Values{"username": {"analyst"}, "password": {testPassword}},
 		"X-Forwarded-For", "203.0.113.50"); code != http.StatusSeeOther {
 		t.Errorf("other account blocked: %d", code)
 	}
@@ -129,7 +112,7 @@ func TestAPILimiterCountsIPv6Block(t *testing.T) {
 		t.Errorf("another /64 blocked: %d", code)
 	}
 	// The API and sign-in keep separate counts.
-	if code := newClient(t, base).post("/login", url.Values{"username": {"admin"}, "password": {"a-strong-password"}},
+	if code := newClient(t, base).post("/login", url.Values{"username": {"admin"}, "password": {testPassword}},
 		"X-Forwarded-For", "2001:db8::9"); code != http.StatusSeeOther {
 		t.Errorf("sign-in from the /64 blocked by the API: %d", code)
 	}
@@ -139,7 +122,7 @@ func TestAPILimiterCountsIPv6Block(t *testing.T) {
 // 40 « é » (80 bytes) was refused as longer than 64.
 func TestLengthsCountCharacters(t *testing.T) {
 	_, base := newServerWith(t, nil)
-	admin := loginAs(t, base, "admin", "a-strong-password")
+	admin := loginAs(t, base, "admin", testPassword)
 	token := admin.csrf()
 	for n, want := range map[int]int{40: http.StatusSeeOther, 64: http.StatusSeeOther, 65: http.StatusBadRequest} {
 		name := strings.Repeat("é", n)
@@ -162,9 +145,9 @@ func TestLengthsCountCharacters(t *testing.T) {
 		t.Errorf("SBOM project of 200 accented characters: %d", code)
 	}
 
-	_, fresh := newTestServer(t)
+	_, fresh := newBareServer(t, nil)
 	if code := newClient(t, fresh).post("/setup", url.Values{"username": {strings.Repeat("é", 40)},
-		"password": {"a-strong-password"}, "confirm": {"a-strong-password"}}); code != http.StatusSeeOther {
+		"password": {testPassword}, "confirm": {testPassword}}); code != http.StatusSeeOther {
 		t.Errorf("setup with a name of 40 accented characters: %d", code)
 	}
 }
@@ -174,7 +157,7 @@ func TestLengthsCountCharacters(t *testing.T) {
 // could be one no other form accepts.
 func TestPasswordMaxBytes(t *testing.T) {
 	long := strings.Repeat("a", 1025)
-	st, fresh := newTestServer(t)
+	st, fresh := newBareServer(t, nil)
 	if code := newClient(t, fresh).post("/setup", url.Values{"username": {"root"}, "password": {long}, "confirm": {long}}); code != http.StatusBadRequest {
 		t.Errorf("setup with a 1,025-byte password: %d", code)
 	}
@@ -188,8 +171,8 @@ func TestPasswordMaxBytes(t *testing.T) {
 		!strings.Contains(body, "Mot de passe trop long.") {
 		t.Errorf("sign-in with a 1,025-byte password: %d", code)
 	}
-	admin := loginAs(t, base, "admin", "a-strong-password")
-	if code, body := admin.postBody("/account/password", url.Values{"csrf": {admin.csrf()}, "current": {"a-strong-password"},
+	admin := loginAs(t, base, "admin", testPassword)
+	if code, body := admin.postBody("/account/password", url.Values{"csrf": {admin.csrf()}, "current": {testPassword},
 		"new": {long}, "confirm": {long}}); code != http.StatusBadRequest || !strings.Contains(body, "Mot de passe trop long.") {
 		t.Errorf("password change to 1,025 bytes: %d", code)
 	}
@@ -199,7 +182,7 @@ func TestPasswordMaxBytes(t *testing.T) {
 // passwords, whatever its case, with a message that says why.
 func TestCommonPasswordForms(t *testing.T) {
 	const why = "fait partie des plus courants"
-	st, fresh := newTestServer(t)
+	st, fresh := newBareServer(t, nil)
 	if code, body := newClient(t, fresh).postBody("/setup", url.Values{"username": {"root"},
 		"password": {"Qwerty123456"}, "confirm": {"Qwerty123456"}}); code != http.StatusBadRequest || !strings.Contains(body, why) {
 		t.Errorf("setup with a common password: %d", code)
@@ -209,12 +192,12 @@ func TestCommonPasswordForms(t *testing.T) {
 	}
 
 	_, base := newServerWith(t, nil)
-	admin := loginAs(t, base, "admin", "a-strong-password")
-	if code, body := admin.postBody("/account/password", url.Values{"csrf": {admin.csrf()}, "current": {"a-strong-password"},
+	admin := loginAs(t, base, "admin", testPassword)
+	if code, body := admin.postBody("/account/password", url.Values{"csrf": {admin.csrf()}, "current": {testPassword},
 		"new": {"QWERTYUIOPASDFGH"}, "confirm": {"QWERTYUIOPASDFGH"}}); code != http.StatusBadRequest || !strings.Contains(body, why) {
 		t.Errorf("password change to a common password: %d", code)
 	}
-	loginAs(t, base, "admin", "a-strong-password") // unchanged
+	loginAs(t, base, "admin", testPassword) // unchanged
 }
 
 // Each page where a password is chosen says the whole rule, the common
@@ -222,13 +205,13 @@ func TestCommonPasswordForms(t *testing.T) {
 // password given in Settings → Users.
 func TestPasswordHelpOnEachPage(t *testing.T) {
 	help := template.HTMLEscapeString(auth.PasswordHelp)
-	_, fresh := newTestServer(t)
+	_, fresh := newBareServer(t, nil)
 	if _, body := newClient(t, fresh).get("/setup"); !strings.Contains(body, "Mot de passe ("+help+")") {
 		t.Errorf("setup page: no %q", auth.PasswordHelp)
 	}
 
 	_, base := newServerWith(t, nil)
-	admin := loginAs(t, base, "admin", "a-strong-password")
+	admin := loginAs(t, base, "admin", testPassword)
 	if _, body := admin.get("/account"); !strings.Contains(body, "Nouveau mot de passe ("+help+")") {
 		t.Errorf("account page: no %q", auth.PasswordHelp)
 	}
@@ -247,7 +230,7 @@ var passwordRe = regexp.MustCompile(`<code>([A-Za-z0-9]{5}(?:-[A-Za-z0-9]{5}){3}
 func TestUserAdministration(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	ctx := context.Background()
-	admin := loginAs(t, base, "admin", "a-strong-password")
+	admin := loginAs(t, base, "admin", testPassword)
 	token := admin.csrf()
 
 	// The password is shown once, on the page the form redirects to: a
@@ -313,7 +296,7 @@ func TestUserAdministration(t *testing.T) {
 func TestTOTPEnrolmentNeedsPassword(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	ctx := context.Background()
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 	token := c.csrf()
 	c.post("/account/totp/start", url.Values{"csrf": {token}})
 	code, body := c.postBody("/account/totp/confirm", url.Values{"csrf": {token}, "code": {"000000"}, "password": {"wrong"}})
@@ -321,10 +304,11 @@ func TestTOTPEnrolmentNeedsPassword(t *testing.T) {
 		t.Errorf("confirmation without the password: %d", code)
 	}
 
-	u, _ := st.UserByName(ctx, "analyst")
-	secret, _ := auth.NewTOTPSecret()
-	st.SetTOTPPending(ctx, u.ID, secret)
-	st.EnableTOTP(ctx, u.ID, 0)
+	u, err := st.UserByName(ctx, "analyst")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret := enableTOTP(t, st, u.ID)
 	c.post("/account/totp/start", url.Values{"csrf": {token}})
 	if active, pending, _, _ := st.UserTOTP(ctx, u.ID); active != secret || pending != "" {
 		t.Error("a new enrolment started while the second factor is active")
@@ -334,7 +318,7 @@ func TestTOTPEnrolmentNeedsPassword(t *testing.T) {
 // Over HTTPS the session cookie carries the __Host- prefix.
 func TestSecureCookieName(t *testing.T) {
 	_, base := newServerWith(t, func(s *Server) { s.SecureCookies = true })
-	resp, err := newClient(t, base).http.PostForm(base+"/login", url.Values{"username": {"admin"}, "password": {"a-strong-password"}})
+	resp, err := newClient(t, base).http.PostForm(base+"/login", url.Values{"username": {"admin"}, "password": {testPassword}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,7 +332,7 @@ func TestSecureCookieName(t *testing.T) {
 func TestSettingsChangesAudited(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	ctx := context.Background()
-	admin := loginAs(t, base, "admin", "a-strong-password")
+	admin := loginAs(t, base, "admin", testPassword)
 	id, _ := st.CreateAPIToken(ctx, store.APIToken{Name: "ci", Project: "app"}, "hash", 0)
 	if code := admin.post("/settings/tokens/"+itoa(id)+"/delete", url.Values{"csrf": {admin.csrf()}}); code != http.StatusSeeOther {
 		t.Fatalf("revoke: %d", code)
@@ -364,7 +348,7 @@ func TestSettingsChangesAudited(t *testing.T) {
 // answered « Jeton CSRF invalide. ». A form without its file says so.
 func TestBodyPastItsBound(t *testing.T) {
 	st, base := newServerWith(t, nil)
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 	for _, tc := range []struct {
 		path, field, content, want string
 	}{
@@ -390,5 +374,3 @@ func TestBodyPastItsBound(t *testing.T) {
 		t.Errorf("CSV without its file: %d", code)
 	}
 }
-
-func itoa(n int64) string { return strconv.FormatInt(n, 10) }

@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 )
 
 // seedMany gives an asset n findings to analyse, CVE-2026-0000 onwards, and
@@ -24,12 +24,7 @@ func seedMany(t *testing.T, st *store.Store, n int) (int64, map[string]int64) {
 	}
 	for i := range n {
 		id := fmt.Sprintf("CVE-2026-%04d", i)
-		if err := st.UpsertVulnerability(ctx, store.Vulnerability{ID: id, Severity: "LOW", CVSS: 3, Summary: "wifi: fix"}); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := st.ObserveFinding(ctx, asset, id, "", time.Now()); err != nil {
-			t.Fatal(err)
-		}
+		storetest.Finding(t, st, asset, store.Vulnerability{ID: id, Severity: "LOW", CVSS: 3, Summary: "wifi: fix"}, time.Now())
 	}
 	ids := map[string]int64{}
 	list, err := st.ListFindings(ctx, store.Everything, store.FindingFilter{})
@@ -48,7 +43,7 @@ func seedMany(t *testing.T, st *store.Store, n int) (int64, map[string]int64) {
 func TestListPages(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	asset, _ := seedMany(t, st, 250)
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 
 	for query, want := range map[string]struct {
 		first, rows int
@@ -98,14 +93,14 @@ func TestListPages(t *testing.T) {
 
 	// What a rule would set aside on an asset is cut the same way; the page
 	// itself shows the ten most urgent and links to its list (A86).
-	_, page := c.get("/assets/" + strconv.FormatInt(asset, 10) + "?q=wifi&page=3")
+	_, page := c.get("/assets/" + itoa(asset) + "?q=wifi&page=3")
 	if got := findingOrder(page[strings.Index(page, `id="apercu"`):]); len(got) != 50 || !strings.Contains(page, "lignes 201 à 250 sur 250") {
 		t.Errorf("asset page 3: %d rows", len(got))
 	}
 	if !strings.Contains(page, "250 vulnérabilité(s) contiennent") {
 		t.Error("the search on an asset counts its page only")
 	}
-	if _, page := c.get("/assets/" + strconv.FormatInt(asset, 10)); len(findingOrder(page)) != assetFirst || strings.Contains(page, `class="pager"`) {
+	if _, page := c.get("/assets/" + itoa(asset)); len(findingOrder(page)) != assetFirst || strings.Contains(page, `class="pager"`) {
 		t.Errorf("the page of an asset lists %d vulnerabilities, want its %d most urgent", len(findingOrder(page)), assetFirst)
 	}
 }
@@ -125,7 +120,7 @@ func TestBulkWholeList(t *testing.T) {
 	if err := st.SetFindingStatus(ctx, store.Everything, human, analyst.ID, store.StatusInTriage, "", "à revoir avec l'équipe réseau"); err != nil {
 		t.Fatal(err)
 	}
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 	status := func(id int64) string {
 		f, err := st.Finding(ctx, store.Everything, id)
 		if err != nil {
@@ -136,7 +131,7 @@ func TestBulkWholeList(t *testing.T) {
 
 	// Up to 50, no confirmation.
 	small := url.Values{"csrf": {c.csrf()}, "scope": {"list"}, "next": {"/findings?q=CVE-2026-001"}, "status": {"exploitable"}}
-	if code, loc := c.postLocation("/findings/bulk", small); code != http.StatusSeeOther || loc != "/findings?q=CVE-2026-001&msg=bulk-list-updated" {
+	if code, loc := c.send(http.MethodPost, "/findings/bulk", small); code != http.StatusSeeOther || loc != "/findings?q=CVE-2026-001&msg=bulk-list-updated" {
 		t.Fatalf("a small list: %d %s", code, loc)
 	}
 	if status(ids["CVE-2026-0010"]) != store.StatusExploitable || status(ids["CVE-2026-0009"]) != store.StatusInTriage {
@@ -161,7 +156,7 @@ func TestBulkWholeList(t *testing.T) {
 			t.Fatal("applied before its confirmation")
 		}
 	}
-	code, loc := c.postLocation("/findings/bulk", form("60"))
+	code, loc := c.send(http.MethodPost, "/findings/bulk", form("60"))
 	if code != http.StatusSeeOther || loc != "/findings?sort=vuln&page=2&msg=bulk-list-updated" {
 		t.Fatalf("confirmed: %d %s", code, loc)
 	}
@@ -191,8 +186,8 @@ func TestBulkWholeList(t *testing.T) {
 func TestBulkErrorKeepsChoices(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	_, ids := seedMany(t, st, 3)
-	c := loginAs(t, base, "analyst", "a-strong-password")
-	a, b := strconv.FormatInt(ids["CVE-2026-0000"], 10), strconv.FormatInt(ids["CVE-2026-0002"], 10)
+	c := loginAs(t, base, "analyst", testPassword)
+	a, b := itoa(ids["CVE-2026-0000"]), itoa(ids["CVE-2026-0002"])
 	code, body := c.postBody("/findings/bulk", url.Values{"csrf": {c.csrf()}, "scope": {"rows"}, "id": {a, b},
 		"status": {"not_affected"}, "comment": {"vu en revue"}, "next": {"/findings?sort=vuln"}})
 	if code != http.StatusBadRequest {
@@ -212,7 +207,7 @@ func TestBulkErrorKeepsChoices(t *testing.T) {
 			t.Errorf("refused decision misses %s", want)
 		}
 	}
-	if strings.Contains(body, `value="`+strconv.FormatInt(ids["CVE-2026-0001"], 10)+`" form="bulk" aria-label="Sélectionner CVE-2026-0001 sur linux" checked>`) {
+	if strings.Contains(body, `value="`+itoa(ids["CVE-2026-0001"])+`" form="bulk" aria-label="Sélectionner CVE-2026-0001 sur linux" checked>`) {
 		t.Error("a box not ticked comes back ticked")
 	}
 	if !strings.Contains(body, `<a href="/findings" aria-current="page">Vulnérabilités</a>`) || !strings.Contains(body, `<input type="hidden" name="next" value="/findings">`) {
@@ -233,17 +228,17 @@ func TestBulkErrorKeepsChoices(t *testing.T) {
 func TestBackToTheList(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	_, ids := seedMany(t, st, 3)
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 	first, second, last := ids["CVE-2026-0000"], ids["CVE-2026-0001"], ids["CVE-2026-0002"]
 	list := "/findings?q=CVE-2026&sort=vuln"
 	back := url.QueryEscape(list)
 
 	_, body := c.get(list)
-	if !strings.Contains(body, `<a href="/findings/`+strconv.FormatInt(first, 10)+`?back=%2ffindings%3fq%3dCVE-2026%26sort%3dvuln">CVE-2026-0000</a>`) {
+	if !strings.Contains(body, `<a href="/findings/`+itoa(first)+`?back=%2ffindings%3fq%3dCVE-2026%26sort%3dvuln">CVE-2026-0000</a>`) {
 		t.Fatal("a row does not lead back to its list")
 	}
 	_, page := c.get(findingPath(first) + "?back=" + back)
-	next := `<a href="/findings/` + strconv.FormatInt(second, 10) + `?back=%2ffindings%3fq%3dCVE-2026%26sort%3dvuln">Suivante dans la liste →</a>`
+	next := `<a href="/findings/` + itoa(second) + `?back=%2ffindings%3fq%3dCVE-2026%26sort%3dvuln">Suivante dans la liste →</a>`
 	if !strings.Contains(page, `<a href="/findings?q=CVE-2026&amp;sort=vuln">← Retour à la liste</a>`) || !strings.Contains(page, next) ||
 		!strings.Contains(page, `<input type="hidden" name="back" value="/findings?q=CVE-2026&amp;sort=vuln">`) {
 		t.Errorf("finding page opened from a list:\n%s", page)
@@ -260,15 +255,15 @@ func TestBackToTheList(t *testing.T) {
 
 	// A decision takes it out of the list: the page still leads to the one
 	// that followed it.
-	code, loc := c.postLocation(findingPath(first), url.Values{"csrf": {c.csrf()}, "status": {"false_positive"}, "back": {list}})
-	want := findingPath(first) + "?back=" + back + "&then=" + strconv.FormatInt(second, 10) + "&msg=status-updated"
+	code, loc := c.send(http.MethodPost, findingPath(first), url.Values{"csrf": {c.csrf()}, "status": {"false_positive"}, "back": {list}})
+	want := findingPath(first) + "?back=" + back + "&then=" + itoa(second) + "&msg=status-updated"
 	if code != http.StatusSeeOther || loc != want {
 		t.Fatalf("update: %d %s\nwant %s", code, loc, want)
 	}
 	if _, page := c.get(loc); !strings.Contains(page, next) || !strings.Contains(page, "Statut mis à jour.") {
 		t.Error("after a decision, no way on to the next one")
 	}
-	if code, loc := c.postLocation(findingPath(first), url.Values{"csrf": {c.csrf()}, "status": {"in_triage"}, "back": {"https://evil.example"}}); code != http.StatusSeeOther ||
+	if code, loc := c.send(http.MethodPost, findingPath(first), url.Values{"csrf": {c.csrf()}, "status": {"in_triage"}, "back": {"https://evil.example"}}); code != http.StatusSeeOther ||
 		!strings.HasPrefix(loc, findingPath(first)+"?back=%2Ffindings") {
 		t.Errorf("an external return address after a decision: %s", loc)
 	}
@@ -280,7 +275,7 @@ func TestBackToTheList(t *testing.T) {
 func TestNextAfterADecisionIsNotReadAgain(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	_, ids := seedMany(t, st, 3)
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 	first, last := ids["CVE-2026-0000"], ids["CVE-2026-0002"]
 	back := url.QueryEscape("/findings?q=CVE-2026&sort=vuln")
 	_, page := c.get(findingPath(first) + "?back=" + back + "&then=" + itoa(last))

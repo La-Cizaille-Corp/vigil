@@ -38,7 +38,7 @@ func TestSyncsWaitForTheRunInProgress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 	if code, _ := c.send(http.MethodPost, "/sync", url.Values{"csrf": {c.csrf()}}); code != http.StatusSeeOther {
 		t.Fatalf("sync: %d", code)
 	}

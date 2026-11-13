@@ -14,7 +14,7 @@ import (
 // same way. Each value now waits for its own page, and is shown there once.
 func TestOnceValueWaitsForItsPage(t *testing.T) {
 	_, base := newServerWith(t, nil)
-	admin := loginAs(t, base, "admin", "a-strong-password")
+	admin := loginAs(t, base, "admin", testPassword)
 	token := admin.csrf()
 
 	if code := admin.post("/settings/users", url.Values{"csrf": {token}, "username": {"bob"}, "role": {"analyst"}, "access": {"all"}}); code != http.StatusSeeOther {

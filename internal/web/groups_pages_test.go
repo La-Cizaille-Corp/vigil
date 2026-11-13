@@ -11,7 +11,6 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -21,6 +20,7 @@ import (
 	"github.com/La-Cizaille-Corp/vigil/internal/digest"
 	"github.com/La-Cizaille-Corp/vigil/internal/notify"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
 )
 
@@ -31,7 +31,7 @@ import (
 // title shows, but it does not « concern » the inventory of A.
 func TestNothingOfAnotherGroupLeaks(t *testing.T) {
 	fx := newGroupFixture(t)
-	id := func(v int64) string { return strconv.FormatInt(v, 10) }
+	id := func(v int64) string { return itoa(v) }
 	var paths []string
 	for _, rt := range (&Server{}).routes() {
 		method, path, _ := strings.Cut(rt.pattern, " ")
@@ -185,7 +185,7 @@ func TestTriageStaysInTheScope(t *testing.T) {
 	before := fx.state(t, "b")
 	c := fx.client["ana-a"]
 	code := c.post("/findings/bulk", url.Values{"csrf": {c.csrf()}, "status": {store.StatusFalsePositive}, "comment": {"lot"},
-		"next": {"/findings"}, "id": {strconv.FormatInt(fx.finding["b"], 10), strconv.FormatInt(fx.finding["a"], 10)}})
+		"next": {"/findings"}, "id": {itoa(fx.finding["b"]), itoa(fx.finding["a"])}})
 	if code != http.StatusSeeOther {
 		t.Fatalf("bulk: %d", code)
 	}
@@ -265,11 +265,11 @@ func TestSyncStateOfARestrictedAccount(t *testing.T) {
 func TestGroupAdministration(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	ctx := context.Background()
-	web, _ := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "nginx", Kind: "product", Criticality: "low", Source: "manual",
+	web := storetest.Asset(t, st, store.Asset{Name: "nginx", Kind: "product", Criticality: "low", Source: "manual",
 		Tags: []string{"web"}})
 	st.CreateAsset(ctx, store.Everything, store.Asset{Name: "compta", Kind: "product", Criticality: "low", Source: "manual",
 		Tags: []string{"webapp"}, Project: "erp"})
-	admin := loginAs(t, base, "admin", "a-strong-password")
+	admin := loginAs(t, base, "admin", testPassword)
 	audited := func(action, detail string) {
 		t.Helper()
 		entries, _ := st.ListAudit(ctx, 1)
@@ -277,7 +277,7 @@ func TestGroupAdministration(t *testing.T) {
 			t.Errorf("audit: %+v, want %s %q", entries, action, detail)
 		}
 	}
-	code, loc := admin.postLocation("/settings/groups", url.Values{"csrf": {admin.csrf()}, "name": {"  Équipe   web "}})
+	code, loc := admin.send(http.MethodPost, "/settings/groups", url.Values{"csrf": {admin.csrf()}, "name": {"  Équipe   web "}})
 	if code != http.StatusSeeOther || !strings.HasPrefix(loc, "/settings/groups/") {
 		t.Fatalf("create: %d %s", code, loc)
 	}
@@ -295,7 +295,7 @@ func TestGroupAdministration(t *testing.T) {
 			t.Errorf("group page misses %s", want)
 		}
 	}
-	if code, _ := admin.postLocation(path+"/rules", url.Values{"csrf": {admin.csrf()}, "tag": {"web"}, "new_tag": {" Futur "},
+	if code, _ := admin.send(http.MethodPost, path+"/rules", url.Values{"csrf": {admin.csrf()}, "tag": {"web"}, "new_tag": {" Futur "},
 		"new_project": {"boutique"}}); code != http.StatusSeeOther {
 		t.Fatalf("rules: %d", code)
 	}
@@ -303,7 +303,7 @@ func TestGroupAdministration(t *testing.T) {
 	if _, body = admin.get(path); !strings.Contains(body, "1 actif(s)") || !strings.Contains(body, `value="futur" checked`) {
 		t.Error("the group does not cover the asset tagged web, or forgets the tag not in use")
 	}
-	if code, _ := admin.postLocation(path, url.Values{"csrf": {admin.csrf()}, "name": {"Web"}}); code != http.StatusSeeOther {
+	if code, _ := admin.send(http.MethodPost, path, url.Values{"csrf": {admin.csrf()}, "name": {"Web"}}); code != http.StatusSeeOther {
 		t.Fatalf("rename: %d", code)
 	}
 	audited("group_rename", "id="+id+" name=Web")
@@ -328,10 +328,10 @@ func TestGroupAdministration(t *testing.T) {
 	if _, body := reader.get("/account"); !strings.Contains(body, "<strong>Web</strong>") {
 		t.Error("Mon compte does not tell the access")
 	}
-	if _, body := reader.get("/assets/" + strconv.FormatInt(web, 10)); !strings.Contains(body, `Groupes : <a href="/assets?group=`+id+`">Web</a>`) {
+	if _, body := reader.get("/assets/" + itoa(web)); !strings.Contains(body, `Groupes : <a href="/assets?group=`+id+`">Web</a>`) {
 		t.Error("the page of the asset does not name its group")
 	}
-	access := "/settings/users/" + strconv.FormatInt(camille.ID, 10) + "/access"
+	access := "/settings/users/" + itoa(camille.ID) + "/access"
 	if code := admin.post(access, url.Values{"csrf": {admin.csrf()}, "access": {"all"}}); code != http.StatusSeeOther {
 		t.Fatalf("access: %d", code)
 	}
@@ -350,7 +350,7 @@ func TestGroupAdministration(t *testing.T) {
 		t.Error("an account without a group sees assets")
 	}
 
-	if code, loc := admin.postLocation(path+"/delete", url.Values{"csrf": {admin.csrf()}}); code != http.StatusSeeOther || loc != "/settings/groups?msg=group-deleted" {
+	if code, loc := admin.send(http.MethodPost, path+"/delete", url.Values{"csrf": {admin.csrf()}}); code != http.StatusSeeOther || loc != "/settings/groups?msg=group-deleted" {
 		t.Fatalf("delete: %d %s", code, loc)
 	}
 	audited("group_delete", "id="+id+" name=Web")
@@ -365,7 +365,7 @@ func TestGroupAdministration(t *testing.T) {
 // newPassword gives the account id a temporary password, as an administrator.
 func (c *client) newPassword(t *testing.T, id int64) string {
 	t.Helper()
-	if code := c.post("/settings/users/"+strconv.FormatInt(id, 10)+"/password", url.Values{"csrf": {c.csrf()}}); code != http.StatusSeeOther {
+	if code := c.post("/settings/users/"+itoa(id)+"/password", url.Values{"csrf": {c.csrf()}}); code != http.StatusSeeOther {
 		t.Fatalf("temporary password: %d", code)
 	}
 	_, body := c.get("/settings/users")
@@ -395,7 +395,7 @@ func TestRestrictedWritesThroughThePages(t *testing.T) {
 	form := func(tags string) url.Values {
 		return url.Values{"csrf": {c.csrf()}, "name": {"nouveau"}, "kind": {"package"}, "criticality": {"low"}, "tags": {tags}}
 	}
-	p := "/assets/" + strconv.FormatInt(fx.asset["p"], 10)
+	p := "/assets/" + itoa(fx.asset["p"])
 	if _, body := c.get("/assets/new"); !strings.Contains(body, "porter une de ces étiquettes : equipe-a") {
 		t.Error("the form does not tell which tags keep an asset in the groups of the account")
 	}
@@ -452,7 +452,7 @@ func TestRestrictedWritesThroughThePages(t *testing.T) {
 		url.Values{"csrf": {c.csrf()}}); code != http.StatusSeeOther {
 		t.Errorf("CSV of A: %d", code)
 	}
-	if code := c.post("/assets/"+strconv.FormatInt(fx.asset["a"], 10)+"/delete", url.Values{"csrf": {c.csrf()}}); code != http.StatusSeeOther {
+	if code := c.post("/assets/"+itoa(fx.asset["a"])+"/delete", url.Values{"csrf": {c.csrf()}}); code != http.StatusSeeOther {
 		t.Errorf("an asset of A alone deleted: %d", code)
 	}
 	if code := fx.client["analyst"].post("/settings/watch", url.Values{"csrf": {fx.client["analyst"].csrf()}, "country": {"FR"}}); code != http.StatusSeeOther {
@@ -474,7 +474,7 @@ func TestTokenProjectJoinsAGroup(t *testing.T) {
 		t.Error("token created for an unknown group")
 	}
 	if code := admin.post("/settings/tokens", url.Values{"csrf": {admin.csrf()}, "name": {"ci"}, "project": {"ci-app"},
-		"group": {strconv.FormatInt(fx.groupA, 10)}}); code != http.StatusSeeOther {
+		"group": {itoa(fx.groupA)}}); code != http.StatusSeeOther {
 		t.Fatalf("token: %d", code)
 	}
 	g, err := fx.st.Group(ctx, store.Everything, fx.groupA)
@@ -506,7 +506,7 @@ func TestTokenProjectJoinsAGroup(t *testing.T) {
 func TestDigestsOfAGroupThroughThePages(t *testing.T) {
 	fx := newGroupFixture(t)
 	c := fx.client["ana-a"]
-	group := func(id int64) string { return strconv.FormatInt(id, 10) }
+	group := func(id int64) string { return itoa(id) }
 	_, body := fx.client["lec-a"].get("/digests")
 	if !strings.Contains(body, "/digests/"+group(fx.digests["dA"])) || strings.Contains(body, "/digests/"+group(fx.digests["dB"])) ||
 		strings.Contains(body, "/digests/"+group(fx.digest)+"\"") {
@@ -522,7 +522,7 @@ func TestDigestsOfAGroupThroughThePages(t *testing.T) {
 	if code := c.post("/digests", url.Values{"csrf": {c.csrf()}, "group": {group(fx.groupB)}}); code != http.StatusNotFound {
 		t.Errorf("digest of B by A: %d", code)
 	}
-	code, loc := c.postLocation("/digests", url.Values{"csrf": {c.csrf()}, "group": {group(fx.groupA)}})
+	code, loc := c.send(http.MethodPost, "/digests", url.Values{"csrf": {c.csrf()}, "group": {group(fx.groupA)}})
 	if code != http.StatusSeeOther {
 		t.Fatalf("digest of A by A: %d", code)
 	}
@@ -539,7 +539,7 @@ func TestDigestsOfAGroupThroughThePages(t *testing.T) {
 	if want := "id=" + path[strings.LastIndex(path, "/")+1:] + ` group="Équipe A"`; len(entries) != 1 || entries[0].Detail != want {
 		t.Errorf("audit: %+v, want %q", entries, want)
 	}
-	if code, loc := fx.client["analyst"].postLocation("/digests", url.Values{"csrf": {fx.client["analyst"].csrf()}}); code != http.StatusSeeOther {
+	if code, loc := fx.client["analyst"].send(http.MethodPost, "/digests", url.Values{"csrf": {fx.client["analyst"].csrf()}}); code != http.StatusSeeOther {
 		t.Errorf("digest of the whole inventory: %d %s", code, loc)
 	}
 }
@@ -564,7 +564,7 @@ func TestChannelsOfAGroup(t *testing.T) {
 	// The form limits a channel to a group (an address of its own, never
 	// called: the channel is disabled at once).
 	if code := admin.post("/settings/webhooks", url.Values{"csrf": {admin.csrf()}, "name": {"équipe A"}, "kind": {"generic"},
-		"url": {"https://hooks.example.org/a"}, "group": {strconv.FormatInt(fx.groupA, 10)}}); code != http.StatusSeeOther {
+		"url": {"https://hooks.example.org/a"}, "group": {itoa(fx.groupA)}}); code != http.StatusSeeOther {
 		t.Fatalf("channel of A by the form: %d", code)
 	}
 	hooks, _ := fx.st.ListWebhooks(ctx)
@@ -625,11 +625,11 @@ func TestChannelsOfAGroup(t *testing.T) {
 	if _, body = admin.get("/settings/tokens"); !strings.Contains(body, "Créer le jeton") || !strings.Contains(body, "Ajouter ce projet au groupe") {
 		t.Error("the tokens page does not offer to add their project to a group")
 	}
-	_, body = admin.get("/settings/groups/" + strconv.FormatInt(fx.groupA, 10))
+	_, body = admin.get("/settings/groups/" + itoa(fx.groupA))
 	if !strings.Contains(body, "2 canal(aux)") {
 		t.Error("the page of a group does not count its channels")
 	}
-	if code, body := admin.postBody("/settings/groups/"+strconv.FormatInt(fx.groupA, 10)+"/delete", url.Values{"csrf": {admin.csrf()}}); code != http.StatusConflict ||
+	if code, body := admin.postBody("/settings/groups/"+itoa(fx.groupA)+"/delete", url.Values{"csrf": {admin.csrf()}}); code != http.StatusConflict ||
 		!strings.Contains(body, "Des canaux de notification sont limités à ce groupe") {
 		t.Errorf("group with a channel deleted: %d", code)
 	}
@@ -660,7 +660,7 @@ func TestGroupFilter(t *testing.T) {
 		{"lec-a", fx.groupB, nil},
 		{"lec-a", 0, []string{"alpha", "partage"}},
 	} {
-		q := "?group=" + strconv.FormatInt(c.group, 10)
+		q := "?group=" + itoa(c.group)
 		for _, path := range []string{"/assets" + q, "/findings" + q + "&level=all"} {
 			if _, body := fx.client[c.account].get(path); !slices.Equal(names(body), c.want) {
 				t.Errorf("%s as %s: %v, want %v", path, c.account, names(body), c.want)

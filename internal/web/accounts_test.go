@@ -14,40 +14,18 @@ import (
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
 
-// putSBOM sends an SBOM to the CI API with a bearer token (none if empty)
-// and extra headers, and returns the status.
-func putSBOM(t *testing.T, base, project, token, body string, headers ...string) int {
-	t.Helper()
-	req, err := http.NewRequest(http.MethodPut, base+"/api/v1/projects/"+project+"/sbom", strings.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-	for i := 0; i+1 < len(headers); i += 2 {
-		req.Header.Set(headers[i], headers[i+1])
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-	return resp.StatusCode
-}
-
 // S13: a user closes the sessions of their other browsers on demand. The
 // current one stays open, other users keep theirs, and the action is audited.
 func TestCloseOtherSessions(t *testing.T) {
 	st, base := newServerWith(t, nil)
-	c := loginAs(t, base, "analyst", "a-strong-password")
-	other := loginAs(t, base, "analyst", "a-strong-password")
-	admin := loginAs(t, base, "admin", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
+	other := loginAs(t, base, "analyst", testPassword)
+	admin := loginAs(t, base, "admin", testPassword)
 	if _, body := c.get("/account"); !strings.Contains(body, `action="/account/sessions/close-others"`) {
 		t.Fatal("no button to close the other sessions on the account page")
 	}
 
-	code, to := c.postLocation("/account/sessions/close-others", url.Values{"csrf": {c.csrf()}})
+	code, to := c.send(http.MethodPost, "/account/sessions/close-others", url.Values{"csrf": {c.csrf()}})
 	if code != http.StatusSeeOther || to != "/account?msg=sessions-closed" {
 		t.Fatalf("close other sessions: %d %s", code, to)
 	}
@@ -70,7 +48,7 @@ func TestCloseOtherSessions(t *testing.T) {
 // by case, and says why.
 func TestUserCreateIgnoresCase(t *testing.T) {
 	st, base := newServerWith(t, nil)
-	admin := loginAs(t, base, "admin", "a-strong-password")
+	admin := loginAs(t, base, "admin", testPassword)
 	code, body := admin.postBody("/settings/users", url.Values{"csrf": {admin.csrf()}, "username": {"Analyst"}, "role": {"viewer"}, "access": {"all"}})
 	if code != http.StatusBadRequest || !strings.Contains(body, "majuscules et minuscules") {
 		t.Errorf("case variant of an existing name: %d", code)
@@ -86,8 +64,7 @@ func TestUserCreateIgnoresCase(t *testing.T) {
 func TestFailedLoginKeepsOnlyAccountNames(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	ctx := context.Background()
-	hash, _ := auth.HashPassword("a-strong-password")
-	gone, _ := st.CreateUser(ctx, "gone", hash, auth.RoleViewer, store.Access{All: true})
+	gone := addUser(t, st, "gone", auth.RoleViewer)
 	if err := st.SetDisabled(ctx, gone, true); err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +72,7 @@ func TestFailedLoginKeepsOnlyAccountNames(t *testing.T) {
 	attempts := []struct{ username, password, detail string }{
 		{"my-secret-passw0rd", "", "ip=127.0.0.1"},
 		{"admin", "wrong-password", "ip=127.0.0.1 user=admin"},
-		{"gone", "a-strong-password", "ip=127.0.0.1 user=gone"},
+		{"gone", testPassword, "ip=127.0.0.1 user=gone"},
 		{"Admin", "wrong-password", "ip=127.0.0.1"},
 	}
 	var first string
@@ -128,8 +105,7 @@ func TestFailedLoginKeepsOnlyAccountNames(t *testing.T) {
 func TestTokenSuspendedWithItsCreator(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	ctx := context.Background()
-	hash, _ := auth.HashPassword("a-strong-password")
-	alice, _ := st.CreateUser(ctx, "alice", hash, auth.RoleAdmin, store.Access{All: true})
+	alice := addUser(t, st, "alice", auth.RoleAdmin)
 	const secret, orphan = "vgl_alice-token", "vgl_orphan-token"
 	if _, err := st.CreateAPIToken(ctx, store.APIToken{Name: "ci-alice", Project: "app"}, auth.HashToken(secret), alice); err != nil {
 		t.Fatal(err)
@@ -152,7 +128,7 @@ func TestTokenSuspendedWithItsCreator(t *testing.T) {
 	if code := putSBOM(t, base, "app", orphan, bom); code != http.StatusOK {
 		t.Errorf("token without a known creator: %d", code)
 	}
-	admin := loginAs(t, base, "admin", "a-strong-password")
+	admin := loginAs(t, base, "admin", testPassword)
 	if _, body := admin.get("/settings/tokens"); !strings.Contains(body, "suspendu : le compte alice est désactivé") {
 		t.Error("the token list does not show the token suspended")
 	}

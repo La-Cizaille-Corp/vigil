@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 )
 
 // The watch shows its most recent news a page at a time, by day, counts each
@@ -17,9 +18,8 @@ import (
 func TestWatchPagesAndCounts(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	ctx := context.Background()
-	asset, _ := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "nginx", Version: "1.24", Kind: "product", Criticality: "high", Source: "manual"})
-	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-2026-1234", Severity: "HIGH", CVSS: 7.5, EPSS: -1})
-	st.ObserveFinding(ctx, asset, "CVE-2026-1234", "", time.Now())
+	asset := storetest.Asset(t, st, store.Asset{Name: "nginx", Version: "1.24", Kind: "product", Criticality: "high", Source: "manual"})
+	storetest.Finding(t, st, asset, store.Vulnerability{ID: "CVE-2026-1234", Severity: "HIGH", CVSS: 7.5, EPSS: -1}, time.Now())
 	feed, err := st.CreateFeed(ctx, store.Feed{Name: "Avis", URL: "https://example.org/feed", Enabled: true})
 	if err != nil {
 		t.Fatal(err)
@@ -39,7 +39,7 @@ func TestWatchPagesAndCounts(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 
 	_, body := c.get("/cti?all=1")
 	for _, want := range []string{

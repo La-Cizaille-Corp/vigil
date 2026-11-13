@@ -14,6 +14,7 @@ import (
 	"github.com/La-Cizaille-Corp/vigil/internal/auth"
 	"github.com/La-Cizaille-Corp/vigil/internal/digest"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
 )
 
@@ -49,7 +50,7 @@ func TestSortAssets(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 	for query, want := range map[string][]string{
 		"sort=name":                {"Alpha", "bravo", "charlie"},
 		"sort=name&dir=desc":       {"charlie", "bravo", "Alpha"},
@@ -90,13 +91,14 @@ func TestSortAssets(t *testing.T) {
 
 func TestSortFindings(t *testing.T) {
 	st, base := newServerWith(t, nil)
-	seedFindings(t, st) // critical now, high 20 days ago, low 40 days ago
+	assetID, ids := seedFindings(t, st) // critical now, high 20 days ago, low 40 days ago
 	ctx := context.Background()
-	other, _ := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "apache", Version: "2.4", Kind: "product", Criticality: "low", Source: "manual"})
-	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-2024-10000", Severity: "HIGH", EPSS: 0.5, CVSS: -1})
-	st.ObserveFinding(ctx, other, "CVE-2024-10000", "", time.Now().Add(-5*24*time.Hour))
-	st.SetExploitSignals(ctx, store.ExploitSignal{ID: "CVE-2024-10000", EPSS: 0.5})
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	other := storetest.Asset(t, st, store.Asset{Name: "apache", Version: "2.4", Kind: "product", Criticality: "low", Source: "manual"})
+	storetest.Finding(t, st, other, store.Vulnerability{ID: "CVE-2024-10000", Severity: "HIGH", EPSS: 0.5, CVSS: -1}, time.Now().Add(-5*24*time.Hour))
+	if _, err := st.SetExploitSignals(ctx, store.ExploitSignal{ID: "CVE-2024-10000", EPSS: 0.5}); err != nil {
+		t.Fatal(err)
+	}
+	c := loginAs(t, base, "analyst", testPassword)
 	const crit, high, low, likely = "CVE-2024-0001", "CVE-2024-0002", "CVE-2024-0003", "CVE-2024-10000"
 	for query, want := range map[string][]string{
 		"":                       {likely, crit, high, low}, // the priority: likely to be exploited first
@@ -118,14 +120,11 @@ func TestSortFindings(t *testing.T) {
 	}
 
 	// A status keeps its own order, not the alphabetical one.
-	list, _ := st.ListFindings(ctx, store.Everything, store.FindingFilter{})
-	for _, f := range list {
-		if f.VulnID == high {
-			st.SetFindingStatus(ctx, store.Everything, f.ID, 0, "resolved", "", "")
-		}
+	if err := st.SetFindingStatus(ctx, store.Everything, ids[1], 0, "resolved", "", ""); err != nil { // the high one
+		t.Fatal(err)
 	}
 	_, body := c.get("/findings?level=all&sort=status&dir=desc")
-	if got := findingOrder(body); got[0] != high {
+	if got := findingOrder(body); len(got) == 0 || got[0] != high {
 		t.Errorf("by status: %v", got)
 	}
 
@@ -146,8 +145,7 @@ func TestSortFindings(t *testing.T) {
 	}
 
 	// The list of an asset is not sortable.
-	assetID := list[0].AssetID
-	_, body = c.get("/assets/" + strconv.FormatInt(assetID, 10))
+	_, body = c.get("/assets/" + itoa(assetID))
 	if strings.Contains(body, `class="sort"`) {
 		t.Error("the list of an asset has sort links")
 	}
@@ -189,28 +187,21 @@ func TestSyncProgressText(t *testing.T) {
 // and the links keep the filters and the order.
 func TestFindingLevels(t *testing.T) {
 	st, base := newServerWith(t, nil)
-	assetID, ids := seedFindings(t, st) // critical, high, low
+	assetID, _ := seedFindings(t, st) // critical, high, low
 	ctx := context.Background()
-	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-2024-0004", Severity: "LOW", EPSS: -1, CVSS: 2})
-	st.ObserveFinding(ctx, assetID, "CVE-2024-0004", "", time.Now())
-	st.SetExploitSignals(ctx, store.ExploitSignal{ID: "CVE-2024-0004", KEV: true, EPSS: 0.5})
-	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-2024-0005", EPSS: -1, CVSS: -1})
-	st.ObserveFinding(ctx, assetID, "CVE-2024-0005", "", time.Now())
-	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-2024-0006", Severity: "HIGH", EPSS: -1, CVSS: 8})
-	st.ObserveFinding(ctx, assetID, "CVE-2024-0006", "", time.Now())
-	st.UpsertVulnerability(ctx, store.Vulnerability{ID: "CVE-2024-0007", Severity: "HIGH", EPSS: -1, CVSS: 8})
-	st.ObserveFinding(ctx, assetID, "CVE-2024-0007", "", time.Now())
-	list, _ := st.ListFindings(ctx, store.Everything, store.FindingFilter{})
-	for _, f := range list {
-		switch f.VulnID {
-		case "CVE-2024-0006":
-			st.SetFindingStatus(ctx, store.Everything, f.ID, 0, "false_positive", "", "")
-		case "CVE-2024-0007":
-			st.SetFindingStatus(ctx, store.Everything, f.ID, 0, "resolved", "", "")
+	storetest.Finding(t, st, assetID, store.Vulnerability{ID: "CVE-2024-0004", Severity: "LOW", EPSS: -1, CVSS: 2}, time.Now())
+	if _, err := st.SetExploitSignals(ctx, store.ExploitSignal{ID: "CVE-2024-0004", KEV: true, EPSS: 0.5}); err != nil {
+		t.Fatal(err)
+	}
+	storetest.Finding(t, st, assetID, store.Vulnerability{ID: "CVE-2024-0005", EPSS: -1, CVSS: -1}, time.Now())
+	aside := storetest.Finding(t, st, assetID, store.Vulnerability{ID: "CVE-2024-0006", Severity: "HIGH", EPSS: -1, CVSS: 8}, time.Now())
+	fixed := storetest.Finding(t, st, assetID, store.Vulnerability{ID: "CVE-2024-0007", Severity: "HIGH", EPSS: -1, CVSS: 8}, time.Now())
+	for id, status := range map[int64]string{aside: "false_positive", fixed: "resolved"} {
+		if err := st.SetFindingStatus(ctx, store.Everything, id, 0, status, "", ""); err != nil {
+			t.Fatal(err)
 		}
 	}
-	_ = ids
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 
 	for level, want := range map[string][]string{
 		"urgent": {"CVE-2024-0004"},
@@ -280,7 +271,7 @@ func TestFindingLevels(t *testing.T) {
 func TestPriorityLinksLeadToUrgent(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	seedFindings(t, st)
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 	for path, want := range map[string]string{
 		"/findings?priority=1":                     "/findings?level=urgent",
 		"/findings?priority=1&q=fortios&sort=cvss": "/findings?level=urgent&q=fortios&sort=cvss",
@@ -302,13 +293,12 @@ func TestPriorityLinksLeadToUrgent(t *testing.T) {
 func TestDismissalFlow(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	ctx := context.Background()
-	asset, _ := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "linux", Kind: "os", Criticality: "high", Source: "manual"})
+	asset := storetest.Asset(t, st, store.Asset{Name: "linux", Kind: "os", Criticality: "high", Source: "manual"})
 	for id, summary := range map[string]string{"CVE-1": "wifi: fix", "CVE-2": "wifi: other", "CVE-3": "ipv4: fix"} {
-		st.UpsertVulnerability(ctx, store.Vulnerability{ID: id, Summary: summary, EPSS: -1, CVSS: -1})
-		st.ObserveFinding(ctx, asset, id, "", time.Now())
+		storetest.Finding(t, st, asset, store.Vulnerability{ID: id, Summary: summary, EPSS: -1, CVSS: -1}, time.Now())
 	}
-	page := "/assets/" + strconv.FormatInt(asset, 10)
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	page := "/assets/" + itoa(asset)
+	c := loginAs(t, base, "analyst", testPassword)
 
 	_, body := c.get(page + "?q=wifi:")
 	// What the rule would set aside is listed apart from the most urgent ones (A86).
@@ -326,7 +316,7 @@ func TestDismissalFlow(t *testing.T) {
 			t.Errorf("text %q: %d", short, code)
 		}
 	}
-	code, loc := c.postLocation(page+"/dismissals", url.Values{"csrf": {c.csrf()}, "text": {"wifi:"}})
+	code, loc := c.send(http.MethodPost, page+"/dismissals", url.Values{"csrf": {c.csrf()}, "text": {"wifi:"}})
 	if code != 303 || !strings.Contains(loc, "msg=rule-created") {
 		t.Fatalf("create: %d %s", code, loc)
 	}
@@ -339,9 +329,8 @@ func TestDismissalFlow(t *testing.T) {
 		t.Errorf("set aside: %v", got)
 	}
 
-	hash, _ := auth.HashPassword("a-strong-password")
-	st.CreateUser(ctx, "lecteur", hash, auth.RoleViewer, store.Access{All: true})
-	viewer := loginAs(t, base, "lecteur", "a-strong-password")
+	addUser(t, st, "lecteur", auth.RoleViewer)
+	viewer := loginAs(t, base, "lecteur", testPassword)
 	if code := viewer.post(page+"/dismissals", url.Values{"csrf": {viewer.csrf()}, "text": {"ipv4:"}}); code != 403 {
 		t.Errorf("a reader created a rule: %d", code)
 	}
@@ -349,12 +338,15 @@ func TestDismissalFlow(t *testing.T) {
 		t.Errorf("reader's view:\n%s", body)
 	}
 
-	rules, _ := st.ListDismissalRules(ctx, store.Everything, asset)
-	rule := page + "/dismissals/" + strconv.FormatInt(rules[0].ID, 10) + "/delete"
+	rules, err := st.ListDismissalRules(ctx, store.Everything, asset)
+	if err != nil || len(rules) != 1 {
+		t.Fatalf("rules: %+v, %v", rules, err)
+	}
+	rule := page + "/dismissals/" + itoa(rules[0].ID) + "/delete"
 	if code := c.post(page+"/dismissals/999/delete", url.Values{"csrf": {c.csrf()}}); code != 404 {
 		t.Errorf("unknown rule: %d", code)
 	}
-	if code, loc := c.postLocation(rule, url.Values{"csrf": {c.csrf()}}); code != 303 || !strings.Contains(loc, "msg=rule-deleted") {
+	if code, loc := c.send(http.MethodPost, rule, url.Values{"csrf": {c.csrf()}}); code != 303 || !strings.Contains(loc, "msg=rule-deleted") {
 		t.Fatalf("delete: %d %s", code, loc)
 	}
 	_, body = c.get("/findings?level=aside")
@@ -369,7 +361,8 @@ func TestDismissalFlow(t *testing.T) {
 func TestPriorityOrderEverywhere(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	ctx := context.Background()
-	assetID, _ := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "appliance", Kind: "product", Criticality: "high", Source: "manual"})
+	assetID := storetest.Asset(t, st, store.Asset{Name: "appliance", Kind: "product", Criticality: "high", Source: "manual"})
+	ids := map[string]int64{}
 	want := []string{"CVE-2026-0001", "CVE-2026-0002", "CVE-2026-0003", "CVE-2026-0004", "CVE-2026-0005", "CVE-2026-0006", "CVE-2026-0007"}
 	for _, v := range []struct {
 		id, severity string
@@ -385,15 +378,15 @@ func TestPriorityOrderEverywhere(t *testing.T) {
 		{"CVE-2026-0002", "LOW", 3, true, -1},           // KEV
 		{"CVE-2026-0001", "LOW", 3.1, false, -1},        // judged exploitable, below
 	} {
-		st.UpsertVulnerability(ctx, store.Vulnerability{ID: v.id, Severity: v.severity, CVSS: v.cvss})
-		st.SetExploitSignals(ctx, store.ExploitSignal{ID: v.id, KEV: v.kev, EPSS: v.epss})
-		st.ObserveFinding(ctx, assetID, v.id, "", time.Now())
+		ids[v.id] = storetest.Finding(t, st, assetID, store.Vulnerability{ID: v.id, Severity: v.severity, CVSS: v.cvss}, time.Now())
+		if _, err := st.SetExploitSignals(ctx, store.ExploitSignal{ID: v.id, KEV: v.kev, EPSS: v.epss}); err != nil {
+			t.Fatal(err)
+		}
 	}
-	list, _ := st.ListFindings(ctx, store.Everything, store.FindingFilter{Search: "CVE-2026-0001"})
-	if err := st.SetFindingStatus(ctx, store.Everything, list[0].ID, 0, "exploitable", "", ""); err != nil {
+	if err := st.SetFindingStatus(ctx, store.Everything, ids["CVE-2026-0001"], 0, "exploitable", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 	for _, path := range []string{"/findings", "/"} {
 		if _, body := c.get(path); !slices.Equal(findingOrder(body), want) {
 			t.Errorf("%s: %v\nwant %v", path, findingOrder(body), want)

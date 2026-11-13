@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha1" // #nosec G505 -- RFC 6238 TOTP, as authenticator apps compute it
-	"database/sql"
 	"encoding/base32"
 	"encoding/binary"
 	"fmt"
@@ -27,26 +26,10 @@ import (
 	"github.com/La-Cizaille-Corp/vigil/internal/netsafe"
 	"github.com/La-Cizaille-Corp/vigil/internal/notify"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 
 	_ "modernc.org/sqlite" // to break the test database from outside the store
 )
-
-// breakDB runs statements on the database at path through a connection of
-// its own, as another process would: a trigger that fails a write, a table
-// renamed away.
-func breakDB(t *testing.T, path string, statements ...string) {
-	t.Helper()
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	for _, q := range statements {
-		if _, err := db.Exec(q); err != nil {
-			t.Fatal(err)
-		}
-	}
-}
 
 // totpCodeAt is the code an authenticator shows for a secret at a time step
 // (RFC 6238).
@@ -87,9 +70,9 @@ func (b *syncBuffer) String() string {
 // R7: only a feed whose URL is already known is « déjà existant »; any other
 // failure of the database is an internal error, not a duplicate.
 func TestFeedCreateTellsDuplicateFromFailure(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "web.db")
+	path := filepath.Join(storetest.TempDir(t), "web.db")
 	_, base := newServerIn(t, path, nil)
-	admin := loginAs(t, base, "admin", "a-strong-password")
+	admin := loginAs(t, base, "admin", testPassword)
 	feed := func(name, u string) url.Values {
 		return url.Values{"csrf": {admin.csrf()}, "name": {name}, "url": {u}}
 	}
@@ -111,12 +94,12 @@ func TestFeedCreateTellsDuplicateFromFailure(t *testing.T) {
 // R7: when the channels cannot be read, the digest is not said to be done
 // (it was, without being sent to anyone).
 func TestDigestNotSaidDoneWhenChannelsFail(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "web.db")
+	path := filepath.Join(storetest.TempDir(t), "web.db")
 	st, base := newServerIn(t, path, nil)
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 	token := c.csrf() // before: the pages listing groups count their channels
 	breakDB(t, path, `ALTER TABLE webhooks RENAME TO webhooks_lost`)
-	code, loc := c.postLocation("/digests", url.Values{"csrf": {token}})
+	code, loc := c.send(http.MethodPost, "/digests", url.Values{"csrf": {token}})
 	if code != http.StatusInternalServerError || strings.Contains(loc, "digest-created") {
 		t.Errorf("channels unreadable: %d %q, want an error", code, loc)
 	}
@@ -129,12 +112,12 @@ func TestDigestNotSaidDoneWhenChannelsFail(t *testing.T) {
 // cannot be closed: the failure is logged, the change is not reported as
 // failed (it was a 500 for the second factor, a warning for the password).
 func TestEndOtherSessionsDoesNotFailTheChange(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "web.db")
+	path := filepath.Join(storetest.TempDir(t), "web.db")
 	logs := &syncBuffer{}
 	st, base := newServerIn(t, path, func(s *Server) { s.Log = slog.New(slog.NewTextHandler(logs, nil)) })
 	ctx := context.Background()
-	c := loginAs(t, base, "analyst", "a-strong-password")
-	loginAs(t, base, "analyst", "a-strong-password") // another browser
+	c := loginAs(t, base, "analyst", testPassword)
+	loginAs(t, base, "analyst", testPassword) // another browser
 	c.post("/account/totp/start", url.Values{"csrf": {c.csrf()}})
 	u, _ := st.UserByName(ctx, "analyst")
 	_, pending, _, err := st.UserTOTP(ctx, u.ID)
@@ -142,7 +125,7 @@ func TestEndOtherSessionsDoesNotFailTheChange(t *testing.T) {
 		t.Fatalf("enrolment not started: %v", err)
 	}
 	breakDB(t, path, `CREATE TRIGGER keep_sessions BEFORE DELETE ON sessions BEGIN SELECT RAISE(ABORT, 'sessions locked'); END`)
-	code, loc := c.postLocation("/account/totp/confirm", url.Values{"csrf": {c.csrf()}, "password": {"a-strong-password"},
+	code, loc := c.send(http.MethodPost, "/account/totp/confirm", url.Values{"csrf": {c.csrf()}, "password": {testPassword},
 		"code": {totpCodeAt(t, pending, time.Now().Unix()/30)}})
 	if code != http.StatusSeeOther || loc != "/account?msg=totp-enabled" {
 		t.Errorf("second factor enabled: %d %q", code, loc)
@@ -175,7 +158,7 @@ func TestRedirectKeepsTheQuery(t *testing.T) {
 
 	st, base := newServerWith(t, nil)
 	seedFindings(t, st)
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 	bom := `{"bomFormat":"CycloneDX","specVersion":"1.5","components":[
 		{"type":"library","name":"lodash","version":"4.17.15","purl":"pkg:npm/lodash@4.17.15"}]}`
 	code, loc := c.upload("/assets/import", "sbom", "bom.json", bom, url.Values{"csrf": {c.csrf()}, "project": {"app web"}})
@@ -196,7 +179,7 @@ func TestRedirectKeepsTheQuery(t *testing.T) {
 // found » on every route that reads one from its path.
 func TestUnknownIdentifiersAreNotFound(t *testing.T) {
 	_, base := newServerWith(t, nil)
-	admin := loginAs(t, base, "admin", "a-strong-password")
+	admin := loginAs(t, base, "admin", testPassword)
 	token := admin.csrf()
 	for _, path := range []string{"/assets/abc", "/assets/999", "/findings/999", "/digests/abc", "/digests/999/markdown"} {
 		if code, _ := admin.get(path); code != http.StatusNotFound {
@@ -277,7 +260,7 @@ func TestAuditDetailOfEachAction(t *testing.T) {
 	post := func(c *client, path string, form url.Values) string {
 		t.Helper()
 		form.Set("csrf", c.csrf())
-		code, loc := c.postLocation(path, form)
+		code, loc := c.send(http.MethodPost, path, form)
 		if code != http.StatusSeeOther {
 			t.Fatalf("%s: %d", path, code)
 		}
@@ -286,9 +269,9 @@ func TestAuditDetailOfEachAction(t *testing.T) {
 
 	newClient(t, base).post("/login", url.Values{"username": {"admin"}, "password": {"wrong-password"}})
 	want(st, "login_failed", "ip=127.0.0.1 user=admin")
-	admin := loginAs(t, base, "admin", "a-strong-password")
+	admin := loginAs(t, base, "admin", testPassword)
 	want(st, "login", "ip=127.0.0.1")
-	analyst := loginAs(t, base, "analyst", "a-strong-password")
+	analyst := loginAs(t, base, "analyst", testPassword)
 
 	// Inventory and triage.
 	asset := id(post(analyst, "/assets", url.Values{"name": {"lodash"}, "version": {"4.17.21"}, "kind": {"package"}, "criticality": {"high"}}))
@@ -306,18 +289,18 @@ func TestAuditDetailOfEachAction(t *testing.T) {
 	if len(rules) != 1 {
 		t.Fatalf("rules: %+v", rules)
 	}
-	rule := strconv.FormatInt(rules[0].ID, 10)
+	rule := itoa(rules[0].ID)
 	post(analyst, "/assets/"+asset+"/dismissals/"+rule+"/delete", url.Values{})
 	want(st, "dismissal_delete", "id="+rule+" asset="+asset)
 	post(analyst, "/assets/"+asset+"/delete", url.Values{})
 	want(st, "asset_delete", "id="+asset+` asset="lodash 4.17.21"`)
 
 	_, findings := seedFindings(t, st)
-	finding := strconv.FormatInt(findings[0], 10)
+	finding := itoa(findings[0])
 	post(analyst, "/findings/"+finding, url.Values{"status": {"false_positive"}, "comment": {"test"}})
 	want(st, "finding_update", "id="+finding+" status=false_positive")
 	post(analyst, "/findings/bulk", url.Values{"status": {"exploitable"}, "next": {"/findings"},
-		"id": {strconv.FormatInt(findings[1], 10), strconv.FormatInt(findings[2], 10)}})
+		"id": {itoa(findings[1]), itoa(findings[2])}})
 	want(st, "finding_bulk", "count=2 status=exploitable")
 	post(analyst, "/sync", url.Values{})
 	want(st, "sync", "trigger=manual")
@@ -342,7 +325,7 @@ func TestAuditDetailOfEachAction(t *testing.T) {
 	// Account.
 	post(analyst, "/account/sessions/close-others", url.Values{})
 	want(st, "sessions_close", "")
-	post(analyst, "/account/password", url.Values{"current": {"a-strong-password"}, "new": {"another-strong-pass"}, "confirm": {"another-strong-pass"}})
+	post(analyst, "/account/password", url.Values{"current": {testPassword}, "new": {"another-strong-pass"}, "confirm": {"another-strong-pass"}})
 	want(st, "password_change", "")
 	post(analyst, "/account/totp/start", url.Values{})
 	u, _ := st.UserByName(ctx, "analyst")
@@ -359,7 +342,7 @@ func TestAuditDetailOfEachAction(t *testing.T) {
 	feedList, _ := st.ListFeeds(ctx)
 	for _, f := range feedList {
 		if f.Name == "CERT FR" {
-			feed = strconv.FormatInt(f.ID, 10)
+			feed = itoa(f.ID)
 		}
 	}
 	want(st, "feed_create", "id="+feed+` name="CERT FR" url=https://example.org/…`)
@@ -380,7 +363,7 @@ func TestAuditDetailOfEachAction(t *testing.T) {
 	if len(hooks) != 1 {
 		t.Fatalf("channels: %+v", hooks)
 	}
-	created := strconv.FormatInt(hooks[0].ID, 10)
+	created := itoa(hooks[0].ID)
 	want(st, "webhook_create", "id="+created+" target=https://hooks.slack.com/…")
 	post(admin, "/settings/webhooks/"+created, url.Values{"alerts": {""}})
 	want(st, "webhook_delivery", "id="+created+` digests=false alerts="" group=""`)
@@ -393,7 +376,7 @@ func TestAuditDetailOfEachAction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	post(admin, "/settings/webhooks/"+strconv.FormatInt(tested, 10)+"/test", url.Values{})
+	post(admin, "/settings/webhooks/"+itoa(tested)+"/test", url.Values{})
 	want(st, "webhook_test", fmt.Sprintf("id=%d target=%s sent=true", tested, notify.Target(h)))
 
 	post(admin, "/settings/tokens", url.Values{"name": {"ci build"}, "project": {"app"}})
@@ -401,7 +384,7 @@ func TestAuditDetailOfEachAction(t *testing.T) {
 	if len(tokens) != 1 {
 		t.Fatalf("tokens: %+v", tokens)
 	}
-	tok := strconv.FormatInt(tokens[0].ID, 10)
+	tok := itoa(tokens[0].ID)
 	want(st, "api_token_create", "id="+tok+` name="ci build" project=app`)
 	post(admin, "/settings/tokens/"+tok+"/delete", url.Values{})
 	want(st, "api_token_delete", "id="+tok)
@@ -417,7 +400,7 @@ func TestAuditDetailOfEachAction(t *testing.T) {
 	// Users.
 	post(admin, "/settings/users", url.Values{"username": {"bob"}, "role": {"analyst"}, "access": {"all"}})
 	bob, _ := st.AnyUserByName(ctx, "bob")
-	user := strconv.FormatInt(bob.ID, 10)
+	user := itoa(bob.ID)
 	want(st, "user_create", "id="+user+" user=bob role=analyst access=all")
 	post(admin, "/settings/users/"+user+"/role", url.Values{"role": {"viewer"}})
 	want(st, "user_role", "id="+user+" role=viewer")
@@ -433,10 +416,10 @@ func TestAuditDetailOfEachAction(t *testing.T) {
 	want(st, "totp_policy", `required=""`)
 
 	// First setup, on a database of its own.
-	first, fresh := newTestServer(t)
-	if code := newClient(t, fresh).post("/setup", url.Values{"username": {"root"}, "password": {"a-strong-password"}, "confirm": {"a-strong-password"}}); code != http.StatusSeeOther {
+	first, fresh := newBareServer(t, nil)
+	if code := newClient(t, fresh).post("/setup", url.Values{"username": {"root"}, "password": {testPassword}, "confirm": {testPassword}}); code != http.StatusSeeOther {
 		t.Fatalf("setup: %d", code)
 	}
 	root, _ := first.AnyUserByName(ctx, "root")
-	want(first, "setup", "id="+strconv.FormatInt(root.ID, 10))
+	want(first, "setup", "id="+itoa(root.ID))
 }

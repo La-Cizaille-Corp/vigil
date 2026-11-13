@@ -29,7 +29,7 @@ func section(page, id string) string {
 // folded (audit UX 7.1, A88).
 func TestAddAssetsPage(t *testing.T) {
 	_, base := newServerWith(t, nil)
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 	_, page := c.get("/assets/new")
 	for _, want := range []string{`<nav class="add-ways" aria-label="Façons d'ajouter des actifs">`,
 		`<a href="#paquet">`, `<a href="#produit">`, `<a href="#sbom">`, `<a href="#csv">`,
@@ -62,7 +62,7 @@ func TestAddAssetsPage(t *testing.T) {
 // values kept (audit UX 7.1 and 7.3, A88).
 func TestAddAssetsRefusalInItsForm(t *testing.T) {
 	st, base := newServerWith(t, nil)
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 
 	code, page := c.upload("/assets/import-csv", "csv", "x.csv", "nom;type;criticité\nx;librairie;énorme\n", url.Values{"csrf": {c.csrf()}})
 	csv := section(page, "csv")
@@ -98,7 +98,7 @@ Ligne 2 (x) : criticité « énorme » inconnue : Faible, Moyenne, Haute ou Crit
 // A88).
 func TestAssetCreatedSaysItsDetection(t *testing.T) {
 	_, base := newServerWith(t, nil)
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 	for _, tc := range []struct {
 		form url.Values
 		msg  string
@@ -111,7 +111,7 @@ func TestAssetCreatedSaysItsDetection(t *testing.T) {
 	} {
 		tc.form.Set("csrf", c.csrf())
 		tc.form.Set("kind", "package")
-		code, loc := c.postLocation("/assets", tc.form)
+		code, loc := c.send(http.MethodPost, "/assets", tc.form)
 		if code != http.StatusSeeOther || !strings.HasSuffix(loc, "?msg="+tc.msg) {
 			t.Errorf("%s: %d %s, want msg=%s", tc.form.Get("name"), code, loc, tc.msg)
 			continue
@@ -125,9 +125,9 @@ func TestAssetCreatedSaysItsDetection(t *testing.T) {
 // The first administrator types the password twice, as only the machine can
 // reset it; a refusal keeps the name typed (audit UX 7.4, A88).
 func TestSetupConfirmsThePassword(t *testing.T) {
-	st, fresh := newTestServer(t)
+	st, fresh := newBareServer(t, nil)
 	c := newClient(t, fresh)
-	code, page := c.postBody("/setup", url.Values{"username": {"root"}, "password": {"a-strong-password"}, "confirm": {"a-strong-passwrd"}})
+	code, page := c.postBody("/setup", url.Values{"username": {"root"}, "password": {testPassword}, "confirm": {"a-strong-passwrd"}})
 	if code != http.StatusBadRequest || !strings.Contains(page, "Les deux mots de passe ne correspondent pas.") ||
 		!strings.Contains(page, `name="username" value="root"`) {
 		t.Errorf("mismatch: %d\n%s", code, page)
@@ -142,7 +142,7 @@ func TestSetupConfirmsThePassword(t *testing.T) {
 // comes out empty says so, and offers to reset its filters (7.5).
 func TestEmptyStates(t *testing.T) {
 	st, base := newServerWith(t, nil)
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 	_, page := c.get("/")
 	if !strings.Contains(page, "<h2>Pour commencer</h2>") || !strings.Contains(page, `<a class="button" href="/assets/new">Ajouter des actifs</a>`) ||
 		strings.Contains(page, "Indicateurs clés") || strings.Contains(page, "Synchroniser l'inventaire") {

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 )
 
 // seedCSV fills an inventory whose exports go through every rule of the CSV
@@ -76,7 +77,7 @@ func seedCSV(t *testing.T, st *store.Store) {
 func TestCSVExportsByteForByte(t *testing.T) {
 	st, base := newServerWith(t, func(s *Server) { s.BaseURL = "https://vigil.example/" })
 	seedCSV(t, st)
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 	for _, e := range []struct{ path, want string }{
 		{"/assets.csv", bom + wantAssetsCSV},
 		{"/findings.csv?status=in_triage&status=exploitable&status=not_affected&sort=vuln&dir=asc", bom + wantFindingsCSV},
@@ -92,12 +93,12 @@ func TestCSVExportsByteForByte(t *testing.T) {
 // included. It used to create them one by one: a failure in the middle of the
 // file left the first ones in the inventory.
 func TestCSVImportAllOrNothing(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "web.db")
+	path := filepath.Join(storetest.TempDir(t), "web.db")
 	st, base := newServerIn(t, path, nil)
 	// A write that fails in the middle of the file, as a full disk would.
 	breakDB(t, path, `CREATE TRIGGER failing_write BEFORE INSERT ON assets WHEN NEW.name = 'panne'
 		BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END`)
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 	code, _ := c.upload("/assets/import-csv", "csv", "inventaire.csv", "name\navant\npanne\naprès\n", url.Values{"csrf": {c.csrf()}})
 	assets, err := st.ListAssets(context.Background(), store.Everything)
 	if code != http.StatusInternalServerError || err != nil || len(assets) != 0 {

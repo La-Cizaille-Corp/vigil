@@ -8,11 +8,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 )
 
 // webSources parses the non-test Go files of the package.
@@ -61,14 +61,13 @@ func TestEverythingOnlyInScopeFile(t *testing.T) {
 	}
 }
 
-// The store methods of the synchronisation take no scope (see unscoped in
-// package store): the UI must not call them.
+// The store methods of the synchronisation take no scope: the UI must not
+// call them. storetest.SystemMethods lists them, for the scope test of
+// package store too.
 func TestSystemMethodsStayOutOfWeb(t *testing.T) {
-	system := []string{"ObserveFinding", "InTrackedPeriod", "AutoResolveStale", "SetOlderVulns", "ApplyDismissalRules",
-		"UpsertVulnerability", "VulnModified", "SetExploitSignals", "ListVulnCVEs", "MarkAlerted", "CreateDigest", "LastDigestTime"}
 	for name, f := range webSources(t) {
 		ast.Inspect(f, func(n ast.Node) bool {
-			if sel, ok := n.(*ast.SelectorExpr); ok && slices.Contains(system, sel.Sel.Name) {
+			if sel, ok := n.(*ast.SelectorExpr); ok && storetest.SystemMethods[sel.Sel.Name] != "" {
 				t.Errorf("%s calls %s, reserved to the synchronisation", name, sel.Sel.Name)
 			}
 			return true

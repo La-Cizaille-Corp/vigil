@@ -3,8 +3,10 @@ package store
 import (
 	"context"
 	"database/sql"
+	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // The tests of this package come in two kinds. External tests (package
@@ -43,10 +45,28 @@ func Migrations() ([]Migration, error) {
 // openTest is storetest.Open for the internal tests.
 func openTest(t *testing.T) *Store {
 	t.Helper()
-	st, err := Open(context.Background(), filepath.Join(t.TempDir(), "test.db"))
+	st, err := Open(context.Background(), filepath.Join(tempDir(t), "test.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { st.Close() })
+	t.Cleanup(func() {
+		if err := st.Close(); err != nil {
+			t.Errorf("close the test database: %v", err)
+		}
+	})
 	return st
+}
+
+// tempDir is storetest.TempDir for the internal tests: its removal is
+// retried for a moment, an antivirus holding a database just closed.
+func tempDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	t.Cleanup(func() {
+		deadline := time.Now().Add(2 * time.Second)
+		for os.RemoveAll(dir) != nil && time.Now().Before(deadline) {
+			time.Sleep(10 * time.Millisecond)
+		}
+	})
+	return dir
 }

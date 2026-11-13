@@ -129,7 +129,7 @@ var readsAdvisory = regexp.MustCompile(`^(SEARCH|SCAN) v\b`)
 // whose stored advisory takes several overflow pages, is never read.
 func TestAdvisoriesReadThroughTheirIndex(t *testing.T) {
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "vigil.db")
+	path := filepath.Join(tempDir(t), "vigil.db")
 	setup, err := Open(ctx, path)
 	if err != nil {
 		t.Fatal(err)

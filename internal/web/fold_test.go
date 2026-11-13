@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
+	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 )
 
 // One finding per CVE (A80), as the pages show it: the finding of a CVE names
@@ -18,7 +19,7 @@ import (
 func TestFoldedFindingPages(t *testing.T) {
 	st, base := newServerWith(t, nil)
 	ctx := context.Background()
-	asset, _ := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "linux", Kind: "os", Ecosystem: "Ubuntu:22.04:LTS",
+	asset := storetest.Asset(t, st, store.Asset{Name: "linux", Kind: "os", Ecosystem: "Ubuntu:22.04:LTS",
 		Version: "5.15.0-100.110", Criticality: "high", Source: "manual"})
 	ranges := `{"affected":[{"package":{"name":"linux","ecosystem":"Ubuntu:22.04:LTS"},"ranges":[{"type":"ECOSYSTEM","events":[{"introduced":"0"},{"fixed":"5.15.0-200.1"}]}]}]}`
 	for _, v := range []store.Vulnerability{
@@ -28,8 +29,7 @@ func TestFoldedFindingPages(t *testing.T) {
 		{ID: "USN-9000-1", Aliases: []string{"CVE-2026-1", "CVE-2026-2", "UBUNTU-CVE-2026-1", "UBUNTU-CVE-2026-2"}, Raw: ranges},
 	} {
 		v.EPSS, v.CVSS = -1, -1
-		st.UpsertVulnerability(ctx, v)
-		st.ObserveFinding(ctx, asset, v.ID, "", time.Now())
+		storetest.Finding(t, st, asset, v, time.Now())
 	}
 	ids := map[string]int64{}
 	triage, _ := st.ListFindingTriage(ctx, asset)
@@ -45,7 +45,7 @@ func TestFoldedFindingPages(t *testing.T) {
 		store.Fold{ID: ids["GHSA-same"], Into: ids["UBUNTU-CVE-2026-1"], Why: "même CVE"}); err != nil {
 		t.Fatal(err)
 	}
-	c := loginAs(t, base, "analyst", "a-strong-password")
+	c := loginAs(t, base, "analyst", testPassword)
 
 	_, body := c.get("/findings/" + itoa(ids["UBUNTU-CVE-2026-1"]))
 	for _, want := range []string{"Avis groupés", "https://osv.dev/vulnerability/USN-9000-1", "corrigée en 5.15.0-200.1",

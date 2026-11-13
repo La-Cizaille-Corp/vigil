@@ -25,7 +25,7 @@ func TestDatabaseInAnyFolder(t *testing.T) {
 	}
 	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
-			parent := t.TempDir()
+			parent := tempDir(t)
 			dir := filepath.Join(parent, name)
 			path := filepath.Join(dir, "vigil.db")
 			st, err := Open(ctx, path)
@@ -90,7 +90,7 @@ func TestBackupWhileWriting(t *testing.T) {
 		}
 		done <- errors.Join(errs...)
 	}()
-	dest := filepath.Join(t.TempDir(), "copy.db")
+	dest := filepath.Join(tempDir(t), "copy.db")
 	err := backup(ctx, st.db, dest)
 	if werr := <-done; werr != nil {
 		t.Errorf("writer during the backup: %v", werr)
@@ -122,7 +122,7 @@ func TestScheduledBackup(t *testing.T) {
 	if _, err := st.CreateAsset(ctx, Everything, Asset{Name: "nginx", Kind: "technology", Criticality: "low", Source: "manual"}); err != nil {
 		t.Fatal(err)
 	}
-	dir := t.TempDir()
+	dir := tempDir(t)
 	old := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	for _, name := range []string{backupName(old), backupName(old.Add(time.Hour)), "vigil-avant-maj.db"} {
 		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
