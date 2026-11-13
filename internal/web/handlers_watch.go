@@ -443,7 +443,7 @@ func sbomRefusal(project string, err error) string {
 }
 
 // defaultAssetForm prefills the form of a new asset: it is checked for the
-// vulnerabilities of the last 120 days (see inventory.DefaultWindow).
+// vulnerabilities of the last 120 days (see inventory.DefaultSince).
 func defaultAssetForm() store.Asset {
 	return store.Asset{Kind: "package", Criticality: "medium", TrackSince: inventory.DefaultSince(time.Now())}
 }

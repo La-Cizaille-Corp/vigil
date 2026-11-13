@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -247,5 +248,26 @@ func TestRetry(t *testing.T) {
 	}
 	if err := sources.Sleep(ctx, 0); err != nil {
 		t.Errorf("Sleep(0) = %v", err)
+	}
+}
+
+// The public API of a source is asked again after its delays, or the common
+// ones; a test server or a mirror at once, as many times.
+func TestDelays(t *testing.T) {
+	own := []time.Duration{10 * time.Second, 30 * time.Second}
+	for _, c := range []struct {
+		url    string
+		delays []time.Duration
+		want   []time.Duration
+	}{
+		{"", own, own},
+		{"https://api.example", own, own},
+		{"http://127.0.0.1:1234", own, []time.Duration{0, 0}},
+		{"", nil, []time.Duration{5 * time.Second, 15 * time.Second}},
+		{"http://127.0.0.1:1234", nil, []time.Duration{0, 0}},
+	} {
+		if got := sources.Delays(c.url, "https://api.example", c.delays); !slices.Equal(got, c.want) {
+			t.Errorf("Delays(%q, %v) = %v, want %v", c.url, c.delays, got, c.want)
+		}
 	}
 }

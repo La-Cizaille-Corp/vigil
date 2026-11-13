@@ -36,6 +36,7 @@ type kernelOSV struct {
 	kev        []string          // exploited CVEs
 	epss       map[string]string // CVE → score
 	failRefs   bool              // the short list fails after its first page
+	emptyRefs  bool              // the short list, asked after the batch answer, is empty
 	failVulns  bool              // advisories cannot be read alone
 	requests   map[string]int    // querybatch, query, vulns
 	bytes      map[string]int
@@ -94,6 +95,10 @@ func (k *kernelOSV) serve(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusServiceUnavailable)
 				return
 			}
+			if k.emptyRefs && k.requests["querybatch"] > 0 { // not the batch answer of the synchronisation
+				results = append(results, `{"vulns":[],"next_page_token":""}`)
+				continue
+			}
 			start, _ := strconv.Atoi(q.PageToken)
 			end := min(start+2, len(ids))
 			var refs []string
@@ -135,7 +140,7 @@ func (k *kernelOSV) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		body = a.record(id)
 	case r.URL.Path == "/kev":
-		var entries []string
+		entries := []string{`{"cveID":"CVE-1999-0001"}`} // a real catalogue is never empty
 		for _, cve := range k.kev {
 			entries = append(entries, `{"cveID":"`+cve+`","dueDate":"2026-12-01"}`)
 		}
@@ -332,6 +337,15 @@ func TestLargePackageReadAgain(t *testing.T) {
 		t.Errorf("short list failed: %v, %+v", requests, res)
 	}
 	k.change(func(k *kernelOSV) { k.failRefs = false })
+
+	// A short list that holds fewer advisories than the first page of the
+	// batch answer is not the whole list: as without it, in full. Taken as it
+	// is, it would mark every finding of the kernel fixed.
+	k.change(func(k *kernelOSV) { k.emptyRefs = true })
+	if requests, _, res := step("short list empty"); requests["query"] != pages() || res.Resolved != 0 {
+		t.Errorf("short list empty: %v, %+v", requests, res)
+	}
+	k.change(func(k *kernelOSV) { k.emptyRefs = false })
 
 	// An advisory that cannot be read: the asset is not checked, keeps its
 	// findings, and its list is not changed.

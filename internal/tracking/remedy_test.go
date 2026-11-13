@@ -23,6 +23,24 @@ func TestFixLinesKernel(t *testing.T) {
 	}
 }
 
+// At its latest release, an asset is in the last interval of a range that ends
+// affected, the rule of osv.Vuln.Unfixed: an interval affected up to a version
+// and followed by a fixed one is not its own.
+func TestFixLinesLatest(t *testing.T) {
+	raw := `{"affected":[{"package":{"purl":"pkg:npm/x"},"ranges":[
+		{"type":"SEMVER","events":[{"introduced":"0"},{"last_affected":"1.0"},{"introduced":"2.0"},{"fixed":"2.5"}]},
+		{"type":"SEMVER","events":[{"introduced":"3.0"},{"fixed":"3.1"},{"introduced":"4.0"},{"last_affected":"4.2"}]}]}]}`
+	var yours []string
+	for _, l := range tracking.Fixes(raw, store.Asset{PURL: "pkg:npm/x", Version: "latest"}) {
+		if l.Yours {
+			yours = append(yours, l.Text)
+		}
+	}
+	if len(yours) != 1 || !strings.Contains(yours[0], "4.2") {
+		t.Errorf("ranges of the latest release: %q", yours)
+	}
+}
+
 func TestFixLines(t *testing.T) {
 	osvRaw := `{"affected":[{"package":{"purl":"pkg:maven/org.apache.logging.log4j/log4j-core"},"ranges":[
 		{"type":"ECOSYSTEM","events":[{"introduced":"2.4"},{"fixed":"2.12.2"}]},

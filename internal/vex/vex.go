@@ -11,7 +11,6 @@ import (
 	"slices"
 	"time"
 
-	"github.com/La-Cizaille-Corp/vigil/internal/clip"
 	"github.com/La-Cizaille-Corp/vigil/internal/limit"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 )
@@ -83,7 +82,7 @@ type Statement struct {
 	Ref           string // purl or CPE of the affected component
 	State         string
 	Justification string
-	Detail        string
+	Detail        string // as written: the comment made of it is bounded where it is made
 }
 
 // states maps CycloneDX analysis states to Vigil statuses.
@@ -97,12 +96,18 @@ var states = map[string]string{
 const maxStatements = 20000
 
 // Parse reads the analyses of a CycloneDX VEX (or BOM with vulnerabilities),
-// at most maxSize bytes.
+// at most maxSize bytes and a bounded number of values, decoded one document
+// at a time (limit.AdmitJSON).
 func Parse(r io.Reader) ([]Statement, error) {
 	data, err := limit.File(r, maxSize)
 	if err != nil {
 		return nil, errors.New("fichier VEX trop volumineux ou illisible")
 	}
+	done, err := limit.AdmitJSON(data)
+	if err != nil {
+		return nil, err
+	}
+	defer done()
 	var doc document
 	if err := json.Unmarshal(data, &doc); err != nil || doc.BOMFormat != "CycloneDX" {
 		return nil, errors.New("document CycloneDX JSON attendu")
@@ -124,7 +129,7 @@ func Parse(r io.Reader) ([]Statement, error) {
 				return nil, fmt.Errorf("fichier VEX trop volumineux (plus de %d analyses)", maxStatements)
 			}
 			out = append(out, Statement{VulnID: v.ID, Ref: a.Ref, State: state,
-				Justification: v.Analysis.Justification, Detail: clip.Text(v.Analysis.Detail, 4000)})
+				Justification: v.Analysis.Justification, Detail: v.Analysis.Detail})
 		}
 	}
 	if len(out) == 0 {

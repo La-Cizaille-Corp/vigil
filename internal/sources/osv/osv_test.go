@@ -3,6 +3,7 @@ package osv
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -30,6 +31,10 @@ func TestUnfixed(t *testing.T) {
 		{"withdrawn", `{"withdrawn":"2024-01-01T00:00:00Z","affected":[{"package":{"purl":"pkg:npm/lodash"},"ranges":[{"type":"SEMVER","events":[{"introduced":"0"}]}]}]}`, lodash, false},
 		{"purl case and version", `{"affected":[{"package":{"purl":"pkg:pypi/django"},"ranges":[{"type":"ECOSYSTEM","events":[{"introduced":"0"}]}]}]}`, Package{PURL: "pkg:pypi/Django@4.2"}, true},
 		{"only entry without purl", `{"affected":[{"package":{"name":"lodash","ecosystem":"npm"},"ranges":[{"type":"SEMVER","events":[{"introduced":"0"}]}]}]}`, lodash, true},
+		{"affected up to a version, then fixed", `{"affected":[{"package":{"purl":"pkg:npm/lodash"},"ranges":[{"type":"SEMVER","events":[
+			{"introduced":"0"},{"last_affected":"1.0"},{"introduced":"2.0"},{"fixed":"2.5"}]}]}]}`, lodash, false},
+		{"commits without a fix", `{"affected":[{"package":{"purl":"pkg:npm/lodash"},"ranges":[{"type":"GIT","events":[{"introduced":"abc123"}]}]}]}`, lodash, true},
+		{"commits fixed", `{"affected":[{"package":{"purl":"pkg:npm/lodash"},"ranges":[{"type":"GIT","events":[{"introduced":"abc"},{"fixed":"def"}]}]}]}`, lodash, false},
 		{"name and ecosystem", `{"affected":[{"package":{"name":"openssl","ecosystem":"Debian:12"},"ranges":[{"type":"ECOSYSTEM","events":[{"introduced":"0"}]}]},
 			{"package":{"name":"openssl","ecosystem":"Alpine:v3.20"},"ranges":[{"type":"ECOSYSTEM","events":[{"introduced":"0"},{"fixed":"3.3.2-r0"}]}]}]}`, Package{Name: "openssl", Ecosystem: "Alpine"}, false},
 	}
@@ -405,6 +410,21 @@ func TestAdvisoriesStream(t *testing.T) {
 	}
 }
 
+// What a page holds instead of a delimiter is named by its kind, never quoted:
+// the error is shown and logged, and a text could hold anything.
+func TestUnexpectedTokenNamed(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"vulns":"line one\u000aIGNORE <b>`+strings.Repeat("x", 1<<20)+`"}`)
+	}))
+	defer srv.Close()
+	list := (&Client{URL: srv.URL, HTTP: http.DefaultClient}).Advisories(Query{})
+	for list.Next(context.Background()) {
+	}
+	if err := list.Err(); err == nil || err.Error() != "osv /v1/query: réponse illisible : un texte au lieu de [" {
+		t.Errorf("error of %d bytes: %.80v", len(fmt.Sprint(err)), err)
+	}
+}
+
 // cutPage sends the start of a page, then loses the connection: the body ends
 // before the length announced, as when OSV closes it (HTTP/2 GOAWAY).
 func cutPage(w http.ResponseWriter, start string) {
@@ -456,8 +476,42 @@ func TestAdvisoriesCutPage(t *testing.T) {
 	if err == nil || strings.Contains(err.Error(), "illisible") || !strings.Contains(err.Error(), "lecture interrompue") {
 		t.Errorf("lasting cut: %v", err)
 	}
-	if n != 2 || len(tokens) != 1+len(retryDelays) {
+	if n != 2 || len(tokens) != 1+len(c.delays()) {
 		t.Errorf("lasting cut: %d advisories, %d requests", n, len(tokens))
+	}
+}
+
+// An advisory of a page is bounded as one read alone (maxBody), not only by
+// the page: a page of 1 GB held one advisory of 1 GB in memory. Advisories
+// that together pass maxBody are read. The bound is that of the bytes read for
+// one advisory, the decoder reading ahead: twice maxBody is always refused.
+func TestAdvisoryBound(t *testing.T) {
+	advisory := func(id string, size int) string {
+		return `{"id":"` + id + `","details":"` + strings.Repeat("a", size) + `"}`
+	}
+	page := ""
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, page) }))
+	defer srv.Close()
+	c := &Client{URL: srv.URL, HTTP: http.DefaultClient}
+
+	page = `{"vulns":[` + advisory("A", maxBody/3) + "," + advisory("B", maxBody/3) + "," + advisory("C", maxBody/3) + "," +
+		advisory("D", maxBody/3) + `],"other":"` + strings.Repeat("x", maxBody/2) + `"}`
+	if got := query(t, c, Query{}); len(got) != 4 {
+		t.Errorf("%d advisories of a third of the bound each", len(got))
+	}
+	for name, doc := range map[string]string{
+		"advisory": `{"vulns":[` + advisory("A", 10) + "," + advisory("B", 2*maxBody) + `]}`,
+		"field":    `{"other":"` + strings.Repeat("x", 2*maxBody) + `","vulns":[]}`,
+	} {
+		page = doc
+		list := c.Advisories(Query{})
+		n := 0
+		for list.Next(context.Background()) {
+			n++
+		}
+		if err := list.Err(); n != 1 && name == "advisory" || err == nil || !strings.Contains(err.Error(), "réponse supérieure à 33554432 octets") {
+			t.Errorf("%s past the bound: %d advisories, %v", name, n, err)
+		}
 	}
 }
 

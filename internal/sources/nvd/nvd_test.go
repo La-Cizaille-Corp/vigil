@@ -202,3 +202,30 @@ func TestRefusedKeyIsAnError(t *testing.T) {
 		t.Errorf("SearchCPE: %v", err)
 	}
 }
+
+// A record that cannot be read, or a page without its list, is an error: left
+// out, its CVE would no longer be reported and its findings would be marked
+// fixed, those of every asset tracked through the NVD should a field change
+// type. A rejected CVE is left out on purpose.
+func TestUnreadableRecord(t *testing.T) {
+	page := ""
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, page) }))
+	defer srv.Close()
+	c := &Client{URL: srv.URL, HTTP: srv.Client()}
+	q := Query{CPE: "cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*"}
+	for name, doc := range map[string]string{
+		"score of another type": `{"totalResults":2,"vulnerabilities":[{"cve":{"id":"CVE-2026-0002"}},
+			{"cve":{"id":"CVE-2026-0001","metrics":{"cvssMetricV31":[{"cvssData":{"baseScore":"9.8"}}]}}}]}`,
+		"record without id": `{"totalResults":1,"vulnerabilities":[{"cve":{"vulnStatus":"Analyzed"}}]}`,
+		"list renamed":      `{"totalResults":1,"results":[{"cve":{"id":"CVE-2026-0001"}}]}`,
+	} {
+		page = doc
+		if cves, err := c.ForCPE(context.Background(), q); err == nil || !strings.Contains(err.Error(), "réponse illisible") {
+			t.Errorf("%s: %v, %v", name, cves, err)
+		}
+	}
+	page = `{"totalResults":2,"vulnerabilities":[{"cve":{"id":"CVE-2026-0001","vulnStatus":"Rejected"}},{"cve":{"id":"CVE-2026-0002"}}]}`
+	if cves, err := c.ForCPE(context.Background(), q); err != nil || len(cves) != 1 || cves[0].ID != "CVE-2026-0002" {
+		t.Errorf("rejected CVE: %v, %v", cves, err)
+	}
+}

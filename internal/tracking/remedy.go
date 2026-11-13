@@ -68,12 +68,10 @@ func Fixes(raw string, a store.Asset) []Fix {
 	return out[:min(len(out), maxFixes)]
 }
 
-// FixedIn returns the versions fixing a finding of asset a: those ending the
-// ranges that hold its version. It is "" when the source names none, as for an
-// asset kept at its latest release, where those ranges are the open ones.
-func FixedIn(raw string, a store.Asset) string { return fixedInAny(a, raw) }
-
-// fixedInAny is FixedIn over several advisories of the same CVE (A80).
+// fixedInAny returns the versions fixing a finding of asset a, over the
+// advisories of its CVE (A80): those ending the ranges that hold its version
+// (Fixes). It is "" when the source names none, as for an asset kept at its
+// latest release, where those ranges are the open ones.
 func fixedInAny(a store.Asset, raws ...string) string {
 	var out []string
 	for _, raw := range raws {
@@ -105,8 +103,8 @@ func rangeText(r versions.Range, prefix string) string {
 }
 
 // osvFixes reads the ranges of an OSV advisory for a package. At the latest
-// release, the ranges without a fixed version are the asset's (see
-// osv.Vuln.Unfixed).
+// release, the last interval of a range that ends affected is the asset's
+// (osv.Range.Unfixed, the rule of osv.Vuln.Unfixed).
 func osvFixes(raw string, pkg osv.Package, version string) []Fix {
 	var v osv.Vuln
 	if json.Unmarshal([]byte(raw), &v) != nil {
@@ -116,10 +114,11 @@ func osvFixes(raw string, pkg osv.Package, version string) []Fix {
 	var out []Fix
 	for _, a := range v.For(pkg) {
 		for _, r := range a.Ranges {
-			for _, iv := range r.Intervals() {
+			ivs := r.Intervals()
+			for i, iv := range ivs {
 				yours := iv.Holds(version)
-				if latest {
-					yours = iv.Fixed == ""
+				if latest { // the last interval, when the range ends affected
+					yours = i == len(ivs)-1 && r.Unfixed()
 				}
 				out = append(out, Fix{rangeText(iv, ""), iv.Fixed, yours})
 			}

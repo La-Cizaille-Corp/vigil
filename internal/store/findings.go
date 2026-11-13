@@ -47,7 +47,7 @@ type Finding struct {
 	Status        string
 	Justification string
 	Comment       string
-	FixedIn       string // versions fixing it for the asset, "" when unknown (see tracking.FixedIn)
+	FixedIn       string // versions fixing it for the asset, "" when unknown (see tracking.Fixes)
 	FirstSeen     time.Time
 	Due           time.Time // remediation deadline (see SLA), zero without one
 	Late          bool      // open and past its deadline

@@ -30,12 +30,18 @@ type Document struct {
 	Skipped int // components without a purl
 }
 
-// Parse reads a CycloneDX or SPDX JSON SBOM from r, at most MaxSize bytes.
+// Parse reads a CycloneDX or SPDX JSON SBOM from r, at most MaxSize bytes and
+// a bounded number of values, decoded one document at a time (limit.AdmitJSON).
 func Parse(r io.Reader) (Document, error) {
 	data, err := limit.File(r, MaxSize)
 	if err != nil {
 		return Document{}, err
 	}
+	done, err := limit.AdmitJSON(data)
+	if err != nil {
+		return Document{}, err
+	}
+	defer done()
 	var probe struct {
 		BOMFormat   string `json:"bomFormat"`
 		SPDXVersion string `json:"spdxVersion"`
@@ -70,28 +76,9 @@ func jsonError(format string, size int, err error) error {
 		return fmt.Errorf("ce n'est pas %s : JSON illisible à l'octet %d", what, syntax.Offset)
 	case errors.As(err, &typ) && typ.Field != "":
 		return fmt.Errorf("ce n'est pas %s : %s doit être %s, pas %s", what, strings.TrimPrefix(typ.Field, "."),
-			jsonKind(typ.Type.Kind().String()), jsonKind(typ.Value))
+			limit.JSONKind(typ.Type.Kind().String()), limit.JSONKind(typ.Value))
 	}
 	return fmt.Errorf("ce n'est pas %s", what)
-}
-
-// jsonKind names a kind of JSON value, given as encoding/json names it (the
-// value found) or as a Go kind (the value expected).
-func jsonKind(kind string) string {
-	switch kind {
-	case "array", "slice":
-		return "une liste"
-	case "object", "struct", "map":
-		return "un objet"
-	case "string":
-		return "un texte"
-	case "bool":
-		return "vrai ou faux"
-	}
-	if strings.HasPrefix(kind, "number") || strings.HasPrefix(kind, "int") || strings.HasPrefix(kind, "float") {
-		return "un nombre"
-	}
-	return "une autre valeur"
 }
 
 type cdxComponent struct {

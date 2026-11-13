@@ -15,12 +15,13 @@ import (
 	"time"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/cvss"
+	"github.com/La-Cizaille-Corp/vigil/internal/limit"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources"
 	"github.com/La-Cizaille-Corp/vigil/internal/versions"
 )
 
-// DefaultURL is the public OSV API.
-const DefaultURL = "https://api.osv.dev"
+// defaultURL is the public OSV API.
+const defaultURL = "https://api.osv.dev"
 
 // Timeout is the time limit an OSV request needs, longer than that of the
 // other sources: a page of /v1/query can take minutes to read.
@@ -29,11 +30,12 @@ const Timeout = 5 * time.Minute
 // maxBatch is the OSV limit of queries per querybatch call.
 const maxBatch = 1000
 
-// maxBody bounds every response read at once, maxPage a page of /v1/query, read
-// advisory by advisory: thousands of them, each listing many packages. A page
-// can exceed 64 MB and an Ubuntu advisory weighs 600 KB (ARCHITECTURE.md, A55
-// and A62); the heaviest page is not measured, hence the margin. One advisory
-// at a time is held in memory.
+// maxBody bounds every response read at once, and every advisory, read alone
+// or in a page; maxPage a page of /v1/query, read advisory by advisory:
+// thousands of them, each listing many packages. A page weighs 72 MB on
+// average and the heaviest advisory 708 KB (ARCHITECTURE.md, A55, A62 and
+// A75); the heaviest page is not measured, hence the margin. One advisory at a
+// time is held in memory.
 const (
 	maxBody = 32 << 20
 	maxPage = 1 << 30
@@ -42,7 +44,7 @@ const (
 // Client talks to OSV. Its HTTP client is that of the other sources, with the
 // same transport and redirect policy, but a time limit of Timeout.
 type Client struct {
-	URL       string // empty: DefaultURL
+	URL       string // empty: defaultURL
 	HTTP      *http.Client
 	UserAgent string
 }
@@ -181,6 +183,21 @@ func (r Range) Intervals() []versions.Range {
 	if r.Type == "GIT" {
 		return nil
 	}
+	return r.spans()
+}
+
+// Unfixed reports whether a range still affects the latest release: its last
+// interval has no fixed version, it is open ("introduced") or ends affected
+// ("last_affected", no fix indicated). A range of commits counts too: its
+// commits are not compared, but its last event says whether a fix came.
+func (r Range) Unfixed() bool {
+	spans := r.spans()
+	return len(spans) > 0 && spans[len(spans)-1].Fixed == ""
+}
+
+// spans reads the events of a range, of versions or of commits, into
+// intervals: the one reading of the events, for Intervals and Unfixed.
+func (r Range) spans() []versions.Range {
 	var out []versions.Range
 	var iv versions.Range
 	open := false
@@ -230,27 +247,15 @@ func (v Vuln) For(pkg Package) []Affected {
 }
 
 // Unfixed reports whether the advisory still affects the latest release of
-// pkg: one of its ranges ends affected, after "introduced" (no fixed version
-// yet) or "last_affected" (affected up to that version, no fix indicated).
-// A withdrawn advisory affects nothing.
+// pkg: one of its ranges ends affected (Range.Unfixed). A withdrawn advisory
+// affects nothing.
 func (v Vuln) Unfixed(pkg Package) bool {
 	if v.Withdrawn != "" {
 		return false
 	}
 	for _, a := range v.For(pkg) {
-		for _, r := range a.Ranges {
-			open := false
-			for _, e := range r.Events {
-				switch {
-				case e["introduced"] != "", e["last_affected"] != "":
-					open = true
-				case e["fixed"] != "":
-					open = false
-				}
-			}
-			if open {
-				return true
-			}
+		if slices.ContainsFunc(a.Ranges, Range.Unfixed) {
+			return true
 		}
 	}
 	return false
@@ -328,7 +333,7 @@ func PURLName(purl string) string {
 	if strings.HasPrefix(name, "@") { // a scope without its package
 		return ""
 	}
-	return purlDecode(name)
+	return PURLDecode(name)
 }
 
 // PURLVersion returns the version written in a purl, decoded:
@@ -338,7 +343,7 @@ func PURLVersion(purl string) string {
 	if at < 0 {
 		return ""
 	}
-	return purlDecode(purl[at+1 : end])
+	return PURLDecode(purl[at+1 : end])
 }
 
 // PURLQuery returns what to ask OSV for a purl at a version. A version that
@@ -351,7 +356,7 @@ func PURLVersion(purl string) string {
 // them, where any version of Debian 12 is below the fix of Debian 14.
 func PURLQuery(purl, version string) Query {
 	source := sourcePURL(purl)
-	if version != "" && purlDecode(version) != PURLVersion(purl) {
+	if version != "" && PURLDecode(version) != PURLVersion(purl) {
 		source = WithoutVersion(source)
 	}
 	withoutSubpath, _, _ := strings.Cut(purl, "#")
@@ -361,9 +366,9 @@ func PURLQuery(purl, version string) Query {
 		if ecosystem := releaseEcosystem(parts[1], qualifiers.Get("distro")); ecosystem != "" {
 			name, purlVersion, versioned := strings.Cut(parts[2], "@")
 			if versioned {
-				version = purlDecode(purlVersion)
+				version = PURLDecode(purlVersion)
 			}
-			return Query{Package: Package{Name: purlDecode(name), Ecosystem: ecosystem}, Version: version}
+			return Query{Package: Package{Name: PURLDecode(name), Ecosystem: ecosystem}, Version: version}
 		}
 	}
 	if PURLVersion(source) != "" {
@@ -372,7 +377,9 @@ func PURLQuery(purl, version string) Query {
 	return Query{Package: Package{PURL: source}, Version: version}
 }
 
-func purlDecode(s string) string {
+// PURLDecode decodes a part of a purl, or keeps it as written when it is not
+// properly encoded (%zz): an empty name would file a package nowhere.
+func PURLDecode(s string) string {
 	if decoded, err := url.PathUnescape(s); err == nil {
 		return decoded
 	}
@@ -636,7 +643,8 @@ type Advisories struct {
 	token     string // of the next page
 	pages     int
 	done      bool
-	body      io.Closer // of the page being read
+	body      io.Closer      // of the page being read
+	part      *limit.Limited // the page, bounded advisory by advisory
 	dec       *json.Decoder
 	inVulns   bool
 	vuln      Vuln
@@ -662,7 +670,7 @@ func (a *Advisories) Err() error { return a.err }
 func (a *Advisories) Close() {
 	if a.body != nil {
 		_ = a.body.Close() // only read from: nothing to lose
-		a.body, a.dec = nil, nil
+		a.body, a.part, a.dec = nil, nil, nil
 	}
 }
 
@@ -739,11 +747,17 @@ func (a *Advisories) openPage(ctx context.Context) error {
 		return err
 	}
 	a.body = page
-	a.dec = json.NewDecoder(page)
+	a.part = limit.Reader(page, maxBody)
+	a.dec = json.NewDecoder(a.part)
 	return nil
 }
 
+// decodeVuln reads the next advisory of the page, within maxBody bytes as one
+// read alone: a page of 1 GB could otherwise hold one advisory of 1 GB. The
+// bytes counted are those read for it, the decoder reading ahead: it holds at
+// most twice maxBody.
 func (a *Advisories) decodeVuln() error {
+	a.part.Renew()
 	var v Vuln
 	if err := a.dec.Decode(&v); err != nil {
 		return err
@@ -754,6 +768,7 @@ func (a *Advisories) decodeVuln() error {
 
 // readField reads a field of the page, up to the first advisory of its list.
 func (a *Advisories) readField() error {
+	a.part.Renew()
 	key, err := a.dec.Token()
 	if err != nil {
 		return err
@@ -772,15 +787,34 @@ func (a *Advisories) readField() error {
 }
 
 // expect reads a delimiter of the page, which must be the one given.
+// SECURITY: what came instead is named by its kind, never quoted: the error
+// is shown and logged, and a text of the page could hold anything, up to the
+// bound of the page.
 func (a *Advisories) expect(delim json.Delim) error {
 	token, err := a.dec.Token()
 	if err != nil {
 		return err
 	}
 	if token != delim {
-		return fmt.Errorf("%v au lieu de %v", token, delim)
+		return fmt.Errorf("%s au lieu de %v", tokenKind(token), delim)
 	}
 	return nil
+}
+
+// tokenKind names a token of a page: a delimiter as it is, any other value by
+// its kind (limit.JSONKind).
+func tokenKind(token json.Token) string {
+	switch token := token.(type) {
+	case json.Delim:
+		return string(token)
+	case string:
+		return limit.JSONKind("string")
+	case bool:
+		return limit.JSONKind("bool")
+	case nil:
+		return limit.JSONKind("null")
+	}
+	return limit.JSONKind("number")
 }
 
 // Vuln fetches the full record of a vulnerability.
@@ -799,23 +833,14 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	})
 }
 
-// retryDelays are the waits before asking again after a temporary failure: a
-// network glitch on the batch request would fail the whole synchronisation.
-var retryDelays = []time.Duration{5 * time.Second, 15 * time.Second}
-
-// delays returns the waits before asking again: retryDelays for OSV, none for
-// a test server or a mirror.
-func (c *Client) delays() []time.Duration {
-	if cmp.Or(c.URL, DefaultURL) != DefaultURL {
-		return make([]time.Duration, len(retryDelays))
-	}
-	return retryDelays
-}
+// delays returns the waits before asking again after a temporary failure
+// (sources.Delays): none for a test server or a mirror.
+func (c *Client) delays() []time.Duration { return sources.Delays(c.URL, defaultURL, nil) }
 
 // send makes a request to path and has it sent by call (sources.Do or Open),
 // again after a temporary failure.
 func (c *Client) send(ctx context.Context, method, path string, body any, call func(*http.Request) error) error {
-	base := cmp.Or(c.URL, DefaultURL)
+	base := cmp.Or(c.URL, defaultURL)
 	err := sources.Retry(ctx, c.delays(), func() (bool, error) {
 		req, err := sources.NewRequest(ctx, method, base+path, c.UserAgent, body)
 		if err != nil {

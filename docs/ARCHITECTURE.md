@@ -76,9 +76,10 @@ modification, ou sur demande), par l'API après un import SBOM, ou par `vigil sy
    passagère. Un actif qu'une source n'a pas pu vérifier est signalé et ne bloque pas les autres.
    Les avis d'un actif sont enregistrés ensemble, une fois ses sources lues (A57).
 3. Enrichissement : CVE croisées avec CISA KEV et EPSS, avant les findings (voir A31) ; le
-   catalogue KEV est lu une fois par synchronisation, chaque CVE demandée une fois à EPSS, et seuls
-   les changements écrits, en une transaction. Une panne de ces sources est journalisée sans faire
-   échouer la synchronisation.
+   catalogue KEV est lu une fois par synchronisation, chaque CVE demandée une fois à EPSS (y compris
+   celles des avis anciens relus pour la garde de A31), et seuls les changements écrits, en une
+   transaction ; l'analyse d'un seul actif n'enrichit que ses avis. Une panne de ces sources est
+   journalisée sans faire échouer la synchronisation.
 4. `findings` : une ligne par CVE (A80), les avis groupés et les seconds avis d'une CVE repliés ;
    création si nouveau et dans la période de suivi de l'actif, réouverture si résolu
    automatiquement puis signalé à nouveau, résolution automatique si la source ne le signale plus
@@ -300,7 +301,11 @@ la traiter comme ouverte signalerait presque toutes leurs CVE. Pour un paquet, O
 sans version (`/v1/query`, avis complets, un appel par paquet) et seuls les avis retenus sont
 stockés. *Conséquence* : quand le correctif sort, la source le signale et la vulnérabilité est
 résolue automatiquement (A14), ce qui correspond à un actif qui se met à jour. Un correctif
-publié mais pas encore installé n'est pas signalé : c'est l'hypothèse même de `latest`.
+publié mais pas encore installé n'est pas signalé : c'est l'hypothèse même de `latest`. Une seule
+lecture des étapes d'une plage dit qu'elle finit affectée (`osv.Range.Unfixed`) : la détection, et la page
+d'une vulnérabilité, qui désigne comme celle de l'actif le dernier intervalle de cette plage. *Correction
+(revue de la 0.5.0)* : la page prenait tout intervalle sans version corrigée, y compris « affectée jusqu'à
+1.0 » suivi d'un intervalle corrigé, que la détection ne retient pas.
 
 **A52. Détection par le nom, sans purl ni CPE.** Beaucoup d'actifs sont saisis par leur seul nom :
 ils n'étaient pas vérifiés. Ils sont désormais cherchés dans les descriptions des CVE de la NVD
@@ -396,7 +401,9 @@ lues, par lots de 500 (ou 8 Mo) pour une liste longue, car un seul avis à la fo
 (A62). Un échec annule le lot de cet actif seulement : il est compté « non vérifié » avec la raison,
 garde ses vulnérabilités telles qu'elles étaient, et les autres actifs continuent (une erreur
 d'écriture arrêtait toute la synchronisation, en laissant l'actif à moitié enregistré). Les avis
-d'un actif dont une source échoue en cours de lecture ne sont pas gardés. Le réseau n'est jamais lu
+d'un actif dont une source échoue en cours de lecture ne sont pas gardés, sauf, pour une liste longue,
+les lots de 500 déjà enregistrés avant l'échec : ce sont des fiches justes, que la synchronisation suivante
+retrouve telles quelles, et l'actif n'en reçoit aucune vulnérabilité, ni sa liste légère (A90). Le réseau n'est jamais lu
 pendant une transaction : elle tient la seule connexion à la base (A5), que l'interface attend.
 Écartés : une transaction pour toute la synchronisation (une panne en fin de course perdrait tout,
 et l'interface attendrait des minutes) ; garder tous les avis d'un actif en mémoire jusqu'à la fin,
@@ -446,7 +453,8 @@ A55 relisait tout parce que suivre le jeton de `querybatch` puis télécharger c
 15 000 requêtes. Mais cette liste légère (identifiant et date de modification, mille par page) ne pèse que
 593 Ko pour ce noyau, en 9 pages et 40 secondes, et dit ce qui a changé. La synchronisation garde donc,
 pour chaque requête de ce genre (paquet, écosystème, version), ce qu'il lui faut de chaque avis signalé :
-identifiant, dates de modification et de publication, autres identifiants (alias, avis d'origine). C'est
+identifiant, dates de modification et de publication, autres identifiants (alias, avis d'origine),
+vérifiés comme ce que la base garde (A69, `listed.checked`). C'est
 ce que demandent la période de suivi et sa garde KEV et EPSS (A31) et le repli d'une CVE (A80), y compris
 pour les avis que la base ne garde pas (A62) : table `osv_lists`, migration 020, 1,4 Mo pour ce noyau.
 À la synchronisation suivante, d'après la liste légère :
@@ -504,8 +512,8 @@ désormais vérifié avec son époque.
 pour chaque ligne, la version qui la corrige pour l'actif (colonne « Corrigée en », export CSV). La relire dans
 l'avis à chaque affichage prendrait 0,9 s pour les 3 162 vulnérabilités d'un noyau Ubuntu, dont les avis pèsent
 50 Ko en moyenne (34 ms pour les 4 467 d'un noyau Debian). Elle est donc calculée à la synchronisation, par la
-règle de la page d'une vulnérabilité (`tracking.FixedIn` : la fin des plages qui contiennent la version de
-l'actif), et gardée avec elle (`findings.fixed_in`). *Conséquences* : la colonne se remplit à la première
+règle de la page d'une vulnérabilité (`tracking.Fixes`, dont elle garde la fin des plages qui contiennent la
+version de l'actif), et gardée avec elle (`findings.fixed_in`). *Conséquences* : la colonne se remplit à la première
 synchronisation après la mise à jour ; une vulnérabilité que la source ne signale plus garde la dernière
 valeur connue, et celles déjà corrigées avant la mise à jour restent vides. Un actif à sa dernière version
 (`latest`) n'en a pas : ses plages sont les ouvertes.
@@ -799,11 +807,19 @@ Red Hat en `HIGH`) ; une valeur inconnue y est remplacée par la sévérité du 
 absente. Puis une seule fonction, `tracking.sanitize`, s'applique aux deux entrées (avis OSV, fiche NVD) :
 sévérité de la liste ou inconnue, score dans 0..10 ou absent, résumé, description, alias et références
 bornés, bien au-dessus des avis réels. L'échéance KEV, écrite à part, est vérifiée par son client, comme
-les scores EPSS. *Écarté* : stocker `UNKNOWN`, une deuxième forme de l'inconnu à côté de la sévérité vide,
+les scores EPSS. *Revue de la 0.5.0* : l'identifiant et les dates n'avaient pas de borne (un identifiant
+de 10 000 caractères était stocké tel quel, une date `<b>demain</b>` aussi), et la liste légère d'A90 gardait
+les autres identifiants tels que lus. Une seule fonction, `listed.checked`, vérifie désormais ce qui
+identifie et date un avis, pour la base (`sanitize`) comme pour cette liste (`short`) : un identifiant
+vide ou de plus de 100 caractères rend la réponse illisible (l'actif reste « non vérifié »), un alias plus
+long est retiré et 2 000 au plus sont gardés, une date qui ne commence pas par un jour, ou de plus de
+40 octets, devient inconnue. *Écarté* : couper un identifiant trop long, qui en ferait un autre, ou sauter
+l'avis, qui ne serait plus signalé. *Écarté* : stocker `UNKNOWN`, une deuxième forme de l'inconnu à côté de la sévérité vide,
 que le digest ne classerait plus d'après le score ; traduire aussi dans le digest, qui ne lit que des
 sévérités déjà traduites (aucune version publiée n'a stocké `MODERATE`). *Conséquence* : une fiche déjà
-en base est corrigée à sa prochaine écriture (chaque synchronisation pour la NVD, la prochaine
-modification de l'avis pour OSV).
+en base est corrigée à sa prochaine écriture : la prochaine modification de l'avis, pour OSV comme,
+depuis la revue de la 0.5.0, pour la NVD, dont chaque fiche était réécrite à chaque synchronisation, son
+enregistrement brut compris (`storeNVD` réutilise le contrôle `stale` d'OSV, par la date `lastModified`).
 
 *Ordre des sources de la sévérité (novembre 2026).* Plus de la moitié des CVE des noyaux restaient sans
 sévérité : 2 354 sur 4 481 pour Debian 13, 1 663 sur 3 151 pour Ubuntu 22.04, sur la période de suivi.
@@ -837,7 +853,7 @@ aussi pour les pages de `/v1/query`. Une requête est renvoyée
 après une panne du réseau, à l'aller comme pendant la lecture, un 429 ou un 5xx, et le 403 de la limite
 de débit de la NVD ; pas après un autre refus, une redirection refusée par `netsafe.CheckRedirect`
 (`netsafe.RedirectError` : vers une URL non https, ou plus de 5), une réponse trop grosse ou illisible, qui
-échoueraient de même. Les plafonds de lecture ne changent pas. Les clients ont la même forme : `URL` (vide : l'API publique), `HTTP` (donné par
+échoueraient de même. Les plafonds de lecture sont ceux mesurés plus bas. Les clients ont la même forme : `URL` (vide : l'API publique), `HTTP` (donné par
 `main`), `UserAgent` ; `kev.Client.Catalogue` et `epss.Client.Scores` remplacent les fonctions libres, et
 le `Syncer` porte ces deux clients au lieu d'un client HTTP et de deux URL. OSV reçoit de `main` une copie
 du client commun, avec sa politique de redirection, au délai `osv.Timeout` (5 minutes). *Écarté* : un
@@ -868,6 +884,27 @@ l'actif, sous un message trompeur. Lors d'un essai réel, le noyau Ubuntu 22.04 
 
 *Écarté* : relire toute la requête depuis la première page, soit 25 minutes pour ce noyau ; garder une
 page en mémoire pour la relire, alors qu'elle peut dépasser 64 Mo (A55).
+
+*Correction (revue de la 0.5.0) : les quatre sources sont renvoyées.* KEV et EPSS ne passaient pas par
+`Retry` : un seul 503 sur l'un des lots d'EPSS faisait échouer l'enrichissement de toute la base. Les deux
+y passent désormais (`sources.Get` : requête, lecture, nouvelles tentatives), et la règle des attentes,
+écrite deux fois (OSV, NVD), n'est plus qu'une (`sources.Delays`) : 5 puis 15 secondes, 10 puis 30 pour
+la NVD, aucune pour un serveur de test ou un miroir.
+
+*Plafonds de lecture, mesurés (revue de la 0.5.0).* Chaque réponse est lue dans une borne (`limit.Reader`),
+bien au-dessus des réponses réelles de la base de l'audit :
+- OSV : une page de `/v1/query`, 1 Gio, pour 72 Mo en moyenne (la plus lourde n'est pas mesurée) ; un avis,
+  lu seul (`/v1/vulns`) ou dans une page, et une réponse de `querybatch`, 32 Mio, pour 708 Ko au plus ;
+- NVD : une page de 2 000 CVE, 64 Mio, pour 12 Mo ; le dictionnaire des CPE, 48 Mio ;
+- KEV : 32 Mio ; EPSS : 4 Mio par lot de 100 CVE ;
+- la raison d'un refus : 64 Kio.
+
+Au-delà, la lecture échoue (« réponse supérieure à … octets »), n'est pas renvoyée, et l'actif reste « non
+vérifié ». Dans une page, la borne d'un avis compte ce qui est lu pour lui (`limit.Limited.Renew`, à chaque
+avis) ; le décodeur lisant d'avance, il en tient au plus le double. *Correction* : un avis lu dans une page
+n'était borné que par la page, soit 1 Gio en mémoire pour un seul avis (essai : un avis de 200 Mo accepté,
+1,3 Go alloués). *Écarté* : borner la page plus bas, qui n'en protège pas un seul avis et refuserait une
+page réelle plus lourde que la moyenne.
 
 **A74. Une seule lecture bornée, hors de `netsafe`, et une seule écriture CSV.** L'audit de code de
 novembre 2026 (R6) relevait que le BOM UTF-8 se retirait de trois façons (SBOM, VEX, CSV), que la
@@ -942,6 +979,17 @@ d'EPSS est journalisée et ne laisse passer que KEV, comme avant. Sur la base de
 entrent ainsi, toutes urgentes : 9 pour le noyau Ubuntu (dont CVE-2026-43284, EPSS 94 %) et 4 pour le noyau
 Debian, dont CVE-2004-0230 et CVE-2008-4609 (TCP), que Debian dit toujours affecter le paquet. *Limite* : la NVD n'est interrogée que
 sur la période et sur KEV (`hasKev`) ; une CVE probable plus ancienne n'y est pas cherchée.
+
+*Correction (revue de la 0.5.0) : chaque CVE demandée une fois à EPSS.* Chaque paquet lu en entier
+demandait à EPSS ses CVE anciennes, puis l'enrichissement redemandait celles en base : deux noyaux qui
+partagent leurs CVE (Debian et Ubuntu) les faisaient demander deux fois, et les probables trois (essai :
+1 850 demandes pour 1 000 CVE, 20 requêtes au lieu de 10). L'analyse d'un seul actif, à son ajout ou à sa
+modification, enrichissait toute la base : environ 77 requêtes pour les 7 629 vulnérabilités des deux
+noyaux de l'audit, pour un actif qui n'en a peut-être aucune. Une mémoire des scores, le temps d'une
+synchronisation (`signals.epssScores`), ne demande que les CVE pas encore demandées, à la garde comme à
+l'enrichissement ; l'analyse d'un actif n'enrichit que les avis qu'il signale, la synchronisation
+périodique tout le reste. *Écarté* : garder les scores d'une synchronisation à l'autre, alors qu'EPSS
+change chaque jour.
 
 **A32. État de la synchronisation visible, analyse d'un seul actif.** Sans JavaScript, une
 synchronisation en arrière-plan ne donnait aucun retour. Le bouton « Synchroniser l'inventaire »

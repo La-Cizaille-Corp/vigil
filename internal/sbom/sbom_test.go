@@ -1,6 +1,7 @@
 package sbom
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -68,6 +69,23 @@ func TestParseTooLarge(t *testing.T) {
 	big := strings.NewReader(cyclonedx + strings.Repeat(" ", MaxSize))
 	if _, err := Parse(big); err == nil || err.Error() != "fichier supérieur à 20 Mo" {
 		t.Errorf("SBOM past %d bytes: %v", MaxSize, err)
+	}
+}
+
+// A document of empty values made the decoder hold 2 to 3 GB, every element a
+// structure, before the bound of components was checked: past the values a
+// real SBOM of 20 MB holds, it is refused before it is decoded.
+func TestParseTooManyValues(t *testing.T) {
+	for _, item := range []string{"0", "{}", `""`} {
+		doc := `{"bomFormat":"CycloneDX","components":[` + strings.Repeat(item+",", 19<<20/(len(item)+1)) + item + `]}`
+		var before, after runtime.MemStats
+		runtime.ReadMemStats(&before)
+		_, err := Parse(strings.NewReader(doc))
+		runtime.ReadMemStats(&after)
+		allocated := (after.TotalAlloc - before.TotalAlloc) >> 20
+		if err == nil || err.Error() != "document trop complexe : plus de 2000000 valeurs JSON" || allocated > 200 {
+			t.Errorf("%d MB of %s: %d MB allocated, %v", len(doc)>>20, item, allocated, err)
+		}
 	}
 }
 

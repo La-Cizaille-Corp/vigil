@@ -4,6 +4,7 @@ package kev
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -11,14 +12,14 @@ import (
 	"github.com/La-Cizaille-Corp/vigil/internal/sources"
 )
 
-// DefaultURL is the official JSON feed.
-const DefaultURL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+// defaultURL is the official JSON feed.
+const defaultURL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
 
 const maxBody = 32 << 20
 
 // Client downloads the catalogue.
 type Client struct {
-	URL       string // empty: DefaultURL
+	URL       string // empty: defaultURL
 	HTTP      *http.Client
 	UserAgent string
 }
@@ -34,12 +35,15 @@ func (c *Client) Catalogue(ctx context.Context) (map[string]Entry, error) {
 	var doc struct {
 		Vulnerabilities []Entry `json:"vulnerabilities"`
 	}
-	req, err := sources.NewRequest(ctx, http.MethodGet, cmp.Or(c.URL, DefaultURL), c.UserAgent, nil)
-	if err == nil {
-		err = sources.Do(c.HTTP, req, maxBody, &doc)
-	}
+	err := sources.Get(ctx, c.HTTP, cmp.Or(c.URL, defaultURL), c.UserAgent, sources.Delays(c.URL, defaultURL, nil), maxBody, &doc)
 	if err != nil {
 		return nil, fmt.Errorf("kev: %w", err)
+	}
+	// SECURITY: the catalogue lists more than a thousand CVEs and only grows;
+	// an empty one is an answer the client cannot read (a field renamed), and
+	// taken as it is, it would clear the KEV mark of every vulnerability.
+	if len(doc.Vulnerabilities) == 0 {
+		return nil, errors.New("kev: réponse illisible : catalogue vide")
 	}
 	out := make(map[string]Entry, len(doc.Vulnerabilities))
 	for _, e := range doc.Vulnerabilities {

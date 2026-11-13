@@ -20,8 +20,8 @@ import (
 	"github.com/La-Cizaille-Corp/vigil/internal/sources"
 )
 
-// DefaultURL is the public CVE API.
-const DefaultURL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+// defaultURL is the public CVE API.
+const defaultURL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 
 const (
 	// maxBody bounds a page of pageSize records, read whole: a record carries
@@ -40,11 +40,11 @@ const (
 // Client queries the NVD. Without an API key the NVD allows 5 requests per
 // 30 seconds, with one 50: the client spaces its requests accordingly.
 type Client struct {
-	URL       string // CVE API, empty: DefaultURL
+	URL       string // CVE API, empty: defaultURL
 	HTTP      *http.Client
 	UserAgent string
 	APIKey    string // optional
-	CPEURL    string // CPE dictionary API, empty: DefaultCPEURL
+	CPEURL    string // CPE dictionary API, empty: defaultCPEURL
 
 	mu   sync.Mutex // spaces requests made by syncs and CPE searches alike
 	last time.Time
@@ -229,7 +229,7 @@ var retryDelays = []time.Duration{10 * time.Second, 30 * time.Second}
 
 // public reports whether the client asks the NVD itself, whose rate limit it
 // respects; a mirror or a test server is asked without waiting.
-func (c *Client) public() bool { return cmp.Or(c.URL, DefaultURL) == DefaultURL }
+func (c *Client) public() bool { return cmp.Or(c.URL, defaultURL) == defaultURL }
 
 // rateLimited reports whether the NVD refused a request for its rate limit:
 // it answers 403, sometimes 429.
@@ -245,19 +245,16 @@ func rateLimited(err error) bool {
 // Read as an empty answer, it would mark every open finding of the assets
 // tracked through the NVD as fixed.
 func (c *Client) get(ctx context.Context, q url.Values) ([]CVE, int, error) {
-	delays := retryDelays
-	if !c.public() {
-		delays = make([]time.Duration, len(retryDelays)) // tests and mirrors
-	}
 	var r response
-	err := sources.Retry(ctx, delays, func() (bool, error) {
-		err := c.send(ctx, cmp.Or(c.URL, DefaultURL)+"?"+q.Encode(), maxBody, &r)
+	err := sources.Retry(ctx, sources.Delays(c.URL, defaultURL, retryDelays), func() (bool, error) {
+		err := c.send(ctx, cmp.Or(c.URL, defaultURL)+"?"+q.Encode(), maxBody, &r)
 		return rateLimited(err) || sources.Temporary(err), err
 	})
 	if err != nil {
 		return nil, 0, err
 	}
-	return parse(r), r.TotalResults, nil
+	cves, err := parse(r)
+	return cves, r.TotalResults, err
 }
 
 // send waits its turn, then asks the NVD and decodes its answer into out.
@@ -324,12 +321,25 @@ type record struct {
 	} `json:"references"`
 }
 
-// parse keeps the records of a page that can be read and are not rejected.
-func parse(r response) []CVE {
+// parse keeps the records of a page that are not rejected. SECURITY: a page
+// without its list, or a record that cannot be read, is an error, like a 404
+// (see get): left out, its CVE would no longer be reported, and its findings
+// would be marked fixed. A field of the NVD that changes type would do it to
+// every record.
+func parse(r response) ([]CVE, error) {
+	if r.Vulnerabilities == nil {
+		return nil, errors.New("nvd: réponse illisible : liste « vulnerabilities » absente")
+	}
 	out := make([]CVE, 0, len(r.Vulnerabilities))
-	for _, v := range r.Vulnerabilities {
+	for i, v := range r.Vulnerabilities {
 		var rec record
-		if err := json.Unmarshal(v.CVE, &rec); err != nil || rec.ID == "" || rec.VulnStatus == "Rejected" {
+		if err := json.Unmarshal(v.CVE, &rec); err != nil {
+			return nil, fmt.Errorf("nvd: réponse illisible : enregistrement %d : %w", i+1, err)
+		}
+		if rec.ID == "" {
+			return nil, fmt.Errorf("nvd: réponse illisible : enregistrement %d sans identifiant", i+1)
+		}
+		if rec.VulnStatus == "Rejected" {
 			continue
 		}
 		c := CVE{CVSS: -1, ID: rec.ID, Published: rec.Published, Modified: rec.LastModified, Raw: v.CVE}
@@ -353,5 +363,5 @@ func parse(r response) []CVE {
 		}
 		out = append(out, c)
 	}
-	return out
+	return out, nil
 }

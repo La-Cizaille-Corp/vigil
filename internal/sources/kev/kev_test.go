@@ -20,3 +20,32 @@ func TestCatalogueDueDates(t *testing.T) {
 		t.Errorf("catalogue %v, %v", got, err)
 	}
 }
+
+// The catalogue is never empty: an empty one, or one whose list was renamed,
+// would clear the KEV mark of every vulnerability.
+func TestEmptyCatalogueRefused(t *testing.T) {
+	for _, doc := range []string{`{"vulnerabilities":[]}`, `{"title":"CISA Catalog","items":[{"cveID":"CVE-2024-0001"}]}`} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, doc) }))
+		if got, err := (&Client{URL: srv.URL, HTTP: srv.Client()}).Catalogue(context.Background()); err == nil {
+			t.Errorf("%s: %v", doc, got)
+		}
+		srv.Close()
+	}
+}
+
+// A temporary failure is asked again, as for the other sources: one 503 failed
+// the enrichment of the whole synchronisation.
+func TestCatalogueRetried(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls++; calls == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		io.WriteString(w, `{"vulnerabilities":[{"cveID":"CVE-2024-0001"}]}`)
+	}))
+	defer srv.Close()
+	if got, err := (&Client{URL: srv.URL, HTTP: srv.Client()}).Catalogue(context.Background()); err != nil || len(got) != 1 || calls != 2 {
+		t.Errorf("%d calls: %v, %v", calls, got, err)
+	}
+}
