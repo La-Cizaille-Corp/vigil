@@ -5,15 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log/slog"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/La-Cizaille-Corp/vigil/internal/digest"
-	"github.com/La-Cizaille-Corp/vigil/internal/sources/epss"
-	"github.com/La-Cizaille-Corp/vigil/internal/sources/kev"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/osv"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
@@ -21,8 +17,8 @@ import (
 )
 
 // fakeOSV reports GHSA-test for lodash 4.17.15 only.
-func fakeOSV(t *testing.T) *httptest.Server {
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func fakeOSV(t *testing.T) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/v1/querybatch":
 			var req struct{ Queries []osv.Query }
@@ -62,18 +58,14 @@ func fakeOSV(t *testing.T) *httptest.Server {
 		default:
 			http.NotFound(w, r)
 		}
-	}))
+	}
 }
 
 func TestSyncLifecycle(t *testing.T) {
 	ctx := context.Background()
 	st := storetest.Open(t)
 
-	srv := fakeOSV(t)
-	defer srv.Close()
-	client := &osv.Client{URL: srv.URL, HTTP: http.DefaultClient, UserAgent: "vigil-test"}
-	syncer := &tracking.Syncer{Store: st, OSV: client, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		KEV: &kev.Client{URL: srv.URL + "/kev", HTTP: srv.Client()}, EPSS: &epss.Client{URL: srv.URL + "/epss", HTTP: srv.Client()}}
+	syncer, _ := osvSyncer(t, st, fakeOSV(t), true)
 
 	asset := store.Asset{Name: "lodash", Kind: "package", PURL: "pkg:npm/lodash@4.17.15",
 		Criticality: "high", Source: "manual"}
@@ -119,7 +111,9 @@ func TestSyncLifecycle(t *testing.T) {
 
 	// 5. Downgrading again reopens it.
 	asset.PURL = "pkg:npm/lodash@4.17.15"
-	st.UpdateAsset(ctx, store.Everything, asset)
+	if err := st.UpdateAsset(ctx, store.Everything, asset); err != nil {
+		t.Fatal(err)
+	}
 	if res, _ = syncer.Run(ctx); res.Reopened != 1 {
 		t.Fatalf("reopened = %d, want 1", res.Reopened)
 	}
@@ -144,11 +138,7 @@ func TestSyncLifecycle(t *testing.T) {
 func TestVersionFieldOverridesThePURL(t *testing.T) {
 	ctx := context.Background()
 	st := storetest.Open(t)
-	srv := fakeOSV(t)
-	defer srv.Close()
-	client := &osv.Client{URL: srv.URL, HTTP: http.DefaultClient, UserAgent: "vigil-test"}
-	syncer := &tracking.Syncer{Store: st, OSV: client, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		KEV: &kev.Client{URL: srv.URL + "/kev", HTTP: srv.Client()}, EPSS: &epss.Client{URL: srv.URL + "/epss", HTTP: srv.Client()}}
+	syncer, _ := osvSyncer(t, st, fakeOSV(t), true)
 
 	asset := store.Asset{Name: "lodash", Kind: "package", PURL: "pkg:npm/lodash@4.17.15", Version: "4.17.15",
 		Criticality: "high", Source: "manual"}
@@ -182,11 +172,7 @@ func TestVersionFieldOverridesThePURL(t *testing.T) {
 func TestTrackedPeriod(t *testing.T) {
 	ctx := context.Background()
 	st := storetest.Open(t)
-	srv := fakeOSV(t)
-	defer srv.Close()
-	client := &osv.Client{URL: srv.URL, HTTP: http.DefaultClient, UserAgent: "vigil-test"}
-	syncer := &tracking.Syncer{Store: st, OSV: client, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		KEV: &kev.Client{URL: srv.URL + "/kev", HTTP: srv.Client()}, EPSS: &epss.Client{URL: srv.URL + "/epss", HTTP: srv.Client()}}
+	syncer, _ := osvSyncer(t, st, fakeOSV(t), true)
 
 	id, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "lib", Kind: "package", PURL: "pkg:npm/lib@1.0.0",
 		Criticality: "medium", Source: "manual", TrackSince: "2026-06-01"})
@@ -217,7 +203,9 @@ func TestTrackedPeriod(t *testing.T) {
 	// Whole history: the old one is reported too.
 	a, _ := st.Asset(ctx, store.Everything, id)
 	a.TrackSince = ""
-	st.UpdateAsset(ctx, store.Everything, a)
+	if err := st.UpdateAsset(ctx, store.Everything, a); err != nil {
+		t.Fatal(err)
+	}
 	if res, _ = syncer.RunAsset(ctx, id); res.Created != 1 {
 		t.Fatalf("created %d, want 1", res.Created)
 	}
@@ -226,26 +214,19 @@ func TestTrackedPeriod(t *testing.T) {
 	}
 }
 
+// Each refusal names its field, for the form to show it beside it.
 func TestValidateStatus(t *testing.T) {
-	if err := tracking.ValidateStatus("not_affected", "", ""); err == nil {
-		t.Error("not_affected without justification accepted")
-	}
-	if err := tracking.ValidateStatus("bogus", "", ""); err == nil {
-		t.Error("unknown status accepted")
-	}
-	if err := tracking.ValidateStatus("not_affected", "code_not_reachable", "ok"); err != nil {
-		t.Error(err)
-	}
-	// Each refusal names its field, for the form to show it beside it.
 	for _, c := range []struct{ status, justif, comment, field string }{
+		{"not_affected", "code_not_reachable", "ok", ""}, // accepted
 		{"bogus", "", "", "status"},
 		{"not_affected", "", "", "justification"},
 		{"in_triage", "bogus", "", "justification"},
 		{"in_triage", "", strings.Repeat("é", tracking.MaxComment+1), "comment"},
 	} {
 		var se *tracking.StatusError
-		if err := tracking.ValidateStatus(c.status, c.justif, c.comment); !errors.As(err, &se) || se.Field != c.field {
-			t.Errorf("%+v: %v, want a refusal of %s", c, err, c.field)
+		err := tracking.ValidateStatus(c.status, c.justif, c.comment)
+		if c.field == "" && err != nil || c.field != "" && (!errors.As(err, &se) || se.Field != c.field) {
+			t.Errorf("%+v: %v, want a refusal of %q", c, err, c.field)
 		}
 	}
 }

@@ -2,6 +2,7 @@ package sbom
 
 import (
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -99,12 +100,6 @@ func TestParseSPDX(t *testing.T) {
 	}
 }
 
-func TestParseRejectsUnknown(t *testing.T) {
-	if _, err := Parse(strings.NewReader(`{"hello": "world"}`)); err == nil {
-		t.Fatal("unknown format accepted")
-	}
-}
-
 // A file that is not a valid SBOM says why in French, without the Go names of
 // encoding/json (audit UX 7.3, A88).
 func TestParseErrorsInFrench(t *testing.T) {
@@ -122,15 +117,17 @@ func TestParseErrorsInFrench(t *testing.T) {
 	}
 }
 
-// An empty or unusable SBOM would remove every asset of the project, and
-// their triage history with them: it is refused.
-func TestParseRefusesEmpty(t *testing.T) {
-	for _, doc := range []string{
-		`{"bomFormat":"CycloneDX","components":[]}`,
-		`{"bomFormat":"CycloneDX","components":[{"type":"library","name":""}]}`,
+// A document of another format is refused. So is an empty or unusable SBOM:
+// it would remove every asset of the project, and their triage history with
+// them.
+func TestParseRefuses(t *testing.T) {
+	for name, doc := range map[string]string{
+		"unknown format":         `{"hello": "world"}`,
+		"no component":           `{"bomFormat":"CycloneDX","components":[]}`,
+		"component without name": `{"bomFormat":"CycloneDX","components":[{"type":"library","name":""}]}`,
 	} {
 		if _, err := Parse(strings.NewReader(doc)); err == nil {
-			t.Errorf("accepted: %s", doc)
+			t.Errorf("%s accepted: %s", name, doc)
 		}
 	}
 }
@@ -157,9 +154,11 @@ func TestTrivySourcePackage(t *testing.T) {
 		"pkg:deb/debian/libc6@2.36?upstream=glibc",
 		"pkg:npm/lodash@4.17.15",
 	}
-	for i, a := range doc.Assets {
-		if a.PURL != want[i] {
-			t.Errorf("purl = %q, want %q", a.PURL, want[i])
-		}
+	var got []string
+	for _, a := range doc.Assets {
+		got = append(got, a.PURL)
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("purls\n%q\nwant\n%q", got, want)
 	}
 }

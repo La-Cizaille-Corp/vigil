@@ -4,18 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"log/slog"
 	"net/http"
-	"net/http/httptest"
 	"slices"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
-	"github.com/La-Cizaille-Corp/vigil/internal/sources/epss"
-	"github.com/La-Cizaille-Corp/vigil/internal/sources/kev"
-	"github.com/La-Cizaille-Corp/vigil/internal/sources/nvd"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/osv"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
@@ -28,12 +22,8 @@ import (
 func TestLargePackage(t *testing.T) {
 	ctx := context.Background()
 	st := storetest.Open(t)
-	var mu sync.Mutex
 	var batches []osv.Query
-	queries, advisories := 0, 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		defer mu.Unlock()
+	syncer, srv := osvSyncer(t, st, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/querybatch":
 			var body struct {
@@ -43,7 +33,6 @@ func TestLargePackage(t *testing.T) {
 			batches = append(batches, body.Queries...)
 			io.WriteString(w, `{"results":[{"vulns":[{"id":"DEBIAN-CVE-2004-0230","modified":"2026-01-01T00:00:00Z"}],"next_page_token":"p2"}]}`)
 		case "/v1/query":
-			queries++
 			var body struct {
 				Package   osv.Package `json:"package"`
 				Version   string      `json:"version"`
@@ -68,14 +57,9 @@ func TestLargePackage(t *testing.T) {
 		case "/epss":
 			io.WriteString(w, `{"data":[]}`)
 		default:
-			advisories++
 			http.NotFound(w, r)
 		}
-	}))
-	defer srv.Close()
-	client := &osv.Client{URL: srv.URL, HTTP: http.DefaultClient, UserAgent: "vigil-test"}
-	syncer := &tracking.Syncer{Store: st, OSV: client, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		KEV: &kev.Client{URL: srv.URL + "/kev", HTTP: srv.Client()}, EPSS: &epss.Client{URL: srv.URL + "/epss", HTTP: srv.Client()}}
+	}, true)
 
 	id, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "linux", Kind: "os", Ecosystem: "Debian:12", Version: "6.1.76-1",
 		Criticality: "high", Source: "manual", TrackSince: "2026-06-01"})
@@ -108,8 +92,8 @@ func TestLargePackage(t *testing.T) {
 	if a, _ := st.Asset(ctx, store.Everything, id); a.OlderVulns != 1 {
 		t.Errorf("older vulnerabilities = %d, want 1", a.OlderVulns)
 	}
-	if queries != 2 || advisories != 0 {
-		t.Errorf("%d queries and %d single reads: the advisories come in full from the query", queries, advisories)
+	if requests, _ := srv.counts(); requests["query"] != 2 || requests["vulns"] != 0 {
+		t.Errorf("%d queries and %d single reads: the advisories come in full from the query", requests["query"], requests["vulns"])
 	}
 	if len(batches) != 1 || batches[0].Package.Name != "linux" {
 		t.Errorf("batch = %+v", batches)
@@ -122,7 +106,7 @@ func TestPURLQualifiers(t *testing.T) {
 	ctx := context.Background()
 	st := storetest.Open(t)
 	var asked []osv.Query
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	syncer, _ := osvSyncer(t, st, func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Queries []osv.Query `json:"queries"`
 		}
@@ -133,10 +117,7 @@ func TestPURLQualifiers(t *testing.T) {
 			results = append(results, `{}`)
 		}
 		io.WriteString(w, `{"results":[`+strings.Join(results, ",")+`]}`)
-	}))
-	defer srv.Close()
-	client := &osv.Client{URL: srv.URL, HTTP: http.DefaultClient, UserAgent: "vigil-test"}
-	syncer := &tracking.Syncer{Store: st, OSV: client, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	}, false)
 	for _, purl := range []string{
 		"pkg:deb/debian/libssl3@3.0.11-1?arch=amd64&upstream=openssl&distro=debian-12",
 		"pkg:deb/debian/linux-image-6.1.0-13-amd64@6.1.55-1?arch=amd64&distro=debian-12",
@@ -166,17 +147,14 @@ func TestPURLQualifiers(t *testing.T) {
 func TestFailedAssetAndProgress(t *testing.T) {
 	ctx := context.Background()
 	st := storetest.Open(t)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	syncer, _ := nvdSyncer(t, st, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("keywordSearch") == "panne" {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
 		io.WriteString(w, `{"totalResults":1,"vulnerabilities":[`+cveAwaiting+`]}`)
-	}))
-	defer srv.Close()
+	})
 	var seen []tracking.Status
-	syncer := &tracking.Syncer{Store: st, OSV: &osv.Client{HTTP: http.DefaultClient}, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		NVD: &nvd.Client{URL: srv.URL, HTTP: srv.Client()}}
 	syncer.Alert = func(context.Context) error {
 		seen = append(seen, syncer.Status())
 		return nil
@@ -221,9 +199,7 @@ const (
 func TestVersionsComparedHere(t *testing.T) {
 	ctx := context.Background()
 	st := storetest.Open(t)
-	var mu sync.Mutex
-	reads := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	syncer, srv := osvSyncer(t, st, func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Package osv.Package `json:"package"`
 			Version string      `json:"version"`
@@ -232,14 +208,8 @@ func TestVersionsComparedHere(t *testing.T) {
 		if r.URL.Path != "/v1/query" || body.Package.Name != "Kernel" || body.Package.Ecosystem != "Linux" || body.Version != "" {
 			t.Errorf("OSV asked %s %+v", r.URL.Path, body)
 		}
-		mu.Lock()
-		reads++
-		mu.Unlock()
 		io.WriteString(w, `{"vulns":[`+kernelFixed+`,`+kernelOther+`,`+kernelOpen+`,`+kernelOld+`]}`)
-	}))
-	defer srv.Close()
-	client := &osv.Client{URL: srv.URL, HTTP: http.DefaultClient, UserAgent: "vigil-test"}
-	syncer := &tracking.Syncer{Store: st, OSV: client, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	}, false)
 
 	add := func(version string) int64 {
 		id, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "Linux Kernel", Ecosystem: "Linux", Version: version, Kind: "os",
@@ -258,8 +228,8 @@ func TestVersionsComparedHere(t *testing.T) {
 	if res.Assets != 3 || res.Failed != 0 {
 		t.Errorf("result = %+v", res)
 	}
-	if reads != 1 {
-		t.Errorf("the advisories were read %d times", reads)
+	if requests, _ := srv.counts(); requests["query"] != 1 {
+		t.Errorf("the advisories were read %d times", requests["query"])
 	}
 	if got := openIDs(t, st, recent); !slices.Equal(got, []string{"CVE-2026-2001", "CVE-2026-2003"}) {
 		t.Errorf("version 6.8.1: %v", got)
@@ -282,15 +252,12 @@ func TestVersionsComparedHere(t *testing.T) {
 func TestDismissalRuleAtSync(t *testing.T) {
 	ctx := context.Background()
 	st := storetest.Open(t)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	syncer, _ := osvSyncer(t, st, func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, `{"vulns":[
 			{"id":"CVE-2026-1","summary":"wifi: fix","published":"2026-10-01T00:00:00Z","modified":"2026-10-02T00:00:00Z","affected":[{"package":{"name":"Kernel","ecosystem":"Linux"},"ranges":[{"type":"ECOSYSTEM","events":[{"introduced":"6.0.0"}]}]}]},
 			{"id":"CVE-2026-2","summary":"ipv4: fix","published":"2026-10-01T00:00:00Z","modified":"2026-10-02T00:00:00Z","affected":[{"package":{"name":"Kernel","ecosystem":"Linux"},"ranges":[{"type":"ECOSYSTEM","events":[{"introduced":"6.0.0"}]}]}]}]}`)
-	}))
-	defer srv.Close()
-	client := &osv.Client{URL: srv.URL, HTTP: http.DefaultClient, UserAgent: "vigil-test"}
+	}, false)
 	var atAlert []store.Finding
-	syncer := &tracking.Syncer{Store: st, OSV: client, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	syncer.Alert = func(ctx context.Context) error {
 		atAlert, _ = st.ListFindings(ctx, store.Everything, store.FindingFilter{Status: "in_triage"})
 		return nil

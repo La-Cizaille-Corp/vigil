@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -155,14 +154,12 @@ func TestUnfixedFor(t *testing.T) {
 // are dropped.
 func TestForKeyword(t *testing.T) {
 	var got []url.Values
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		got = append(got, r.URL.Query())
 		io.WriteString(w, `{"totalResults":2,"vulnerabilities":[
 			{"cve":{"id":"CVE-2026-0001","vulnStatus":"Awaiting Analysis","descriptions":[{"lang":"en","value":"A flaw in Ivanti Connect Secure."}]}},
 			{"cve":{"id":"CVE-2026-0002","vulnStatus":"Rejected","descriptions":[{"lang":"en","value":"Rejected reason: duplicate."}]}}]}`)
-	}))
-	defer srv.Close()
-	c := &Client{URL: srv.URL, HTTP: srv.Client()}
+	})
 	cves, err := c.ForKeyword(context.Background(), "Ivanti Connect Secure", time.Now().Add(-30*24*time.Hour))
 	if err != nil {
 		t.Fatal(err)

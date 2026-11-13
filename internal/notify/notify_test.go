@@ -3,7 +3,6 @@ package notify
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -15,12 +14,21 @@ import (
 	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
 )
 
+// newNotifier returns a notifier of st and the address of a fake chat server,
+// closed at the end of the test, that answers its webhooks with h.
+func newNotifier(t *testing.T, st *store.Store, h http.HandlerFunc) (*Notifier, string) {
+	t.Helper()
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	return &Notifier{Store: st, HTTP: srv.Client(), UserAgent: "test", Log: slog.New(slog.DiscardHandler)}, srv.URL
+}
+
 func TestSendDigest(t *testing.T) {
 	ctx := context.Background()
 	st := storetest.Open(t)
 
 	bodies := map[string]map[string]any{}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	n, chat := newNotifier(t, st, func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/broken-SECRET") {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -28,21 +36,19 @@ func TestSendDigest(t *testing.T) {
 		var body map[string]any
 		json.NewDecoder(r.Body).Decode(&body)
 		bodies[r.URL.Path] = body
-	}))
-	defer srv.Close()
+	})
+	n.BaseURL = "https://vigil.example/"
 	for _, h := range []store.Webhook{
-		{Digests: true, Name: "chat", Kind: "slack", URL: srv.URL + "/slack-SECRET", Enabled: true},
-		{Digests: true, Name: "siem", Kind: "generic", URL: srv.URL + "/generic-SECRET", Enabled: true},
-		{Digests: true, Name: "down", Kind: "mattermost", URL: srv.URL + "/broken-SECRET", Enabled: true},
-		{Digests: true, Name: "off", Kind: "slack", URL: srv.URL + "/off-SECRET", Enabled: false},
-		{Alerts: "severe", Name: "alertes", Kind: "slack", URL: srv.URL + "/alerts-SECRET", Enabled: true},
+		{Digests: true, Name: "chat", Kind: "slack", URL: chat + "/slack-SECRET", Enabled: true},
+		{Digests: true, Name: "siem", Kind: "generic", URL: chat + "/generic-SECRET", Enabled: true},
+		{Digests: true, Name: "down", Kind: "mattermost", URL: chat + "/broken-SECRET", Enabled: true},
+		{Digests: true, Name: "off", Kind: "slack", URL: chat + "/off-SECRET", Enabled: false},
+		{Alerts: "severe", Name: "alertes", Kind: "slack", URL: chat + "/alerts-SECRET", Enabled: true},
 	} {
 		if _, err := st.CreateWebhook(ctx, h); err != nil {
 			t.Fatal(err)
 		}
 	}
-	n := &Notifier{Store: st, HTTP: srv.Client(), BaseURL: "https://vigil.example/", UserAgent: "test",
-		Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	sent, err := n.SendDigest(ctx, store.Digest{ID: 7, Markdown: "# Digest\nCVE-2021-44228"})
 	// W8 of the 0.5.0 review: the channels that received it are counted; the
 	// failing one, the disabled one and that of alerts only are not.
@@ -67,7 +73,10 @@ func TestSendDigest(t *testing.T) {
 			t.Errorf("%s called with a digest", path)
 		}
 	}
-	hooks, _ := st.ListWebhooks(ctx)
+	hooks, err := st.ListWebhooks(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, h := range hooks {
 		if (h.Name == "down") != (h.LastError != "") {
 			t.Errorf("%s: last error %q", h.Name, h.LastError)
@@ -100,7 +109,7 @@ func TestLongDigestKeepsLink(t *testing.T) {
 	ctx := context.Background()
 	st := storetest.Open(t)
 	texts := map[string]string{}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	n, chat := newNotifier(t, st, func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Text        string `json:"text"`
 			Attachments []struct {
@@ -114,13 +123,13 @@ func TestLongDigestKeepsLink(t *testing.T) {
 		if len(body.Attachments) == 1 && len(body.Attachments[0].Content.Body) == 1 {
 			texts[r.URL.Path] = body.Attachments[0].Content.Body[0].Text
 		}
-	}))
-	defer srv.Close()
+	})
+	n.BaseURL = "https://vigil.example"
 	for _, kind := range []string{"slack", "teams"} {
-		st.CreateWebhook(ctx, store.Webhook{Name: kind, Kind: kind, URL: srv.URL + "/" + kind, Enabled: true, Digests: true})
+		if _, err := st.CreateWebhook(ctx, store.Webhook{Name: kind, Kind: kind, URL: chat + "/" + kind, Enabled: true, Digests: true}); err != nil {
+			t.Fatal(err)
+		}
 	}
-	n := &Notifier{Store: st, HTTP: srv.Client(), BaseURL: "https://vigil.example", UserAgent: "test",
-		Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	const link = "https://vigil.example/digests/9"
 	// Between the budgets of Teams and of chats, then past both (2 bytes a character).
 	for _, size := range []int{25000, 2 * maxText} {
@@ -235,18 +244,16 @@ func TestTeamsCard(t *testing.T) {
 			} `json:"content"`
 		} `json:"attachments"`
 	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	n, chat := newNotifier(t, st, func(w http.ResponseWriter, r *http.Request) {
 		query = r.URL.RawQuery
 		json.NewDecoder(r.Body).Decode(&body)
-	}))
-	defer srv.Close()
+	})
 	const signed = "api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=a%2Bb-c_d"
-	h := store.Webhook{Name: "Équipe", Kind: "teams", URL: srv.URL + "/workflows/1/invoke?" + signed, Enabled: true}
+	h := store.Webhook{Name: "Équipe", Kind: "teams", URL: chat + "/workflows/1/invoke?" + signed, Enabled: true}
 	var err error
 	if h.ID, err = st.CreateWebhook(ctx, h); err != nil {
 		t.Fatal(err)
 	}
-	n := &Notifier{Store: st, HTTP: srv.Client(), UserAgent: "test", Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	if err := n.SendTest(ctx, h); err != nil {
 		t.Fatal(err)
 	}

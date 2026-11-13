@@ -6,23 +6,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"maps"
 	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 
-	"github.com/La-Cizaille-Corp/vigil/internal/sources/epss"
-	"github.com/La-Cizaille-Corp/vigil/internal/sources/kev"
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/osv"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
-	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
 )
 
 // The findings of an asset are recorded together (D4): a failure in the
@@ -47,7 +41,7 @@ func TestFailedRecordingWritesNothingOfTheAsset(t *testing.T) {
 		return `{"id":"` + id + `","modified":"2026-10-01T00:00:00Z","published":"2026-10-01T00:00:00Z",
 			"affected":[{"package":{"purl":"` + purl + `"},"ranges":[{"type":"SEMVER","events":[{"introduced":"0"}]}]}]}`
 	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	syncer, _ := osvSyncer(t, st, func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Package osv.Package `json:"package"`
 		}
@@ -58,10 +52,7 @@ func TestFailedRecordingWritesNothingOfTheAsset(t *testing.T) {
 		default:
 			io.WriteString(w, `{"vulns":[`+advisory("GHSA-right-1", "pkg:npm/right")+`]}`)
 		}
-	}))
-	defer srv.Close()
-	syncer := &tracking.Syncer{Store: st, OSV: &osv.Client{URL: srv.URL, HTTP: http.DefaultClient, UserAgent: "vigil-test"},
-		Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	}, false)
 	add := func(name string) int64 {
 		id, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: name, Kind: "package", PURL: "pkg:npm/" + name,
 			Version: "latest", Criticality: "medium", Source: "manual"})
@@ -96,14 +87,10 @@ func TestFailedRecordingWritesNothingOfTheAsset(t *testing.T) {
 func TestSignalSourcesAskedOnce(t *testing.T) {
 	ctx := context.Background()
 	st := storetest.Open(t)
-	var mu sync.Mutex
-	kevReads, epssAsked := 0, []string{}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		defer mu.Unlock()
+	var epssAsked []string
+	syncer, srv := osvSyncer(t, st, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/kev":
-			kevReads++
 			io.WriteString(w, `{"vulnerabilities":[{"cveID":"CVE-2026-0001","dueDate":"2026-12-01"}]}`)
 		case "/epss":
 			epssAsked = append(epssAsked, strings.Split(r.URL.Query().Get("cve"), ",")...)
@@ -115,11 +102,7 @@ func TestSignalSourcesAskedOnce(t *testing.T) {
 				{"id":"GHSA-old","aliases":["CVE-2026-0001"],"modified":"2026-10-01T00:00:00Z","published":"2020-01-01T00:00:00Z",
 				 "affected":[{"package":{"purl":"pkg:npm/left"},"ranges":[{"type":"SEMVER","events":[{"introduced":"0"}]}]}]}]}`)
 		}
-	}))
-	defer srv.Close()
-	syncer := &tracking.Syncer{Store: st, OSV: &osv.Client{URL: srv.URL, HTTP: http.DefaultClient, UserAgent: "vigil-test"},
-		KEV: &kev.Client{URL: srv.URL + "/kev", HTTP: srv.Client()}, EPSS: &epss.Client{URL: srv.URL + "/epss", HTTP: srv.Client()},
-		Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	}, true)
 	id, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "left", Kind: "package", PURL: "pkg:npm/left",
 		Version: "latest", TrackSince: "2026-01-01", Criticality: "medium", Source: "manual"})
 	if err != nil {
@@ -128,8 +111,8 @@ func TestSignalSourcesAskedOnce(t *testing.T) {
 	if _, err := syncer.Run(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if kevReads != 1 || !slices.Equal(epssAsked, []string{"CVE-2026-0001"}) {
-		t.Errorf("KEV read %d times, EPSS asked for %v; want once each", kevReads, epssAsked)
+	if requests, _ := srv.counts(); requests["kev"] != 1 || !slices.Equal(epssAsked, []string{"CVE-2026-0001"}) {
+		t.Errorf("KEV read %d times, EPSS asked for %v; want once each", requests["kev"], epssAsked)
 	}
 	// One finding for the CVE (A80): the old advisory, exploited, is in the
 	// period, so the CVE is.
@@ -156,11 +139,8 @@ func TestEPSSAskedOncePerCVE(t *testing.T) {
 			prefix, i, published, i, ecosystem)
 	}
 	ecosystems := map[string]string{"DEBIAN": "Debian:13", "UBUNTU": "Ubuntu:22.04:LTS"}
-	var mu sync.Mutex
 	asked := map[string]int{}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		defer mu.Unlock()
+	syncer, srv := osvSyncer(t, st, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/kev":
 			io.WriteString(w, `{"vulnerabilities":[{"cveID":"CVE-1999-0001"}]}`)
@@ -198,27 +178,23 @@ func TestEPSSAskedOncePerCVE(t *testing.T) {
 			}
 			io.WriteString(w, `{"vulns":[`+strings.Join(list, ",")+`]}`)
 		}
-	}))
-	defer srv.Close()
+	}, true)
 	for _, ecosystem := range ecosystems {
 		if _, err := st.CreateAsset(ctx, store.Everything, store.Asset{Name: "linux", Kind: "os", Ecosystem: ecosystem,
 			Version: "latest", TrackSince: "2026-01-01", Criticality: "medium", Source: "manual"}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	syncer := &tracking.Syncer{Store: st, OSV: &osv.Client{URL: srv.URL, HTTP: http.DefaultClient},
-		KEV: &kev.Client{URL: srv.URL + "/kev", HTTP: srv.Client()}, EPSS: &epss.Client{URL: srv.URL + "/epss", HTTP: srv.Client()},
-		Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	askedTwice := func() (distinct int, twice []string) {
-		mu.Lock()
-		defer mu.Unlock()
-		for cve, times := range asked {
-			if times > 1 {
-				twice = append(twice, cve)
+		srv.locked(func() {
+			for cve, times := range asked {
+				if times > 1 {
+					twice = append(twice, cve)
+				}
 			}
-		}
-		distinct = len(asked)
-		clear(asked)
+			distinct = len(asked)
+			clear(asked)
+		})
 		return distinct, twice
 	}
 	if res, err := syncer.Run(ctx); err != nil || res.Created == 0 {
@@ -236,9 +212,7 @@ func TestEPSSAskedOncePerCVE(t *testing.T) {
 	if _, err := syncer.RunAsset(ctx, id); err != nil {
 		t.Fatal(err)
 	}
-	mu.Lock()
 	got := slices.Sorted(maps.Keys(asked))
-	mu.Unlock()
 	if !slices.Equal(got, []string{"CVE-2099-0001"}) {
 		t.Errorf("check of one asset: EPSS asked for %d CVEs (%v…), want those of its advisory", len(got), got[:min(3, len(got))])
 	}
