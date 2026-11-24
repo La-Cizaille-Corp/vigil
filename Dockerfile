@@ -3,7 +3,7 @@
 # Base images are pinned by digest (updated by Dependabot).
 # The build stage runs on the build machine and cross-compiles: no emulator
 # runs the toolchain for the other architectures.
-FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:eb61c3873c97416fff0116553fff65d67a3549f72e11d9758849a689cdd8b523 AS build
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280 AS build
 ARG VERSION=dev
 ARG TARGETOS
 ARG TARGETARCH
