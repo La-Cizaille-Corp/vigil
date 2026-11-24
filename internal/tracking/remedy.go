@@ -27,8 +27,9 @@ const (
 )
 
 // Fixes reads, in the advisory stored for a finding of asset a, which
-// versions fix it: OSV ranges for a package, NVD configurations for a
-// product, named by its CPE or by the asset's name. The range holding the
+// versions fix it: OSV ranges for a package, NVD configurations (before them,
+// what the CNA declares) for a product, named by its CPE or by the asset's
+// name. The range holding the
 // asset's version comes first; for an asset kept at its latest release, the
 // ranges without a fixed version.
 func Fixes(raw string, a store.Asset) []Fix {
@@ -46,7 +47,7 @@ func Fixes(raw string, a store.Asset) []Fix {
 			if whole && version != inventory.Latest {
 				version = "" // the version of no product in particular
 			}
-			lines = nvdFixes(raw, version, whole, func(m nvd.Match) bool { return m.Vendor == f[3] && (whole || m.Product == f[4]) })
+			lines = nvdFixes(raw, version, whole, func(m nvd.Match) bool { return m.OfCPE(f) })
 		}
 	case inventory.ByName(a):
 		lines = nvdFixes(raw, version, true, func(m nvd.Match) bool { return m.Named(a.Name) })

@@ -61,7 +61,8 @@ API externes (OSV, NVD, KEV, EPSS), requêtes de l'API CI.
   copies hors machine ; en cas de fuite, `vigil user reset-totp -all` et la rotation des URL les
   rendent sans valeur (OPERATIONS.md, « Fuite de la base ou d'une sauvegarde »).
 - **Les requêtes aux sources publiques révèlent une partie de l'inventaire** : purl et CPE à OSV et
-  à la NVD, et, pour les actifs détectés par leur nom, ce nom tel quel ; EPSS (FIRST) reçoit les
+  à la NVD, avec le nom du produit d'un CPE (cherché dans les descriptions des CVE en attente
+  d'analyse), et, pour les actifs détectés par leur nom, ce nom tel quel ; EPSS (FIRST) reçoit les
   identifiants des CVE trouvées. KEV est téléchargé en entier et ne révèle rien. Un nom d'actif ne doit donc
   pas contenir d'information interne (nom de serveur, de client) ; renseignez-la dans les notes ou
   les étiquettes, qui ne sortent pas.

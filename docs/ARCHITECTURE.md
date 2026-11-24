@@ -316,12 +316,43 @@ une CVE analysée n'est gardée que si un de ses produits correspond au nom (tou
 dans l'éditeur et le produit du CPE, ou tous les mots du produit dans le nom) et que la version
 de l'actif est dans une de ses plages, ou est la version citée (mise à jour comprise :
 `22.7:r2.1` pour Ivanti 22.7R2.1, `22.7:-` pour la 22.7 seule) ; une CVE en attente d'analyse
-(sans configuration) est gardée, ce qui fait remonter les failles récentes avant la NVD. Résultat
+(sans configuration) est gardée, ce qui fait remonter les failles récentes avant la NVD, sauf si son
+émetteur déclare d'autres produits (A101). Résultat
 sur le même essai : 65 CVE pour Apache, 36 au lieu de 56 pour Ivanti Connect Secure 22.7R2.3,
 toutes postérieures à la version. Les composants de SBOM sans purl sont exclus (noms génériques,
 volume). *Conséquence* : résultats à vérifier, signalés comme tels ; un nom qui ne correspond à
 aucun produit de la NVD (« FortiGate » pour `fortios`) ne garde que les CVE en attente d'analyse :
 le CPE reste la voie précise. Le nom part à la NVD (modèle de menace).
+
+**A101. Avant l'analyse de la NVD, les versions déclarées par l'émetteur de la CVE.** La NVD analyse
+les CVE avec des semaines de retard, certaines jamais (« Deferred »). En novembre 2026, 37 CVE publiées
+le 17 par GitLab touchaient GitLab 19.5.3 sans configuration de la NVD : suivi par son CPE, l'actif n'en
+voyait aucune, la recherche `cpeName` ne lisant que les configurations. À l'inverse, un actif suivi par
+son nom gardait toute CVE non analysée dont la description contient ce nom : « date » recevait
+CVE-2026-124002, de Copeland XWEB EVO, pour « end of service date ». La NVD relaie pourtant, dans chaque
+enregistrement, ce que déclare l'émetteur (liste `affected` du format CVE 5 : éditeur, produit,
+versions). Règle : tant qu'une CVE n'a pas de configuration, `nvd.Matches` lit ces déclarations,
+converties en `Match` marqués `Declared` ; la détection par nom, le suivi `latest` et la version
+corrigée affichée s'en servent comme des configurations. Un produit déclaré est nommé en mots : il est
+celui d'un CPE (`Match.OfCPE`) si les mots de l'éditeur du CPE sont dans les siens et si ses mots sont
+exactement ceux du produit, seuls ou après l'éditeur (« GitLab », « Apache HTTP Server » ; pas « GitLab
+Runner » pour `gitlab:gitlab`), et celui d'un nom par la règle d'A52. Un actif suivi par CPE fait une
+seconde requête, le nom de son produit dans les descriptions (`http_server` → « http server »,
+l'éditeur pour un CPE de tout l'éditeur) : n'en sont gardées que les CVE non analysées déclarées pour
+ce produit, aux versions suivies. Ne sont pas lues les déclarations sans éditeur ni produit (« n/a »),
+les plages de commits, les versions qui n'en sont pas (« unspecified ») et les entrées affectées par
+défaut : le noyau déclare 6.1 affectée et ses branches corrigées non affectées, et 6.1 lue seule
+écarterait 6.12. Une CVE sans déclaration lisible reste gardée par la détection par nom, comme avant,
+et n'est pas retenue par CPE. Dès que la NVD analyse la CVE, ses configurations remplacent la
+déclaration. *Écarté* : une autre source (dépôt cvelistV5, API du programme CVE), soit un client de
+plus pour des données déjà dans la réponse de la NVD ; lire le statut par défaut et ses exceptions,
+qui reviendrait à recalculer des plages. *Conséquences* : à la première synchronisation, les CVE en
+attente d'analyse des produits suivis par CPE apparaissent, avec leurs alertes, une fois ; les fausses
+correspondances par nom se ferment (« plus signalée par la source »), comme une CVE déclarée que la
+NVD analyse autrement. Les requêtes à la NVD des actifs suivis par CPE doublent ; pour un produit au
+nom courant (`linux_kernel` : plus de 5 000 CVE en 120 jours, A56), la seconde requête lit plusieurs
+pages pour aucun résultat. Un composant embarqué reste un actif à part : la CVE de Ruby corrigée par
+GitLab 19.6.1 nomme Ruby, pas GitLab. Le nom du produit part à la NVD, comme son CPE.
 
 **A53. Suffixes de version : mise à jour au-dessus, pré-version en dessous.** La comparaison
 plaçait toute lettre après les chiffres en pré-version (1.4.0-beta1 < 1.4.0), donc 22.7R2.3

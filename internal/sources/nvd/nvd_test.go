@@ -37,7 +37,7 @@ func TestRetries(t *testing.T) {
 		calls int32
 		fails bool
 	}{
-		{"temporary failures", []int{http.StatusServiceUnavailable, http.StatusForbidden}, 3, false},
+		{"temporary failures", []int{http.StatusServiceUnavailable, http.StatusForbidden}, 4, false}, // then the product's name
 		{"lasting failure", []int{503, 503, 503, 503}, 3, true},
 		{"refusal", []int{http.StatusBadRequest}, 1, true},
 	} {
@@ -60,10 +60,11 @@ func TestRetries(t *testing.T) {
 
 func TestForCPE(t *testing.T) {
 	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
-		if got := r.URL.Query().Get("cpeName"); got != "cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*" {
-			t.Errorf("cpeName = %q", got)
+		q := r.URL.Query()
+		if got := q.Get("cpeName"); got != "cpe:2.3:o:fortinet:fortios:7.2.4:*:*:*:*:*:*:*" && q.Get("keywordSearch") != "fortios" {
+			t.Errorf("query = %s", r.URL.RawQuery)
 		}
-		io.WriteString(w, sample)
+		io.WriteString(w, sample) // twice: reported once
 	})
 	cves, err := c.ForCPE(context.Background(), Query{CPE: "cpe:2.3:o:fortinet:fortios:*:*:*:*:*:*:*:*", Version: "7.2.4"})
 	if err != nil {
@@ -83,7 +84,8 @@ func TestWholeProduct(t *testing.T) {
 	ctx := context.Background()
 	product := "cpe:2.3:o:fortinet:fortios:*:*:*:*:*:*:*:*"
 
-	// Tracked period of 200 days: two 120-day ranges, then the exploited CVEs.
+	// Tracked period of 200 days: two 120-day ranges, then the exploited CVEs;
+	// the same for the name of the product.
 	cves, err := c.ForCPE(ctx, Query{CPE: product, Since: time.Now().Add(-200 * 24 * time.Hour)})
 	if err != nil {
 		t.Fatal(err)
@@ -91,18 +93,20 @@ func TestWholeProduct(t *testing.T) {
 	if len(cves) != 1 {
 		t.Errorf("duplicates not merged: %d CVEs", len(cves))
 	}
-	if len(got) != 3 || got[0].Get("virtualMatchString") != product || got[0].Get("pubStartDate") == "" ||
-		got[1].Get("pubEndDate") == "" || !got[2].Has("hasKev") || got[2].Has("pubStartDate") {
+	if len(got) != 6 || got[0].Get("virtualMatchString") != product || got[0].Get("pubStartDate") == "" ||
+		got[1].Get("pubEndDate") == "" || !got[2].Has("hasKev") || got[2].Has("pubStartDate") ||
+		got[3].Get("keywordSearch") != "fortios" || got[3].Get("pubStartDate") != got[0].Get("pubStartDate") || !got[5].Has("hasKev") {
 		t.Errorf("unexpected requests: %v", got)
 	}
 
-	// Without a period, or with one too long for date ranges: one request.
+	// Without a period, or with one too long for date ranges: one request,
+	// and one for the name.
 	for _, since := range []time.Time{{}, time.Now().AddDate(-5, 0, 0)} {
 		got = nil
 		if _, err := c.ForCPE(ctx, Query{CPE: product, Since: since}); err != nil {
 			t.Fatal(err)
 		}
-		if len(got) != 1 || got[0].Has("pubStartDate") || got[0].Has("hasKev") {
+		if len(got) != 2 || got[0].Has("pubStartDate") || got[0].Has("hasKev") || got[1].Get("keywordSearch") != "fortios" {
 			t.Errorf("since %v: %v", since, got)
 		}
 	}
@@ -125,14 +129,14 @@ func TestModes(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if len(got) != 2 {
+	if len(got) != 4 { // each query, then the name of the product
 		t.Fatalf("requests: %q", got)
 	}
 	if !strings.Contains(got[0], "virtualMatchString=cpe%3A2.3%3Ao%3Afortinet%3Afortios%3A%2A") || strings.Contains(got[0], "pubStartDate") {
 		t.Errorf("all: %s", got[0])
 	}
-	if !strings.Contains(got[1], "versionStart=7.0.0") || !strings.Contains(got[1], "versionStartType=including") {
-		t.Errorf("from: %s", got[1])
+	if !strings.Contains(got[2], "versionStart=7.0.0") || !strings.Contains(got[2], "versionStartType=including") {
+		t.Errorf("from: %s", got[2])
 	}
 	if _, err := c.ForCPE(ctx, Query{CPE: cpe, Mode: "from"}); err == nil {
 		t.Error("from without version accepted")
@@ -154,8 +158,10 @@ func TestForCPEEscapedColons(t *testing.T) {
 			t.Fatalf("%+v: %v", q, err)
 		}
 	}
-	if len(got) != 3 || got[0].Get("cpeName") != `cpe:2.3:a:lemonldap-ng:lemonldap\:\:ng:2.0.16:*:*:*:*:*:*:*` ||
-		got[1].Get("virtualMatchString") != product || got[2].Get("virtualMatchString") != product || got[2].Get("versionStart") != "2.0" {
+	// Each query, then the name of the product, unescaped.
+	if len(got) != 6 || got[0].Get("cpeName") != `cpe:2.3:a:lemonldap-ng:lemonldap\:\:ng:2.0.16:*:*:*:*:*:*:*` ||
+		got[2].Get("virtualMatchString") != product || got[4].Get("virtualMatchString") != product || got[4].Get("versionStart") != "2.0" ||
+		got[1].Get("keywordSearch") != "lemonldap::ng" {
 		t.Errorf("unexpected requests: %v", got)
 	}
 	if w := withVersion(product, "2.0.16"); w != got[0].Get("cpeName") {
@@ -175,7 +181,8 @@ func TestWholeVendor(t *testing.T) {
 	if _, err := c.ForCPE(context.Background(), Query{CPE: vendor, Version: "7.2.4"}); err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].Get("virtualMatchString") != "cpe:2.3:*:fortinet:*:*:*:*:*:*:*:*:*" || got[0].Has("cpeName") {
+	if len(got) != 2 || got[0].Get("virtualMatchString") != "cpe:2.3:*:fortinet:*:*:*:*:*:*:*:*:*" || got[0].Has("cpeName") ||
+		got[1].Get("keywordSearch") != "fortinet" { // the vendor's name, for every product
 		t.Errorf("requests: %v", got)
 	}
 }
