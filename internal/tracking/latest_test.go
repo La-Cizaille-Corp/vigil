@@ -11,6 +11,7 @@ import (
 	"github.com/La-Cizaille-Corp/vigil/internal/sources/osv"
 	"github.com/La-Cizaille-Corp/vigil/internal/store"
 	"github.com/La-Cizaille-Corp/vigil/internal/storetest"
+	"github.com/La-Cizaille-Corp/vigil/internal/tracking"
 )
 
 func openIDs(t *testing.T, st *store.Store, assetID int64) []string {
@@ -139,7 +140,74 @@ func TestByNameAndLatestCPE(t *testing.T) {
 	if got := openIDs(t, st, cpeLatest); !slices.Equal(got, []string{"CVE-2026-1004"}) {
 		t.Errorf("CPE, latest: %v", got)
 	}
-	if !slices.Equal(keywords, []string{"Ivanti Connect Secure", "Ivanti Connect Secure"}) {
+	// The product of the CPE is searched too, for the CVEs awaiting analysis
+	// that its CNA declares (A101): CVE-2026-1001 declares nothing.
+	if !slices.Equal(keywords, []string{"connect secure", "Ivanti Connect Secure", "Ivanti Connect Secure"}) {
 		t.Errorf("names searched: %v (an SBOM component must not be)", keywords)
+	}
+}
+
+// Records awaiting analysis, as the NVD relays them with what their CNA
+// declares (shapes of November 2026).
+const (
+	cveGitLabDeclared = `{"cve":{"id":"CVE-2026-16545","vulnStatus":"Awaiting Analysis","published":"2026-11-17T00:00:00.000",
+		"descriptions":[{"lang":"en","value":"An issue has been discovered in GitLab CE/EE."}],
+		"affected":[{"source":"cve@gitlab.com","affectedData":[{"vendor":"GitLab","product":"GitLab","defaultStatus":"unaffected","versions":[
+			{"version":"19.4","lessThan":"19.4.8","versionType":"semver","status":"affected"},
+			{"version":"19.5","lessThan":"19.5.6","versionType":"semver","status":"affected"}]}]}]}}`
+	cveXWEB = `{"cve":{"id":"CVE-2026-124002","vulnStatus":"Deferred","published":"2026-11-12T00:00:00.000",
+		"descriptions":[{"lang":"en","value":"XWEB EVO allows command injection. This product line reached it's end of service date in March 2026."}],
+		"affected":[{"source":"disclosure@vulncheck.com","affectedData":[{"vendor":"Copeland","product":"XWEB EVO","defaultStatus":"unaffected","versions":[
+			{"version":"5.2.3","lessThan":"5.7.0","versionType":"semver","status":"affected"}]}]}]}}`
+)
+
+// Before the NVD analyses a CVE, it counts for the product its CNA declares
+// (A101): a CPE asset gets it, with the version that fixes it, and an asset
+// whose name is merely a word of its description does not.
+func TestDeclaredByTheCNA(t *testing.T) {
+	ctx := context.Background()
+	st := storetest.Open(t)
+	syncer, _ := nvdSyncer(t, st, func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		list := ""
+		switch {
+		case q.Get("keywordSearch") == "gitlab":
+			list = cveGitLabDeclared
+		case q.Get("keywordSearch") == "date":
+			list = cveXWEB
+		case q.Has("cpeName"): // the NVD has analysed nothing yet
+		default:
+			t.Errorf("unexpected query %s", r.URL.RawQuery)
+		}
+		io.WriteString(w, `{"totalResults":1,"vulnerabilities":[`+list+`]}`)
+	})
+	add := func(a store.Asset) store.Asset {
+		a.Kind, a.Criticality, a.Source = "product", "high", "manual"
+		id, err := st.CreateAsset(ctx, store.Everything, a)
+		if err != nil {
+			t.Fatal(err)
+		}
+		a.ID = id
+		return a
+	}
+	gitlab := add(store.Asset{Name: "GitLab", Version: "19.5.3", CPE: "cpe:2.3:a:gitlab:gitlab:19.5.3:*:*:*:enterprise:*:*:*"})
+	date := add(store.Asset{Name: "date", Version: "3.0.4"})
+
+	if _, err := syncer.Run(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := openIDs(t, st, gitlab.ID); !slices.Equal(got, []string{"CVE-2026-16545"}) {
+		t.Errorf("CPE: %v", got)
+	}
+	if got := openIDs(t, st, date.ID); len(got) != 0 {
+		t.Errorf("by name: %v", got)
+	}
+	v, err := st.Vulnerability(ctx, "CVE-2026-16545")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixes := tracking.Fixes(v.Raw, gitlab)
+	if !slices.ContainsFunc(fixes, func(f tracking.Fix) bool { return f.Fixed == "19.5.6" && f.Yours }) {
+		t.Errorf("fixes: %+v", fixes)
 	}
 }

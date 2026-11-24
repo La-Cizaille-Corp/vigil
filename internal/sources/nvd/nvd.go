@@ -103,8 +103,11 @@ func productWide(fields []string) string {
 	return strings.Join(f, ":")
 }
 
-// ForCPE returns the CVEs matching a query. For an exact version the NVD
-// matches the affected version ranges itself.
+// ForCPE returns the CVEs matching a query: those of the NVD's analysis, which
+// it matches itself (version ranges included, for an exact version), then
+// those it has not analysed yet whose CNA declares the product affected at
+// the versions of the query (A101), found by the name of the product in
+// their description.
 func (c *Client) ForCPE(ctx context.Context, query Query) ([]CVE, error) {
 	cpe := withVersion(query.CPE, query.Version)
 	fields, whole, err := productCPE(cpe)
@@ -132,7 +135,61 @@ func (c *Client) ForCPE(ctx context.Context, query Query) ([]CVE, error) {
 		return nil, fmt.Errorf("mode de suivi NVD inconnu : %q", mode)
 	}
 	q.Set("resultsPerPage", fmt.Sprint(pageSize))
-	return c.search(ctx, q, query.Since)
+	out, err := c.search(ctx, q, query.Since)
+	if err != nil {
+		return nil, err
+	}
+	phrase := productPhrase(fields)
+	if len(words(phrase)) == 0 {
+		return out, nil
+	}
+	named, err := c.ForKeyword(ctx, phrase, query.Since)
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]bool, len(out))
+	for _, cve := range out {
+		seen[cve.ID] = true
+	}
+	for _, cve := range named {
+		if !seen[cve.ID] && declares(cve, fields, mode, query.From) {
+			seen[cve.ID] = true
+			out = append(out, cve)
+		}
+	}
+	return out, nil
+}
+
+// productPhrase is how the product of a CPE reads in descriptions, its
+// vendor for every product of a vendor: http_server → "http server".
+func productPhrase(fields []string) string {
+	name := fields[4]
+	if name == "*" {
+		name = fields[3]
+	}
+	return strings.ReplaceAll(Unescape(name), "_", " ")
+}
+
+// declares reports whether the CNA of a CVE that the NVD has not analysed
+// declares the product of a CPE affected at the versions of a mode (see
+// Query): every version ("all"), from a version ("from"), or the CPE's
+// release.
+func declares(c CVE, fields []string, mode, from string) bool {
+	release := Unescape(fields[5])
+	if fields[6] != "*" && fields[6] != "-" {
+		release += Unescape(fields[6]) // 22.7:r2.3 is 22.7r2.3
+	}
+	return slices.ContainsFunc(Matches(c.Raw), func(m Match) bool {
+		switch {
+		case !m.Declared || !m.OfCPE(fields):
+			return false
+		case mode == "all":
+			return true
+		case mode == "from":
+			return m.Reaches(from)
+		}
+		return m.Affects(release)
+	})
 }
 
 // ForKeyword returns the CVEs whose description holds phrase (any case),

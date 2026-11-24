@@ -185,6 +185,11 @@ en cas de téléphone perdu, un administrateur la retire dans Paramètres → Ut
     sans version (`*`) suit toutes les versions ;
   - *toutes les versions du produit* ;
   - *à partir de la version X* : CVE affectant les versions ≥ X.
+
+  La NVD met souvent des semaines à analyser une CVE. En attendant, Vigil lit les produits et versions
+  déclarés par l'émetteur de la CVE (GitLab pour GitLab, par exemple), et garde la CVE si elle déclare
+  le produit du CPE à une version suivie. Une faille d'un composant embarqué (Ruby dans GitLab) nomme
+  ce composant : suivez-le comme un actif à part.
 - **Période de suivi** : un nouvel actif (ajout manuel ou SBOM) remonte les vulnérabilités publiées
   dans les 120 jours précédant son ajout, puis toutes les nouvelles. Les plus anciennes ne sont
   signalées que si elles sont activement exploitées (CISA KEV) ; leur nombre est affiché sur l'actif,
@@ -215,8 +220,9 @@ en cas de téléphone perdu, un administrateur la retire dans Paramètres → Ut
 - **Sans purl ni CPE**, Vigil cherche le **nom de l'actif** dans les descriptions des CVE de la NVD
   (« Ivanti Connect Secure », « FortiOS » : le nom employé par l'éditeur dans ses avis). Une CVE déjà
   analysée par la NVD n'est gardée que si ses produits correspondent au nom, à la version de l'actif
-  (une CVE qui cite seulement le nom, comme Shellshock pour Apache HTTP Server, est écartée) ; une
-  CVE en attente d'analyse est gardée. Moins précise qu'un CPE, cette détection donne des résultats
+  (une CVE qui cite seulement le nom, comme Shellshock pour Apache HTTP Server, est écartée). Une CVE
+  en attente d'analyse suit la même règle avec les produits que déclare son émetteur ; s'il n'en
+  déclare aucun de lisible, elle est gardée. Moins précise qu'un CPE, cette détection donne des résultats
   à vérifier ; elle ne s'applique pas aux composants de SBOM sans purl. Le nom est envoyé à la NVD :
   n'y mettez pas d'information interne.
 - **Version `latest`** : l'actif est tenu à jour sur la dernière version publiée (mises à jour
