@@ -23,6 +23,39 @@ Les commandes de chaque cas sont plus bas :
 | sur un serveur Windows (tâche planifiée) | [Serveur Windows](#serveur-windows-tâche-planifiée) |
 | sur un serveur avec Docker Compose | [Serveur Docker Compose](#serveur-docker-compose) |
 
+## De la 0.5.0 à la 0.5.1
+
+Version corrective : la procédure est la même, la base reste au schéma 21 et rien n'est à reprendre
+dans les fichiers de déploiement. Sans évolution de schéma, **Vigil n'écrit pas de copie `.bak`** :
+votre sauvegarde est la seule copie d'avant la mise à jour. Pour revenir à la 0.5.0, remettez son
+programme : elle ouvre la même base. Sous Docker, l'image `0.5` passe d'elle-même à la 0.5.1. En
+venant de la 0.4, lisez aussi la section suivante.
+
+**CVE pas encore analysées par la NVD.** La NVD met souvent des semaines à analyser une CVE, et n'en
+analyse jamais certaines. En attendant, Vigil lit désormais les produits et versions que déclare
+l'émetteur de la CVE, le plus souvent l'éditeur du produit.
+
+- **Actifs suivis par CPE** : ils reçoivent les CVE en attente d'analyse dont l'émetteur déclare
+  leur produit à une version suivie. Par exemple, un GitLab 19.5.3 ne voyait aucune des 37 CVE
+  publiées par GitLab le 17 novembre 2026. À la première synchronisation, ces CVE apparaissent, avec
+  leurs alertes selon vos canaux, une fois.
+- **Actifs suivis par leur nom** : une CVE en attente d'analyse dont l'émetteur déclare un autre
+  produit n'est plus gardée. Un actif nommé « date » recevait ainsi une faille de Copeland XWEB EVO,
+  dont la description cite une « end of service date ». Encore ouvertes, ces lignes passent à
+  « Corrigé », avec la raison « plus signalée par la source ». Une CVE dont l'émetteur ne déclare
+  rien de lisible reste gardée, comme avant.
+- **Version corrigée** : la page d'une vulnérabilité en attente d'analyse indique la version qui la
+  corrige, quand l'émetteur la déclare.
+- **Requêtes à la NVD** : environ deux fois plus pour les actifs suivis par CPE, qui cherchent aussi
+  le nom de leur produit. Sans clé d'API NVD, chaque requête ajoutée allonge la synchronisation
+  d'environ 6,5 secondes ; une clé gratuite (`VIGIL_NVD_API_KEY`) l'évite.
+- **Composants embarqués** : la faille d'un composant livré avec un produit (Ruby dans GitLab)
+  nomme ce composant, pas le produit. Suivez-le comme un actif à part.
+
+**Documentation.** Dans la procédure ci-dessous, les commandes de téléchargement et de mise à jour
+Docker désignaient encore la 0.4.3 et l'image `:0.4` : elles désignent maintenant la version en
+cours.
+
 ## De la 0.4 à la 0.5
 
 La procédure est la même, et **la base est conservée** : inventaire, triage et historique, comptes,
@@ -269,13 +302,13 @@ Après la mise à jour :
 
 ## 2. Télécharger et vérifier la nouvelle version
 
-Remplacez `0.5.0` par la version à installer. Le programme est extrait dans un dossier à part : il
+Remplacez `0.5.1` par la version à installer. Le programme est extrait dans un dossier à part : il
 ne remplace encore rien.
 
 **Windows** (PowerShell) :
 
 ```powershell
-$v = "0.5.0"; $arch = "amd64"   # arm64 sur processeur ARM
+$v = "0.5.1"; $arch = "amd64"   # arm64 sur processeur ARM
 $zip = "vigil_${v}_windows_$arch.zip"
 $base = "https://github.com/La-Cizaille-Corp/vigil/releases/download/v$v"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -291,7 +324,7 @@ Expand-Archive $zip -DestinationPath ".\vigil-$v" -Force
 **macOS** :
 
 ```bash
-VERSION=0.5.0; ARCH=arm64   # amd64 sur Mac Intel
+VERSION=0.5.1; ARCH=arm64   # amd64 sur Mac Intel
 BASE=https://github.com/La-Cizaille-Corp/vigil/releases/download/v$VERSION
 curl -fsSLO $BASE/vigil_${VERSION}_darwin_$ARCH.tar.gz
 curl -fsSLO $BASE/checksums.txt
@@ -303,7 +336,7 @@ xattr -d com.apple.quarantine vigil-$VERSION/vigil 2>/dev/null || true
 **Linux** :
 
 ```bash
-VERSION=0.5.0; ARCH=amd64   # arm64 sur ARM
+VERSION=0.5.1; ARCH=amd64   # arm64 sur ARM
 BASE=https://github.com/La-Cizaille-Corp/vigil/releases/download/v$VERSION
 curl -fsSLO $BASE/vigil_${VERSION}_linux_$ARCH.tar.gz
 curl -fsSLO $BASE/checksums.txt
